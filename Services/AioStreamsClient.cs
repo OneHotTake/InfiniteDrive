@@ -561,7 +561,7 @@ namespace EmbyStreams.Services
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string UserAgent     = "EmbyStreams/1.0.0";
+        private const string UserAgent     = "EmbyStreams/1.0 (+https://github.com/OneHotTake/embyStreams)";
         private const int    TimeoutSeconds = 60;  // Increased from 30s to handle slow AIOStreams responses (10+ seconds)
 
         // ── Fields ──────────────────────────────────────────────────────────────
@@ -723,7 +723,9 @@ namespace EmbyStreams.Services
             CancellationToken cancellationToken = default)
         {
             var path = $"/stream/movie/{Uri.EscapeDataString(imdbId)}.json";
-            return await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
+            var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
+            // Sprint 100A-05: Error stub detection
+            return CheckForErrorStub(result, imdbId);
         }
 
         /// <summary>
@@ -743,7 +745,39 @@ namespace EmbyStreams.Services
         {
             var id   = $"{imdbId}:{season}:{episode}";
             var path = $"/stream/series/{Uri.EscapeDataString(id)}.json";
-            return await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
+            var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
+            // Sprint 100A-05: Error stub detection
+            return CheckForErrorStub(result, id);
+        }
+
+        // ── Error stub detection (Sprint 100A-05) ────────────────────────
+
+        /// <summary>
+        /// Detects AIOStreams error stub responses and returns empty list if found.
+        /// Error stubs have title containing "error" or name containing "[AIOStreams]".
+        /// </summary>
+        private AioStreamsStreamResponse? CheckForErrorStub(
+            AioStreamsStreamResponse? response,
+            string itemId)
+        {
+            if (response?.Streams == null || response.Streams.Count == 0)
+                return response;
+
+            var firstStream = response.Streams[0];
+            var title = firstStream.Title ?? string.Empty;
+            var name = firstStream.Name ?? string.Empty;
+
+            if (title.Contains("error", StringComparison.OrdinalIgnoreCase) ||
+                name.Contains("[AIOStreams]", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning(
+                    "[EmbyStreams] Error stub detected for item {Item}: Title='{Title}', Name='{Name}'. " +
+                    "Treating as resolution failure.",
+                    itemId, title, name);
+                return new AioStreamsStreamResponse { Streams = new List<AioStreamsStream>() };
+            }
+
+            return response;
         }
 
         // ── Metadata ────────────────────────────────────────────────────────────
@@ -841,6 +875,58 @@ namespace EmbyStreams.Services
         /// </summary>
         public string GetSeriesStreamUrl(string imdbId, int season, int episode)
             => $"{_stremioBase}/stream/series/{Uri.EscapeDataString($"{imdbId}:{season}:{episode}")}.json";
+
+        /// <summary>
+        /// ── FIX-100B-05: Kitsu/AniList absolute episode numbering ────
+        /// Returns the stream URL for an anime episode using absolute episode numbering.
+        /// Stream ID format: {provider}:{seriesId}:{absoluteEpisode}
+        /// Supported providers: kitsu, anilist
+        /// </summary>
+        /// <param name="provider">Provider prefix: "kitsu" or "anilist".</param>
+        /// <param name="seriesId">Series ID from the provider.</param>
+        /// <param name="absoluteEpisode">Absolute episode number across all seasons.</param>
+        public string GetAnimeStreamUrl(string provider, string seriesId, int absoluteEpisode)
+            => $"{_stremioBase}/stream/series/{Uri.EscapeDataString($"{provider}:{seriesId}:{absoluteEpisode}")}.json";
+
+        /// <summary>
+        /// ── FIX-100B-05: Absolute episode calculation ────────────────────
+        /// Calculates the absolute episode number for anime series.
+        /// Absolute episode = sum of episodes in previous seasons + current episode.
+        /// Uses 12 as the default episode count estimate for unknown season lengths.
+        /// </summary>
+        /// <param name="season">Current season (1-based).</param>
+        /// <param name="episode">Current episode within the season (1-based).</param>
+        /// <param name="previousSeasonCounts">Array of episode counts for seasons before current (index 0 = season 1).</param>
+        /// <returns>Absolute episode number.</returns>
+        public static int CalculateAbsoluteEpisode(
+            int season,
+            int episode,
+            int[]? previousSeasonCounts = null)
+        {
+            if (season < 1) season = 1;
+            if (episode < 1) episode = 1;
+
+            int absolute = 0;
+
+            // Add up episodes from all previous seasons
+            if (previousSeasonCounts != null)
+            {
+                for (int s = 0; s < Math.Min(season - 1, previousSeasonCounts.Length); s++)
+                {
+                    absolute += previousSeasonCounts[s];
+                }
+            }
+            else
+            {
+                // Default estimate: 12 episodes per season for unknown seasons
+                absolute += (season - 1) * 12;
+            }
+
+            // Add current episode
+            absolute += episode;
+
+            return absolute;
+        }
 
         /// <summary>
         /// Returns the catalog URL for a given type and catalog ID.
@@ -943,50 +1029,94 @@ namespace EmbyStreams.Services
             bool throwOnUnreachable = false) where T : class
         {
             var safeUrl = SanitizeUrl(url);
-            try
-            {
-                _logger.LogDebug("[EmbyStreams] GET {Url}", safeUrl);
-                var response = await _sharedHttp.GetAsync(url, cancellationToken);
+            // Sprint 100A-11: Inline retry with exponential backoff
+            int maxAttempts = 3;
 
-                if (!response.IsSuccessStatusCode)
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                try
                 {
-                    var code = (int)response.StatusCode;
-                    if (code == 429)
-                        throw new AioStreamsRateLimitException(safeUrl);
-                    if (code == 404)
-                        _logger.LogDebug("[EmbyStreams] 404 from AIOStreams: {Url}", safeUrl);
-                    else
+                    _logger.LogDebug("[EmbyStreams] GET {Url} (attempt {Attempt}/{Max})",
+                        safeUrl, attempt, maxAttempts);
+                    var response = await _sharedHttp.GetAsync(url, cancellationToken);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        var code = (int)response.StatusCode;
+
+                        // Sprint 100A-11: Do NOT retry 401, 403, 404
+                        if (code == 401 || code == 403 || code == 404)
+                        {
+                            _logger.LogDebug("[EmbyStreams] {Code} from AIOStreams: {Url} — not retrying",
+                                code, safeUrl);
+                            return null;
+                        }
+
+                        if (code == 429)
+                            throw new AioStreamsRateLimitException(safeUrl);
+                        if (code == 404)
+                            _logger.LogDebug("[EmbyStreams] 404 from AIOStreams: {Url}", safeUrl);
+                        else
+                            _logger.LogWarning(
+                                "[EmbyStreams] AIOStreams returned {Status} for {Url}", code, safeUrl);
+                        return null;
+                    }
+
+                    var json = await response.Content.ReadAsStringAsync();
+                    return JsonSerializer.Deserialize<T>(json, _jsonOptions);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (TaskCanceledException ex)
+                {
+                    _logger.LogWarning("[EmbyStreams] Timeout fetching {Url}: {Msg}",
+                        safeUrl, ex.Message);
+
+                    // Sprint 100A-11: Retry on timeout with delays: 1s, 4s, 16s
+                    if (attempt < maxAttempts)
+                    {
+                        int delayMs = attempt == 1 ? 1000 : (attempt == 2 ? 4000 : 16000);
                         _logger.LogWarning(
-                            "[EmbyStreams] AIOStreams returned {Status} for {Url}", code, safeUrl);
+                            "[EmbyStreams] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
+                            safeUrl, delayMs, attempt, maxAttempts);
+                        await Task.Delay(delayMs, cancellationToken);
+                        continue;
+                    }
+
+                    if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, null);
                     return null;
                 }
+                catch (HttpRequestException ex)
+                {
+                    _logger.LogWarning("[EmbyStreams] Connection failed for {Url}: {Msg}",
+                        safeUrl, ex.Message);
 
-                var json = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<T>(json, _jsonOptions);
+                    // Sprint 100A-11: Retry on HttpRequestException
+                    if (attempt < maxAttempts)
+                    {
+                        int delayMs = attempt == 1 ? 1000 : (attempt == 2 ? 4000 : 16000);
+                        _logger.LogWarning(
+                            "[EmbyStreams] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
+                            safeUrl, delayMs, attempt, maxAttempts);
+                        await Task.Delay(delayMs, cancellationToken);
+                        continue;
+                    }
+
+                    if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, ex);
+                    return null;
+                }
+                catch (AioStreamsRateLimitException) { throw; }
+                catch (AioStreamsUnreachableException) { throw; }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[EmbyStreams] Error fetching {Url}", safeUrl);
+                    return null;
+                }
             }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning("[EmbyStreams] Timeout fetching {Url}", safeUrl);
-                if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, null);
-                return null;
-            }
-            catch (HttpRequestException ex)
-            {
-                _logger.LogWarning("[EmbyStreams] Connection failed for {Url}: {Msg}", safeUrl, ex.Message);
-                if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, ex);
-                return null;
-            }
-            catch (AioStreamsRateLimitException)  { throw; }
-            catch (AioStreamsUnreachableException) { throw; }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[EmbyStreams] Error fetching {Url}", safeUrl);
-                return null;
-            }
+
+            return null;
         }
 
         private async Task<JsonElement?> GetJsonElementAsync(

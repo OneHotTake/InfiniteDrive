@@ -72,6 +72,25 @@ namespace EmbyStreams.Services
     /// 30-minute timeout, matching the pattern already used by
     /// <see cref="WebhookService"/>.  The endpoint returns immediately; callers
     /// can monitor progress via the <c>GET /EmbyStreams/Status</c> dashboard.
+    ///
+    /// ════════════════════════════════════════════════════════════════
+    /// ADMIN GUARD AUDIT (Sprint 100A-09)
+    /// ════════════════════════════════════════════════════════════════
+    /// All endpoints require admin authentication. AdminGuard.RequireAdmin() is called
+    /// as the FIRST statement in every endpoint method.
+    ///
+    /// Endpoints covered:
+    /// • POST /EmbyStreams/Trigger            (Post(TriggerRequest))
+    /// • POST /EmbyStreams/Setup/ClearSyncStates (Post(ClearSyncStatesRequest))
+    /// • POST /EmbyStreams/Invalidate          (CacheManagementService.Post(InvalidateRequest))
+    /// • POST /EmbyStreams/Queue               (CacheManagementService.Post(QueueRequest))
+    /// • POST /EmbyStreams/Validate            (ValidateService.Post(ValidateRequest))
+    /// • POST /EmbyStreams/Housekeeping/OrphanedFolders (Post(HousekeepingOrphanedFoldersRequest))
+    /// • GET  /EmbyStreams/Housekeeping/ExpiredStrm    (Get(HousekeepingExpiredStrmRequest))
+    /// • GET  /EmbyStreams/Housekeeping/StrmCount      (Get(HousekeepingStrmCountRequest))
+    ///
+    /// POST /EmbyStreams/RefreshManifest (FIX-100A-01) - will be added to HealthService
+    /// ════════════════════════════════════════════════════════════════
     /// </summary>
     public partial class TriggerService : IService, IRequiresRequest
     {
@@ -828,6 +847,45 @@ namespace EmbyStreams.Services
                     Message = "AIOStreams URL not configured",
                 });
                 return;
+            }
+
+            // Sprint 100A-02: Manifest URL validation - verify URL ends with /manifest.json
+            // and returns valid JSON with non-empty id field
+            using var httpClient = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            var urlValidationResult = await ManifestUrlParser.ValidateManifestUrlAsync(config.PrimaryManifestUrl, httpClient);
+
+            if (!urlValidationResult.IsValid)
+            {
+                resp.Checks.Add(new ValidationCheck
+                {
+                    Check   = "manifest_url",
+                    Status  = "error",
+                    Message = urlValidationResult.ErrorMessage ?? "Manifest URL validation failed",
+                });
+                return;
+            }
+
+            // Sprint 100A-08: HTTPS warning check
+            if (urlValidationResult.UsesInsecureHttp)
+            {
+                resp.Checks.Add(new ValidationCheck
+                {
+                    Check   = "https_warning",
+                    Status  = "warn",
+                    Message = "Your AIOStreams URL is not using HTTPS. " +
+                              "Your API token is exposed in transit and " +
+                              "playback may fail on HTTPS Emby clients. " +
+                              "Consider using HTTPS.",
+                });
+            }
+            else
+            {
+                resp.Checks.Add(new ValidationCheck
+                {
+                    Check   = "https_ok",
+                    Status  = "ok",
+                    Message = "Manifest URL uses secure HTTPS connection.",
+                });
             }
 
             var sw = System.Diagnostics.Stopwatch.StartNew();

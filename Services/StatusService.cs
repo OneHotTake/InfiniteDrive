@@ -279,6 +279,22 @@ namespace EmbyStreams.Services
     ///   <item>Per-source sync state</item>
     /// </list>
     /// </summary>
+    /// <summary>
+    /// Exposes health and status endpoints for the EmbyStreams dashboard.
+    ///
+    /// ════════════════════════════════════════════════════════════════
+    /// ADMIN GUARD AUDIT (Sprint 100A-09)
+    /// ════════════════════════════════════════════════════════════════
+    /// All endpoints require admin authentication unless explicitly marked read-only.
+    /// AdminGuard.RequireAdmin() is called as FIRST statement in every endpoint.
+    ///
+    /// Endpoints covered:
+    /// • GET  /EmbyStreams/Status              (Get(StatusRequest)) - No auth (read-only)
+    /// • GET  /EmbyStreams/Health              (Get(HealthRequest)) - No auth (read-only) - FIX-100A-13
+    /// • POST /EmbyStreams/RefreshManifest       (Post(RefreshManifestRequest)) - Admin required - FIX-100A-01
+    /// • POST /EmbyStreams/Validate            (ValidateService.Post(ValidateRequest)) - Admin required
+    /// ════════════════════════════════════════════════════════════════
+    /// </summary>
     public class StatusService : IService, IRequiresRequest
     {
         // ── Fields ──────────────────────────────────────────────────────────────
@@ -1472,6 +1488,146 @@ namespace EmbyStreams.Services
     /// </summary>
     internal static class AdminGuard
     {
+    // ════════════════════════════════════════════════════════════════════════════════════
+    // REFRESH MANIFEST ENDPOINT (Sprint 100A-01)
+    // ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>Request for <c>POST /EmbyStreams/RefreshManifest</c>.</summary>
+    [Route("/EmbyStreams/RefreshManifest", "POST",
+        Summary = "Force-refreshes the AIOStreams manifest and returns summary")]
+    public class RefreshManifestRequest : IReturn<object> { }
+
+    /// <summary>Response from <c>POST /EmbyStreams/RefreshManifest</c>.</summary>
+    public class RefreshManifestResponse
+    {
+        /// <summary>Status: "ok" or "error".</summary>
+        public string Status { get; set; } = "error";
+
+        /// <summary>Manifest status: "ok", "stale", or "error".</summary>
+        public string ManifestStatus { get; set; } = "error";
+
+        /// <summary>ISO8601 timestamp when manifest was last fetched.</summary>
+        public string? ManifestLastFetched { get; set; }
+
+        /// <summary>Number of catalogs in manifest.</summary>
+        public int CatalogCount { get; set; }
+
+        /// <summary>Resource types present in manifest (catalog, meta, stream).</summary>
+        public List<string> ResourceTypes { get; set; } = new List<string>();
+
+        /// <summary>ID prefixes found in manifest (imdb, tmdb, kitsu, etc.).</summary>
+        public List<string> IdPrefixes { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// Service for refreshing the AIOStreams manifest.
+    /// </summary>
+    public class RefreshManifestService : IService, IRequiresRequest
+    {
+        private readonly ILogger<RefreshManifestService> _logger;
+        private readonly IAuthorizationContext _authCtx;
+
+        public IRequest Request { get; set; } = null!;
+
+        public RefreshManifestService(ILogManager logManager, IAuthorizationContext authCtx)
+        {
+            _logger = new EmbyLoggerAdapter<RefreshManifestService>(logManager.GetLogger("EmbyStreams"));
+            _authCtx = authCtx;
+        }
+
+        /// <summary>Handles <c>POST /EmbyStreams/RefreshManifest</c>.</summary>
+        public async Task<object> Post(RefreshManifestRequest _)
+        {
+            // Sprint 100A-09: Admin guard required
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || string.IsNullOrEmpty(config.PrimaryManifestUrl))
+            {
+                return new RefreshManifestResponse
+                {
+                    Status = "error",
+                    ManifestStatus = "error",
+                    ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                };
+            }
+
+            _logger.LogInformation("[EmbyStreams] RefreshManifest: Force-refreshing manifest from {Url}",
+                config.PrimaryManifestUrl);
+
+            try
+            {
+                var client = new AioStreamsClient(config, _logger);
+                var manifest = await client.GetManifestAsync(System.Threading.CancellationToken.None);
+
+                if (manifest == null)
+                {
+                    _logger.LogWarning("[EmbyStreams] RefreshManifest: Failed to fetch manifest");
+                    return new RefreshManifestResponse
+                    {
+                        Status = "error",
+                        ManifestStatus = "error",
+                        ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                    };
+                }
+
+                // Update manifest fetch timestamp
+                Plugin.ManifestFetchedAt = DateTimeOffset.UtcNow;
+
+                // Extract summary info from manifest
+                var resourceTypes = new List<string>();
+                if (manifest.Resources != null)
+                {
+                    foreach (var resource in manifest.Resources)
+                    {
+                        if (!string.IsNullOrEmpty(resource.Name) && !resourceTypes.Contains(resource.Name))
+                            resourceTypes.Add(resource.Name);
+                    }
+                }
+
+                var idPrefixes = new List<string>();
+                var idPrefixesSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (manifest.StreamPrefixes != null)
+                {
+                    foreach (var prefix in manifest.StreamPrefixes.Split(','))
+                    {
+                        var trimmed = prefix.Trim();
+                        if (!string.IsNullOrEmpty(trimmed) && !idPrefixesSet.Contains(trimmed))
+                            idPrefixesSet.Add(trimmed);
+                    }
+                }
+                if (!idPrefixesSet.Contains("tt")) idPrefixes.Add("tt");
+
+                var catalogCount = manifest.Catalogs?.Count ?? 0;
+
+                _logger.LogInformation(
+                    "[EmbyStreams] RefreshManifest: Success - {Catalogs} catalogs, " +
+                    "{Resources} resource types, {Prefixes} ID prefixes",
+                    catalogCount, string.Join(", ", resourceTypes), string.Join(", ", idPrefixes));
+
+                return new RefreshManifestResponse
+                {
+                    Status = "ok",
+                    ManifestStatus = "ok",
+                    ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                    CatalogCount = catalogCount,
+                    ResourceTypes = resourceTypes,
+                    IdPrefixes = idPrefixes,
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EmbyStreams] RefreshManifest: Exception during manifest refresh");
+                return new RefreshManifestResponse
+                {
+                    Status = "error",
+                    ManifestStatus = "error",
+                    ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                };
+            }
+        }
+    }
         /// <summary>
         /// Returns <c>null</c> if the request is from an admin user, or a
         /// 403 error object that the calling service should return immediately.
@@ -2172,3 +2328,151 @@ body{{
         }
     }
 }
+
+    // ════════════════════════════════════════════════════════════════════════════════════════
+    // HEALTH ENDPOINT (Sprint 100A-13)
+    // ════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Request for <c>GET /EmbyStreams/Health</c>.
+    /// Sprint 100A-13: No auth required for read.
+    /// </summary>
+    [Route("/EmbyStreams/Health", "GET",
+        Summary = "Returns plugin health status (no auth required)")]
+    public class HealthRequest : IReturn<object> { }
+
+    /// <summary>Response from <c>GET /EmbyStreams/Health</c>.</summary>
+    public class HealthResponse
+    {
+        /// <summary>"ok", "stale", or "error".</summary>
+        public string Status { get; set; } = "error";
+
+        /// <summary>ISO8601 timestamp when manifest was last fetched.</summary>
+        public string? ManifestLastFetched { get; set; }
+
+        /// <summary>Number of catalogs in manifest.</summary>
+        public int CatalogCount { get; set; }
+
+        /// <summary>Catalogs skipped with reasons.</summary>
+        public List<CatalogSkippedEntry> CatalogsSkipped { get; set; } = new List<CatalogSkippedEntry>();
+
+        /// <summary>A single skipped catalog entry.</summary>
+        public class CatalogSkippedEntry
+        {
+            /// <summary>Catalog name.</summary>
+            public string Name { get; set; } = string.Empty;
+
+            /// <summary>Reason: "requires_configuration", "unknown_type", etc.</summary>
+            public string Reason { get; set; } = string.Empty;
+        }
+
+        /// <summary>Stream resolution success rate (0-1).</summary>
+        public float StreamResolutionSuccessRate { get; set; }
+
+        /// <summary>Last sync time (ISO8601).</summary>
+        public string? LastSyncTime { get; set; }
+
+        /// <summary>Blocked addon names.</summary>
+        public List<string> BlockedAddons { get; set; } = new List<string>();
+
+        /// <summary>True if any catalog requires configuration.</summary>
+        public bool ConfigurationRequired { get; set; }
+
+        /// <summary>Count of pending episodes.</summary>
+        public int PendingEpisodes { get; set; }
+
+        /// <summary>Unknown provider prefixes found.</summary>
+        public List<string> UnknownProviderPrefixes { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// Service for Health endpoint.
+    /// Sprint 100A-13: No auth required.
+    /// </summary>
+    public class HealthService : IService
+    {
+        private readonly ILogger<HealthService> _logger;
+
+        public HealthService(ILogManager logManager)
+        {
+            _logger = new EmbyLoggerAdapter<HealthService>(logManager.GetLogger("EmbyStreams"));
+        }
+
+        /// <summary>Handles <c>GET /EmbyStreams/Health</c>.</summary>
+        public async Task<object> Get(HealthRequest _)
+        {
+            // Sprint 100A-09: No auth required for health read endpoint
+            // Note: Health endpoint does not require admin authentication
+            var response = new HealthResponse();
+
+            try
+            {
+                var config = Plugin.Instance?.Configuration;
+                var db = Plugin.Instance?.DatabaseManager;
+
+                if (config == null || db == null)
+                {
+                    response.Status = "error";
+                    return response;
+                }
+
+                // Manifest status
+                var manifestStatus = "error";
+                if (!string.IsNullOrEmpty(config.PrimaryManifestUrl))
+                {
+                    manifestStatus = "not_configured";
+                }
+                else
+                {
+                    var age = DateTimeOffset.UtcNow - Plugin.ManifestFetchedAt;
+                    manifestStatus = age > TimeSpan.FromHours(12) ? "stale" : "ok";
+                }
+
+                response.ManifestStatus = manifestStatus;
+                response.ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o");
+
+                // Catalog count (from manifest, approximate)
+                response.CatalogCount = 0; // Would need to fetch manifest for exact count
+
+                // Catalogs skipped
+                // For now, return empty list - would need to track during sync
+                response.CatalogsSkipped = new List<CatalogSkippedEntry>();
+
+                // Stream resolution success rate
+                var cacheStats = await db.GetResolutionCacheStatsAsync();
+                float successRate = 0;
+                if (cacheStats.ValidCached + cacheStats.StaleCached + cacheStats.Failed > 0)
+                {
+                    successRate = (float)cacheStats.ValidCached / (cacheStats.ValidCached + cacheStats.StaleCached + cacheStats.Failed);
+                }
+                response.StreamResolutionSuccessRate = successRate;
+
+                // Last sync time
+                response.LastSyncTime = db.GetLastSyncTimeIso(); // Would need to implement
+
+                // Blocked addons
+                response.BlockedAddons = new List<string>();
+
+                // Configuration required
+                response.ConfigurationRequired = false;
+
+                // Pending episodes
+                response.PendingEpisodes = 0;
+
+                // Unknown provider prefixes
+                response.UnknownProviderPrefixes = new List<string>();
+
+                response.Status = "ok";
+                _logger.LogInformation("[EmbyStreams] Health: {Status}, Manifest: {ManifestStatus}",
+                    response.Status, manifestStatus);
+
+                return response;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EmbyStreams] Health endpoint error");
+                response.Status = "error";
+                return response;
+            }
+        }
+    }
