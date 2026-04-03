@@ -73,6 +73,9 @@ namespace EmbyStreams.Tasks
         /// <inheritdoc/>
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
+            // Sprint 100A-12: Startup jitter to prevent thundering herd on Emby restart
+            await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
+
             try
             {
                 _logger.LogInformation("[Discover] Task execution started");

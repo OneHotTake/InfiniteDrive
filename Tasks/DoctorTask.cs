@@ -91,9 +91,16 @@ namespace EmbyStreams.Tasks
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            _logger.LogInformation("[EmbyStreams] DoctorTask started");
-            progress.Report(0);
+            // Sprint 100A-12: Startup jitter to prevent thundering herd on Emby restart
+            await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
+
+            // Sprint 100A-10: Acquire global sync lock to prevent concurrent catalog operations
+            await Plugin.SyncLock.WaitAsync(cancellationToken);
+            try
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                _logger.LogInformation("[EmbyStreams] DoctorTask started");
+                progress.Report(0);
 
             var config = Plugin.Instance?.Configuration;
             if (config == null)
@@ -408,6 +415,14 @@ namespace EmbyStreams.Tasks
             if (toWrite.Count > 0 || toRetire.Count > 0 || orphans.Count > 0)
             {
                 TriggerLibraryScan();
+            }
+
+            _logger.LogInformation("[EmbyStreams] DoctorTask finished in {Elapsed}", sw.Elapsed);
+            }
+            finally
+            {
+                // Sprint 100A-10: Release global sync lock
+                Plugin.SyncLock.Release();
             }
         }
 

@@ -425,7 +425,7 @@ namespace EmbyStreams.Tasks
         /// Currently includes IMDB and TMDB; future sprints can add
         /// Kitsu, AniList, MAL after implementing Haglund API integration.
         /// </summary>
-        private static string? BuildUniqueIdsJson(string imdbId, string? tmdbId)
+        private static string? BuildUniqueIdsJson(string imdbId, string? tmdbId, JsonElement? meta)
         {
             var ids = new List<System.Text.Json.Nodes.JsonNode>();
 
@@ -434,6 +434,21 @@ namespace EmbyStreams.Tasks
 
             if (!string.IsNullOrEmpty(tmdbId))
                 ids.Add(CreateProviderId("tmdb", tmdbId));
+
+            // Sprint 100A-06: Add anime-specific provider IDs from metadata
+            if (meta != null)
+            {
+                var anilistId = GetMetaString(meta, "anilist_id");
+                var kitsuId = GetMetaString(meta, "kitsu_id");
+                var malId = GetMetaString(meta, "mal_id");
+
+                if (!string.IsNullOrEmpty(anilistId))
+                    ids.Add(CreateProviderId("anilist", anilistId));
+                if (!string.IsNullOrEmpty(kitsuId))
+                    ids.Add(CreateProviderId("kitsu", kitsuId));
+                if (!string.IsNullOrEmpty(malId))
+                    ids.Add(CreateProviderId("mal", malId));
+            }
 
             return ids.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(ids) : null;
         }
@@ -458,16 +473,40 @@ namespace EmbyStreams.Tasks
             // Prefer the item's own type field — this is set correctly even when the
             // catalog uses a custom type (Marvel, StarWars, DC, etc.).
             // Fall back to the catalog type for standard single-type catalogs.
+            // ── FIX-100B-01: Anime type in catalog type switch ────────────────────
             var rawType = (meta.Type?.ToLowerInvariant())
                        ?? (catalog.Type?.ToLowerInvariant());
             var animeEnabled = Plugin.Instance?.Configuration?.EnableAnimeLibrary ?? false;
-            var mediaType = rawType switch
+
+            // FIX-100B-01: Skip channel/tv with log, skip unknown types with warning
+            string? mediaType;
+            switch (rawType)
             {
-                "movie"  => "movie",
-                "series" => "series",
-                "anime"  => animeEnabled ? "anime" : null,
-                _        => null
-            };
+                case "channel":
+                case "tv":
+                    _logger.LogInformation(
+                        "[EmbyStreams] Skipping item '{Title}' - catalog type '{Type}' is not supported",
+                        meta.Name ?? "Unknown", rawType);
+                    return null;
+
+                case "movie":
+                    mediaType = "movie";
+                    break;
+
+                case "series":
+                    mediaType = "series";
+                    break;
+
+                case "anime":
+                    mediaType = animeEnabled ? "anime" : null;
+                    break;
+
+                default:
+                    _logger.LogWarning(
+                        "[EmbyStreams] Skipping item '{Title}' - unknown catalog type '{Type}'",
+                        meta.Name ?? "Unknown", rawType);
+                    return null;
+            }
 
             // Custom catalog types (Marvel, StarWars, DC) contain mixed movies and
             // series. If meta.Type is not set or not a recognised value, the item
@@ -482,7 +521,7 @@ namespace EmbyStreams.Tasks
             {
                 ImdbId       = imdbId,
                 TmdbId       = tmdbId,
-                UniqueIdsJson = BuildUniqueIdsJson(imdbId, tmdbId),
+                UniqueIdsJson = BuildUniqueIdsJson(imdbId, tmdbId, null),
                 Title        = meta.Name ?? "Unknown",
                 Year         = year,
                 MediaType    = mediaType,
@@ -514,13 +553,13 @@ namespace EmbyStreams.Tasks
             return string.Empty;
         }
 
+        /// <summary>
+        /// Parses year from release info using YearParser.
+        /// ── FIX-100B-07: GetYear with ReleaseInfo range ───────────────
+        /// Handles: "2015", "2007-2019", "2020-", null/empty.
+        /// </summary>
         internal static int? ParseYear(string? releaseInfo)
-        {
-            if (string.IsNullOrEmpty(releaseInfo)) return null;
-            // Handle "2022", "2022–", "2019–2022"
-            var part = releaseInfo!.Split('–')[0].Split('-')[0].Trim();
-            return int.TryParse(part, out var yr) && yr > 1888 ? yr : (int?)null;
-        }
+            => Services.YearParser.Parse(releaseInfo);
 
         /// <summary>
         /// Returns true when a catalog can only be queried with a mandatory search
@@ -624,9 +663,29 @@ namespace EmbyStreams.Tasks
                 return result;
             }
 
+            // Sprint 100A-03: Catalog capability guard - recognized types set
+            var recognizedTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "movie", "series", "anime"
+            };
+
             var catalogs = manifest.Catalogs
                 .Where(c => !string.IsNullOrEmpty(c.Id) && !string.IsNullOrEmpty(c.Type))
                 .Where(c => !AioStreamsCatalogProvider.RequiresSearchOnly(c))
+                .Where(c => recognizedTypes.Contains(c.Type ?? string.Empty))
+                .Where(c =>
+                {
+                    // Sprint 100A-03: Skip catalogs with required extras
+                    if (c.Extra != null && c.Extra.Any(e => e.IsRequired == true))
+                    {
+                        logger.LogInformation(
+                            "[EmbyStreams] Skipping catalog '{Name}' ({Id}) — requires additional " +
+                            "configuration in AIOStreams",
+                            c.Name ?? c.Id);
+                        return false;
+                    }
+                    return true;
+                })
                 .ToList();
 
             logger.LogInformation("[EmbyStreams] Cinemeta: {Count} catalog(s) to sync", catalogs.Count);
@@ -749,15 +808,22 @@ namespace EmbyStreams.Tasks
         /// <inheritdoc/>
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[EmbyStreams] CatalogSyncTask started");
-            progress.Report(0);
+            // Sprint 100A-12: Startup jitter to prevent thundering herd on Emby restart
+            await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
 
-            var config = Plugin.Instance?.Configuration;
-            if (config == null)
+            // Sprint 100A-10: Acquire global sync lock to prevent concurrent catalog operations
+            await Plugin.SyncLock.WaitAsync(cancellationToken);
+            try
             {
-                _logger.LogWarning("[EmbyStreams] Plugin configuration not available — aborting sync");
-                return;
-            }
+                _logger.LogInformation("[EmbyStreams] CatalogSyncTask started");
+                progress.Report(0);
+
+                var config = Plugin.Instance?.Configuration;
+                if (config == null)
+                {
+                    _logger.LogWarning("[EmbyStreams] Plugin configuration not available — aborting sync");
+                    return;
+                }
 
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null)
@@ -821,6 +887,12 @@ namespace EmbyStreams.Tasks
             progress.Report(100);
 
             _logger.LogInformation("[EmbyStreams] CatalogSyncTask complete");
+            }
+            finally
+            {
+                // Sprint 100A-10: Release global sync lock
+                Plugin.SyncLock.Release();
+            }
         }
 
         // ── Private: provider management ───────────────────────────────────────
@@ -1380,9 +1452,19 @@ namespace EmbyStreams.Tasks
         private async Task<string?> WriteSeriesStrmAsync(
             CatalogItem item, PluginConfiguration config)
         {
+            // ── FIX-100B-02: Anime path routing (two-tier) ────────────────────
+            // Use AnimeDetector for two-tier anime detection
+            // Tier 1: catalogType == "anime"
+            // Tier 2: has AniList/Kitsu/MAL without IMDB
+            var isAnime = Services.AnimeDetector.IsAnime(
+                item.CatalogType,
+                null, // metadata not available here
+                item.ImdbId);
+
             // Use anime path for anime content, shows path for series
-            var syncPath = item.MediaType == "anime"
-                ? config.SyncPathAnime
+            // FIX-100B-02: SyncPathAnime defaults to SyncPathShows if not configured
+            var syncPath = (item.MediaType == "anime" || isAnime)
+                ? (string.IsNullOrWhiteSpace(config.SyncPathAnime) ? config.SyncPathShows : config.SyncPathAnime)
                 : config.SyncPathShows;
 
             if (string.IsNullOrWhiteSpace(syncPath)) return null;
@@ -1532,6 +1614,13 @@ namespace EmbyStreams.Tasks
             if (item.Year.HasValue)
                 sb.AppendLine($"  <year>{item.Year}</year>");
 
+            // ── FIX-100B-03: NFO library tag for anime ────────────────────────
+            // Add <library>anime</library> when routed to anime library
+            if (item.MediaType == "anime")
+            {
+                sb.AppendLine("  <library>anime</library>");
+            }
+
             // Try to fetch enhanced metadata
             JsonElement? meta = null;
             if (metaProvider != null && !string.IsNullOrEmpty(item.ImdbId))
@@ -1592,20 +1681,29 @@ namespace EmbyStreams.Tasks
 
         private static void WriteUniqueIds(StringBuilder sb, CatalogItem item, JsonElement? meta)
         {
+            // Sprint 100A-06: ID prefix routing with correct NFO type attributes
+
             // IMDB ID (always present in catalog item)
             if (!string.IsNullOrEmpty(item.ImdbId))
             {
-                sb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{item.ImdbId}</uniqueid>");
+                sb.AppendLine($"  <uniqueid type=\"Imdb\" default=\"true\">{item.ImdbId}</uniqueid>");
             }
 
             // TMDB ID from catalog item
             if (!string.IsNullOrEmpty(item.TmdbId))
             {
-                sb.AppendLine($"  <uniqueid type=\"tmdb\">{item.TmdbId}</uniqueid>");
+                sb.AppendLine($"  <uniqueid type=\"Tmdb\">{item.TmdbId}</uniqueid>");
             }
 
-            // Provider IDs — only write when present; Emby scraper
-            // uses these for exact matching (critical for anime).
+            // Anime-specific provider IDs from metadata
+            if (!string.IsNullOrEmpty(GetMetaString(meta, "anilist_id")))
+                sb.AppendLine($"  <uniqueid type=\"AniList\">{GetMetaString(meta, "anilist_id")}</uniqueid>");
+            if (!string.IsNullOrEmpty(GetMetaString(meta, "kitsu_id")))
+                sb.AppendLine($"  <uniqueid type=\"Kitsu\">{GetMetaString(meta, "kitsu_id")}</uniqueid>");
+            if (!string.IsNullOrEmpty(GetMetaString(meta, "mal_id")))
+                sb.AppendLine($"  <uniqueid type=\"MyAnimeList\">{GetMetaString(meta, "mal_id")}</uniqueid>");
+
+            // Legacy provider IDs (for backward compatibility with NFO readers)
             if (!string.IsNullOrEmpty(GetMetaString(meta, "tmdb_id")))
                 sb.AppendLine($"  <tmdbid>{GetMetaString(meta, "tmdb_id")}</tmdbid>");
             if (!string.IsNullOrEmpty(GetMetaString(meta, "tmdb")))
@@ -1617,7 +1715,7 @@ namespace EmbyStreams.Tasks
             if (!string.IsNullOrEmpty(GetMetaString(meta, "mal_id")))
                 sb.AppendLine($"  <malid>{GetMetaString(meta, "mal_id")}</malid>");
 
-            // Additional unique IDs from metadata (e.g., anilist, kitsu from AIOMetadata)
+            // Additional unique IDs from metadata (e.g., from AIOMetadata)
             if (meta?.TryGetProperty("uniqueids", out var uniqueIdsProp) == true && uniqueIdsProp.ValueKind == JsonValueKind.Array)
             {
                 foreach (var uniqueId in uniqueIdsProp.EnumerateArray())
@@ -1638,7 +1736,32 @@ namespace EmbyStreams.Tasks
                             string.Equals(idValue, item.TmdbId, StringComparison.OrdinalIgnoreCase))
                             continue;
 
-                        sb.AppendLine($"  <uniqueid type=\"{providerName}\">{idValue}</uniqueid>");
+                        // Sprint 100A-06: Map provider names to correct NFO type attributes
+                        var nfoType = providerName.ToLowerInvariant() switch
+                        {
+                            "imdb" => "Imdb",
+                            "tmdb" => "Tmdb",
+                            "anilist" => "AniList",
+                            "kitsu" => "Kitsu",
+                            "mal" => "MyAnimeList",
+                            _ => null // Unknown prefix - handle below
+                        };
+
+                        if (nfoType != null)
+                        {
+                            sb.AppendLine($"  <uniqueid type=\"{nfoType}\">{idValue}</uniqueid>");
+                        }
+                        else
+                        {
+                            // Sprint 100A-06: Unknown provider prefix - log at Debug level
+                            _logger.LogDebug(
+                                "[EmbyStreams] Unknown provider prefix '{Provider}' for item {Item}. " +
+                                "Storing as unknown_{Provider} with ID {Id}.",
+                                providerName, item.ImdbId, idValue);
+
+                            // Store as-is in catch-all unknown field (not standard NFO, but preserves data)
+                            sb.AppendLine($"  <unknown_{providerName}>{idValue}</unknown_{providerName}>");
+                        }
                     }
                 }
             }

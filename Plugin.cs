@@ -40,6 +40,29 @@ namespace EmbyStreams
         private bool _secretEnsured;
 
         /// <summary>
+        /// Global synchronization lock for catalog-mutating operations.
+        /// Ensures only one catalog sync or doctor task runs at a time.
+        /// (Sprint 100A-10)
+        /// </summary>
+        public static readonly System.Threading.SemaphoreSlim SyncLock =
+            new System.Threading.SemaphoreSlim(1, 1);
+
+        /// <summary>
+        /// Timestamp when manifest was last fetched. Used for TTL validation.
+        /// (Sprint 100A-01)
+        /// </summary>
+        private static DateTimeOffset _manifestFetchedAt = DateTimeOffset.MinValue;
+
+        /// <summary>
+        /// Gets or sets the manifest fetched timestamp.
+        /// </summary>
+        public static DateTimeOffset ManifestFetchedAt
+        {
+            get => _manifestFetchedAt;
+            set => _manifestFetchedAt = value;
+        }
+
+        /// <summary>
         /// Shared database manager.  Initialised during plugin construction so it
         /// is ready before any scheduled task or service is invoked.
         /// </summary>
