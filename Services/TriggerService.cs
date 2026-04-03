@@ -103,6 +103,7 @@ namespace EmbyStreams.Services
         private const string TaskLibraryReadoption    = "library_readoption";
         private const string TaskEpisodeExpand        = "episode_expand";
         private const string TaskDoctor               = "doctor";         // Sprint 66: unified reconciliation engine
+        private const string TaskCollectionSync       = "collection_sync"; // Sprint 100C-02: Collection sync task
         private const string TaskClearClientProfiles  = "clear_client_profiles";
         private const string TaskForceSyncReset       = "force_sync";   // A7: bypass interval guard
         private const string TaskClearCache           = "clear_cache";  // A4: nuke resolution cache
@@ -183,7 +184,13 @@ namespace EmbyStreams.Services
                 // Sprint 66: Doctor — unified catalog reconciliation engine
                 case TaskDoctor:
                     FireAndForget(ct => new DoctorTask(_libraryManager, _logManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
+                        .Execute(ct, new Progress<double>()), TaskKey);
+                    break;
+
+                // Sprint 100C-02: Collection sync task
+                case TaskCollectionSync:
+                    FireAndForget(ct => new CollectionSyncTask(_logManager, Plugin.Instance?.DatabaseManager!, _libraryManager)
+                        .Execute(ct, new Progress<double>()), TaskKey);
                     break;
 
                 case TaskClearClientProfiles:
@@ -346,7 +353,8 @@ namespace EmbyStreams.Services
                                   $"{TaskCatalogSync}, {TaskCatalogDiscover}, " +
                                   $"{TaskLinkResolver}, " +
                                   $"{TaskFileResurrection}, {TaskLibraryReadoption}, " +
-                                  $"{TaskEpisodeExpand}, {TaskDoctor}, {TaskClearClientProfiles}, " +
+                                  $"{TaskEpisodeExpand}, {TaskDoctor}, {TaskCollectionSync}, " +
+                                  $"{TaskClearClientProfiles}, " +
                                   $"{TaskForceSyncReset}, {TaskClearCache}, {TaskDeadLinkScan}, " +
                                   $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}",
                     };
