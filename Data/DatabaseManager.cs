@@ -30,7 +30,7 @@ namespace EmbyStreams.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 17;
+        private const int CurrentSchemaVersion = 18;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -43,6 +43,7 @@ namespace EmbyStreams.Data
             public const string ClientCompat     = "client_compat";
             public const string ApiBudget        = "api_budget";
             public const string SyncState        = "sync_state";
+            public const string CollectionMembership = "collection_membership";
         }
 
         // ── Fields ──────────────────────────────────────────────────────────────
@@ -1635,6 +1636,126 @@ namespace EmbyStreams.Data
             _logger.LogInformation("[DatabaseManager] All sync states cleared");
         }
 
+        // ── collection_membership repository ───────────────────────────────────────────
+        // Sprint 100C-01: Collection membership recording.
+
+        /// <summary>
+        /// Records that an item belongs to a collection.
+        /// Upserts on (collection_name, emby_item_id).
+        /// Sprint 100C-01: Collection membership recording.
+        /// </summary>
+        public async Task UpsertCollectionMembershipAsync(
+            string collectionName,
+            string embyItemId,
+            string source,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO collection_membership
+                    (collection_name, emby_item_id, source, last_seen)
+                VALUES (@collection_name, @emby_item_id, @source, datetime('now'))
+                ON CONFLICT(collection_name, emby_item_id)
+                DO UPDATE SET source = @source, last_seen = datetime('now');";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@collection_name", collectionName);
+                BindText(cmd, "@emby_item_id", embyItemId);
+                BindText(cmd, "@source", source);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Returns all distinct collection names with their item counts.
+        /// Used by CollectionSyncTask to iterate over collections.
+        /// Sprint 100C-02: Collection sync task.
+        /// </summary>
+        public async Task<Dictionary<string, int>> GetAllCollectionsAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT collection_name, COUNT(*) as item_count
+                FROM collection_membership
+                GROUP BY collection_name
+                ORDER BY collection_name;";
+
+            var results = await QueryListAsync(sql, null, row =>
+                new
+                {
+                    Name = row.GetString(0),
+                    Count = row.GetInt(1)
+                });
+
+            return results.ToDictionary(r => r.Name, r => r.Count);
+        }
+
+        /// <summary>
+        /// Returns all Emby item IDs that belong to a collection.
+        /// Used by CollectionSyncTask to populate BoxSet members.
+        /// Sprint 100C-02: Collection sync task.
+        /// </summary>
+        public async Task<List<string>> GetCollectionMembersAsync(
+            string collectionName,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT emby_item_id
+                FROM collection_membership
+                WHERE collection_name = @collection_name
+                ORDER BY last_seen DESC;";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindText(cmd, "@collection_name", collectionName);
+            }, row => row.GetString(0));
+        }
+
+        /// <summary>
+        /// Removes items from collection_membership that are no longer in the collection.
+        /// Used by CollectionSyncTask after orphan deletion.
+        /// Sprint 100C-02: Collection sync task.
+        /// </summary>
+        public async Task RemoveCollectionMembersAsync(
+            string collectionName,
+            List<string> itemIds,
+            CancellationToken cancellationToken = default)
+        {
+            if (itemIds.Count == 0)
+                return;
+
+            const string sql = @"
+                DELETE FROM collection_membership
+                WHERE collection_name = @collection_name
+                  AND emby_item_id IN ({placeholders});";
+
+            var placeholders = string.Join(",", itemIds.Select(_ => "?"));
+            var finalSql = sql.Replace("{placeholders}", placeholders);
+
+            await ExecuteWriteAsync(finalSql, cmd =>
+            {
+                BindText(cmd, "@collection_name", collectionName);
+                int idx = 1;
+                foreach (var itemId in itemIds)
+                {
+                    cmd.BindParameters["@item" + idx] = itemId;
+                    idx++;
+                }
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Clears all collection memberships for a source.
+        /// Used when re-syncing catalogs.
+        /// </summary>
+        public async Task ClearCollectionMembershipsBySourceAsync(
+            string source,
+            CancellationToken cancellationToken = default)
+        {
+            await ExecuteWriteAsync(
+                "DELETE FROM collection_membership WHERE source = @source;",
+                cmd => BindText(cmd, "@source", source),
+                cancellationToken);
+        }
+
         // ── Night 3 helpers: resolution queue, stats ────────────────────────────
 
         /// <summary>
@@ -2382,6 +2503,33 @@ CREATE INDEX IF NOT EXISTS idx_candidates_stream_key
                 ExecuteInline(conn,
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (17);");
                 version = 17;
+            }
+
+            // ── V17 → V18 ────────────────────────────────────────────────────────
+            // Adds collection_membership table for tracking item collection relationships.
+            // Sprint 100C-01: Collection membership recording.
+            // Schema: id, collection_name, emby_item_id, source, last_seen
+            if (version < 18)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V18", version);
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS collection_membership (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    collection_name     TEXT NOT NULL,
+    emby_item_id        TEXT NOT NULL,
+    source              TEXT NOT NULL,
+    last_seen           TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(collection_name, emby_item_id)
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_collection_name
+    ON collection_membership(collection_name);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_collection_item
+    ON collection_membership(emby_item_id);");
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (18);");
+                version = 18;
             }
             }
 
