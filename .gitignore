@@ -1,0 +1,36 @@
+bin/
+obj/
+*.user
+.vs/
+*.db
+*.db-shm
+*.db-wal
+.dual-graph/
+.claude/
+publish/
+SimpleTest.cs
+TestConfig.local.json
+testdata/
+node_modules/
+test-results/
+
+# Binaries and installers
+*.deb
+dotnet-install.sh
+
+# Secrets and sessions
+cookies.txt
+
+# Backup files
+*.bak
+
+# Claude session bridging files
+CONTINUE.md
+test-config.json
+
+# .ai/ session state (ephemeral — not shared)
+.ai/FAILURES.ndjson
+.ai/TASK_QUEUE.json
+.ai/CURRENT_TASK.md
+libs/
+_retired/
