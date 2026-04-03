@@ -165,7 +165,12 @@ namespace EmbyStreams.Tasks
                     var nfoPath = ResolveNfoPath(item);
                     if (nfoPath == null) continue;
 
-                    var written = WriteFullNfo(nfoPath, item, meta.Value);
+                    // Sprint 101A-02: Use typed metadata deserialization
+                    var typedMeta = meta.Value.ToAioMetaResponse();
+                    var written = typedMeta != null
+                        ? WriteFullNfoTyped(nfoPath, item, typedMeta)
+                        : WriteFullNfo(nfoPath, item, meta.Value);
+
                     if (written)
                     {
                         enriched++;
@@ -277,7 +282,7 @@ namespace EmbyStreams.Tasks
                 var director    = GetString(metaObj, "director");
 
                 var isMovie = item.MediaType == "movie";
-                var root    = isMovie ? "movie" : "tvshow";
+                var root = isMovie ? "movie" : "tvshow";
 
                 var sb = new StringBuilder();
                 sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
@@ -285,6 +290,103 @@ namespace EmbyStreams.Tasks
                 sb.AppendLine($"  <title>{XmlEscape(title)}</title>");
                 if (year.HasValue)
                     sb.AppendLine($"  <year>{year.Value}</year>");
+
+                // ── FIX-101A-04: OriginalTitle and SortTitle ─────────────────────
+                // Add originaltitle and sorttitle for anime items
+                if (item.MediaType == "anime" || !isMovie)
+                {
+                    // Try to get originaltitle from metadata
+                    var originalTitle = GetString(metaObj, "originalTitle") ?? title;
+                    if (!string.IsNullOrEmpty(originalTitle))
+                        sb.AppendLine($"  <originaltitle>{XmlEscape(originalTitle)}</originaltitle>");
+
+                    // Generate sorttitle by stripping articles
+                    var sortTitle = BuildSortTitle(title);
+                    if (!string.IsNullOrEmpty(sortTitle))
+                        sb.AppendLine($"  <sorttitle>{XmlEscape(sortTitle)}</sorttitle>");
+                }
+
+                if (!string.IsNullOrEmpty(description))
+                    sb.AppendLine($"  <plot>{XmlEscape(description)}</plot>");
+                sb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{item.ImdbId}</uniqueid>");
+                if (!string.IsNullOrEmpty(tmdbId))
+                    sb.AppendLine($"  <uniqueid type=\"tmdb\">{tmdbId}</uniqueid>");
+                if (!string.IsNullOrEmpty(rating))
+                    sb.AppendLine($"  <rating>{XmlEscape(rating)}</rating>");
+                if (!string.IsNullOrEmpty(runtime))
+                    sb.AppendLine($"  <runtime>{XmlEscape(runtime)}</runtime>");
+                foreach (var genre in genres)
+                    sb.AppendLine($"  <genre>{XmlEscape(genre)}</genre>");
+                if (!string.IsNullOrEmpty(poster))
+                    sb.AppendLine($"  <thumb aspect=\"poster\">{XmlEscape(poster)}</thumb>");
+                if (!string.IsNullOrEmpty(background))
+                    sb.AppendLine($"  <fanart><thumb>{XmlEscape(background)}</thumb></fanart>");
+                if (!string.IsNullOrEmpty(director))
+                    sb.AppendLine($"  <director>{XmlEscape(director)}</director>");
+                foreach (var actor in cast)
+                    sb.AppendLine($"  <actor><name>{XmlEscape(actor)}</name></actor>");
+                sb.AppendLine($"</{root}>");
+
+                Directory.CreateDirectory(Path.GetDirectoryName(nfoPath)!);
+                File.WriteAllText(nfoPath, sb.ToString(), Encoding.UTF8);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Writes a full Kodi-format .nfo file using typed AioMetaResponse.
+        /// Sprint 101A-02: AIOMetadata deserialization.
+        /// Always overwrites — MetadataFallbackTask is authoritative for enriched nfos.
+        /// </summary>
+        /// <returns><c>true</c> if the file was written successfully.</returns>
+        private static bool WriteFullNfoTyped(string nfoPath, CatalogItem item, AioMetaResponse metaResponse)
+        {
+            try
+            {
+                var meta = metaResponse.GetMetadata();
+                if (meta == null) return false;
+
+                var title = meta.Name ?? item.Title;
+                var year = meta.Year ?? item.Year;
+                var description = meta.Description;
+                var poster = meta.Poster;
+                var background = meta.Background;
+                var rating = meta.ImdbRating;
+                var runtime = meta.Runtime;
+                var tmdbId = meta.TmdbId ?? item.TmdbId;
+                var genres = meta.Genres ?? new List<string>();
+                var cast = meta.Cast?.Take(10).ToList() ?? new List<string>();
+                var director = meta.Director;
+
+                var isMovie = item.MediaType == "movie";
+                var root = isMovie ? "movie" : "tvshow";
+
+                var sb = new StringBuilder();
+                sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+                sb.AppendLine($"<{root}>");
+                sb.AppendLine($"  <title>{XmlEscape(title)}</title>");
+                if (year.HasValue)
+                    sb.AppendLine($"  <year>{year.Value}</year>");
+
+                // ── FIX-101A-04: OriginalTitle and SortTitle ─────────────────────
+                // Add originaltitle and sorttitle for anime items
+                if (item.MediaType == "anime" || !isMovie)
+                {
+                    // Use OriginalTitle from metadata or fall back to title
+                    var originalTitle = meta.OriginalTitle ?? title;
+                    if (!string.IsNullOrEmpty(originalTitle))
+                        sb.AppendLine($"  <originaltitle>{XmlEscape(originalTitle)}</originaltitle>");
+
+                    // Generate sorttitle by stripping articles
+                    var sortTitle = BuildSortTitle(title);
+                    if (!string.IsNullOrEmpty(sortTitle))
+                        sb.AppendLine($"  <sorttitle>{XmlEscape(sortTitle)}</sorttitle>");
+                }
+
                 if (!string.IsNullOrEmpty(description))
                     sb.AppendLine($"  <plot>{XmlEscape(description)}</plot>");
                 sb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{item.ImdbId}</uniqueid>");
@@ -373,6 +475,29 @@ namespace EmbyStreams.Tasks
                 if (el.ValueKind == JsonValueKind.String)
                     list.Add(el.GetString() ?? string.Empty);
             return list;
+        }
+
+        /// <summary>
+        /// Builds a sort title by stripping leading articles (The, A, An).
+        /// Sprint 101A-04: OriginalTitle and SortTitle in all NFO paths.
+        /// </summary>
+        private static string? BuildSortTitle(string? title)
+        {
+            if (string.IsNullOrEmpty(title)) return null;
+
+            var trimmed = title.Trim();
+
+            // Strip leading articles
+            var articles = new[] { "The ", "A ", "An " };
+            foreach (var article in articles)
+            {
+                if (trimmed.StartsWith(article, StringComparison.OrdinalIgnoreCase))
+                {
+                    return trimmed.Substring(article.Length).Trim();
+                }
+            }
+
+            return trimmed;
         }
 
         private static string XmlEscape(string s)

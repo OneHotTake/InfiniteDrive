@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using EmbyStreams.Models;
 
 namespace EmbyStreams.Services
 {
@@ -795,6 +796,36 @@ namespace EmbyStreams.Services
             return await GetJsonElementAsync(url, cancellationToken);
         }
 
+        /// <summary>
+        /// Fetches strongly-typed metadata for a single item.
+        /// Sprint 101A-02: AIOMetadata deserialization.
+        /// Returns null if deserialization fails or response is invalid.
+        /// </summary>
+        public async Task<AioMetaResponse?> GetMetaAsyncTyped(
+            string type,
+            string id,
+            CancellationToken cancellationToken = default)
+        {
+            var url = $"{_stremioBase}/meta/{type}/{Uri.EscapeDataString(id)}.json";
+            var json = await GetJsonAsync(url, cancellationToken);
+
+            if (string.IsNullOrEmpty(json))
+                return null;
+
+            try
+            {
+                return JsonSerializer.Deserialize<AioMetaResponse>(json, JsonSerializerOptions);
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogDebug(
+                    ex,
+                    "[AioStreamsClient] Failed to deserialize metadata for {Type} {Id}",
+                    type, id);
+                return null;
+            }
+        }
+
         // ── Connection health ────────────────────────────────────────────────────
 
         /// <summary>
@@ -1138,6 +1169,43 @@ namespace EmbyStreams.Services
                 var json = await response.Content.ReadAsStringAsync();
                 using var doc = JsonDocument.Parse(json);
                 return doc.RootElement.Clone();
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (TaskCanceledException)
+            {
+                _logger.LogWarning("[EmbyStreams] Timeout fetching {Url}", safeUrl);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[EmbyStreams] Error fetching {Url}", safeUrl);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Fetches raw JSON string from a URL.
+        /// Sprint 101A-02: Used for typed metadata deserialization.
+        /// Returns null on error.
+        /// </summary>
+        private async Task<string?> GetJsonAsync(
+            string url,
+            CancellationToken cancellationToken)
+        {
+            var safeUrl = SanitizeUrl(url);
+            try
+            {
+                _logger.LogDebug("[EmbyStreams] GET {Url}", safeUrl);
+                var response = await _sharedHttp.GetAsync(url, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var code = (int)response.StatusCode;
+                    if (code == 429) throw new AioStreamsRateLimitException(safeUrl);
+                    _logger.LogDebug("[EmbyStreams] {Status} from AIOStreams: {Url}", code, safeUrl);
+                    return null;
+                }
+
+                return await response.Content.ReadAsStringAsync();
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (TaskCanceledException)
