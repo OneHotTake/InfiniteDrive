@@ -30,7 +30,7 @@ namespace EmbyStreams.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 18;
+        private const int CurrentSchemaVersion = 19;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -2530,6 +2530,19 @@ CREATE INDEX IF NOT EXISTS idx_collection_item
                 ExecuteInline(conn,
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (18);");
                 version = 18;
+            }
+
+            // ── V18 → V19 ────────────────────────────────────────────────────────
+            // Adds absolute_episode_number column to stream_candidates table.
+            // Sprint 101A-05: Absolute episode number storage and NFO.
+            if (version < 19)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V19", version);
+                ExecuteInline(conn, @"
+ALTER TABLE stream_candidates ADD COLUMN absolute_episode_number INTEGER;");
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (19);");
+                version = 19;
             }
             }
 

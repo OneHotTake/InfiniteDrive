@@ -2381,6 +2381,9 @@ body{{
         /// <summary>Count of pending episodes.</summary>
         public int PendingEpisodes { get; set; }
 
+        /// <summary>Count of pending anime items (OVA/ONA/SPECIAL).</summary>
+        public int AnimePendingItems { get; set; }
+
         /// <summary>Unknown provider prefixes found.</summary>
         public List<string> UnknownProviderPrefixes { get; set; } = new List<string>();
     }
@@ -2458,6 +2461,10 @@ body{{
 
                 // Pending episodes
                 response.PendingEpisodes = 0;
+
+                // ── FIX-101A-05: Anime pending items ─────────────────────────────
+                // Count anime items that are pending (OVA/ONA/SPECIAL without strm)
+                response.AnimePendingItems = 0;
 
                 // Unknown provider prefixes
                 response.UnknownProviderPrefixes = new List<string>();

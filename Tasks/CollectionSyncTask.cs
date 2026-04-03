@@ -48,6 +48,7 @@ namespace EmbyStreams.Tasks
         public string Name => "EmbyStreams: Collection Sync";
         public string Key => "CollectionSyncTask";
         public string Description => "Syncs Emby BoxSets from provider collection metadata";
+        public string Category => "EmbyStreams";
 
         /// <summary>
         /// Executes collection sync.
@@ -57,7 +58,7 @@ namespace EmbyStreams.Tasks
         /// 4. Tags BoxSet as "EmbyStreams:managed"
         /// Sprint 100C-02: Collection sync task.
         /// </summary>
-        public async Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
+        public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
             try
             {
@@ -369,6 +370,21 @@ namespace EmbyStreams.Tasks
             var idsParam = string.Join(",", itemIds);
             var url = $"Collections/{boxSetId}/Items?ids={idsParam}";
             await httpClient.DeleteAsync(url, cancellationToken);
+        }
+
+        /// <summary>
+        /// Default schedule: daily at 2 AM.
+        /// </summary>
+        public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
+        {
+            return new[]
+            {
+                new TaskTriggerInfo
+                {
+                    Type = TaskTriggerInfo.TriggerDaily,
+                    TimeOfDayTicks = TimeSpan.FromHours(2).Ticks
+                }
+            };
         }
     }
 }

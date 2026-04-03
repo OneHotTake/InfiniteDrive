@@ -218,6 +218,9 @@ namespace EmbyStreams.Services
         [JsonPropertyName("number")]
         public int? Number { get; set; }
 
+        [JsonPropertyName("absoluteEpisodeNumber")]
+        public int? AbsoluteEpisodeNumber { get; set; }
+
         public string GetName() => Name ?? "";
 
         public bool IsReleased(int bufferDays = 0)

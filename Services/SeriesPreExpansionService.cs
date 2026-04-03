@@ -321,6 +321,13 @@ namespace EmbyStreams.Services
             sb.AppendLine($"  <season>{episode.Season}</season>");
             sb.AppendLine($"  <episode>{episode.Episode}</episode>");
 
+            // ── FIX-101A-05: Absolute episode number ───────────────────────────
+            // Add displayepisodenumber for anime episodes with absolute numbering
+            if (episode.AbsoluteEpisodeNumber.HasValue)
+            {
+                sb.AppendLine($"  <displayepisodenumber>{episode.AbsoluteEpisodeNumber.Value}</displayepisodenumber>");
+            }
+
             // Air date
             if (episode.Released.HasValue)
                 sb.AppendLine($"  <aired>{episode.Released.Value:yyyy-MM-dd}</aired>");

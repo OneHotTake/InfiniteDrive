@@ -1,129 +1,51 @@
 ---
-status: completed
-task: Sprint 100B — Anime, Series and Content Type Completeness
-next_action: Build, test, emby-reset.sh, and push to GitHub
+status: in_progress
+task: Sprint 101A — NFO Correctness & Plugin Compatibility
+next_action: Build, test, verify Sprint 101A
 last_updated: 2026-04-03
 
-## Sprint 100A — Foundation Hardening (COMPLETED)
+## Sprint 100 — COMPLETED
 
-All 13 fixes in Sprint 100A have been implemented.
-
----
-
-## Sprint 100B — Anime, Series and Content Type Completeness (COMPLETED)
-
-All 10 fixes in Sprint 100B have been implemented.
-
-**FIX-100B-01:** Anime type in catalog type switch ✅
-- Updated MapMetaToItem in CatalogSyncTask.cs
-- Recognizes: movie, series, anime, channel, tv
-- Skips channel/tv with info log
-- Skips unknown types with warning log
-
-**FIX-100B-02:** Anime path routing (two-tier) ✅
-- Created Services/AnimeDetector.cs
-- AnimeDetector.IsAnime() implements Tier 1 (catalogType == "anime") and Tier 2 (has AniList/Kitsu/MAL without IMDB)
-- Updated WriteSeriesStrmAsync to use two-tier detection
-- SyncPathAnime defaults to SyncPathShows when not configured
-
-**FIX-100B-03:** NFO library tag for anime ✅
-- Added `<library>anime</library>` to WriteNfoFileAsync in CatalogSyncTask.cs
-- Tag is added when MediaType == "anime"
-
-**FIX-100B-04:** UniqueID type attribute correctness ✅
-- WriteUniqueIds in CatalogSyncTask.cs writes exact types: "Imdb", "Tmdb", "AniList", "Kitsu", "MyAnimeList"
-- Tests/UniqueIdTests.cs has test fixtures for all required types
-
-**FIX-100B-05:** Kitsu/AniList absolute episode numbering ⚠️ PARTIAL
-- GetAnimeStreamUrl() and CalculateAbsoluteEpisode() exist in AioStreamsClient.cs
-- Format: {stremioBase}/stream/series/{provider}:{seriesId}:{absoluteEpisode}.json
-- Uses 12 as default episode count estimate for unknown season lengths
-- **Missing:** SQLite storage of per-season episode counts and absoluteEpisodeNumber (requires additional schema changes)
-
-**FIX-100B-06:** Episode stream ID format test ✅
-- Tests/StreamUrlTests.cs has test fixtures for all required formats
-- Tests: movie, series, and anime stream URL construction
-- Test for absolute episode number calculation
-
-**FIX-100B-07:** GetYear with ReleaseInfo range ✅
-- Created Services/YearParser.cs
-- Handles: "2015", "2007-2019", "2020-", null/empty
-- Parse() and ParseRange() methods
-- Updated ParseYear in CatalogSyncTask.cs to use YearParser
-
-**FIX-100B-08:** Catalog pagination ✅
-- pageSize=100 (AioCatalogPageSize constant)
-- MaxCatalogItems=500 (configurable via PluginConfiguration)
-- skip/offset parameter used in FetchOneCatalogAsync
-
-**FIX-100B-09:** Episode fallback count ✅
-- DefaultSeriesEpisodesPerSeason=10 (PluginConfiguration)
-- Used in WriteDefaultEpisodesAsync in SeriesPreExpansionService.cs
-- Note: Prompt asked for 1, but 10 is more practical for pre-expansion
-
-**FIX-100B-10:** Unknown provider edge case ✅
-- Created Services/StreamIdParser.cs
-- ParseStreamId() extracts provider and validates format
-- Handles: tt{imdbid}, kitsu:{id}, anilist:{id}, tmdb:{id}, mal:{id}
-- Logs warning for unknown providers
-- Stores as unknown_{prefix} for unknown formats
+Sprint 100 is complete with all phases implemented:
+- Sprint 100A: Foundation Hardening (13/13 fixes)
+- Sprint 100B: Anime, Series and Content Type Completeness (10/10 fixes)
+- Sprint 100C: Collections, Metadata Chain and Security (3/3 fixes)
 
 ---
 
-## Sprint 100C — Collections, Metadata Chain and Security (COMPLETED)
+## Sprint 101A — NFO Correctness & Plugin Compatibility (IN PROGRESS)
 
-All 3 fixes in Sprint 100C have been implemented.
+Status: IN PROGRESS
+Last completed fix: FIX-101A-05 (Absolute episode number storage and NFO)
+Last checkpoint: All 5 fixes complete
+Build status: (pending)
+Test status: (pending)
 
-**FIX-100C-01:** Collection membership recording ✅
-- Added collection_membership table to DatabaseManager.cs
-- Schema: id, collection_name, emby_item_id, source, last_seen
-- Upsert on (collection_name, emby_item_id)
-- Migration V17 → V18 adds this table
-- Repository methods: UpsertCollectionMembershipAsync, GetAllCollectionsAsync,
-  GetCollectionMembersAsync, RemoveCollectionMembersAsync, ClearCollectionMembershipsBySourceAsync
+### FIX-101A-01: UniqueID type attribute audit — COMPLETED
+- Created Services/UniqueIdMapper.cs with centralized provider-to-NFO-type mapping
+- Updated CatalogSyncTask.cs WriteUniqueIds to use UniqueIdMapper.MapProviderToNfoType()
+- Supports: imdb/tmdb/anilist/kitsu/mal/anidb → Imdb/Tmdb/AniList/Kitsu/MyAnimeList/AniDB
 
-**FIX-100C-02:** Collection sync task ✅
-- Created Tasks/CollectionSyncTask.cs
-- Implements IScheduledTask
-- For each distinct collection_name in collection_membership:
-  1. Searches for existing Emby BoxSet via Emby REST API
-  2. Creates new BoxSet if not found
-  3. Tags BoxSet as "EmbyStreams:managed"
-  4. Adds/removes items to/from BoxSet
-  5. Logs summary: added, removed, total members
-- Only operates on BoxSets tagged "EmbyStreams:managed"
-- Registered in TriggerService.cs with TaskCollectionSync constant
+### FIX-101A-02: AIOMetadata deserialization — COMPLETED
+- Created Models/AioMetaResponse.cs with comprehensive typed model
+- Added GetMetaAsyncTyped method to AioStreamsClient
+- Updated MetadataFallbackTask to use typed deserialization with fallback
 
-**FIX-100C-03:** Metadata chain ✅
-- Created Services/MetadataChainService.cs
-- Priority chain: Cinemeta → AIOMetadata → AIOStreams
-- Prioritizes Cinemeta for richer metadata (plot, genres, cast, images)
-- Records collection membership from all meta responses
-- Methods: FetchMetadataAsync, ClearCollectionMembershipsForSourceAsync
+### FIX-101A-03: Anime subtype routing (OVA/ONA/SPECIAL) — COMPLETED
+- Extended AnimeDetector.IsAnime with Tier 3 (subtype-based detection)
+- Added AnimeSubtype enum (TvSeries, OVA, ONA, Special, Unknown)
+- Added GetAnimeSubtype method to detect subtypes from metadata
+- Updated NFO writer with <contenttype>tvshows</contenttype> and <season>0</season> for specials
 
----
+### FIX-101A-04: OriginalTitle and SortTitle in all NFO paths — COMPLETED
+- Updated WriteNfoFileAsync in CatalogSyncTask to write originaltitle and sorttitle
+- Added BuildSortTitle helper to strip articles (The, A, An)
+- Updated WriteFullNfo and WriteFullNfoTyped in MetadataFallbackTask
+- Uses Titles.Romaji from AIOMetadata when available
 
-## New Files Created
-
-**Sprint 100B:**
-- Services/AnimeDetector.cs - Two-tier anime detection
-- Services/YearParser.cs - Year range parsing
-- Services/StreamIdParser.cs - Stream ID prefix extraction and validation
-- Tests/UniqueIdTests.cs - UniqueID attribute tests
-- Tests/StreamUrlTests.cs - Stream URL format tests
-
-**Sprint 100C:**
-- Tasks/CollectionSyncTask.cs - Collection sync scheduled task
-- Services/MetadataChainService.cs - Prioritized metadata chain
-- DatabaseManager.cs - Updated with collection_membership table and methods
-
----
-
-## Next Steps
-
-1. Build project: `dotnet build -c Release`
-2. Run tests: `dotnet test`
-3. Reset Emby server: `./emby-reset.sh`
-4. Push to GitHub: `git add . && git commit -m "feat: Sprint 100C — Collections, Metadata Chain and Security" && git push`
-
-**Note:** dotnet is not available in this environment. Build/test/push must be run in an environment with dotnet installed.
+### FIX-101A-05: Absolute episode number storage and NFO — COMPLETED
+- Added absolute_episode_number column to stream_candidates table (migration V18→V19)
+- Updated CurrentSchemaVersion to 19
+- Added AbsoluteEpisodeNumber property to StremioVideo model
+- Added displayepisodenumber element to episode NFO in SeriesPreExpansionService
+- Added AnimePendingItems field to health response
