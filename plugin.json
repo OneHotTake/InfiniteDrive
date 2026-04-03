@@ -1,0 +1,12 @@
+{
+  "guid": "3c45a87e-2b4f-4d1a-9e73-8f12c3456789",
+  "name": "EmbyStreams",
+  "description": "Real-Debrid streaming via AIOStreams — paste a URL, press Play, done.",
+  "overview": "Discover browsable streaming catalog from AIOStreams, play via Real-Debrid. Fetches catalogs, writes .strm files, resolves URLs on demand. No external processes needed.",
+  "owner": "EmbyStreams",
+  "category": "General",
+  "version": "0.52.0.0",
+  "targetAbi": "4.10.0.6",
+  "framework": "net8.0",
+  "imageUrl": ""
+}

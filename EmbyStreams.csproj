@@ -1,0 +1,102 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyVersion>0.51.0.0</AssemblyVersion>
+    <FileVersion>0.51.0.0</FileVersion>
+    <Version>0.51.0.0</Version>
+    <Nullable>enable</Nullable>
+    <RootNamespace>EmbyStreams</RootNamespace>
+    <AssemblyName>EmbyStreams</AssemblyName>
+    <Optimize>false</Optimize>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <Deterministic>false</Deterministic>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <!-- Suppress nullable warnings for Emby interfaces that lack annotations -->
+    <NoWarn>CS8618,CS8601,CS8603,CS8604</NoWarn>
+  </PropertyGroup>
+
+  <!-- Release: treat all remaining warnings as errors for a clean production build -->
+  <PropertyGroup Condition="'$(Configuration)'=='Release'">
+    <Optimize>true</Optimize>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Exclude node_modules from compilation -->
+    <Compile Remove="node_modules\**" />
+    <Content Remove="node_modules\**" />
+    <EmbeddedResource Remove="node_modules\**" />
+    <None Remove="node_modules\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      MediaBrowser.Server.Core provides IChannel and all plugin interfaces.
+      Version 4.9.1.90 is compatible with .NET 8.0 and Emby 4.10.0.6+
+    -->
+    <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
+    <!--
+      Emby Server assemblies — NOT from NuGet.
+      These are referenced from Emby installation or local libs/ folder.
+      Do NOT convert these to PackageReference — build will fail to find them.
+    -->
+    <Reference Include="MediaBrowser.Controller">
+      <HintPath>libs/MediaBrowser.Controller.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MediaBrowser.Model">
+      <HintPath>libs/MediaBrowser.Model.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="MediaBrowser.Common">
+      <HintPath>libs/MediaBrowser.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!--
+      MEL abstractions for ILogger / ILogger<T> / ILoggerFactory.
+      Emby 4.8+ uses MEL internally; these interfaces are injected by the
+      host at runtime.  We reference only the abstractions package so we
+      don't bundle a concrete implementation in the plugin DLL.
+    -->
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.4"
+                      PrivateAssets="All" ExcludeAssets="runtime" />
+
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Embed the dashboard HTML as a resource so Plugin.GetPages() can serve it -->
+    <EmbeddedResource Include="Configuration\configurationpage.html" />
+    <EmbeddedResource Include="Configuration\configurationpage.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Copy plugin.json to publish output (required by Emby 4.8+ plugin loader) -->
+    <None Include="plugin.json" CopyToPublishDirectory="Always" />
+    <!-- thumb.png is embedded in the DLL; Plugin.cs exposes it via IHasThumbImage -->
+    <EmbeddedResource Include="thumb.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      SQLitePCL.pretty shipped by Emby — reference for compile-time types only.
+      Private=false means these DLLs are NOT copied to our plugin output directory.
+      At runtime Emby's system directory is already in the default ALC; the plugin
+      ALC falls back to the default ALC so these DLLs are found automatically.
+      CS1705: version-mismatch warnings are suppressed — mismatches are benign
+      because at runtime the .NET 8 bindings are used, not the netstandard2.0 ones.
+    -->
+    <Reference Include="SQLitePCL.pretty">
+      <HintPath>/opt/emby-server/system/SQLitePCL.pretty.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="SQLitePCLRawEx.core">
+      <HintPath>/opt/emby-server/system/SQLitePCLRawEx.core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
