@@ -7,6 +7,8 @@ using System.Threading.Tasks;
 using EmbyStreams.Data;
 using EmbyStreams.Logging;
 using EmbyStreams.Services;
+using EmbyStreams.Repositories.Interfaces;
+using EmbyStreams.Repositories;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Drawing;
@@ -36,6 +38,7 @@ namespace EmbyStreams
         public static Plugin Instance { get; private set; } = null!;
 
         private readonly ILogger<Plugin> _logger;
+        private readonly ILogManager _logManager;
         private readonly IApplicationPaths _appPaths;
         private bool _secretEnsured;
 
@@ -106,6 +109,24 @@ namespace EmbyStreams
         public DatabaseManager DatabaseManager { get; private set; } = null!;
 
         /// <summary>
+        /// Catalog repository for catalog item operations (Sprint 104D-02).
+        /// Delegates to DatabaseManager - temporary adapter during split.
+        /// </summary>
+        public ICatalogRepository CatalogRepository { get; private set; } = null!;
+
+        /// <summary>
+        /// Pin repository interface for item pin/unpin operations.
+        /// Delegates to DatabaseManager (Sprint 104A-04).
+        /// </summary>
+        public IPinRepository PinRepository => DatabaseManager;
+
+        /// <summary>
+        /// Resolution cache repository interface for stream URL caching.
+        /// Delegates to DatabaseManager (Sprint 104A-04).
+        /// </summary>
+        public IResolutionCacheRepository ResolutionCacheRepository => DatabaseManager;
+
+        /// <summary>
         /// Initialises the EmbyStreams plugin.
         /// Emby injects <paramref name="appPaths"/>, <paramref name="xmlSerializer"/>
         /// and <paramref name="loggerFactory"/> automatically when loading the plugin.
@@ -118,6 +139,7 @@ namespace EmbyStreams
         {
             Instance = this;
             _appPaths = appPaths;
+            _logManager = logManager;
             _logger = new EmbyLoggerAdapter<Plugin>(logManager.GetLogger("EmbyStreams"));
 
             InitialiseDatabaseManager(appPaths);
@@ -282,6 +304,10 @@ namespace EmbyStreams
                 DatabaseManager = new DatabaseManager(dbDirectory, _logger);
                 DatabaseManager.Initialise();
                 _logger.LogInformation("[EmbyStreams] Database initialised at {DbDir}", dbDirectory);
+
+                // Initialise repository layer (Sprint 104D-02)
+                CatalogRepository = new CatalogRepository(DatabaseManager, _logManager);
+                _logger.LogInformation("[EmbyStreams] Repository layer initialised");
             }
             catch (Exception ex)
             {

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using EmbyStreams.Models;
+using EmbyStreams.Repositories.Interfaces;
 using MediaBrowser.Model.Channels;
 using MediaBrowser.Model.Dto;
 using SQLitePCL.pretty;
@@ -26,7 +27,7 @@ namespace EmbyStreams.Data
     /// All write operations are wrapped in transactions.
     /// All parameterised queries use named parameters — no string interpolation.
     /// </summary>
-    public class DatabaseManager
+    public class DatabaseManager : ICatalogRepository, IPinRepository, IResolutionCacheRepository
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
@@ -247,15 +248,33 @@ namespace EmbyStreams.Data
             CancellationToken cancellationToken = default)
         {
             var existing = await GetCatalogItemsBySourceAsync(source);
-            var removed  = new List<string>();
+            var toRemove = existing.Where(x => !currentImdbIds.Contains(x.ImdbId)).ToList();
 
-            foreach (var item in existing)
+            if (toRemove.Count == 0)
+                return new List<string>();
+
+            // Batch update all items in single query (fixes N+1)
+            var imdbIds = toRemove.Select(x => x.ImdbId).ToList();
+            var idsParam = string.Join(",", imdbIds.Select((_, i) => $"@id{i}"));
+
+            var sql = $@"
+                UPDATE catalog_items
+                SET removed_at = datetime('now')
+                WHERE imdb_id IN ({idsParam}) AND source = @source;";
+
+            var removed = new List<string>();
+            await ExecuteWriteAsync(sql, cmd =>
             {
-                if (currentImdbIds.Contains(item.ImdbId))
-                    continue;
+                BindText(cmd, "@source", source);
+                for (int i = 0; i < imdbIds.Count; i++)
+                {
+                    BindText(cmd, $"@id{i}", imdbIds[i]);
+                }
+            });
 
-                await MarkCatalogItemRemovedAsync(item.ImdbId, source, cancellationToken);
-
+            // Collect strm paths for file deletion
+            foreach (var item in toRemove)
+            {
                 if (!string.IsNullOrEmpty(item.StrmPath))
                     removed.Add(item.StrmPath);
             }
@@ -3264,6 +3283,151 @@ LIMIT 1";
             IsInUserLibrary = r.GetInt(11) != 0,
             AddedAt         = r.GetString(12),
         };
+
+        #region ICatalogRepository Explicit Implementation
+
+        async Task<IEnumerable<CatalogItem>> ICatalogRepository.GetAllAsync(CancellationToken ct)
+        {
+            return await GetActiveCatalogItemsAsync();
+        }
+
+        async Task<CatalogItem?> ICatalogRepository.GetByIdAsync(string imdbId, CancellationToken ct)
+        {
+            return await GetCatalogItemByImdbIdAsync(imdbId);
+        }
+
+        async Task ICatalogRepository.UpsertAsync(CatalogItem item, CancellationToken ct)
+        {
+            await UpsertCatalogItemAsync(item, ct);
+        }
+
+        async Task ICatalogRepository.DeleteAsync(string imdbId, CancellationToken ct)
+        {
+            // Mark as removed for all sources since interface only provides imdbId
+            const string sql = @"
+                UPDATE catalog_items
+                SET removed_at = datetime('now')
+                WHERE imdb_id = @imdb_id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@imdb_id", imdbId);
+            });
+        }
+
+        async Task<IEnumerable<CatalogItem>> ICatalogRepository.GetBySourceAsync(string sourceId, CancellationToken ct)
+        {
+            return await GetCatalogItemsBySourceAsync(sourceId);
+        }
+
+        #endregion
+
+        #region IPinRepository Explicit Implementation
+
+        async Task<bool> IPinRepository.IsPinnedAsync(string imdbId, CancellationToken ct)
+        {
+            var item = await GetCatalogItemByImdbIdAsync(imdbId);
+            return item?.ItemState == ItemState.Pinned;
+        }
+
+        async Task IPinRepository.PinAsync(string imdbId, CancellationToken ct)
+        {
+            var item = await GetCatalogItemByImdbIdAsync(imdbId);
+            if (item == null)
+            {
+                // Item doesn't exist in catalog - cannot pin
+                return;
+            }
+
+            item.ItemState = ItemState.Pinned;
+            item.PinSource = "user:manual";
+            item.PinnedAt = DateTime.UtcNow.ToString("o");
+            item.UpdatedAt = DateTime.UtcNow.ToString("o");
+
+            await UpsertCatalogItemAsync(item, ct);
+        }
+
+        async Task IPinRepository.UnpinAsync(string imdbId, CancellationToken ct)
+        {
+            var item = await GetCatalogItemByImdbIdAsync(imdbId);
+            if (item == null)
+            {
+                return;
+            }
+
+            item.ItemState = ItemState.Catalogued;
+            item.PinSource = null;
+            item.PinnedAt = null;
+            item.UpdatedAt = DateTime.UtcNow.ToString("o");
+
+            await UpsertCatalogItemAsync(item, ct);
+        }
+
+        async Task<IEnumerable<string>> IPinRepository.GetAllPinnedIdsAsync(CancellationToken ct)
+        {
+            const string sql = @"
+                SELECT imdb_id
+                FROM catalog_items
+                WHERE item_state = @item_state AND removed_at IS NULL;";
+
+            var result = await QueryListAsync(sql, cmd =>
+            {
+                BindNullableInt(cmd, "@item_state", (int)ItemState.Pinned);
+            }, row => row.GetString(0));
+            return result!;
+        }
+
+        #endregion
+
+        #region IResolutionCacheRepository Explicit Implementation
+
+        async Task<string?> IResolutionCacheRepository.GetCachedUrlAsync(
+            string imdbId, int? season, int episode, CancellationToken ct)
+        {
+            var entry = await GetCachedStreamAsync(imdbId, season, episode);
+            return entry?.StreamUrl;
+        }
+
+        async Task IResolutionCacheRepository.SetCachedUrlAsync(
+            string imdbId, int? season, int episode,
+            string resolvedUrl, DateTime expiresAt, CancellationToken ct)
+        {
+            var entry = new ResolutionEntry
+            {
+                ImdbId = imdbId,
+                Season = season,
+                Episode = episode,
+                StreamUrl = resolvedUrl,
+                ExpiresAt = expiresAt.ToString("o"),
+                Status = "valid",
+                ResolvedAt = DateTime.UtcNow.ToString("o")
+            };
+            await UpsertResolutionCacheAsync(entry, ct);
+        }
+
+        async Task IResolutionCacheRepository.InvalidateAsync(string imdbId, CancellationToken ct)
+        {
+            const string sql = @"
+                UPDATE resolution_cache
+                SET status = 'stale'
+                WHERE imdb_id = @imdb_id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@imdb_id", imdbId);
+            });
+        }
+
+        async Task IResolutionCacheRepository.PurgeExpiredAsync(CancellationToken ct)
+        {
+            const string sql = @"
+                DELETE FROM resolution_cache
+                WHERE expires_at < datetime('now');";
+
+            await ExecuteWriteAsync(sql, _ => { });
+        }
+
+        #endregion
     }
 
     /// <summary>
