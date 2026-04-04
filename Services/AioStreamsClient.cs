@@ -814,7 +814,7 @@ namespace EmbyStreams.Services
 
             try
             {
-                return JsonSerializer.Deserialize<AioMetaResponse>(json, JsonSerializerOptions);
+                return JsonSerializer.Deserialize<AioMetaResponse>(json, _jsonOptions);
             }
             catch (JsonException ex)
             {

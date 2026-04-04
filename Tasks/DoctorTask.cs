@@ -421,6 +421,21 @@ namespace EmbyStreams.Tasks
             }
             finally
             {
+                // Sprint 102A-03: Persist last doctor run time
+                if (Plugin.Instance?.DatabaseManager != null)
+                {
+                    try
+                    {
+                        await Plugin.Instance.DatabaseManager.PersistMetadataAsync(
+                            "last_doctor_run_time",
+                            DateTimeOffset.UtcNow.ToString("o"),
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[EmbyStreams] Failed to persist last_doctor_run_time");
+                    }
+                }
                 // Sprint 100A-10: Release global sync lock
                 Plugin.SyncLock.Release();
             }

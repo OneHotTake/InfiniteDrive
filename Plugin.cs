@@ -54,12 +54,49 @@ namespace EmbyStreams
         private static DateTimeOffset _manifestFetchedAt = DateTimeOffset.MinValue;
 
         /// <summary>
+        /// Manifest status: "ok" = loaded and within TTL, "stale" = loaded but past 12-hour TTL, "error" = last fetch failed or never loaded.
+        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// </summary>
+        private static string _manifestStatus = "error";
+
+        /// <summary>
         /// Gets or sets the manifest fetched timestamp.
         /// </summary>
         public static DateTimeOffset ManifestFetchedAt
         {
             get => _manifestFetchedAt;
             set => _manifestFetchedAt = value;
+        }
+
+        /// <summary>
+        /// Gets the current manifest status.
+        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// </summary>
+        public static string GetManifestStatus() => _manifestStatus;
+
+        /// <summary>
+        /// Sets the manifest status. Used by RefreshManifest to update state.
+        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// </summary>
+        internal static void SetManifestStatus(string status)
+        {
+            _manifestStatus = status;
+        }
+
+        /// <summary>
+        /// Checks if cached manifest is stale (> 12 hours old) and updates status.
+        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// </summary>
+        internal static void CheckManifestStale()
+        {
+            if (_manifestFetchedAt != DateTimeOffset.MinValue)
+            {
+                var age = DateTimeOffset.UtcNow - _manifestFetchedAt;
+                if (age > TimeSpan.FromHours(12))
+                {
+                    _manifestStatus = "stale";
+                }
+            }
         }
 
         /// <summary>

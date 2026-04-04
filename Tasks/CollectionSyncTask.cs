@@ -34,7 +34,7 @@ namespace EmbyStreams.Tasks
             DatabaseManager db,
             ILibraryManager libraryManager)
         {
-            _logger = new EmbyLoggerAdapter(logManager, typeof(CollectionSyncTask));
+            _logger = new EmbyLoggerAdapter<CollectionSyncTask>(logManager.GetLogger("EmbyStreams"));
             _db = db;
             _libraryManager = libraryManager;
         }
@@ -173,6 +173,21 @@ namespace EmbyStreams.Tasks
             {
                 _logger.LogError(ex, "[CollectionSyncTask] Collection sync failed");
             }
+            finally
+            {
+                // Sprint 102A-03: Persist last collection sync time
+                try
+                {
+                    await _db.PersistMetadataAsync(
+                        "last_collection_sync_time",
+                        DateTimeOffset.UtcNow.ToString("o"),
+                        CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[CollectionSyncTask] Failed to persist last_collection_sync_time");
+                }
+            }
         }
 
         /// <summary>
@@ -214,29 +229,33 @@ namespace EmbyStreams.Tasks
 
             // Check for existing managed BoxSet
             var items = doc.RootElement.GetProperty("Items").EnumerateArray();
-            var existingBoxSet = items.FirstOrDefault(item =>
+            JsonElement? existingBoxSet = null;
+            foreach (var item in items)
             {
                 if (!item.TryGetProperty("Name", out var nameProp))
-                    return false;
+                    continue;
                 var name = nameProp.GetString();
                 if (!string.Equals(name, collectionName, StringComparison.OrdinalIgnoreCase))
-                    return false;
+                    continue;
 
                 // Check for managed tag
                 if (item.TryGetProperty("Tags", out var tagsProp)
                     && tagsProp.ValueKind == JsonValueKind.Array)
                 {
-                    return tagsProp.EnumerateArray()
+                    var hasTag = tagsProp.EnumerateArray()
                         .Any(tag => string.Equals(
                             tag.GetString(),
                             "EmbyStreams:managed",
                             StringComparison.OrdinalIgnoreCase));
+                    if (hasTag)
+                    {
+                        existingBoxSet = item;
+                        break;
+                    }
                 }
+            }
 
-                return false;
-            });
-
-            if (existingBoxSet.HasValue)
+            if (existingBoxSet != null)
             {
                 var id = existingBoxSet.Value.GetProperty("Id").GetString();
                 _logger.LogDebug("[CollectionSyncTask] Found existing BoxSet '{Name}' with ID {Id}", collectionName, id);

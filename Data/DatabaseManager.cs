@@ -30,7 +30,7 @@ namespace EmbyStreams.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 19;
+        private const int CurrentSchemaVersion = 20;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -500,6 +500,41 @@ namespace EmbyStreams.Data
             await ExecuteWriteAsync("DELETE FROM sync_state;",        _ => { }, cancellationToken);
 
             return strmPaths;
+        }
+
+        /// <summary>
+        /// Persists a key-value pair to the plugin_metadata table.
+        /// Uses UPSERT semantics: updates value if key exists, inserts if not.
+        /// Sprint 102A-02: Plugin metadata table and persistence.
+        /// </summary>
+        public async Task PersistMetadataAsync(string key, string value, CancellationToken cancellationToken = default)
+        {
+            await ExecuteWriteAsync(
+                "INSERT INTO plugin_metadata (key, value, updated_at) VALUES (@key, @value, @updatedAt) " +
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;",
+                cmd =>
+                {
+                    BindText(cmd, "@key", key);
+                    BindText(cmd, "@value", value);
+                    BindText(cmd, "@updatedAt", DateTimeOffset.UtcNow.ToString("o"));
+                },
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// Retrieves a value from the plugin_metadata table.
+        /// Returns null if key not found.
+        /// Sprint 102A-02: Plugin metadata table and persistence.
+        /// </summary>
+        public string? GetMetadata(string key)
+        {
+            const string sql = "SELECT value FROM plugin_metadata WHERE key = @key;";
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@key", key);
+            foreach (var row in stmt.AsRows())
+                return row.GetString(0);
+            return null;
         }
 
         public async Task<List<CatalogItem>> GetItemsMissingStrmAsync()
@@ -1736,7 +1771,7 @@ namespace EmbyStreams.Data
                 int idx = 1;
                 foreach (var itemId in itemIds)
                 {
-                    cmd.BindParameters["@item" + idx] = itemId;
+                    BindText(cmd, "@item" + idx, itemId);
                     idx++;
                 }
             }, cancellationToken);
@@ -2543,6 +2578,23 @@ ALTER TABLE stream_candidates ADD COLUMN absolute_episode_number INTEGER;");
                 ExecuteInline(conn,
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (19);");
                 version = 19;
+            }
+
+            // ── V19 → V20 ────────────────────────────────────────────────────────
+            // Adds plugin_metadata table for persisting key-value pairs like last sync times.
+            // Sprint 102A-02: Plugin metadata table and persistence.
+            if (version < 20)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V20", version);
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS plugin_metadata (
+    key   TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);");
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (20);");
+                version = 20;
             }
             }
 

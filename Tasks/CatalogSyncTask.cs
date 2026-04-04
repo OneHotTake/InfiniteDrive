@@ -387,7 +387,7 @@ namespace EmbyStreams.Tasks
                     foreach (var meta in response.Metas)
                     {
                         if (items.Count >= itemCap) break;
-                        var item = MapMetaToItem(meta, catalog);
+                        var item = MapMetaToItem(meta, catalog, logger);
                         if (item != null)
                             items.Add(item);
                     }
@@ -462,7 +462,7 @@ namespace EmbyStreams.Tasks
         }
 
         internal static CatalogItem? MapMetaToItem(
-            AioStreamsMeta meta, AioStreamsCatalogDef catalog)
+            AioStreamsMeta meta, AioStreamsCatalogDef catalog, ILogger logger)
         {
             // Resolve IMDB ID — AIOStreams may use the IMDB ID directly as 'id'
             // or put it in a separate imdb_id field.
@@ -484,7 +484,7 @@ namespace EmbyStreams.Tasks
             {
                 case "channel":
                 case "tv":
-                    _logger.LogInformation(
+                    logger.LogInformation(
                         "[EmbyStreams] Skipping item '{Title}' - catalog type '{Type}' is not supported",
                         meta.Name ?? "Unknown", rawType);
                     return null;
@@ -502,7 +502,7 @@ namespace EmbyStreams.Tasks
                     break;
 
                 default:
-                    _logger.LogWarning(
+                    logger.LogWarning(
                         "[EmbyStreams] Skipping item '{Title}' - unknown catalog type '{Type}'",
                         meta.Name ?? "Unknown", rawType);
                     return null;
@@ -599,6 +599,18 @@ namespace EmbyStreams.Tasks
             }
             return config.CatalogItemCap;
         }
+
+        private static string? GetMetaString(JsonElement? meta, string propertyName)
+        {
+            if (meta == null) return null;
+            var value = meta.Value;
+            if (value.TryGetProperty(propertyName, out var prop))
+            {
+                if (prop.ValueKind == JsonValueKind.String)
+                    return prop.GetString();
+            }
+            return null;
+        }
     }
 
     // ── Stremio catalog addon provider ─────────────────────────────────────────
@@ -679,7 +691,7 @@ namespace EmbyStreams.Tasks
                     if (c.Extra != null && c.Extra.Any(e => e.IsRequired == true))
                     {
                         logger.LogInformation(
-                            "[EmbyStreams] Skipping catalog '{Name}' ({Id}) — requires additional " +
+                            "[EmbyStreams] Skipping catalog '{Catalog}' — requires additional " +
                             "configuration in AIOStreams",
                             c.Name ?? c.Id);
                         return false;
@@ -890,6 +902,21 @@ namespace EmbyStreams.Tasks
             }
             finally
             {
+                // Sprint 102A-03: Persist last sync time
+                if (Plugin.Instance?.DatabaseManager != null)
+                {
+                    try
+                    {
+                        await Plugin.Instance.DatabaseManager.PersistMetadataAsync(
+                            "last_sync_time",
+                            DateTimeOffset.UtcNow.ToString("o"),
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[EmbyStreams] Failed to persist last_sync_time");
+                    }
+                }
                 // Sprint 100A-10: Release global sync lock
                 Plugin.SyncLock.Release();
             }
@@ -1636,7 +1663,7 @@ namespace EmbyStreams.Tasks
             }
 
             // Add all unique IDs from both catalog item and metadata
-            WriteUniqueIds(sb, item, meta);
+            WriteUniqueIds(sb, item, meta, _logger);
 
             // Add plot from metadata if available
             if (meta?.TryGetProperty("description", out var descProp) == true && !string.IsNullOrEmpty(descProp.GetString()))
@@ -1679,29 +1706,43 @@ namespace EmbyStreams.Tasks
             return success;
         }
 
-        private static void WriteUniqueIds(StringBuilder sb, CatalogItem item, JsonElement? meta)
+        private static void WriteUniqueIds(StringBuilder sb, CatalogItem item, JsonElement? meta, ILogger logger)
         {
             // Sprint 100A-06: ID prefix routing with correct NFO type attributes
 
             // IMDB ID (always present in catalog item)
             if (!string.IsNullOrEmpty(item.ImdbId))
             {
+                logger.LogDebug("[EmbyStreams] WriteUniqueIds: IMDB ID {ImdbId}", item.ImdbId);
                 sb.AppendLine($"  <uniqueid type=\"Imdb\" default=\"true\">{item.ImdbId}</uniqueid>");
             }
 
             // TMDB ID from catalog item
             if (!string.IsNullOrEmpty(item.TmdbId))
             {
+                logger.LogDebug("[EmbyStreams] WriteUniqueIds: TMDB ID {TmdbId}", item.TmdbId);
                 sb.AppendLine($"  <uniqueid type=\"Tmdb\">{item.TmdbId}</uniqueid>");
             }
 
             // Anime-specific provider IDs from metadata
             if (!string.IsNullOrEmpty(GetMetaString(meta, "anilist_id")))
-                sb.AppendLine($"  <uniqueid type=\"AniList\">{GetMetaString(meta, "anilist_id")}</uniqueid>");
+            {
+                var anilistId = GetMetaString(meta, "anilist_id");
+                logger.LogDebug("[EmbyStreams] WriteUniqueIds: AniList ID {AniListId}", anilistId);
+                sb.AppendLine($"  <uniqueid type=\"AniList\">{anilistId}</uniqueid>");
+            }
             if (!string.IsNullOrEmpty(GetMetaString(meta, "kitsu_id")))
-                sb.AppendLine($"  <uniqueid type=\"Kitsu\">{GetMetaString(meta, "kitsu_id")}</uniqueid>");
+            {
+                var kitsuId = GetMetaString(meta, "kitsu_id");
+                logger.LogDebug("[EmbyStreams] WriteUniqueIds: Kitsu ID {KitsuId}", kitsuId);
+                sb.AppendLine($"  <uniqueid type=\"Kitsu\">{kitsuId}</uniqueid>");
+            }
             if (!string.IsNullOrEmpty(GetMetaString(meta, "mal_id")))
-                sb.AppendLine($"  <uniqueid type=\"MyAnimeList\">{GetMetaString(meta, "mal_id")}</uniqueid>");
+            {
+                var malId = GetMetaString(meta, "mal_id");
+                logger.LogDebug("[EmbyStreams] WriteUniqueIds: MyAnimeList ID {MalId}", malId);
+                sb.AppendLine($"  <uniqueid type=\"MyAnimeList\">{malId}</uniqueid>");
+            }
 
             // Legacy provider IDs (for backward compatibility with NFO readers)
             if (!string.IsNullOrEmpty(GetMetaString(meta, "tmdb_id")))
@@ -1725,8 +1766,8 @@ namespace EmbyStreams.Tasks
                         !string.IsNullOrEmpty(provider.GetString()) &&
                         !string.IsNullOrEmpty(id.GetString()))
                     {
-                        var providerName = provider.GetString();
-                        var idValue = id.GetString();
+                        var providerName = provider.GetString() ?? string.Empty;
+                        var idValue = id.GetString() ?? string.Empty;
 
                         // Skip if we already wrote this ID from catalog item
                         if (string.Equals(providerName, "imdb", StringComparison.OrdinalIgnoreCase) &&
@@ -1749,17 +1790,14 @@ namespace EmbyStreams.Tasks
 
                         if (nfoType != null)
                         {
+                            logger.LogDebug("[EmbyStreams] WriteUniqueIds: {Provider} ID {Id}", providerName, idValue);
                             sb.AppendLine($"  <uniqueid type=\"{nfoType}\">{idValue}</uniqueid>");
                         }
                         else
                         {
-                            // Sprint 100A-06: Unknown provider prefix - log at Debug level
-                            _logger.LogDebug(
-                                "[EmbyStreams] Unknown provider prefix '{Provider}' for item {Item}. " +
-                                "Storing as unknown_{Provider} with ID {Id}.",
-                                providerName, item.ImdbId, idValue);
-
+                            // Sprint 100A-06: Unknown provider prefix - store as-is
                             // Store as-is in catch-all unknown field (not standard NFO, but preserves data)
+                            logger.LogWarning("[EmbyStreams] WriteUniqueIds: Unknown provider prefix '{Provider}' for {ImdbId}", providerName, item.ImdbId);
                             sb.AppendLine($"  <unknown_{providerName}>{idValue}</unknown_{providerName}>");
                         }
                     }
