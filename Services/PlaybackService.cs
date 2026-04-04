@@ -107,6 +107,10 @@ namespace EmbyStreams.Services
             = new Dictionary<string, (int count, DateTime resetTime)>();
         private static readonly object RateLimitLock = new object();
 
+        // Lazy cleanup threshold for rate limit bucket (Sprint 104B-03)
+        private static int _rateLimitAccessCount;
+        private const int RateLimitCleanupThreshold = 100;
+
         // ── IRequiresRequest ─────────────────────────────────────────────────────
 
         /// <inheritdoc/>
@@ -1020,6 +1024,12 @@ namespace EmbyStreams.Services
             {
                 var now = DateTime.UtcNow;
 
+                // Lazy cleanup: purge old entries periodically (Sprint 104B-03)
+                if (++_rateLimitAccessCount % RateLimitCleanupThreshold == 0)
+                {
+                    CleanupExpiredRateLimitEntries(now);
+                }
+
                 if (RateLimitBucket.TryGetValue(bucketKey, out var entry))
                 {
                     // Check if we need to reset the bucket (1 minute elapsed)
@@ -1082,6 +1092,30 @@ namespace EmbyStreams.Services
             for (int i = 2; i < imdb.Length; i++)
                 if (!char.IsDigit(imdb[i])) return false;
             return imdb.Length <= 10; // tt + up to 8 digits
+        }
+
+        /// <summary>
+        /// Removes old rate limit entries to prevent memory leaks (Sprint 104B-03).
+        /// Entries older than 2 minutes are removed since rate limit reset is 1 minute.
+        /// Called lazily every 100 accesses to avoid impacting performance.
+        /// </summary>
+        private static void CleanupExpiredRateLimitEntries(DateTime now)
+        {
+            var expiredKeys = new List<string>();
+            var cutoff = now.AddMinutes(-2);
+
+            foreach (var kvp in RateLimitBucket)
+            {
+                if (kvp.Value.resetTime < cutoff)
+                {
+                    expiredKeys.Add(kvp.Key);
+                }
+            }
+
+            foreach (var key in expiredKeys)
+            {
+                RateLimitBucket.Remove(key);
+            }
         }
     }
 }

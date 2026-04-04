@@ -47,6 +47,10 @@ namespace EmbyStreams.Services
         private static readonly ConcurrentDictionary<string, (int count, DateTime expires)>
             _episodeCountCache = new();
 
+        // Lazy cleanup threshold: clean expired entries after this many access
+        private static int _cacheAccessCount;
+        private const int CacheCleanupThreshold = 100;
+
         // ── Constructor ─────────────────────────────────────────────────────────
 
         /// <summary>
@@ -388,6 +392,12 @@ namespace EmbyStreams.Services
         {
             const int Fallback = 30;
 
+            // Lazy cleanup: purge expired entries periodically (Sprint 104B-02)
+            if (++_cacheAccessCount % CacheCleanupThreshold == 0)
+            {
+                CleanupExpiredCacheEntries();
+            }
+
             // Check cache first (6-hour TTL)
             var cacheKey = $"{imdbId}:S{season}";
             if (_episodeCountCache.TryGetValue(cacheKey, out var cached) && cached.expires > DateTime.UtcNow)
@@ -522,6 +532,29 @@ namespace EmbyStreams.Services
         {
             var client = e.Session?.Client;
             return StreamHelpers.NormalizeClientType(client);
+        }
+
+        /// <summary>
+        /// Removes expired cache entries to prevent memory leaks (Sprint 104B-02).
+        /// Called lazily every 100 cache accesses to avoid impacting performance.
+        /// </summary>
+        private static void CleanupExpiredCacheEntries()
+        {
+            var now = DateTime.UtcNow;
+            var expiredKeys = new List<string>();
+
+            foreach (var kvp in _episodeCountCache)
+            {
+                if (kvp.Value.expires < now)
+                {
+                    expiredKeys.Add(kvp.Key);
+                }
+            }
+
+            foreach (var key in expiredKeys)
+            {
+                _episodeCountCache.TryRemove(key, out _);
+            }
         }
     }
 }

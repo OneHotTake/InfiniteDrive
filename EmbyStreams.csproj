@@ -64,6 +64,11 @@
     -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.4"
                       PrivateAssets="All" ExcludeAssets="runtime" />
+    <!--
+      Polly resilience patterns for HTTP calls to AIOStreams (Sprint 104C)
+      Provides retry, circuit breaker, and timeout policies.
+    -->
+    <PackageReference Include="Polly" Version="8.4.0" />
 
   </ItemGroup>
 

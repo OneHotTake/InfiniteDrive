@@ -8,6 +8,8 @@ using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using EmbyStreams.Models;
+using EmbyStreams.Resilience;
+using Polly;
 
 namespace EmbyStreams.Services
 {
@@ -577,10 +579,19 @@ namespace EmbyStreams.Services
             Timeout = TimeSpan.FromSeconds(TimeoutSeconds)
         };
 
+        // Polly resilience policy for AIOStreams HTTP calls (Sprint 104C-03)
+        // Note: Policy is created per instance to use instance logger
+        private readonly AsyncPolicy<HttpResponseMessage> _resiliencePolicy;
+
         static AioStreamsClient()
         {
             _sharedHttp.DefaultRequestHeaders.TryAddWithoutValidation(
                 "User-Agent", UserAgent);
+        }
+
+        private AsyncPolicy<HttpResponseMessage> CreateResiliencePolicy()
+        {
+            return AIOStreamsResiliencePolicy.CreatePolicy(_logger);
         }
 
         private readonly ILogger  _logger;
@@ -597,6 +608,7 @@ namespace EmbyStreams.Services
         public AioStreamsClient(PluginConfiguration config, ILogger logger)
         {
             _logger = logger;
+            _resiliencePolicy = CreateResiliencePolicy();
 
             // Attempt to parse the primary manifest URL.
             var (baseUrl, uuid, token) = TryParseManifestUrl(config.PrimaryManifestUrl);
@@ -617,6 +629,7 @@ namespace EmbyStreams.Services
         public AioStreamsClient(string baseUrl, string? uuid, string? token, ILogger logger)
         {
             _logger      = logger;
+            _resiliencePolicy = CreateResiliencePolicy();
             _stremioBase = BuildStremioBase(baseUrl.TrimEnd('/'), uuid, token);
             _rawToken    = string.IsNullOrWhiteSpace(token) ? null : token;
         }
@@ -1069,7 +1082,10 @@ namespace EmbyStreams.Services
                 {
                     _logger.LogDebug("[EmbyStreams] GET {Url} (attempt {Attempt}/{Max})",
                         safeUrl, attempt, maxAttempts);
-                    var response = await _sharedHttp.GetAsync(url, cancellationToken);
+
+                    // Apply Polly resilience policy for timeout and circuit breaker (Sprint 104C-03)
+                    var response = await _resiliencePolicy.ExecuteAsync(async ct =>
+                        await _sharedHttp.GetAsync(url, ct), cancellationToken);
 
                     if (!response.IsSuccessStatusCode)
                     {
@@ -1157,7 +1173,9 @@ namespace EmbyStreams.Services
             try
             {
                 _logger.LogDebug("[EmbyStreams] GET {Url}", safeUrl);
-                var response = await _sharedHttp.GetAsync(url, cancellationToken);
+                // Apply Polly resilience policy for timeout and circuit breaker (Sprint 104C-03)
+                var response = await _resiliencePolicy.ExecuteAsync(async ct =>
+                    await _sharedHttp.GetAsync(url, ct), cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     var code = (int)response.StatusCode;
@@ -1196,7 +1214,9 @@ namespace EmbyStreams.Services
             try
             {
                 _logger.LogDebug("[EmbyStreams] GET {Url}", safeUrl);
-                var response = await _sharedHttp.GetAsync(url, cancellationToken);
+                // Apply Polly resilience policy for timeout and circuit breaker (Sprint 104C-03)
+                var response = await _resiliencePolicy.ExecuteAsync(async ct =>
+                    await _sharedHttp.GetAsync(url, ct), cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     var code = (int)response.StatusCode;
