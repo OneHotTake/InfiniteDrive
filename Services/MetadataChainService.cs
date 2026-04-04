@@ -50,7 +50,6 @@ namespace EmbyStreams.Services
             CancellationToken cancellationToken = default)
         {
             JsonElement? meta = null;
-            string? source = null;
 
             // 1. Try Cinemeta (richer metadata)
             if (enableCinemeta)
@@ -64,9 +63,8 @@ namespace EmbyStreams.Services
                     var cinemetaClient = new AioStreamsClient(CinemetaBaseUrl, string.Empty, string.Empty, _logger);
                     meta = await cinemetaClient.GetMetaAsync(itemType, itemId, cancellationToken);
 
-                    if (meta != null && meta.ValueKind == JsonValueKind.Object)
+                    if (meta != null && meta.Value.ValueKind == JsonValueKind.Object)
                     {
-                        source = "cinemeta";
                         _logger.LogDebug(
                             "[MetadataChainService] Got metadata from Cinemeta for {Type} {Id}",
                             itemType, itemId);
@@ -97,9 +95,8 @@ namespace EmbyStreams.Services
                     var aioMetaClient = new AioStreamsClient(aioMetadataUrl, string.Empty, string.Empty, _logger);
                     meta = await aioMetaClient.GetMetaAsync(itemType, itemId, cancellationToken);
 
-                    if (meta != null && meta.ValueKind == JsonValueKind.Object)
+                    if (meta != null && meta.Value.ValueKind == JsonValueKind.Object)
                     {
-                        source = "aiometadata";
                         _logger.LogDebug(
                             "[MetadataChainService] Got metadata from AIOMetadata for {Type} {Id}",
                             itemType, itemId);
@@ -130,9 +127,8 @@ namespace EmbyStreams.Services
                     var aioClient = new AioStreamsClient(aioManifestUrl, string.Empty, string.Empty, _logger);
                     meta = await aioClient.GetMetaAsync(itemType, itemId, cancellationToken);
 
-                    if (meta != null && meta.ValueKind == JsonValueKind.Object)
+                    if (meta != null && meta.Value.ValueKind == JsonValueKind.Object)
                     {
-                        source = "aiostreams";
                         _logger.LogDebug(
                             "[MetadataChainService] Got metadata from AIOStreams for {Type} {Id}",
                             itemType, itemId);

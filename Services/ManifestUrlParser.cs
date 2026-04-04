@@ -126,7 +126,7 @@ namespace EmbyStreams.Services
                 result.ErrorMessage = "Request timed out. Check your network connection.";
                 return result;
             }
-            catch (System.Net.Http.HttpException ex)
+            catch (System.Net.Http.HttpRequestException ex)
             {
                 result.ErrorType = "connection";
                 result.ErrorMessage = $"Connection failed: {ex.Message}";

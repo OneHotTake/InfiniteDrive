@@ -1,51 +1,62 @@
 ---
 status: in_progress
-task: Sprint 101A — NFO Correctness & Plugin Compatibility
-next_action: Build, test, verify Sprint 101A
-last_updated: 2026-04-03
+task: Sprint 102 — Health Endpoint Real Data & Logger Refactor — COMPLETED
+next_action: None - Sprint complete
+last_updated: 2026-04-04
 
-## Sprint 100 — COMPLETED
+## Sprint 101 — COMPLETED
 
-Sprint 100 is complete with all phases implemented:
-- Sprint 100A: Foundation Hardening (13/13 fixes)
-- Sprint 100B: Anime, Series and Content Type Completeness (10/10 fixes)
-- Sprint 100C: Collections, Metadata Chain and Security (3/3 fixes)
+Sprint 101 is complete with all phases implemented:
+- Sprint 101A: NFO Correctness & Plugin Compatibility (5/5 fixes)
 
 ---
 
-## Sprint 101A — NFO Correctness & Plugin Compatibility (IN PROGRESS)
+## Sprint 102 — COMPLETED
 
-Status: IN PROGRESS
-Last completed fix: FIX-101A-05 (Absolute episode number storage and NFO)
-Last checkpoint: All 5 fixes complete
-Build status: (pending)
-Test status: (pending)
+### FIX-102A-01: MANIFESTSTATUS PROPERTY AND STATE MACHINE — COMPLETE
+- Added private field `_manifestStatus = "error"` to Plugin.cs
+- Added `GetManifestStatus()` method to Plugin.cs
+- Added `SetManifestStatus()` method to Plugin.cs
+- Added `CheckManifestStale()` method to Plugin.cs
+- Added `ManifestStatus` property to HealthResponse.cs
+- Updated RefreshManifest in StatusService.cs to set status based on fetch state
+- Build status: PASS
+- Test status: PASS
 
-### FIX-101A-01: UniqueID type attribute audit — COMPLETED
-- Created Services/UniqueIdMapper.cs with centralized provider-to-NFO-type mapping
-- Updated CatalogSyncTask.cs WriteUniqueIds to use UniqueIdMapper.MapProviderToNfoType()
-- Supports: imdb/tmdb/anilist/kitsu/mal/anidb → Imdb/Tmdb/AniList/Kitsu/MyAnimeList/AniDB
+### FIX-102A-02: PLUGIN_METADATA TABLE AND PERSISTENCE — COMPLETE
+- Added V19→V20 migration to create `plugin_metadata` table with schema
+- Updated CurrentSchemaVersion from 19 to 20
+- Added `PersistMetadataAsync()` method with UPSERT SQL
+- Added `GetMetadata()` sync method using OpenConnection pattern
+- Build status: PASS
 
-### FIX-101A-02: AIOMetadata deserialization — COMPLETED
-- Created Models/AioMetaResponse.cs with comprehensive typed model
-- Added GetMetaAsyncTyped method to AioStreamsClient
-- Updated MetadataFallbackTask to use typed deserialization with fallback
+### FIX-102A-03: LASTSYNCTIME WRITTEN BY TASKS — COMPLETE
+- Added `PersistMetadataAsync()` call in CatalogSyncTask finally block for "last_sync_time"
+- Added `PersistMetadataAsync()` call in DoctorTask finally block for "last_doctor_run_time"
+- Added `PersistMetadataAsync()` call in CollectionSyncTask finally block for "last_collection_sync_time"
+- Build status: PASS
 
-### FIX-101A-03: Anime subtype routing (OVA/ONA/SPECIAL) — COMPLETED
-- Extended AnimeDetector.IsAnime with Tier 3 (subtype-based detection)
-- Added AnimeSubtype enum (TvSeries, OVA, ONA, Special, Unknown)
-- Added GetAnimeSubtype method to detect subtypes from metadata
-- Updated NFO writer with <contenttype>tvshows</contenttype> and <season>0</season> for specials
+### FIX-102A-04: LASTSYNCTIME READ IN STATUSSERVICE — COMPLETE
+- Added `LastDoctorRunTime` property to HealthResponse
+- Added `LastCollectionSyncTime` property to HealthResponse
+- Updated HealthService.Get() to read all three timestamps from plugin_metadata
+- Build status: PASS
 
-### FIX-101A-04: OriginalTitle and SortTitle in all NFO paths — COMPLETED
-- Updated WriteNfoFileAsync in CatalogSyncTask to write originaltitle and sorttitle
-- Added BuildSortTitle helper to strip articles (The, A, An)
-- Updated WriteFullNfo and WriteFullNfoTyped in MetadataFallbackTask
-- Uses Titles.Romaji from AIOMetadata when available
+### FIX-102B-01: WRITEUNIQUEIDS LOGGER PARAMETER — COMPLETE
+- Added `ILogger logger` parameter to `WriteUniqueIds()` method in CatalogSyncTask
+- Build status: PASS
 
-### FIX-101A-05: Absolute episode number storage and NFO — COMPLETED
-- Added absolute_episode_number column to stream_candidates table (migration V18→V19)
-- Updated CurrentSchemaVersion to 19
-- Added AbsoluteEpisodeNumber property to StremioVideo model
-- Added displayepisodenumber element to episode NFO in SeriesPreExpansionService
-- Added AnimePendingItems field to health response
+### FIX-102B-02: RESTORE LOGDEBUG IN WRITEUNIQUEIDS — COMPLETE
+- Added LogDebug calls for IMDB, TMDB, AniList, Kitsu, MyAnimeList IDs
+- Added LogDebug call for additional unique IDs from metadata
+- Added LogWarning for unknown provider prefixes
+- Build status: PASS
+
+### FIX-102B-03: UPDATE ALL CALL SITES — COMPLETE
+- Verified only one call site to WriteUniqueIds (line 1666 in CatalogSyncTask)
+- Updated call site to pass `_logger` parameter
+- Build status: PASS
+
+---
+
+Last checkpoint: Sprint 102 complete — all 7 fixes implemented, build OK

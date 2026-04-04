@@ -5,6 +5,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using EmbyStreams;
 using EmbyStreams.Data;
 using EmbyStreams.Logging;
 using EmbyStreams.Models;
@@ -12,6 +13,7 @@ using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
+using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
 namespace EmbyStreams.Services
 {
@@ -1553,6 +1555,9 @@ namespace EmbyStreams.Services
                 };
             }
 
+            // Sprint 102A-01: Check if manifest is stale before fetching
+            Plugin.CheckManifestStale();
+
             _logger.LogInformation("[EmbyStreams] RefreshManifest: Force-refreshing manifest from {Url}",
                 config.PrimaryManifestUrl);
 
@@ -1564,16 +1569,19 @@ namespace EmbyStreams.Services
                 if (manifest == null)
                 {
                     _logger.LogWarning("[EmbyStreams] RefreshManifest: Failed to fetch manifest");
+                    // Sprint 102A-01: Set status to error on fetch failure
+                    Plugin.SetManifestStatus("error");
                     return new RefreshManifestResponse
                     {
                         Status = "error",
-                        ManifestStatus = "error",
+                        ManifestStatus = Plugin.GetManifestStatus(),
                         ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
                     };
                 }
 
-                // Update manifest fetch timestamp
+                // Update manifest fetch timestamp and set status to ok
                 Plugin.ManifestFetchedAt = DateTimeOffset.UtcNow;
+                Plugin.SetManifestStatus("ok");
 
                 // Extract summary info from manifest
                 var resourceTypes = new List<string>();
@@ -1587,17 +1595,16 @@ namespace EmbyStreams.Services
                 }
 
                 var idPrefixes = new List<string>();
-                var idPrefixesSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                if (manifest.StreamPrefixes != null)
+                if (manifest.IdPrefixes != null)
                 {
-                    foreach (var prefix in manifest.StreamPrefixes.Split(','))
+                    foreach (var prefix in manifest.IdPrefixes)
                     {
                         var trimmed = prefix.Trim();
-                        if (!string.IsNullOrEmpty(trimmed) && !idPrefixesSet.Contains(trimmed))
-                            idPrefixesSet.Add(trimmed);
+                        if (!string.IsNullOrEmpty(trimmed) && !idPrefixes.Contains(trimmed))
+                            idPrefixes.Add(trimmed);
                     }
                 }
-                if (!idPrefixesSet.Contains("tt")) idPrefixes.Add("tt");
+                if (!idPrefixes.Contains("tt")) idPrefixes.Add("tt");
 
                 var catalogCount = manifest.Catalogs?.Count ?? 0;
 
@@ -1609,7 +1616,7 @@ namespace EmbyStreams.Services
                 return new RefreshManifestResponse
                 {
                     Status = "ok",
-                    ManifestStatus = "ok",
+                    ManifestStatus = Plugin.GetManifestStatus(),
                     ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
                     CatalogCount = catalogCount,
                     ResourceTypes = resourceTypes,
@@ -1619,10 +1626,12 @@ namespace EmbyStreams.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[EmbyStreams] RefreshManifest: Exception during manifest refresh");
+                // Sprint 102A-01: Set status to error on exception
+                Plugin.SetManifestStatus("error");
                 return new RefreshManifestResponse
                 {
                     Status = "error",
-                    ManifestStatus = "error",
+                    ManifestStatus = Plugin.GetManifestStatus(),
                     ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
                 };
             }
@@ -2350,6 +2359,14 @@ body{{
         /// <summary>ISO8601 timestamp when manifest was last fetched.</summary>
         public string? ManifestLastFetched { get; set; }
 
+        /// <summary>
+        /// Manifest status: ok = manifest loaded and within TTL;
+        /// stale = manifest loaded but past 12-hour TTL;
+        /// error = last fetch failed or no manifest has loaded yet.
+        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// </summary>
+        public string ManifestStatus { get; set; } = "error";
+
         /// <summary>Number of catalogs in manifest.</summary>
         public int CatalogCount { get; set; }
 
@@ -2371,6 +2388,16 @@ body{{
 
         /// <summary>Last sync time (ISO8601).</summary>
         public string? LastSyncTime { get; set; }
+
+        /// <summary>Last doctor run time (ISO8601).</summary>
+        /// Sprint 102A-04: Read from plugin_metadata table.
+        /// </summary>
+        public string? LastDoctorRunTime { get; set; }
+
+        /// <summary>Last collection sync time (ISO8601).</summary>
+        /// Sprint 102A-04: Read from plugin_metadata table.
+        /// </summary>
+        public string? LastCollectionSyncTime { get; set; }
 
         /// <summary>Blocked addon names.</summary>
         public List<string> BlockedAddons { get; set; } = new List<string>();
@@ -2431,7 +2458,9 @@ body{{
                     manifestStatus = age > TimeSpan.FromHours(12) ? "stale" : "ok";
                 }
 
-                response.ManifestStatus = manifestStatus;
+                // Manifest status
+                // Sprint 102A-01: Restored - was commented out as workaround in Sprint100-HF1 because property did not exist
+                response.ManifestStatus = Plugin.GetManifestStatus();
                 response.ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o");
 
                 // Catalog count (from manifest, approximate)
@@ -2439,19 +2468,21 @@ body{{
 
                 // Catalogs skipped
                 // For now, return empty list - would need to track during sync
-                response.CatalogsSkipped = new List<CatalogSkippedEntry>();
+                response.CatalogsSkipped = new List<HealthResponse.CatalogSkippedEntry>();
 
                 // Stream resolution success rate
                 var cacheStats = await db.GetResolutionCacheStatsAsync();
                 float successRate = 0;
-                if (cacheStats.ValidCached + cacheStats.StaleCached + cacheStats.Failed > 0)
+                if (cacheStats.ValidUnexpired + cacheStats.Stale + cacheStats.Failed > 0)
                 {
-                    successRate = (float)cacheStats.ValidCached / (cacheStats.ValidCached + cacheStats.StaleCached + cacheStats.Failed);
+                    successRate = (float)cacheStats.ValidUnexpired / (cacheStats.ValidUnexpired + cacheStats.Stale + cacheStats.Failed);
                 }
                 response.StreamResolutionSuccessRate = successRate;
 
-                // Last sync time
-                response.LastSyncTime = db.GetLastSyncTimeIso(); // Would need to implement
+                // Last sync times (Sprint 102A-04: Read from plugin_metadata table)
+                response.LastSyncTime = db.GetMetadata("last_sync_time");
+                response.LastDoctorRunTime = db.GetMetadata("last_doctor_run_time");
+                response.LastCollectionSyncTime = db.GetMetadata("last_collection_sync_time");
 
                 // Blocked addons
                 response.BlockedAddons = new List<string>();

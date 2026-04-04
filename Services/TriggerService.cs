@@ -184,13 +184,13 @@ namespace EmbyStreams.Services
                 // Sprint 66: Doctor — unified catalog reconciliation engine
                 case TaskDoctor:
                     FireAndForget(ct => new DoctorTask(_libraryManager, _logManager)
-                        .Execute(ct, new Progress<double>()), TaskKey);
+                        .Execute(ct, new Progress<double>()), TaskDoctor);
                     break;
 
                 // Sprint 100C-02: Collection sync task
                 case TaskCollectionSync:
                     FireAndForget(ct => new CollectionSyncTask(_logManager, Plugin.Instance?.DatabaseManager!, _libraryManager)
-                        .Execute(ct, new Progress<double>()), TaskKey);
+                        .Execute(ct, new Progress<double>()), TaskCollectionSync);
                     break;
 
                 case TaskClearClientProfiles:

@@ -1,5 +1,7 @@
 using System;
 using EmbyStreams.Services;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace EmbyStreams.Tests
 {
@@ -14,7 +16,7 @@ namespace EmbyStreams.Tests
         /// </summary>
         public static string TestMovieStreamUrl(string stremioBase, string imdbId)
         {
-            var client = new AioStreamsClient(stremioBase, string.Empty, string.Empty);
+            var client = new AioStreamsClient(stremioBase, null, string.Empty, NullLogger.Instance);
             return client.GetMovieStreamUrl(imdbId);
         }
 
@@ -24,7 +26,7 @@ namespace EmbyStreams.Tests
         /// </summary>
         public static string TestSeriesStreamUrl(string stremioBase, string imdbId, int season, int episode)
         {
-            var client = new AioStreamsClient(stremioBase, string.Empty, string.Empty);
+            var client = new AioStreamsClient(stremioBase, null, string.Empty, NullLogger.Instance);
             return client.GetSeriesStreamUrl(imdbId, season, episode);
         }
 
@@ -40,7 +42,7 @@ namespace EmbyStreams.Tests
             string anilistId,
             int absoluteEpisode)
         {
-            var client = new AioStreamsClient(stremioBase, string.Empty, string.Empty);
+            var client = new AioStreamsClient(stremioBase, null, string.Empty, NullLogger.Instance);
             var kitsuUrl = client.GetAnimeStreamUrl("kitsu", kitsuId, absoluteEpisode);
             var anilistUrl = client.GetAnimeStreamUrl("anilist", anilistId, absoluteEpisode);
             return (kitsuUrl, anilistUrl);
