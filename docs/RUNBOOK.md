@@ -2,30 +2,37 @@
 
 ## Overview
 
-This runbook documents how to run an isolated Emby development server on port 9100 for testing the EmbyStreams plugin, completely separate from the production server at `/opt/emby-server`.
+This runbook documents how to run an isolated Emby development server on port 8096 for testing the EmbyStreams plugin, using the beta version 4.10.0.8.
 
 ## Directory Structure
 
 ```
-~/embyStreams/              # Main project directory
-├── start-dev-server.sh     # Main startup script (run this!)
-├── EmbyStreams.csproj      # Project file
-├── bin/Release/net8.0/     # Build output
-│   └── EmbyStreams.dll     # Compiled plugin
+~/Projects/emby/embyStreams/     # Main project directory
+├── emby-start.sh               # Main startup script (run this!)
+├── emby-reset.sh               # Full reset + start script
+├── emby-stop.sh                # Stop script
+├── EmbyStreams.csproj          # Project file
+├── bin/Release/net8.0/         # Build output
+│   └── EmbyStreams.dll         # Compiled plugin
 
-~/emby-local/opt/emby-server/   # Local Emby installation (DO NOT use /opt/emby-server)
-├── bin/emby-server        # Wrapper script (sets up env vars)
-├── system/                # EmbyServer binary and DLLs
-├── lib/                   # Native libraries
-└── ...
+~/Projects/emby/emby-beta/      # Emby beta installation (version 4.10.0.8)
+├── opt/emby-server/            # Emby Server installation
+│   ├── bin/emby-server         # Wrapper script (sets up env vars)
+│   ├── system/                 # EmbyServer binary and DLLs
+│   └── lib/                    # Native libraries
 
-~/emby-dev-data/           # Isolated data directory for dev server
-├── config/system.xml      # Server configuration (port 9100)
-├── plugins/               # Plugin directory
-│   └── EmbyStreams.dll   # Copied from build output
-├── data/                  # Database files
-├── logs/                  # Server logs
-└── cache/                 # Cache directory
+~/emby-dev-data/                # Isolated data directory for dev server
+├── config/system.xml           # Server configuration
+├── plugins/                    # Plugin directory
+│   └── EmbyStreams.dll        # Copied from build output
+├── data/                       # Database files
+├── logs/                       # Server logs
+└── cache/                      # Cache directory
+
+~/Projects/emby/emby.SDK-beta/  # Emby Plugin SDK documentation
+├── Documentation/              # SDK reference docs
+├── SampleCode/                 # Plugin examples
+└── Resources/                  # Development resources
 ```
 
 ## Quick Start
@@ -33,117 +40,78 @@ This runbook documents how to run an isolated Emby development server on port 91
 Run the dev server with a single command:
 
 ```bash
-cd /home/geoff/embyStreams
-./start-dev-server.sh
+cd /home/onehottake/Projects/emby/embyStreams
+./emby-reset.sh
 ```
 
 The script will:
 1. Build the plugin in Release mode
 2. Copy `EmbyStreams.dll` to `~/emby-dev-data/plugins/`
 3. Kill any existing emby processes
-4. Start Emby Server on port 9100 with isolated data directory
+4. Start Emby Server on port 8096 with isolated data directory
+
+**Alternative:** Use `./emby-start.sh` for a faster start (no data wipe).
 
 ## Access the Dev Server
 
-- **Web UI:** http://localhost:9100
-- **Plugin Config:** http://localhost:9100/web/configurationpage?name=EmbyStreams
+- **Web UI:** http://localhost:8096
+- **Plugin Config:** http://localhost:8096/web/configurationpage?name=EmbyStreams
 - **Logs:** `~/emby-dev.log` or `~/emby-dev-data/logs/embyserver.txt`
 
 ## Initial Setup (One-Time)
 
-If starting from scratch, follow these steps:
-
-### 1. Download Emby Server
+### 1. Download Emby Server Beta
 
 ```bash
-cd ~
-wget https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.0.6/emby-server-deb_4.10.0.6_amd64.tar.gz
-tar -xzf emby-server-deb_4.10.0.6_amd64.tar.gz
-mv emby-server emby-local
+cd /home/onehottake/Projects/emby
+wget https://github.com/MediaBrowser/Emby.Releases/releases/download/4.10.0.8/emby-server-deb_4.10.0.8_amd64.deb
+dpkg-deb -x emby-server-deb_4.10.0.8_amd64.deb emby-beta
 ```
 
-### 2. Modify Wrapper Script
+### 2. Download Emby SDK Beta
 
-Edit `~/emby-local/opt/emby-server/bin/emby-server` to:
-- Set `APP_DIR` to local path (not `/opt/emby-server`)
-- Add `-updatepackage none` to prevent update checks
-- Add `-port 9100` to use non-default port
-
-```sh
-#!/bin/sh
-
-APP_DIR=/home/geoff/emby-local/opt/emby-server
-
-export AMDGPU_IDS=$APP_DIR/extra/share/libdrm/amdgpu.ids
-if [ -z "$EMBY_DATA" ]; then
-  export EMBY_DATA=/var/lib/emby
-fi
-export FONTCONFIG_PATH=$APP_DIR/etc/fonts
-export LD_LIBRARY_PATH=$APP_DIR/lib:$APP_DIR/extra/lib
-export LIBVA_DRIVERS_PATH=$APP_DIR/extra/lib/dri
-export OCL_ICD_VENDORS=$APP_DIR/extra/etc/OpenCL/vendors
-export PATH=$APP_DIR/bin:"$PATH"
-export PCI_IDS_PATH=$APP_DIR/share/hwdata/pci.ids
-export SSL_CERT_FILE=$APP_DIR/etc/ssl/certs/ca-certificates.crt
-export XDG_CACHE_HOME=$EMBY_DATA/cache
-
-# Workaround for Intel drivers on kernel 6.8 and above
-export NEOReadDebugKeys=1
-export OverrideGpuAddressSpace=48
-
-exec $APP_DIR/system/EmbyServer \
-  -programdata $EMBY_DATA \
-  -ffdetect $APP_DIR/bin/ffdetect \
-  -ffmpeg $APP_DIR/bin/ffmpeg \
-  -ffprobe $APP_DIR/bin/ffprobe \
-  -restartexitcode 3 \
-  -updatepackage none \
-  -port 9100
+```bash
+cd /home/onehottake/Projects/emby
+git clone https://github.com/MediaBrowser/Emby.Plugins.git emby.SDK-beta
 ```
 
 ### 3. Create Isolated Data Directory
 
 ```bash
-mkdir -p ~/emby-dev-data/{plugins,data,logs,cache,config,metadata}
+mkdir -p ~/emby-dev-data/{plugins,data,logs,cache,config,metadata,transcoding-temp}
 ```
 
-### 4. Configure Port in system.xml
+### 4. Configure Port (Optional)
 
-Create or edit `~/emby-dev-data/config/system.xml` to set port 9100:
+Create or edit `~/emby-dev-data/config/system.xml` to set a custom port if needed:
 
 ```xml
 <?xml version="1.0"?>
 <ServerConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
-  <!-- ... other settings ... -->
-  <PublicPort>9100</PublicPort>
-  <HttpServerPortNumber>9100</HttpServerPortNumber>
-  <!-- ... other settings ... -->
+  <PublicPort>8096</PublicPort>
+  <HttpServerPortNumber>8096</HttpServerPortNumber>
 </ServerConfiguration>
 ```
 
-**Important:** If the server is ignoring the `-port 9100` command-line argument and using port 8096 anyway, the `system.xml` config is overriding it. Ensure `HttpServerPortNumber` is set to 9100.
+Note: The default port is 8096. The startup scripts pass `-port 8096` to override any existing config.
 
 ## Common Issues
 
-### Server starts on port 8096 instead of 9100
+### Server starts on wrong port
 
-**Cause:** The `system.xml` config has `HttpServerPortNumber` set to 8096, which overrides the command-line `-port` argument.
+**Cause:** The `system.xml` config has a different port set, which may override the command-line `-port` argument.
 
-**Fix:** Edit `~/emby-dev-data/config/system.xml` and set:
-```xml
-<HttpServerPortNumber>9100</HttpServerPortNumber>
-<PublicPort>9100</PublicPort>
-```
+**Fix:** The startup scripts pass `-port 8096` to override config, or edit `~/emby-dev-data/config/system.xml` directly.
 
 ### Segmentation fault when running EmbyServer directly
 
 **Cause:** Trying to run `EmbyServer` binary directly without the wrapper script's environment setup.
 
-**Fix:** Always use the wrapper script: `./bin/emby-server` instead of `./system/EmbyServer`. The wrapper sets required environment variables:
-- `LD_LIBRARY_PATH`
-- `FONTCONFIG_PATH`
-- `LIBVA_DRIVERS_PATH`
-- etc.
+**Fix:** The startup scripts use the wrapper script which sets required environment variables automatically. If running manually, use:
+```bash
+cd /home/onehottake/Projects/emby/emby-beta/opt/emby-server
+./bin/emby-server -port 8096 -updatepackage none
+```
 
 ### Plugin not loading
 
@@ -156,30 +124,32 @@ ls -la ~/emby-dev-data/plugins/EmbyStreams.dll
 
 ### Using wrong Emby installation
 
-**Cause:** Accidentally using `/opt/emby-server` instead of `~/emby-local/opt/emby-server`.
+**Cause:** Accidentally using the system-installed Emby at `/opt/emby-server`.
 
-**Fix:** The wrapper script and `start-dev-server.sh` must use paths under `~/emby-local/`, NOT `/opt/emby-server`. Never modify or use the production server at `/opt/emby-server`.
+**Fix:** The startup scripts use relative paths to `../emby-beta/`, NOT `/opt/emby-server`. Never modify or use the production server.
 
 ## Verification Commands
 
 ```bash
-# Check if server is running on port 9100
-ss -tlnp | grep 9100
+# Check if server is running on port 8096
+ss -tlnp | grep 8096
 
 # Check server logs
 tail -f ~/emby-dev-data/logs/embyserver.txt
 
 # Check if plugin is loaded
-curl -s http://localhost:9100/web/configurationpage?name=EmbyStreams | head -5
+curl -s http://localhost:8096/web/configurationpage?name=EmbyStreams | head -5
 
 # Kill the dev server
-pkill -f "emby-server" || pkill -f EmbyServer
+./emby-stop.sh
+# or
+pkill -f "emby-server"
 ```
 
 ## Stopping the Server
 
 ```bash
-pkill -f emby
+./emby-stop.sh
 ```
 
-Or simply run `./start-dev-server.sh` again - it will kill any existing process first.
+Or simply run `./emby-reset.sh` again - it will kill any existing process first before restarting.
