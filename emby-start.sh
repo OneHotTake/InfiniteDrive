@@ -12,8 +12,8 @@
 #   4. Starts Emby Server on port 8096 using isolated data directory
 #
 # Key directories:
-#   - /opt/emby-server/    -> Emby installation
-#   - ~/emby-dev-data/     -> Isolated data directory
+#   - ../emby-beta/         -> Emby beta installation
+#   - ~/emby-dev-data/      -> Isolated data directory
 #
 # See RUNBOOK.md for full documentation and troubleshooting.
 # =============================================================================
@@ -22,7 +22,7 @@ set -e
 
 export PATH="$PATH:$HOME/.dotnet"
 
-cd /home/onehottake/Projects/emby/embyStreamsStrm
+cd /home/onehottake/Projects/emby/embyStreams
 
 echo "=== Building EmbyStreams plugin ==="
 dotnet build -c Release || { echo "Build failed"; exit 1; }
@@ -40,7 +40,7 @@ echo "=== Starting Emby Server on port 8096 ==="
 export EMBY_DATA="$HOME/emby-dev-data"
 export XDG_CACHE_HOME="$EMBY_DATA/cache"
 
-cd "$HOME/emby-local/opt/emby-server"
+cd "$(dirname "$(readlink -f "$0")")/../emby-beta/opt/emby-server"
 
 nohup ./bin/emby-server \
   -port 8096 \

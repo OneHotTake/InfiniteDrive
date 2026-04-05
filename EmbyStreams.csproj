@@ -95,11 +95,11 @@
       because at runtime the .NET 8 bindings are used, not the netstandard2.0 ones.
     -->
     <Reference Include="SQLitePCL.pretty">
-      <HintPath>/opt/emby-server/system/SQLitePCL.pretty.dll</HintPath>
+      <HintPath>../emby-beta/opt/emby-server/system/SQLitePCL.pretty.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="SQLitePCLRawEx.core">
-      <HintPath>/opt/emby-server/system/SQLitePCLRawEx.core.dll</HintPath>
+      <HintPath>../emby-beta/opt/emby-server/system/SQLitePCLRawEx.core.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

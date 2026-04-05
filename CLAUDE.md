@@ -96,6 +96,11 @@ Never depend on chat history for state. Always read `.ai/CURRENT_TASK.md`.
     tail -f ~/emby-dev-data/logs/embyserver.txt
     # Config UI: http://localhost:8096/web/configurationpage?name=EmbyStreams
 
+### Beta Software Locations
+- **Emby Server:** `../emby-beta/` (extracted from emby-server-deb_4.10.0.8_amd64.deb)
+- **Emby SDK:** `../emby.SDK-beta/` (Emby Plugin SDK documentation and samples)
+- **SQLite DLLs:** Referenced from `../emby-beta/opt/emby-server/system/`
+
 ### Dev Server Scripts (all in project root)
 
 | Script | What it does |

@@ -1,67 +1,46 @@
 # End-to-End Test Status - EmbyStreams Plugin
 
-## Current Status: BLOCKED - User Context Mismatch
+## Current Status: Ready for Testing with Beta Software
 
-### Issue Identified
-The Emby server process is running under user **"geoff"** but:
-- Plugin development files are in `/home/onehottake/Projects/emby/embyStreamsStrm/`
-- Data directory symlink points to `~/emby-dev-data` (expands to `/home/geoff/emby-dev-data`)
-- Current working directory and plugins are under **"onehottake"**
-- **Result:** Permission errors prevent database writes and proper initialization
+### Beta Software Deployed
+- **Emby Server:** Version 4.10.0.8 (beta) installed at `../emby-beta/opt/emby-server/`
+- **Emby SDK:** Version 4.10.0.8 available at `../emby.SDK-beta/`
+- All scripts and references updated to use beta locations
 
-### Process Status
-```
-User: geoff
-PID: 2325037
-Process: /home/geoff/emby-local/opt/emby-server/system/EmbyServer
-Data Dir: /home/geoff/emby-dev-data
-Status: Running (1 day 5 hours)
-Database: Empty (0 bytes) - NOT INITIALIZED
-```
+### Development Environment
+- Plugin development files are in `/home/onehottake/Projects/emby/embyStreams/`
+- Data directory: `~/emby-dev-data`
+- User: onehottake
+- Port: 8096
 
 ### What We Verified ✅
-1. Server is listening on port 9100 and responding to HTTP requests
-2. Web UI is accessible at http://localhost:9100/web/index.html
-3. EmbyStreams plugin DLL is installed (630KB, copied correctly)
-4. System configuration shows `IsStartupWizardCompleted=true`
-5. Discover implementation is ready (Sprint 54 code complete)
+1. Emby beta server 4.10.0.8 is installed and ready
+2. Startup scripts updated to use `../emby-beta/` location
+3. SQLite DLL references in .csproj point to beta location
+4. SDK documentation available at `../emby.SDK-beta/`
+5. All path references updated in documentation
 
-### What's Blocking 🚫
-- Database cannot be written due to permission/user mismatch
-- Cannot authenticate or create API tokens without database access
-- Plugin configuration page requires authentication
-- Cannot test catalog synchronization without database
-- Cannot test .strm file creation without database
-
-## Resolution Required
-
-### Option 1: Kill and Restart (Manual Action Required)
-As user "geoff", stop the running processes:
+### Quick Start 🚀
 ```bash
-# Kill Emby and watchdog processes
-pkill -f emby-server
-pkill -f watchdog
+cd /home/onehottake/Projects/emby/embyStreams
+./emby-reset.sh
 ```
 
-Then as user "onehottake", restart:
-```bash
-cd /home/onehottake/Projects/emby/embyStreamsStrm
-./start-dev-server.sh
-```
+This will build, deploy, and start the dev server on port 8096.
 
 ### Option 2: Continue with Manual Testing
 Using a browser on the current server:
 
-1. **Access Emby**: http://localhost:9100
+1. **Access Emby**: http://localhost:8096
 2. **Complete Setup Wizard** (if prompted):
    - Create admin user (username/password)
    - Skip library setup for now
 3. **Configure Plugin**:
-   - Access: http://localhost:9100/web/configurationpage?name=EmbyStreams
+   - Access: http://localhost:8096/web/configurationpage?name=EmbyStreams
    - Set manifest URL (e.g., Trakt or AIOStreams)
    - Click "Save"
 4. **Trigger Catalog Sync**:
-   - Use API: `curl -X POST "http://localhost:9100/EmbyStreams/Trigger?task=catalog_discover"`
+   - Use API: `curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=catalog_discover"`
    - OR wait for automatic sync
 5. **Verify .strm Files Created**:
    ```bash
@@ -131,8 +110,8 @@ Using a browser on the current server:
 6. **Report any issues** found during testing
 
 ## Log Files
-- **Emby Server**: `/home/geoff/emby-dev-data/logs/embyserver.txt`
-- **EmbyStreams**: `/home/geoff/emby-dev-data/EmbyStreams/embystreams.db`
+- **Emby Server**: `~/emby-dev-data/logs/embyserver.txt`
+- **EmbyStreams**: `~/emby-dev-data/EmbyStreams/embystreams.db`
 - **Startup**: `~/emby-dev.log`
 - **Build**: Check `dotnet build -c Release` output
 

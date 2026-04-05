@@ -2,7 +2,7 @@
 # emby-reset.sh — Clean build, wipe state, redeploy DLL, restart on port 8096
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-EMBY_BIN="$HOME/emby-local/opt/emby-server/bin/emby-server"
+EMBY_BIN="$(dirname "$(readlink -f "$0")")/../emby-beta/opt/emby-server/bin/emby-server"
 DATA_DIR="$HOME/emby-dev-data"
 LOG_FILE="$DATA_DIR/logs/embyserver.txt"
 MEDIA_DIR="/media/embystreams"
@@ -60,7 +60,7 @@ echo "      plugin.json deployed to $DATA_DIR/plugins/"
 
 # ── 5. Start Emby on port 8096 ────────────────────────────────────────────────
 echo "[5/5] Starting Emby on port 8096..."
-cd "$HOME/emby-local/opt/emby-server"
+cd "$(dirname "$(readlink -f "$0")")/../emby-beta/opt/emby-server"
 # Must set EMBY_DATA to override wrapper script's default of /var/lib/emby
 export EMBY_DATA="$DATA_DIR"
 nohup "$EMBY_BIN" \
