@@ -16,7 +16,12 @@
     <NoWarn>CS8618,CS8601,CS8603,CS8604</NoWarn>
   </PropertyGroup>
 
-  <!-- Release: treat all remaining warnings as errors for a clean production build -->
+    <!-- Conditional compilation for Emby ContentSection API availability -->
+    <PropertyGroup>
+      <DefineConstants>EMBY_HAS_CONTENTSECTION_API=0</DefineConstants>
+    </PropertyGroup>
+
+    <!-- Release: treat all remaining warnings as errors for a clean production build -->
   <PropertyGroup Condition="'$(Configuration)'=='Release'">
     <Optimize>true</Optimize>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -36,6 +41,8 @@
     <!--
       MediaBrowser.Server.Core provides IChannel and all plugin interfaces.
       Version 4.9.1.90 is compatible with .NET 8.0 and Emby 4.10.0.6+
+      NOTE: Sprint 118 (Home Screen Rails) requires 4.10.0.8-beta APIs which are not yet publicly available.
+      The AddHomeSection API exists in 4.10.0.8-beta SDK documentation but the DLLs are not published.
     -->
     <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
     <!--
@@ -47,10 +54,12 @@
       <HintPath>libs/MediaBrowser.Controller.dll</HintPath>
       <Private>false</Private>
     </Reference>
+
     <Reference Include="MediaBrowser.Model">
       <HintPath>libs/MediaBrowser.Model.dll</HintPath>
       <Private>false</Private>
     </Reference>
+
     <Reference Include="MediaBrowser.Common">
       <HintPath>libs/MediaBrowser.Common.dll</HintPath>
       <Private>false</Private>
@@ -64,6 +73,7 @@
     -->
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.4"
                       PrivateAssets="All" ExcludeAssets="runtime" />
+
     <!--
       Polly resilience patterns for HTTP calls to AIOStreams (Sprint 104C)
       Provides retry, circuit breaker, and timeout policies.
@@ -73,7 +83,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Embed the dashboard HTML as a resource so Plugin.GetPages() can serve it -->
+    <!-- Embeds dashboard HTML as a resource so Plugin.GetPages() can serve it -->
     <EmbeddedResource Include="Configuration\configurationpage.html" />
     <EmbeddedResource Include="Configuration\configurationpage.js" />
   </ItemGroup>
@@ -92,16 +102,18 @@
       At runtime Emby's system directory is already in the default ALC; the plugin
       ALC falls back to the default ALC so these DLLs are found automatically.
       CS1705: version-mismatch warnings are suppressed — mismatches are benign
-      because at runtime the .NET 8 bindings are used, not the netstandard2.0 ones.
+      because at runtime .NET 8 bindings are used, not .netstandard2.0 ones.
     -->
     <Reference Include="SQLitePCL.pretty">
       <HintPath>../emby-beta/opt/emby-server/system/SQLitePCL.pretty.dll</HintPath>
       <Private>false</Private>
     </Reference>
+
     <Reference Include="SQLitePCLRawEx.core">
       <HintPath>../emby-beta/opt/emby-server/system/SQLitePCLRawEx.core.dll</HintPath>
       <Private>false</Private>
     </Reference>
+
   </ItemGroup>
 
 </Project>

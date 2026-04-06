@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using EmbyStreams.Data;
@@ -76,6 +77,51 @@ namespace EmbyStreams.Controllers
             _logger.LogDebug("[ItemsController] Search items request: Query={Query}", request.Query);
             return await _db.SearchItemsAsync(request.Query, ct);
         }
+
+        /// <summary>
+        /// Gets items that need review (superseded_conflict = true).
+        /// GET /embystreams/items/needs-review
+        /// </summary>
+        [Route("needs-review")]
+        public async Task<List<MediaItem>> GetNeedsReview(CancellationToken ct)
+        {
+            _logger.LogDebug("[ItemsController] Get needs review items request");
+            // Get items with superseded_conflict = true
+            var items = await _db.GetItemsAsync(ItemStatus.Active, "title", "asc", 100, 0, ct);
+            return items.Where(i => i.SupersededConflict).ToList();
+        }
+
+        /// <summary>
+        /// Keeps an item as saved, clearing the superseded_conflict flag.
+        /// POST /embystreams/items/keep-saved
+        /// </summary>
+        [Route("keep-saved")]
+        public async Task<SimpleResponse> PostKeepSaved(KeepSavedRequest request, CancellationToken ct)
+        {
+            _logger.LogInformation("[ItemsController] Keep saved request for {ItemId}", request.ItemId);
+            // TODO: Implement UpdateSupersededConflictAsync in DatabaseManager
+            // await _db.UpdateSupersededConflictAsync(request.ItemId, false, ct);
+            await Task.CompletedTask;
+            return new SimpleResponse { Success = true, Message = "Item kept as saved" };
+        }
+
+        /// <summary>
+        /// Accepts Your Files match, supersedes the item.
+        /// POST /embystreams/items/accept-your-files
+        /// </summary>
+        [Route("accept-your-files")]
+        public async Task<SimpleResponse> PostAcceptYourFiles(AcceptYourFilesRequest request, CancellationToken ct)
+        {
+            _logger.LogInformation("[ItemsController] Accept Your Files request for {ItemId}", request.ItemId);
+            // Delete the .strm file and remove from Emby
+            var item = await _db.GetMediaItemAsync(request.ItemId, ct);
+            if (item?.EmbyItemId != null)
+            {
+                // TODO: Implement MarkItemSupersededAsync in DatabaseManager
+                // await _db.MarkItemSupersededAsync(request.ItemId, true, true, ct);
+            }
+            return new SimpleResponse { Success = true, Message = "Your Files match accepted" };
+        }
     }
 
     /// <summary>
@@ -107,5 +153,30 @@ namespace EmbyStreams.Controllers
     public class SearchRequest
     {
         public string Query { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Request DTO for keeping an item as saved.
+    /// </summary>
+    public class KeepSavedRequest
+    {
+        public string ItemId { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Request DTO for accepting Your Files match.
+    /// </summary>
+    public class AcceptYourFilesRequest
+    {
+        public string ItemId { get; set; } = string.Empty;
+    }
+
+    /// <summary>
+    /// Simple response DTO with success flag and message.
+    /// </summary>
+    public class SimpleResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
     }
 }

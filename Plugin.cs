@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using EmbyStreams.Data;
 using EmbyStreams.Logging;
@@ -11,10 +12,14 @@ using EmbyStreams.Repositories.Interfaces;
 using EmbyStreams.Repositories;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
+using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Serialization;
+using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
 
 [assembly: System.Runtime.CompilerServices.InternalsVisibleTo("EmbyStreams.Tests")]
@@ -113,6 +118,18 @@ namespace EmbyStreams
         /// is ready before any scheduled task or service is invoked.
         /// </summary>
         public DatabaseManager DatabaseManager { get; private set; } = null!;
+
+        /// <summary>
+        /// Home section tracker for per-user per-rail state.
+        /// Sprint 118: Home Screen Rails.
+        /// </summary>
+        public HomeSectionTracker HomeSectionTracker { get; private set; } = null!;
+
+        /// <summary>
+        /// Home section manager for adding rails to Emby home screen.
+        /// Sprint 118: Home Screen Rails.
+        /// </summary>
+        public HomeSectionManager HomeSectionManager { get; private set; } = null!;
 
         /// <summary>
         /// Catalog repository for catalog item operations (Sprint 104D-02).
@@ -220,6 +237,24 @@ namespace EmbyStreams
                 {
                     Name = "EmbyStreamsConfigJS",
                     EmbeddedResourcePath = "EmbyStreams.Configuration.configurationpage.js"
+                },
+                new PluginPageInfo
+                {
+                    Name = "Wizard",
+                    DisplayName = "EmbyStreams Setup Wizard",
+                    EnableInMainMenu = true
+                },
+                new PluginPageInfo
+                {
+                    Name = "ContentManagement",
+                    DisplayName = "EmbyStreams Content Management",
+                    EnableInMainMenu = true
+                },
+                new PluginPageInfo
+                {
+                    Name = "MyLibrary",
+                    DisplayName = "EmbyStreams My Library",
+                    EnableInMainMenu = true
                 }
             };
         }
@@ -314,6 +349,10 @@ namespace EmbyStreams
                 // Initialise repository layer (Sprint 104D-02)
                 CatalogRepository = new CatalogRepository(DatabaseManager, _logManager);
                 _logger.LogInformation("[EmbyStreams] Repository layer initialised");
+
+                // Initialise home section tracker (Sprint 118: Home Screen Rails)
+                HomeSectionTracker = new HomeSectionTracker(DatabaseManager, new EmbyLoggerAdapter<HomeSectionTracker>(_logManager.GetLogger("HomeSectionTracker")));
+                _logger.LogInformation("[EmbyStreams] Home section tracker initialised");
             }
             catch (Exception ex)
             {
