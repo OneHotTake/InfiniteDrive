@@ -4021,6 +4021,134 @@ LIMIT 1";
             await ExecuteWriteAsync(sql, cmd => BindText(cmd, "@SourceId", sourceId), cancellationToken);
         }
 
+        // ── Log Insert Methods (Sprint 120) ─────────────────────────────────────────
+
+        /// <summary>
+        /// Inserts a pipeline log entry.
+        /// </summary>
+        public Task InsertPipelineLogAsync(Models.PipelineLogEntry entry, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO item_pipeline_log (primary_id, primary_id_type, media_type, phase, trigger, success, details, timestamp)
+                VALUES (@PrimaryId, @PrimaryIdType, @MediaType, @Phase, @Trigger, @Success, @Details, @Timestamp);";
+
+            return ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@PrimaryId", entry.PrimaryId);
+                BindText(cmd, "@PrimaryIdType", entry.PrimaryIdType);
+                BindText(cmd, "@MediaType", entry.MediaType);
+                BindText(cmd, "@Phase", entry.Phase);
+                BindText(cmd, "@Trigger", entry.Trigger);
+                cmd.BindParameters["@Success"].Bind(entry.Success ? 1 : 0);
+                BindNullableText(cmd, "@Details", entry.Details);
+                BindText(cmd, "@Timestamp", entry.Timestamp.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Inserts a resolution log entry.
+        /// </summary>
+        public Task InsertResolutionLogAsync(Models.ResolutionLogEntry entry, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO stream_resolution_log (primary_id, primary_id_type, media_type, media_id, stream_count, selected_stream, duration_ms, timestamp)
+                VALUES (@PrimaryId, @PrimaryIdType, @MediaType, @MediaId, @StreamCount, @SelectedStream, @DurationMs, @Timestamp);";
+
+            return ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@PrimaryId", entry.PrimaryId);
+                BindText(cmd, "@PrimaryIdType", entry.PrimaryIdType);
+                BindText(cmd, "@MediaType", entry.MediaType);
+                BindText(cmd, "@MediaId", entry.MediaId);
+                BindInt(cmd, "@StreamCount", entry.StreamCount);
+                BindNullableText(cmd, "@SelectedStream", entry.SelectedStream);
+                BindInt(cmd, "@DurationMs", (int)entry.DurationMs);
+                BindText(cmd, "@Timestamp", entry.Timestamp.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets pipeline log count.
+        /// </summary>
+        public Task<int> GetPipelineLogCountAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"SELECT COUNT(*) FROM item_pipeline_log;";
+
+            return Task.Run(() =>
+            {
+                using var conn = OpenConnection();
+                using var stmt = conn.PrepareStatement(sql);
+                var rows = stmt.AsRows();
+                foreach (var row in rows)
+                {
+                    return row.GetInt(0);
+                }
+                return 0;
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets resolution log count.
+        /// </summary>
+        public Task<int> GetResolutionLogCountAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"SELECT COUNT(*) FROM stream_resolution_log;";
+
+            return Task.Run(() =>
+            {
+                using var conn = OpenConnection();
+                using var stmt = conn.PrepareStatement(sql);
+                var rows = stmt.AsRows();
+                foreach (var row in rows)
+                {
+                    return row.GetInt(0);
+                }
+                return 0;
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Prunes pipeline logs before the specified timestamp.
+        /// </summary>
+        public Task<int> PrunePipelineLogsAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"DELETE FROM item_pipeline_log WHERE timestamp < @Before;";
+
+            return Task.Run(() =>
+            {
+                using var conn = OpenConnection();
+                var beforeText = before.ToString("o");
+                conn.RunInTransaction(c =>
+                {
+                    using var stmt = c.PrepareStatement(sql);
+                    BindText(stmt, "@Before", beforeText);
+                    while (stmt.MoveNext()) { }
+                });
+                return conn.Changes;
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Prunes resolution logs before the specified timestamp.
+        /// </summary>
+        public Task<int> PruneResolutionLogsAsync(DateTimeOffset before, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"DELETE FROM stream_resolution_log WHERE timestamp < @Before;";
+
+            return Task.Run(() =>
+            {
+                using var conn = OpenConnection();
+                var beforeText = before.ToString("o");
+                conn.RunInTransaction(c =>
+                {
+                    using var stmt = c.PrepareStatement(sql);
+                    BindText(stmt, "@Before", beforeText);
+                    while (stmt.MoveNext()) { }
+                });
+                return conn.Changes;
+            }, cancellationToken);
+        }
+
         // ── Log Query Methods (Sprint 120) ─────────────────────────────────────────
 
         /// <summary>
