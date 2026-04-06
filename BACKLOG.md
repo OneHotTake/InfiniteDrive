@@ -2,7 +2,10 @@
 
 Versioning: `v0.{SPRINT}.{TASK}`
 
-**Current Status**: Sprint 80 Complete |
+**Current Status**: Sprint 104 Complete (Beta Software Migration) |
+                    Sprints 105-108 Superseded (v3.3 Breaking Change) |
+                    Sprints 109-121 Planned (Full v3.3 Implementation) |
+                    Sprint 80 Complete |
                     Sprint 79 Complete |
                     Sprint 76 Complete |
                     Sprint 75 Complete |
@@ -707,3 +710,484 @@ Library creation continues to work via the JavaScript implementation.
 - Settings tab: ✅ Functional (shows all configuration options)
 - Wizard flow: ✅ Library config consolidated to Step 2
 
+---
+
+## Sprint 105-108 — Superseded
+
+**Status:** Superseded by Sprint 109
+
+Sprints 105-108 were originally planned as an extension of the existing v20 architecture. After review, it was determined that v3.3 requires a fundamental architectural change with a full wipe migration. Sprints 105-108 have been superseded by Sprint 109.
+
+**See:** `.ai/SPRINT_109.md` — v3.3 Foundation & Migration
+
+---
+
+## Sprint 109 — Foundation & Migration (v3.3 Breaking Change)
+
+**Status:** Complete ✓ | **Risk:** HIGH | **Depends:** Sprint 104
+
+**File:** `.ai/SPRINT_109.md`
+
+### Overview
+
+Implements the foundational architecture for v3.3, a breaking change that requires full database reset.
+
+### Phases Completed
+
+**Phase 109A — New Database Schema:** Complete ✓
+- FIX-109A-01: Schema.cs with 9 tables ✓
+- FIX-109A-02: home_section_tracking table ✓ (included in schema)
+- FIX-109A-03: DatabaseInitializer ✓
+
+**Phase 109B — Core Domain Models:** Complete ✓
+- FIX-109B-01: MediaIdType enum ✓
+- FIX-109B-02: MediaId value type ✓
+- FIX-109B-03: ItemStatus enum ✓
+- FIX-109B-04: FailureReason enum ✓
+- FIX-109B-05: PipelineTrigger enum ✓
+- FIX-109B-06: SaveReason enum ✓
+- FIX-109B-07: SourceType enum ✓
+- FIX-109B-08: MediaItem entity ✓
+- FIX-109B-09: Source entity ✓
+- FIX-109B-10: AioStreamsPrefixDefaults config ✓
+
+**Phase 109D — Emby Library Provisioning on Install:** Complete ✓
+- FIX-109D-01: Library provisioning service ✓
+
+### Key Changes
+
+- MediaId system replaces IMDB-only keys
+- ItemStatus lifecycle machine replaces ItemState enum
+- Sources model replaces Catalog model
+- Saved/Blocked states replace PIN model
+- Your Files detection via media_item_ids table
+- 9 new database tables (including home_section_tracking)
+
+### Files Created
+
+- Data/Schema.cs - v3.3 schema definitions
+- Data/DatabaseInitializer.cs - Schema initialization
+- Models/MediaIdType.cs - Provider type enum
+- Models/MediaId.cs - ID value type
+- Models/ItemStatus.cs - Lifecycle state machine
+- Models/FailureReason.cs - Failure enumeration
+- Models/PipelineTrigger.cs - Trigger enumeration
+- Models/SaveReason.cs - Save reason enumeration
+- Models/SourceType.cs - Source type enumeration
+- Models/MediaItem.cs - Core entity
+- Models/Source.cs - Source entity
+- Models/AioStreamsPrefixDefaults.cs - AIOStreams prefix mappings
+- Services/LibraryProvisioning.cs - Library provisioning service
+
+### Build Status
+
+✓ SUCCESS (0 warnings, 0 errors)
+
+### Findings and Guidance
+
+**Database Schema:**
+- All 9 tables created with proper indexes
+- Foreign key constraints defined where appropriate
+- WAL mode enabled for concurrency
+- Schema version tracking implemented
+
+**Domain Models:**
+- All enums include extension methods for parsing and display
+- MediaId type implements IEquatable with full equality semantics
+- ItemStatus includes state transition validation
+- MediaItem and Source entities include derived state properties
+
+**Library Provisioning:**
+- Service created with directory creation logic
+- Placeholder for REST API library registration (requires further development)
+- Placeholder for user policy updates (requires further SDK integration)
+- Provisioning flag mechanism prevents re-application
+
+**Notes for Future Sprints:**
+- LibraryProvisioning requires REST API integration for actual Emby library creation
+- User policy hiding mechanism needs proper SDK API exploration
+- Library registration should be deferred to post-install configuration wizard
+
+### Completion Criteria
+
+- [x] All 9 database tables created
+- [x] All core domain models implemented
+- [x] Library provisioning service created
+- [x] Build succeeds
+- [ ] E2E: Fresh DB initialized (pending Sprint 121)
+- [ ] E2E: v20 DB migrated (N/A - no migration path per spec §17)
+
+---
+
+## Sprint 110 — Services Layer (v3.3)
+
+**Status:** Planning | **Risk:** MEDIUM | **Depends:** Sprint 109
+
+**File:** `.ai/SPRINT_110.md`
+
+### Overview
+
+Implements core services that drive the v3.3 architecture.
+
+### Services Created
+
+- ItemPipelineService — Item lifecycle orchestration
+- StreamResolver — AIOStreams stream resolution and ranking
+- MetadataHydrator — Cinemeta/AIOMetadata fetch
+- YourFilesReconciler — Your Files detection and matching
+- SourcesService — Source enable/disable management
+- CollectionsService — Emby BoxSet management
+- SavedService — Save/Unsave/Block actions
+
+### Completion Criteria
+
+- [ ] All services implemented
+- [ ] Coalition rule respected
+- [ ] Multi-provider ID matching works
+- [ ] Build succeeds
+- [ ] Unit tests pass
+
+---
+
+## Sprint 111 — Sync Pipeline (v3.3)
+
+**Status:** Planning | **Risk:** MEDIUM | **Depends:** Sprint 110
+
+**File:** `.ai/SPRINT_111.md`
+
+### Overview
+
+Implements the sync pipeline: fetch → filter → diff → process → handle removed.
+
+### Key Components
+
+- ManifestFetcher — Fetches from AIOStreams with TTL check
+- ManifestFilter — Filters blocked/duplicate/over-cap items
+- ManifestDiff — Compares manifest vs database
+- SyncTask — Orchestrates full pipeline
+
+### Completion Criteria
+
+- [ ] Manifest fetched and cached
+- [ ] Entries filtered correctly
+- [ ] Diff accurate
+- [ ] Pipeline phases execute
+- [ ] Progress reporting works
+- [ ] Build succeeds
+
+---
+
+## Sprint 112 — Stream Resolution and Playback (v3.3)
+
+**Status:** Planning | **Risk:** MEDIUM | **Depends:** Sprint 111
+
+**File:** `.ai/SPRINT_112.md`
+
+### Overview
+
+Implements stream resolution for playback with cache management and URL signing.
+
+### Key Components
+
+- PlaybackService — Cache-first resolution
+- StreamCache — TTL-based caching
+- StreamUrlSigner — HMAC-SHA256 signing
+- ProgressStreamer — SSE progress events
+
+### Completion Criteria
+
+- [ ] Cache-first resolution works
+- [ ] URL signing works
+- [ ] SSE streams progress
+- [ ] Build succeeds
+
+---
+
+## Sprint 113 — Saved/Blocked User Actions (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 112
+
+**File:** `.ai/SPRINT_113.md`
+
+### Overview
+
+Implements user-triggered Save/Unsave/Block/Unblock actions.
+
+### Key Components
+
+- SavedRepository — Persist saved/blocked state
+- SavedActionService — Action logic with Coalition rule
+- SavedController — Admin API
+- Saved UI — Config page UI
+
+### Completion Criteria
+
+- [ ] All actions work
+- [ ] Coalition rule respected
+- [ ] UI lists items correctly
+- [ ] Build succeeds
+
+---
+
+## Sprint 114 — Your Files Detection (v3.3)
+
+**Status:** Planning | **Risk:** MEDIUM | **Depends:** Sprint 113
+
+**File:** `.ai/SPRINT_114.md`
+
+### Overview
+
+Implements Your Files detection and conflict resolution.
+
+### Key Components
+
+- YourFilesScanner — Scans library for user files
+- YourFilesMatcher — Multi-provider ID matching
+- YourFilesConflictResolver — Conflict resolution
+- YourFilesTask — Scheduled reconciliation
+
+### Completion Criteria
+
+- [ ] Your Files detected
+- [ ] Multi-provider matching works
+- [ ] Conflicts resolved correctly
+- [ ] Build succeeds
+
+---
+
+## Sprint 115 — Removal Pipeline (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 114
+
+**File:** `.ai/SPRINT_115.md`
+
+### Overview
+
+Implements removal pipeline for items no longer in manifest.
+
+### Key Components
+
+- RemovalService — Mark and remove items
+- RemovalPipeline — Process removed items
+- RemovalTask — Scheduled cleanup
+- RemovalController — Admin API
+
+### Completion Criteria
+
+- [ ] Items marked for removal
+- [ ] Coalition rule double-checked
+- [ ] .strm files deleted
+- [ ] Emby items removed
+- [ ] Build succeeds
+
+---
+
+## Sprint 116 — Collection Management (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 115
+
+**File:** `.ai/SPRINT_116.md`
+
+### Overview
+
+Implements collection management via Emby BoxSet API.
+
+### Key Components
+
+- BoxSetRepository — Persist BoxSet metadata
+- BoxSetService — Emby BoxSet API wrapper
+- CollectionSyncService — Sync sources to BoxSets
+- CollectionTask — Scheduled sync
+
+### Completion Criteria
+
+- [ ] BoxSets created
+- [ ] Items synced to BoxSets
+- [ ] Orphans pruned
+- [ ] Build succeeds
+
+---
+
+## Sprint 117 — Admin UI (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 116
+
+**File:** `.ai/SPRINT_117.md`
+
+### Overview
+
+Implements Admin UI for v3.3 configuration.
+
+### Key Components
+
+- Config Page HTML — Tabbed layout
+- Config Page JavaScript — UI logic
+- Config Page CSS — Styling
+- Config Controller — API endpoints
+
+### Tabs
+
+- Sources — Enable/disable sources
+- Collections — View/sync collections
+- Saved — Saved items
+- Blocked — Blocked items
+- Actions — Manual actions
+- Logs — Pipeline logs
+
+### Completion Criteria
+
+- [ ] All tabs work
+- [ ] All actions trigger correctly
+- [ ] Toast notifications work
+- [ ] Confirmations work for dangerous actions
+- [ ] Build succeeds
+
+---
+
+## Sprint 118 — Home Screen Rails (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 117
+
+**File:** `.ai/SPRINT_118.md`
+
+### Overview
+
+Implements home screen rails for easy content access.
+
+### Rail Types
+
+- Saved — User-saved items
+- New — Recently added
+- Collections — Emby BoxSets
+- RecentlyResolved — Fresh streams
+
+### Completion Criteria
+
+- [ ] Rails display correctly
+- [ ] Items link correctly
+- [ ] Lazy loading works
+- [ ] Build succeeds
+
+---
+
+## Sprint 119 — API Endpoints (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 118
+
+**File:** `.ai/SPRINT_119.md`
+
+### Overview
+
+Implements comprehensive API endpoints.
+
+### Controllers
+
+- StatusController — Plugin status
+- SourcesController — Source management
+- CollectionsController — Collection management
+- ItemsController — Item queries
+- ActionsController — Manual actions
+- LogsController — Log retrieval
+
+### Completion Criteria
+
+- [ ] All endpoints work
+- [ ] JSON responses correct
+- [ ] Admin guards work
+- [ ] Pagination works
+- [ ] Build succeeds
+
+---
+
+## Sprint 120 — Logging (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 119
+
+**File:** `.ai/SPRINT_120.md`
+
+### Overview
+
+Implements comprehensive logging.
+
+### Key Components
+
+- PipelineLogger — Item lifecycle events
+- ResolutionLogger — Stream resolution events
+- LogRepository — Persist logs
+- LogRetentionService — Cleanup old logs
+- LogRetentionTask — Scheduled cleanup
+
+### Retention
+
+- Pipeline logs: 30 days
+- Resolution logs: 7 days
+
+### Completion Criteria
+
+- [ ] All events logged
+- [ ] Logs queryable
+- [ ] Old logs pruned
+- [ ] Build succeeds
+
+---
+
+## Sprint 121 — E2E Validation (v3.3)
+
+**Status:** Planning | **Risk:** LOW | **Depends:** Sprint 120
+
+**File:** `.ai/SPRINT_121.md`
+
+### Overview
+
+Implements comprehensive E2E testing.
+
+### Test Categories
+
+- Migration Tests — v20 → v3
+- Sync Pipeline Tests — Full flow
+- Playback Tests — Resolution and signing
+- User Action Tests — Save/Block
+- Your Files Tests — Detection
+- E2E Test Plan — Manual scenarios
+
+### Completion Criteria
+
+- [ ] Test infrastructure created
+- [ ] All tests pass
+- [ ] E2E scenarios documented
+- [ ] Build succeeds
+
+---
+
+## v3.3 Summary
+
+**Sprints:** 109-121 (13 sprints)
+**Status:** Planning complete
+**Release Target:** v3.3.0
+**Breaking Change:** Full database reset required
+
+**Key Features:**
+- MediaId system with multi-provider support
+- ItemStatus lifecycle machine
+- Sources model with ShowAsCollection
+- Saved/Blocked states
+- Your Files detection
+- Emby BoxSet integration
+- Comprehensive logging
+- Full Admin UI
+- Home screen rails
+
+**See Also:**
+- `.ai/SPRINT_109.md` — Sprint 109 details
+- `.ai/SPRINT_110.md` — Sprint 110 details
+- `.ai/SPRINT_111.md` — Sprint 111 details
+- `.ai/SPRINT_112.md` — Sprint 112 details
+- `.ai/SPRINT_113.md` — Sprint 113 details
+- `.ai/SPRINT_114.md` — Sprint 114 details
+- `.ai/SPRINT_115.md` — Sprint 115 details
+- `.ai/SPRINT_116.md` — Sprint 116 details
+- `.ai/SPRINT_117.md` — Sprint 117 details
+- `.ai/SPRINT_118.md` — Sprint 118 details
+- `.ai/SPRINT_119.md` — Sprint 119 details
+- `.ai/SPRINT_120.md` — Sprint 120 details
+- `.ai/SPRINT_121.md` — Sprint 121 details

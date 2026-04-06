@@ -51,6 +51,12 @@ namespace EmbyStreams
             new System.Threading.SemaphoreSlim(1, 1);
 
         /// <summary>
+        /// Shared progress streamer for SSE events.
+        /// Singleton accessible via Plugin.Instance.ProgressStreamer.
+        /// </summary>
+        public static ProgressStreamer ProgressStreamer = new();
+
+        /// <summary>
         /// Timestamp when manifest was last fetched. Used for TTL validation.
         /// (Sprint 100A-01)
         /// </summary>

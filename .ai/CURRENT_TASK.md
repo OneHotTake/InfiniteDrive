@@ -1,11 +1,24 @@
 ---
-status: in_progress
+status: complete
 task: Sprint 116 Complete — Collection Management
-next_action: Proceed to Sprints 117-118 (Admin UI, Home Screen Rails)
+next_action: Sprint 117 and 118 review
 # SUMMARY: Sprint 116 implements collection management using Emby ICollectionManager API. Sources with ShowAsCollection=true are automatically synced to Emby BoxSets.
+# SPRINT 118 BLOCKED: IContentSection API doesn't exist in current Emby SDK
+# SPRINT 117 PARTIAL: Config page exists but missing v3.3 features
 # PHASES: 116A (BoxSetRepository) ✓, 116B (BoxSetService) ✓, 116C (CollectionSyncService) ✓, 116D (CollectionTask) ✓
 # BUILD: ✅ Success - 0 warnings, 0 errors
 last_updated: 2026-04-06
+
+---
+
+## Sprint Status Summary
+
+| Sprint | Status | Notes |
+|--------|---------|----------|
+| 109-116 | **Complete ✓** | All core functionality implemented |
+| 117 | **Partial** | Config page exists (different structure), missing v3.3 features |
+| 118 | **Blocked** | IContentSection API doesn't exist in current Emby SDK |
+| 119-121 | **Complete ✓** | API endpoints, logging, E2E tests |
 
 ---
 
@@ -18,7 +31,7 @@ last_updated: 2026-04-06
 Sprint 116 implements collection management using Emby ICollectionManager API. Sources with `ShowAsCollection = true` are automatically synced to Emby BoxSets.
 
 **Components Completed:**
-- [x] BoxSetService - Manages Emby BoxSets via ICollectionManager API
+- [x] BoxSetService - Manages Emby BoxSets via ICollectionManager
 - [x] CollectionSyncService - Syncs sources to BoxSets
 - [x] CollectionTask - Scheduled sync task
 
@@ -30,35 +43,63 @@ Sprint 116 implements collection management using Emby ICollectionManager API. S
 - [x] RemoveItemFromBoxSetAsync - Removes items from BoxSet
 - [ ] EmptyBoxSetAsync - Placeholder (requires SDK API investigation)
 
-**Key API Findings:**
-- ICollectionManager uses non-async methods (wrapped in Task.Run for async)
+**API Findings:**
+- ICollectionManager uses non-async methods (wrapped in Task.Run)
 - AddToCollection uses long[] (InternalId), not Guid[]
 - CreateCollection requires ItemIdList as long[]
 - RemoveFromCollection requires BoxSet cast (not BaseItem)
 
 **Build Status:** ✅ Success (0 warnings, 0 errors)
 
-**TODO:** EmptyBoxSetAsync is a placeholder - requires SDK API investigation to query BoxSet members efficiently.
+---
+
+## Sprint 118 — Home Screen Rails
+
+**Status:** BLOCKED | **Reason:** IContentSection API doesn't exist in current Emby SDK
+
+### Sprint 118 Notes
+
+The Sprint 118 specification requires implementing IContentSection interface and ContentSectionProvider class. However, the current Emby SDK (beta 4.10.0.8) does not include:
+
+- `IContentSection` interface
+- `ContentSectionList` class
+- `ContentSectionListQuery` class
+- `HomeSectionType` enum
+
+These APIs may exist in a different SDK version or may have been removed. Sprint 118 requires SDK API investigation or alternative implementation approach.
+
+**Created (later removed due to API not existing):**
+- Services/HomeSectionTracker.cs (removed)
+- Services/ContentSectionProvider.cs (removed)
 
 ---
 
-## Sprint 109-121 Status
+## Sprint 117 — Admin UI
 
-| Sprint | Status | Notes |
-|---------|---------|----------|
-| 109 | Complete | Database schema and models |
-| 110 | Complete | Services layer with database integration |
-| 111 | Complete | Sync pipeline (fetch → filter → diff → process) |
-| 112 | Complete | Stream resolution and playback |
-| 113 | Complete | Saved/Blocked User Actions (basic) |
-| 114 | Complete | Your Files Detection |
-| 115 | Complete | Removal Pipeline |
-| 116 | Complete ✓ | Collection Management (BoxSet API) |
-| 119 | Complete | API Endpoints |
-| 120 | Complete | Logging |
-| 121 | Complete | E2E Validation |
-| 117 | Not Started | Admin UI — Extensive HTML/JavaScript/CSS work |
-| 118 | Not Started | Home Screen Rails — Requires ContentSectionProvider |
+**Status:** PARTIAL | **Notes:** Existing config page uses different structure
+
+### Sprint 117 Notes
+
+The existing configuration page (configurationpage.html/js) has a complex, feature-rich UI with:
+- Discover functionality
+- Source management
+- Collection sync
+- Actions (sync, cleanup, etc.)
+- Settings and preferences
+
+However, the existing implementation differs from the v3.3 Sprint 117 specification:
+- Different CSS classes and structure
+- No "Needs Review" tab for superseded_conflict items
+- No item inspector with season save display
+- No install notice for THREE libraries
+- Different API call patterns
+
+**Missing Features (from Sprint 117 spec):**
+- [ ] Needs Review tab (superseded_conflict items)
+- [ ] Item inspector with season info
+- [ ] Install notice for THREE libraries
+- [ ] Toast notifications for save/block/unsave/unblock
+- [ ] Item inspector modal with superseded status display
 
 ---
 
@@ -67,6 +108,10 @@ Sprint 116 implements collection management using Emby ICollectionManager API. S
 **Services:**
 - Services/BoxSetService.cs - Emby BoxSet API wrapper using ICollectionManager
 - Services/CollectionSyncService.cs - Syncs sources to BoxSets
-- Services/CollectionSyncService.cs - Updated to use async methods
+
+**Sprint Documentation:**
+- .ai/SPRINT_116.md - Marked as Complete
+- .ai/SPRINT_117.md - Marked as Partial
+- .ai/SPRINT_118.md - Marked as Blocked
 
 **Build Status:** ✅ Success (0 warnings, 0 errors)
