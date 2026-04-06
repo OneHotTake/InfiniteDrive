@@ -1,5 +1,32 @@
 # EmbyStreams — Claude Code Instructions
 
+## Version Naming Policy
+
+**DO NOT use version numbers (V1, V2, V3, V20, V33, etc.) in code, class names, or method names.**
+
+EmbyStreams is beta software. Version numbers are arbitrary during development and should only be used for:
+- Documentation and release notes
+- Database schema version tracking (stored in schema_version table)
+- External communication (not internal code)
+
+Use descriptive names instead:
+- ❌ `V33DatabaseManager`, `V20Schema`
+- ✅ `DatabaseManager`, `MediaItem`, `Source`
+
+**Rationale:** Version numbers create unnecessary coupling and become misleading as schemas evolve. Use descriptive names that reflect what the code does, not what version it "is".
+
+---
+
+## Design Principle
+
+> **Design Principle: Simplicity Over Complexity**
+>
+> Users want simplicity, administrators want flexibility, nobody wants complexity. Fortunately for us, debrid and usenet streaming world is inherently complex.
+>
+> When making architectural decisions: prefer the simple approach that works over the sophisticated one that handles every edge case.
+
+---
+
 ## Startup Ritual (Every Session)
 
 Read these two files **only**, then stop and wait for the task:
