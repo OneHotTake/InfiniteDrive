@@ -1,1124 +1,974 @@
-# Sprint 117 — Admin UI (v3.3 Configuration Page)
+# Sprint 117 — Admin UI (Declarative Plugin UI)
 
-**Version:** v3.3 | **Status:** Partial | **Risk:** LOW | **Depends:** Sprint 116
+**Version:** v4.10 | **Status:** In Progress | **Risk:** LOW | **Depends:** Sprint 116
 
 ---
 
 ## Overview
 
-Sprint 117 implements Admin UI for v3.3 configuration. The configuration page allows users to manage sources, collections, saved/blocked items, handle superseded conflicts, and trigger manual actions.
+Sprint 117 implements Admin UI using Emby's **declarative Plugin UI system**. Instead of custom HTML/JS/CSS, UI is generated automatically from C# ViewModels decorated with attributes. This approach leverages Emby's native UI patterns and ensures consistency with other plugins.
 
-**Key Components:**
-- Config Page HTML - Admin UI layout
-- Config Page JavaScript - UI logic and API calls
-- Config Page CSS - Styling
-- Config Controller - API endpoints for UI
-
----
-
-## Phase 117A — Config Page HTML
-
-### FIX-117A-01: Create Config Page Layout
-
-**File:** `Configuration/configurationpage.html`
-
-```html
-<!DOCTYPE html>
-<html>
-<head>
-    <title>EmbyStreams Configuration</title>
-    <link rel="stylesheet" href="configurationpage.css">
-</head>
-<body>
-    <div id="embystreams-config">
-        <header>
-            <h1>EmbyStreams v3.3</h1>
-            <div id="status-badge">Loading...</div>
-        </header>
-
-        <div id="install-notice" class="install-notice hidden">
-            <div class="install-notice-content">
-                <h3>Installation Complete</h3>
-                <p>EmbyStreams v3.3 has been installed and configured with THREE separate libraries:</p>
-                <ul>
-                    <li><strong>Movies Library:</strong> <code>/embystreams/library/movies/</code> (TMDB/IMDB)</li>
-                    <li><strong>Series Library:</strong> <code>/embystreams/library/series/</code> (TMDB/IMDB)</li>
-                    <li><strong>Anime Library:</strong> <code>/embystreams/library/anime/</code> (AniList/AniDB)</li>
-                </ul>
-                <p><strong>All three libraries are hidden from navigation panel</strong> for existing users.</p>
-                <p class="note">You can unhide libraries in Emby user settings if desired.</p>
-                <button onclick="dismissInstallNotice()">Dismiss</button>
-            </div>
-        </div>
-
-        <nav class="tabs">
-            <button class="tab active" data-tab="sources">Sources</button>
-            <button class="tab" data-tab="collections">Collections</button>
-            <button class="tab" data-tab="saved">Saved</button>
-            <button class="tab" data-tab="needs-review">Needs Review</button>
-            <button class="tab" data-tab="blocked">Blocked</button>
-            <button class="tab" data-tab="actions">Actions</button>
-            <button class="tab" data-tab="logs">Logs</button>
-        </nav>
-
-        <main>
-            <section id="sources-tab" class="tab-content active">
-                <h2>Sources</h2>
-                <div id="sources-list"></div>
-                <button id="add-source">Add Source</button>
-            </section>
-
-            <section id="collections-tab" class="tab-content">
-                <h2>Collections</h2>
-                <div id="collections-list"></div>
-            </section>
-
-            <section id="saved-tab" class="tab-content">
-                <h2>Saved Items</h2>
-                <div id="saved-list"></div>
-            </section>
-
-            <section id="needs-review-tab" class="tab-content">
-                <h2>Needs Review</h2>
-                <p class="section-note">
-                    These items have a <strong>Your Files conflict</strong>: they were explicitly saved by you,
-                    but also match local files you've added to your library.
-                    Please choose how to resolve each conflict.
-                </p>
-                <div id="needs-review-list"></div>
-            </section>
-
-            <section id="blocked-tab" class="tab-content">
-                <h2>Blocked Items</h2>
-                <div id="blocked-list"></div>
-            </section>
-
-            <section id="actions-tab" class="tab-content">
-                <h2>Actions</h2>
-                <div class="actions-grid">
-                    <button id="sync-now" class="action-btn">Sync Now</button>
-                    <button id="your-files-now" class="action-btn">Your Files Reconcile</button>
-                    <button id="cleanup-now" class="action-btn">Cleanup Removed</button>
-                    <button id="collections-now" class="action-btn">Sync Collections</button>
-                    <button id="purge-cache" class="action-btn danger">Purge Cache</button>
-                    <button id="reset-db" class="action-btn danger">Reset Database</button>
-                </div>
-            </section>
-
-            <section id="logs-tab" class="tab-content">
-                <h2>Logs</h2>
-                <div id="logs-container">
-                    <select id="log-filter">
-                        <option value="all">All</option>
-                        <option value="info">Info</option>
-                        <option value="warning">Warning</option>
-                        <option value="error">Error</option>
-                    </select>
-                    <div id="logs-list"></div>
-                </div>
-            </section>
-        </main>
-
-        <footer>
-            <span id="version">Loading version...</span>
-            <span id="last-sync">Last sync: Never</span>
-        </footer>
-    </div>
-
-    <script src="configurationpage.js"></script>
-</body>
-</html>
-```
-
-**Acceptance Criteria:**
-- [ ] Tabbed navigation
-- [ ] Sources tab
-- [ ] Collections tab
-- [ ] Saved tab
-- [ ] Needs Review tab (for superseded_conflict items)
-- [ ] Blocked tab
-- [ ] Actions tab
-- [ ] Logs tab
-- [ ] Status badge
-- [ ] Install notice (THREE libraries)
-- [ ] Install note about hidden navigation
+**Key Architecture:**
+- **Three separate pages** served via `Plugin.GetPages()`:
+  1. **Wizard** — Re-entrant setup for API keys and library paths
+  2. **Content Management** — Admin-only tabs for sources, collections, items, actions
+  3. **My Library** — Per-user tabs for saved, blocked, watch history
+- **ViewModels with attributes** for UI generation (`TabGroup`, `DataGrid`, `RunButton`, `ReadOnly`, `Required`, `DisplayName`, `Description`)
+- **No custom HTML/JS/CSS** — Emby generates UI automatically from ViewModels
+- **BasePluginViewModel** — Base class for all Plugin UI ViewModels
 
 ---
 
-## Phase 117B — Config Page JavaScript
+## Why Declarative Plugin UI?
 
-### FIX-117B-00: Add Item Inspector for Series Season Display
+### Original Spec Issue
 
-**File:** `Configuration/item-inspector.js`
+The original Sprint 117 spec called for a custom tabbed configuration page with HTML/JS/CSS. However:
 
-```javascript
-// Item inspector with series season save display
-function renderItemInspector(itemId) {
-    fetch(`/embystreams/items/${itemId}`)
-        .then(response => response.json())
-        .then(item => {
-            const inspector = document.getElementById('item-inspector');
+1. **Emby's configuration system** is built around declarative UI generation
+2. **Emby Plugin UI documentation** describes ViewModels with attributes, not custom HTML
+3. **Architectural mismatch** — Custom HTML doesn't integrate cleanly with Emby's plugin infrastructure
+4. **Maintenance burden** — Custom UI requires ongoing updates to match Emby UI changes
 
-            let seasonInfo = '';
-            if (item.mediaType === 'series' && item.savedSeason) {
-                seasonInfo = `
-                    <div class="inspector-section">
-                        <h4>Saved Season</h4>
-                        <div class="season-badge">Season ${item.savedSeason}</div>
-                        <p class="season-note">
-                            All episodes in Season ${item.savedSeason} were saved automatically
-                            because you watched an episode from this season.
-                        </p>
-                    </div>
-                `;
-            }
+### Declarative UI Benefits
 
-            let supersededInfo = '';
-            if (item.superseded) {
-                const conflictText = item.supersededConflict
-                    ? '<span class="conflict-badge">Saved + Your Files Conflict</span>'
-                    : '<span class="superseded-badge">Superseded</span>';
+- **Native Emby look and feel** — Automatic consistency with Emby's UI
+- **Future-proof** — UI automatically updates with Emby versions
+- **Less code** — ViewModels replace HTML/JS/CSS
+- **Type safety** — Compile-time checking of UI structure
+- **Accessibility** — Emby's UI generator handles accessibility automatically
 
-                supersededInfo = `
-                    <div class="inspector-section superseded-section">
-                        <h4>Superseded Status</h4>
-                        ${conflictText}
-                        <p class="superseded-note">
-                            ${item.supersededConflict
-                                ? 'This item was explicitly saved, but also matches a local file you added. Please review.'
-                                : 'This item matches a local file you added to your library. The stream file is hidden.'}
-                        </p>
-                        ${item.supersededAt ? `<p class="superseded-date">Superseded: ${new Date(item.supersededAt).toLocaleString()}</p>` : ''}
-                    </div>
-                `;
-            }
+### Three-Tier Architecture
 
-            inspector.innerHTML = `
-                <div class="inspector-header">
-                    <h2>${item.title}</h2>
-                    <span class="year-badge">${item.year}</span>
-                </div>
-                <div class="inspector-body">
-                    <div class="inspector-section">
-                        <h4>Status</h4>
-                        <span class="status-badge ${item.status.toLowerCase()}">${item.status}</span>
-                    </div>
-                    ${item.saveReason ? `
-                        <div class="inspector-section">
-                            <h4>Save Reason</h4>
-                            <span class="save-reason-badge">${item.saveReason}</span>
-                        </div>
-                    ` : ''}
-                    ${seasonInfo}
-                    ${supersededInfo}
-                </div>
-            `;
-        });
-}
-```
+The admin UI is split into three logical pages:
 
-**Acceptance Criteria:**
-- [ ] Shows saved season number for series items
-- [ ] Explains auto-save reason
-- [ ] Hidden for non-series items
-- [ ] Hidden if no saved season
-- [ ] Shows superseded status with conflict information
-- [ ] Shows superseded date if available
+| Page | Access | Purpose |
+|------|--------|---------|
+| Wizard | All users (re-entrant) | Initial setup, API keys, library paths |
+| Content Management | Admin only | Sources, collections, items, actions |
+| My Library | Per-user | Saved, blocked, watch history |
 
-### FIX-117B-01: Initialize Config Page
+This separation aligns with:
+- **Wizard** — One-time setup (but re-entrant for configuration changes)
+- **Content Management** — Administrative functions that affect all users
+- **My Library** — User-specific personalization
 
-**File:** `Configuration/configurationpage.js`
+---
 
-```javascript
-document.addEventListener('DOMContentLoaded', () => {
-    initTabs();
-    loadStatus();
-    loadSources();
-    loadCollections();
-    loadSavedItems();
-    loadNeedsReviewItems();
-    loadBlockedItems();
-    initActions();
-});
+## Implementation Plan
 
-function initTabs() {
-    document.querySelectorAll('.tab').forEach(tab => {
-        tab.addEventListener('click', () => {
-            // Remove active class from all tabs
-            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+### Page 1: Wizard (Setup)
 
-            // Add active class to clicked tab
-            tab.classList.add('active');
-            const tabName = tab.dataset.tab;
-            document.getElementById(`${tabName}-tab`).classList.add('active');
-        });
-    });
-}
+**File:** `Configuration/WizardViewModel.cs`
 
-async function loadStatus() {
-    const response = await fetch('/embystreams/status');
-    const status = await response.json();
+```csharp
+using Emby.Plugin.UI.Attributes;
+using MediaBrowser.Model.Plugins;
 
-    updateStatusBadge(status);
-    updateVersion(status);
-    updateLastSync(status);
-}
+namespace EmbyStreams.Configuration
+{
+    /// <summary>
+    /// Wizard ViewModel for initial setup.
+    /// Re-entrant — users can return to update API keys and library paths.
+    /// </summary>
+    public class WizardViewModel : BasePluginViewModel
+    {
+        [DisplayName("API Key")]
+        [Description("Your EmbyStreams API key for accessing the catalog")]
+        [Required]
+        public string ApiKey { get; set; } = string.Empty;
 
-function updateStatusBadge(status) {
-    const badge = document.getElementById('status-badge');
-    // CRITICAL: Use pluginStatus, NOT manifestStatus (v20 concept)
-    badge.textContent = status.pluginStatus || status.status || 'Unknown';
-    badge.className = `status-badge ${(status.pluginStatus || status.status || 'unknown').toLowerCase()}`;
-}
+        [DisplayName("Movies Library Path")]
+        [Description("Path to the EmbyStreams movies library")]
+        [Required]
+        public string MoviesLibraryPath { get; set; } = "/embystreams/library/movies/";
 
-function updateVersion(status) {
-    document.getElementById('version').textContent = `v${status.version}`;
-}
+        [DisplayName("Series Library Path")]
+        [Description("Path to the EmbyStreams series library")]
+        [Required]
+        public string SeriesLibraryPath { get; set; } = "/embystreams/library/series/";
 
-function updateLastSync(status) {
-    const lastSync = status.lastSyncAt
-        ? new Date(status.lastSyncAt).toLocaleString()
-        : 'Never';
-    document.getElementById('last-sync').textContent = `Last sync: ${lastSync}`;
-}
+        [DisplayName("Anime Library Path")]
+        [Description("Path to the EmbyStreams anime library (AniList/AniDB)")]
+        [Required]
+        public string AnimeLibraryPath { get; set; } = "/embystreams/library/anime/";
 
-async function checkInstallNotice() {
-    const response = await fetch('/embystreams/status');
-    const status = await response.json();
+        [DisplayName("Enable Auto-Sync")]
+        [Description("Automatically sync catalog items every 6 hours")]
+        public bool EnableAutoSync { get; set; } = true;
 
-    if (status.installNoticePending) {
-        document.getElementById('install-notice').classList.remove('hidden');
-    }
-}
-
-function dismissInstallNotice() {
-    document.getElementById('install-notice').classList.add('hidden');
-    fetch('/embystreams/status/dismiss-install-notice', { method: 'POST' });
-}
-
-// Call checkInstallNotice on page load
-checkInstallNotice();
-```
-
-**Acceptance Criteria:**
-- [ ] Tab switching works
-- [ ] Status badge loads
-- [ ] Status badge uses pluginStatus (NOT manifestStatus)
-- [ ] Version loads
-- [ ] Last sync time loads
-- [ ] Install notice check on page load
-- [ ] Install notice dismissible
-
-### FIX-117B-02: Implement Sources Tab
-
-**File:** `Configuration/configurationpage.js`
-
-```javascript
-async function loadSources() {
-    const response = await fetch('/embystreams/sources');
-    const sources = await response.json();
-
-    const container = document.getElementById('sources-list');
-    container.innerHTML = sources.map(source => `
-        <div class="source-card" data-source-id="${source.id}">
-            <h3>${source.name}</h3>
-            <div class="source-info">
-                <span>Items: ${source.itemCount || 0}</span>
-                <span>Last Sync: ${source.lastSyncedAt ? new Date(source.lastSyncedAt).toLocaleString() : 'Never'}</span>
-            </div>
-            <div class="source-actions">
-                <label>
-                    <input type="checkbox" ${source.enabled ? 'checked' : ''}
-                           onchange="toggleSource('${source.id}', this.checked)">
-                    Enabled
-                </label>
-                <label>
-                    <input type="checkbox" ${source.showAsCollection ? 'checked' : ''}
-                           onchange="toggleShowAsCollection('${source.id}', this.checked)">
-                    Show as Collection
-                </label>
-                <button onclick="syncSource('${source.id}')">Sync</button>
-                <button onclick="deleteSource('${source.id}')" class="danger">Delete</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-async function toggleSource(sourceId, enabled) {
-    const action = enabled ? 'enable' : 'disable';
-    const response = await fetch(`/embystreams/sources/${sourceId}/${action}`, { method: 'POST' });
-    if (response.ok) {
-        showToast(`Source ${action}d`);
-    } else {
-        showToast(`Failed to ${action} source`, 'error');
-    }
-}
-
-async function toggleShowAsCollection(sourceId, show) {
-    const response = await fetch(`/embystreams/sources/${sourceId}/show-as-collection`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show })
-    });
-    if (response.ok) {
-        showToast('Collection setting updated');
-    } else {
-        showToast('Failed to update collection setting', 'error');
-    }
-}
-
-async function deleteSource(sourceId) {
-    if (!confirm('Are you sure you want to delete this source?')) return;
-
-    const response = await fetch(`/embystreams/sources/${sourceId}`, { method: 'DELETE' });
-    if (response.ok) {
-        showToast('Source deleted');
-        loadSources();
-    } else {
-        showToast('Failed to delete source', 'error');
+        [DisplayName("Sync Interval (hours)")]
+        [Description("How often to auto-sync (minimum: 1 hour)")]
+        [Range(1, 24)]
+        public int SyncIntervalHours { get; set; } = 6;
     }
 }
 ```
 
 **Acceptance Criteria:**
-- [ ] Lists all sources
-- [ ] Toggles enabled/disabled
-- [ ] Toggles Show as Collection
-- [ ] Syncs source
-- [ ] Deletes source
-- [ ] All source IDs are string TEXT UUIDs
+- [ ] ViewModel inherits from BasePluginViewModel
+- [ ] API key field with Required attribute
+- [ ] Three library paths with Required attribute
+- [ ] Auto-sync toggle
+- [ ] Sync interval with Range(1, 24)
+- [ ] Emby generates UI automatically
+- [ ] Wizard is re-entrant (users can return)
 
-### FIX-117B-03: Implement Collections Tab
+---
 
-**File:** `Configuration/configurationpage.js`
+### Page 2: Content Management (Admin Tabs)
 
-```javascript
-async function loadCollections() {
-    const response = await fetch('/embystreams/collections');
-    const collections = await response.json();
+**File:** `Configuration/ContentManagementViewModel.cs`
 
-    const container = document.getElementById('collections-list');
-    container.innerHTML = collections.map(collection => `
-        <div class="collection-card">
-            <h3>${collection.collectionName || collection.name}</h3>
-            <div class="collection-info">
-                <span>Source: ${collection.name}</span>
-                <span>Last Synced: ${collection.lastSyncedAt ? new Date(collection.lastSyncedAt).toLocaleString() : 'Never'}</span>
-            </div>
-            <div class="collection-actions">
-                <button onclick="syncCollection('${collection.sourceId}')">Sync Now</button>
-                <button onclick="viewCollection('${collection.embyCollectionId}')">View in Emby</button>
-            </div>
-        </div>
-    `).join('');
-}
+```csharp
+using System.Collections.Generic;
+using Emby.Plugin.UI.Attributes;
+using EmbyStreams.Models;
 
-async function syncCollection(sourceId) {
-    showToast('Syncing collection...');
-    const response = await fetch(`/embystreams/collections/${sourceId}/sync`, { method: 'POST' });
-    if (response.ok) {
-        showToast('Collection synced');
-        loadCollections();
-    } else {
-        showToast('Failed to sync collection', 'error');
-    }
-}
+namespace EmbyStreams.Configuration
+{
+    /// <summary>
+    /// Content Management ViewModel for admin-only functions.
+    /// Shows tabs for Sources, Collections, Items, and Actions.
+    /// </summary>
+    public class ContentManagementViewModel : BasePluginViewModel
+    {
+        #region Sources Tab
 
-function viewCollection(collectionId) {
-    // Open Emby UI for this collection
-    window.open(`#!/collection?id=${collectionId}`, '_blank');
-}
-```
+        [TabGroup("Sources", Order = 1)]
+        [DataGrid]
+        public List<SourceRow> Sources { get; set; } = new();
 
-**Acceptance Criteria:**
-- [ ] Lists all collections
-- [ ] Syncs collection
-- [ ] Views collection in Emby
-- [ ] All source IDs are string TEXT UUIDs
-
-### FIX-117B-04: Implement Saved/Blocked/Needs Review Tabs
-
-**File:** `Configuration/configurationpage.js`
-
-```javascript
-async function loadSavedItems() {
-    const response = await fetch('/embystreams/saved/list');
-    const data = await response.json();
-
-    const container = document.getElementById('saved-list');
-    container.innerHTML = data.Saved.map(item => `
-        <div class="item-card">
-            <div class="item-info">
-                <h4>${item.title} (${item.year})</h4>
-                <span class="save-reason">${item.saveReason || 'Manual'}</span>
-                ${item.savedSeason ? `<span class="season-badge-mini">Season ${item.savedSeason}</span>` : ''}
-            </div>
-            <div class="item-actions">
-                <button onclick="showItemInspector('${item.id}')">Details</button>
-                <button onclick="unsaveItem('${item.id}')">Unsave</button>
-                <button onclick="blockItem('${item.id}')" class="danger">Block</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-async function loadNeedsReviewItems() {
-    const response = await fetch('/embystreams/items/needs-review');
-    const items = await response.json();
-
-    const container = document.getElementById('needs-review-list');
-
-    if (items.length === 0) {
-        container.innerHTML = '<p class="empty-note">No items need review.</p>';
-        return;
-    }
-
-    container.innerHTML = items.map(item => `
-        <div class="item-card needs-review">
-            <div class="item-info">
-                <h4>${item.title} (${item.year})</h4>
-                <span class="save-reason">Saved: ${item.saveReason || 'Manual'}</span>
-                <span class="conflict-badge">Your Files Conflict</span>
-                ${item.savedSeason ? `<span class="season-badge-mini">Season ${item.savedSeason}</span>` : ''}
-            </div>
-            <div class="item-actions">
-                <button onclick="keepSavedItem('${item.id}')">Keep Saved</button>
-                <button onclick="acceptYourFiles('${item.id}')" class="danger">Accept Your Files</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-async function keepSavedItem(itemId) {
-    const response = await fetch('/embystreams/items/keep-saved', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId })
-    });
-    if (response.ok) {
-        showToast('Item kept as saved');
-        loadNeedsReviewItems();
-        loadSavedItems();
-    } else {
-        showToast('Failed to keep saved item', 'error');
-    }
-}
-
-async function acceptYourFiles(itemId) {
-    if (!confirm('This will delete the stream file and remove the item from Emby. Continue?')) return;
-
-    const response = await fetch('/embystreams/items/accept-your-files', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId })
-    });
-    if (response.ok) {
-        showToast('Your Files match accepted');
-        loadNeedsReviewItems();
-        loadSavedItems();
-    } else {
-        showToast('Failed to accept Your Files match', 'error');
-    }
-}
-
-async function loadBlockedItems() {
-    const response = await fetch('/embystreams/saved/list');
-    const data = await response.json();
-
-    const container = document.getElementById('blocked-list');
-    container.innerHTML = data.Blocked.map(item => `
-        <div class="item-card blocked">
-            <div class="item-info">
-                <h4>${item.title} (${item.year})</h4>
-            </div>
-            <div class="item-actions">
-                <button onclick="unblockItem('${item.id}')">Unblock</button>
-                <button onclick="saveItem('${item.id}')">Save</button>
-            </div>
-        </div>
-    `).join('');
-}
-
-async function saveItem(itemId) {
-    const response = await fetch('/embystreams/saved/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId })
-    });
-    if (response.ok) {
-        showToast('Item saved');
-        loadSavedItems();
-        loadBlockedItems();
-    } else {
-        showToast('Failed to save item', 'error');
-    }
-}
-
-async function unsaveItem(itemId) {
-    const response = await fetch('/embystreams/saved/unsave', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId })
-    });
-    if (response.ok) {
-        showToast('Item unsaved');
-        loadSavedItems();
-        loadBlockedItems();
-    } else {
-        showToast('Failed to unsave item', 'error');
-    }
-}
-
-async function blockItem(itemId) {
-    const response = await fetch('/embystreams/saved/block', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId })
-    });
-    if (response.ok) {
-        showToast('Item blocked');
-        loadSavedItems();
-        loadBlockedItems();
-    } else {
-        showToast('Failed to block item', 'error');
-    }
-}
-
-async function unblockItem(itemId) {
-    const response = await fetch('/embystreams/saved/unblock', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemId })
-    });
-    if (response.ok) {
-        showToast('Item unblocked');
-        loadSavedItems();
-        loadBlockedItems();
-    } else {
-        showToast('Failed to unblock item', 'error');
-    }
-}
-
-function showItemInspector(itemId) {
-    // Open item inspector modal
-    renderItemInspector(itemId);
-    document.getElementById('item-inspector-modal').classList.remove('hidden');
-}
-```
-
-**Acceptance Criteria:**
-- [ ] Lists saved items
-- [ ] Lists blocked items
-- [ ] Lists needs-review items (superseded_conflict = true)
-- [ ] Save/Unsave works
-- [ ] Block/Unblock works
-- [ ] Keep Saved clears superseded_conflict flag
-- [ ] Accept Your Files supersedes item
-- [ ] Item inspector shows season info
-- [ ] All item IDs are string TEXT UUIDs
-
-### FIX-117B-05: Implement Actions Tab
-
-**File:** `Configuration/configurationpage.js`
-
-```javascript
-function initActions() {
-    document.getElementById('sync-now').addEventListener('click', async () => {
-        showToast('Syncing...');
-        const response = await fetch('/embystreams/actions/sync', { method: 'POST' });
-        handleActionResponse(response);
-    });
-
-    document.getElementById('your-files-now').addEventListener('click', async () => {
-        showToast('Reconciling Your Files...');
-        const response = await fetch('/embystreams/actions/yourfiles', { method: 'POST' });
-        handleActionResponse(response);
-    });
-
-    document.getElementById('cleanup-now').addEventListener('click', async () => {
-        showToast('Cleaning up...');
-        const response = await fetch('/embystreams/actions/cleanup', { method: 'POST' });
-        handleActionResponse(response);
-    });
-
-    document.getElementById('collections-now').addEventListener('click', async () => {
-        showToast('Syncing collections...');
-        const response = await fetch('/embystreams/actions/collections', { method: 'POST' });
-        handleActionResponse(response);
-    });
-
-    document.getElementById('purge-cache').addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to purge all cached stream URLs?')) return;
-
-        showToast('Purging cache...');
-        const response = await fetch('/embystreams/actions/purge-cache', { method: 'POST' });
-        handleActionResponse(response);
-    });
-
-    document.getElementById('reset-db').addEventListener('click', async () => {
-        // CRITICAL: Double confirmation with "type RESET" gate
-        if (!confirm('Are you sure you want to reset the database?')) return;
-
-        const confirmText = prompt('Type "RESET" to confirm database reset. This will delete all data!');
-        if (confirmText !== 'RESET') {
-            showToast('Database reset cancelled - you did not type "RESET"');
-            return;
+        [TabGroup("Sources", Order = 2)]
+        [RunButton("Add Source")]
+        public void AddSource()
+        {
+            // Open source creation dialog
         }
 
-        showToast('Resetting database...');
-        const response = await fetch('/embystreams/actions/reset', { method: 'POST' });
-        handleActionResponse(response);
-    });
-}
+        #endregion
 
-async function handleActionResponse(response) {
-    if (response.ok) {
-        const result = await response.json();
-        showToast(result.message);
-        loadStatus();
-    } else {
-        const error = await response.json();
-        showToast(error.message, 'error');
+        #region Collections Tab
+
+        [TabGroup("Collections", Order = 1)]
+        [DataGrid]
+        public List<CollectionRow> Collections { get; set; } = new();
+
+        [TabGroup("Collections", Order = 2)]
+        [RunButton("Sync All Collections")]
+        public void SyncCollections()
+        {
+            // Trigger collection sync
+        }
+
+        #endregion
+
+        #region Items Tab
+
+        [TabGroup("Items", Order = 1)]
+        [DataGrid]
+        public List<ItemRow> AllItems { get; set; } = new();
+
+        [TabGroup("Items", Order = 2)]
+        [FilterOptions("Active", "Superseded", "Blocked")]
+        public ItemStatus? StatusFilter { get; set; }
+
+        [TabGroup("Items", Order = 3)]
+        [RunButton("Refresh Items")]
+        public void RefreshItems()
+        {
+            // Reload items with current filter
+        }
+
+        #endregion
+
+        #region Needs Review Tab
+
+        [TabGroup("Needs Review", Order = 1)]
+        [DataGrid]
+        public List<ItemRow> NeedsReview { get; set; } = new();
+
+        [TabGroup("Needs Review", Order = 2)]
+        [Description("Items with superseded_conflict = true require admin review")]
+        [ReadOnly]
+        public string ReviewNote =>
+            "These items were explicitly saved but also match local files. " +
+            "Review each item to resolve the conflict.";
+
+        #endregion
+
+        #region Actions Tab
+
+        [TabGroup("Actions", Order = 1)]
+        [RunButton("Sync Now")]
+        public void SyncNow()
+        {
+            // Trigger immediate sync
+        }
+
+        [TabGroup("Actions", Order = 2)]
+        [RunButton("Your Files Reconcile")]
+        public void ReconcileYourFiles()
+        {
+            // Trigger Your Files reconciliation
+        }
+
+        [TabGroup("Actions", Order = 3)]
+        [RunButton("Cleanup Removed")]
+        public void CleanupRemoved()
+        {
+            // Cleanup items no longer in catalog
+        }
+
+        [TabGroup("Actions", Order = 4)]
+        [RunButton("Sync Collections")]
+        public void SyncCollectionsNow()
+        {
+            // Sync all collections
+        }
+
+        [TabGroup("Actions", Order = 5)]
+        [RunButton("Purge Cache")]
+        [Dangerous("This will delete all cached stream URLs")]
+        public void PurgeCache()
+        {
+            // Purge stream URL cache
+        }
+
+        [TabGroup("Actions", Order = 6)]
+        [RunButton("Reset Database")]
+        [Dangerous("This will delete all data and require re-setup")]
+        [Confirmation("Type 'RESET' to confirm database reset")]
+        public void ResetDatabase()
+        {
+            // Reset database to empty state
+        }
+
+        #endregion
+    }
+
+    #region Row Models
+
+    public class SourceRow
+    {
+        [DisplayName("Name")]
+        [ReadOnly]
+        public string Name { get; set; } = string.Empty;
+
+        [DisplayName("Items")]
+        [ReadOnly]
+        public int ItemCount { get; set; }
+
+        [DisplayName("Last Sync")]
+        [ReadOnly]
+        public DateTime? LastSyncedAt { get; set; }
+
+        [DisplayName("Enabled")]
+        public bool Enabled { get; set; }
+
+        [DisplayName("Show as Collection")]
+        public bool ShowAsCollection { get; set; }
+
+        [RunButton("Sync")]
+        public void Sync() { }
+
+        [RunButton("Delete")]
+        [Dangerous]
+        public void Delete() { }
+    }
+
+    public class CollectionRow
+    {
+        [DisplayName("Collection Name")]
+        [ReadOnly]
+        public string CollectionName { get; set; } = string.Empty;
+
+        [DisplayName("Source")]
+        [ReadOnly]
+        public string SourceName { get; set; } = string.Empty;
+
+        [DisplayName("Last Synced")]
+        [ReadOnly]
+        public DateTime? LastSyncedAt { get; set; }
+
+        [RunButton("Sync")]
+        public void Sync() { }
+
+        [RunButton("View in Emby")]
+        public void View() { }
+    }
+
+    public class ItemRow
+    {
+        [DisplayName("Title")]
+        [ReadOnly]
+        public string Title { get; set; } = string.Empty;
+
+        [DisplayName("Year")]
+        [ReadOnly]
+        public int Year { get; set; }
+
+        [DisplayName("Type")]
+        [ReadOnly]
+        public string MediaType { get; set; } = string.Empty;
+
+        [DisplayName("Status")]
+        [ReadOnly]
+        public ItemStatus Status { get; set; }
+
+        [DisplayName("Save Reason")]
+        [ReadOnly]
+        public string? SaveReason { get; set; }
+
+        [DisplayName("Superseded")]
+        [ReadOnly]
+        public bool Superseded { get; set; }
+
+        [DisplayName("Conflict")]
+        [ReadOnly]
+        public bool SupersededConflict { get; set; }
+
+        [RunButton("Details")]
+        public void Details() { }
+
+        [RunButton("Keep Saved")]
+        public void KeepSaved() { }
+
+        [RunButton("Accept Your Files")]
+        public void AcceptYourFiles() { }
+    }
+
+    #endregion
+}
+```
+
+**Acceptance Criteria:**
+- [ ] ViewModel inherits from BasePluginViewModel
+- [ ] Sources tab with DataGrid and Add Source button
+- [ ] Collections tab with DataGrid and Sync All button
+- [ ] Items tab with DataGrid, filter, and Refresh button
+- [ ] Needs Review tab with DataGrid and review note
+- [ ] Actions tab with all action buttons
+- [ ] Dangerous actions marked with Dangerous attribute
+- [ ] Reset Database requires "RESET" confirmation
+- [ ] Emby generates UI automatically
+
+---
+
+### Page 3: My Library (Per-User Tabs)
+
+**File:** `Configuration/MyLibraryViewModel.cs`
+
+```csharp
+using System.Collections.Generic;
+using Emby.Plugin.UI.Attributes;
+using EmbyStreams.Models;
+
+namespace EmbyStreams.Configuration
+{
+    /// <summary>
+    /// My Library ViewModel for per-user personalization.
+    /// Shows tabs for Saved, Blocked, and Watch History.
+    /// </summary>
+    public class MyLibraryViewModel : BasePluginViewModel
+    {
+        #region Saved Tab
+
+        [TabGroup("Saved", Order = 1)]
+        [DataGrid]
+        public List<ItemRow> SavedItems { get; set; } = new();
+
+        [TabGroup("Saved", Order = 2)]
+        [FilterOptions("Movies", "Series", "Anime")]
+        public string? MediaTypeFilter { get; set; }
+
+        [TabGroup("Saved", Order = 3)]
+        [RunButton("Refresh")]
+        public void RefreshSaved()
+        {
+            // Reload saved items with current filter
+        }
+
+        #endregion
+
+        #region Blocked Tab
+
+        [TabGroup("Blocked", Order = 1)]
+        [DataGrid]
+        public List<ItemRow> BlockedItems { get; set; } = new();
+
+        [TabGroup("Blocked", Order = 2)]
+        [FilterOptions("Movies", "Series", "Anime")]
+        public string? MediaTypeFilter { get; set; }
+
+        [TabGroup("Blocked", Order = 3)]
+        [RunButton("Refresh")]
+        public void RefreshBlocked()
+        {
+            // Reload blocked items with current filter
+        }
+
+        #endregion
+
+        #region Watch History Tab
+
+        [TabGroup("Watch History", Order = 1)]
+        [DataGrid]
+        public List<WatchHistoryRow> WatchHistory { get; set; } = new();
+
+        [TabGroup("Watch History", Order = 2)]
+        [FilterOptions("Watched", "Partially Watched", "Not Started")]
+        public WatchStatus? StatusFilter { get; set; }
+
+        [TabGroup("Watch History", Order = 3)]
+        [RunButton("Refresh")]
+        public void RefreshHistory()
+        {
+            // Reload watch history with current filter
+        }
+
+        #endregion
+    }
+
+    public class WatchHistoryRow
+    {
+        [DisplayName("Title")]
+        [ReadOnly]
+        public string Title { get; set; } = string.Empty;
+
+        [DisplayName("Season")]
+        [ReadOnly]
+        public int? Season { get; set; }
+
+        [DisplayName("Episode")]
+        [ReadOnly]
+        public int? Episode { get; set; }
+
+        [DisplayName("Status")]
+        [ReadOnly]
+        public WatchStatus Status { get; set; }
+
+        [DisplayName("Last Watched")]
+        [ReadOnly]
+        public DateTime? LastWatchedAt { get; set; }
+
+        [RunButton("Re-watch")]
+        public void Rewatch() { }
+    }
+
+    public enum WatchStatus
+    {
+        Watched,
+        PartiallyWatched,
+        NotStarted
     }
 }
+```
 
-function showToast(message, type = 'success') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
+**Acceptance Criteria:**
+- [ ] ViewModel inherits from BasePluginViewModel
+- [ ] Saved tab with DataGrid, filter, and Refresh button
+- [ ] Blocked tab with DataGrid, filter, and Refresh button
+- [ ] Watch History tab with DataGrid, filter, and Refresh button
+- [ ] Emby generates UI automatically
+- [ ] Data is filtered per-user (not admin view)
 
-    setTimeout(() => {
-        toast.remove();
-    }, 3000);
+---
+
+## Base Classes and Attributes
+
+### BasePluginViewModel
+
+**File:** `Configuration/BasePluginViewModel.cs`
+
+```csharp
+using MediaBrowser.Model.Plugins;
+
+namespace EmbyStreams.Configuration
+{
+    /// <summary>
+    /// Base class for all Plugin UI ViewModels.
+    /// Provides common functionality for all configuration pages.
+    /// </summary>
+    public abstract class BasePluginViewModel : BasePluginConfiguration
+    {
+        /// <summary>
+        /// Gets or sets the plugin version.
+        /// </summary>
+        [DisplayName("Plugin Version")]
+        [ReadOnly]
+        public string PluginVersion { get; set; } = "0.51.0.0";
+
+        /// <summary>
+        /// Gets or sets the last sync timestamp.
+        /// </summary>
+        [DisplayName("Last Sync")]
+        [ReadOnly]
+        public DateTime? LastSyncAt { get; set; }
+
+        /// <summary>
+        /// Gets or sets the plugin status.
+        /// </summary>
+        [DisplayName("Status")]
+        [ReadOnly]
+        public string Status { get; set; } = "OK";
+    }
 }
 ```
 
 **Acceptance Criteria:**
-- [ ] Sync Now works
-- [ ] Your Files Reconcile works
-- [ ] Cleanup Removed works
-- [ ] Sync Collections works
-- [ ] Purge Cache works (with confirmation)
-- [ ] Reset Database works (with double confirmation: dialog + type "RESET")
-- [ ] Toast notifications work
+- [ ] Inherits from BasePluginConfiguration
+- [ ] Provides common properties (PluginVersion, LastSyncAt, Status)
+- [ ] All ViewModels inherit from this base class
 
 ---
 
-## Phase 117C — Config Page CSS
+### UI Attributes
 
-### FIX-117C-01: Create Config Page Styles
+Create custom attributes in `Configuration/Attributes/` directory:
 
-**File:** `Configuration/configurationpage.css`
+**File:** `Configuration/Attributes/TabGroupAttribute.cs`
 
-```css
-#embystreams-config {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 20px;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+```csharp
+using System;
+
+namespace Emby.Plugin.UI.Attributes
+{
+    /// <summary>
+    /// Groups properties into a tab on the configuration page.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class TabGroupAttribute : Attribute
+    {
+        public string Name { get; }
+        public int Order { get; }
+
+        public TabGroupAttribute(string name, int order = 0)
+        {
+            Name = name;
+            Order = order;
+        }
+    }
 }
+```
 
-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
+**File:** `Configuration/Attributes/DataGridAttribute.cs`
+
+```csharp
+using System;
+
+namespace Emby.Plugin.UI.Attributes
+{
+    /// <summary>
+    /// Marks a collection property to be displayed as a data grid.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class DataGridAttribute : Attribute
+    {
+        public int PageSize { get; set; } = 50;
+        public bool AllowSort { get; set; } = true;
+        public bool AllowFilter { get; set; } = true;
+    }
 }
+```
 
-#status-badge {
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-weight: bold;
+**File:** `Configuration/Attributes/RunButtonAttribute.cs`
+
+```csharp
+using System;
+
+namespace Emby.Plugin.UI.Attributes
+{
+    /// <summary>
+    /// Marks a method to be displayed as a button in the UI.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+    public class RunButtonAttribute : Attribute
+    {
+        public string Label { get; }
+        public string? Confirmation { get; set; }
+
+        public RunButtonAttribute(string? label = null)
+        {
+            Label = label ?? "Run";
+        }
+    }
 }
+```
 
-.status-badge.ok { background: #4caf50; color: white; }
-.status-badge.stale { background: #ff9800; color: white; }
-.status-badge.error { background: #f44336; color: white; }
-.status-badge.unknown { background: #9e9e9e; color: white; }
+**File:** `Configuration/Attributes/DangerousAttribute.cs`
 
-nav.tabs {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 20px;
+```csharp
+using System;
+
+namespace Emby.Plugin.UI.Attributes
+{
+    /// <summary>
+    /// Marks a button as dangerous (requires confirmation).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+    public class DangerousAttribute : Attribute
+    {
+        public string Message { get; }
+
+        public DangerousAttribute(string message = "This action cannot be undone")
+        {
+            Message = message;
+        }
+    }
 }
+```
 
-.tab {
-    padding: 10px 20px;
-    border: none;
-    background: #e0e0e0;
-    cursor: pointer;
-    border-radius: 4px;
-}
+**File:** `Configuration/Attributes/FilterOptionsAttribute.cs`
 
-.tab.active {
-    background: #2196f3;
-    color: white;
-}
+```csharp
+using System;
+using System.Collections.Generic;
 
-.tab-content {
-    display: none;
-}
+namespace Emby.Plugin.UI.Attributes
+{
+    /// <summary>
+    /// Defines filter options for a property.
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Property, AllowMultiple = false)]
+    public class FilterOptionsAttribute : Attribute
+    {
+        public string[] Options { get; }
 
-.tab-content.active {
-    display: block;
-}
-
-.install-notice {
-    background: #e3f2fd;
-    border: 1px solid #2196f3;
-    border-radius: 8px;
-    padding: 20px;
-    margin-bottom: 20px;
-}
-
-.install-notice.hidden {
-    display: none;
-}
-
-.install-notice-content h3 {
-    margin-top: 0;
-    color: #1976d2;
-}
-
-.install-notice-content ul {
-    margin: 15px 0;
-    padding-left: 20px;
-}
-
-.install-notice-content li {
-    margin-bottom: 8px;
-}
-
-.install-notice-content .note {
-    color: #666;
-    font-style: italic;
-    margin-top: 15px;
-}
-
-.install-notice-content button {
-    background: #2196f3;
-    color: white;
-    border: none;
-    padding: 10px 20px;
-    border-radius: 4px;
-    cursor: pointer;
-    margin-top: 15px;
-}
-
-.install-notice-content button:hover {
-    background: #1976d2;
-}
-
-.source-card, .collection-card, .item-card {
-    background: white;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    padding: 15px;
-    margin-bottom: 10px;
-}
-
-.source-info, .collection-info, .item-info {
-    margin-bottom: 10px;
-}
-
-.source-actions, .collection-actions, .item-actions {
-    display: flex;
-    gap: 10px;
-}
-
-.section-note {
-    background: #fff3cd;
-    border: 1px solid #ffc107;
-    border-radius: 4px;
-    padding: 10px;
-    margin-bottom: 15px;
-    font-size: 14px;
-}
-
-.empty-note {
-    color: #999;
-    font-style: italic;
-    padding: 20px;
-    text-align: center;
-}
-
-.item-card.blocked {
-    border-color: #f44336;
-}
-
-.item-card.needs-review {
-    border-color: #ff9800;
-    border-width: 2px;
-}
-
-.season-badge-mini {
-    background: #2196f3;
-    color: white;
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 11px;
-    margin-left: 8px;
-}
-
-.save-reason {
-    background: #4caf50;
-    color: white;
-    padding: 2px 8px;
-    border-radius: 3px;
-    font-size: 11px;
-}
-
-.conflict-badge {
-    display: inline-block;
-    background: #ff9800;
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: bold;
-    margin-left: 10px;
-}
-
-.superseded-section {
-    background: #ffebee;
-    border: 1px solid #e91e63;
-    border-radius: 4px;
-    margin-top: 10px;
-}
-
-.superseded-badge {
-    display: inline-block;
-    background: #e91e63;
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-weight: bold;
-}
-
-.superseded-note {
-    margin: 10px 0 0 0;
-    color: #666;
-    font-size: 13px;
-}
-
-.superseded-date {
-    color: #999;
-    font-size: 12px;
-    margin-top: 5px;
-}
-
-.actions-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-    gap: 10px;
-}
-
-.action-btn {
-    padding: 15px;
-    border: none;
-    border-radius: 4px;
-    background: #2196f3;
-    color: white;
-    cursor: pointer;
-    font-size: 14px;
-}
-
-.action-btn:hover {
-    background: #1976d2;
-}
-
-.action-btn.danger {
-    background: #f44336;
-}
-
-.action-btn.danger:hover {
-    background: #d32f2f;
-}
-
-.toast {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    padding: 15px 20px;
-    border-radius: 4px;
-    color: white;
-    z-index: 1000;
-}
-
-.toast.success { background: #4caf50; }
-.toast.error { background: #f44336; }
-
-/* Item Inspector Styles */
-.inspector-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-}
-
-.inspector-header h2 {
-    margin: 0;
-    font-size: 24px;
-}
-
-.year-badge {
-    background: #666;
-    color: white;
-    padding: 4px 12px;
-    border-radius: 4px;
-    font-size: 14px;
-}
-
-.inspector-body {
-    display: flex;
-    flex-direction: column;
-    gap: 20px;
-}
-
-.inspector-section {
-    background: white;
-    border: 1px solid #e0e0e0;
-    border-radius: 8px;
-    padding: 15px;
-}
-
-.inspector-section h4 {
-    margin-top: 0;
-    margin-bottom: 10px;
-    font-size: 14px;
-    color: #666;
-    text-transform: uppercase;
-}
-
-.season-badge {
-    display: inline-block;
-    background: #2196f3;
-    color: white;
-    padding: 6px 16px;
-    border-radius: 4px;
-    font-weight: bold;
-    font-size: 16px;
-}
-
-.season-note {
-    margin: 10px 0 0 0;
-    color: #666;
-    font-size: 14px;
-    font-style: italic;
-}
-
-footer {
-    margin-top: 20px;
-    padding-top: 20px;
-    border-top: 1px solid #e0e0e0;
-    display: flex;
-    justify-content: space-between;
-    color: #757575;
+        public FilterOptionsAttribute(params string[] options)
+        {
+            Options = options;
+        }
+    }
 }
 ```
 
 **Acceptance Criteria:**
-- [ ] Responsive layout
-- [ ] Status badge colors (ok, stale, error, unknown)
-- [ ] Tabbed navigation styling
-- [ ] Card styling
-- [ ] Action button styling
-- [ ] Toast notifications
-- [ ] Superseded section styling
-- [ ] Needs Review badge styling
-- [ ] Item inspector styling
-- [ ] Season badge styling
+- [ ] TabGroupAttribute with Name and Order
+- [ ] DataGridAttribute with PageSize, AllowSort, AllowFilter
+- [ ] RunButtonAttribute with Label and Confirmation
+- [ ] DangerousAttribute with Message
+- [ ] FilterOptionsAttribute with Options array
+- [ ] All attributes in Emby.Plugin.UI.Attributes namespace
 
 ---
 
-## Sprint 117 Dependencies
+## Plugin Integration
 
-- **Previous Sprint:** 116 (Collection Management)
-- **Blocked By:** Sprint 116
-- **Blocks:** Sprint 118 (Home Screen Rails)
+### Plugin.GetPages()
+
+Update `Plugin.cs` to register the three pages:
+
+```csharp
+public IEnumerable<PluginPageInfo> GetPages()
+{
+    return new[]
+    {
+        new PluginPageInfo
+        {
+            Name = "Wizard",
+            DisplayName = "EmbyStreams Setup Wizard",
+            EmbeddedResourcePath = "EmbyStreams.Configuration.WizardViewModel"
+        },
+        new PluginPageInfo
+        {
+            Name = "ContentManagement",
+            DisplayName = "EmbyStreams Content Management",
+            EmbeddedResourcePath = "EmbyStreams.Configuration.ContentManagementViewModel"
+        },
+        new PluginPageInfo
+        {
+            Name = "MyLibrary",
+            DisplayName = "EmbyStreams My Library",
+            EmbeddedResourcePath = "EmbyStreams.Configuration.MyLibraryViewModel"
+        }
+    };
+}
+```
+
+**Acceptance Criteria:**
+- [ ] All three pages registered
+- [ ] Wizard page accessible to all users
+- [ ] Content Management page accessible to admins only
+- [ ] My Library page accessible per-user
+
+---
+
+## Controller Support
+
+While the UI is generated automatically from ViewModels, we still need controllers to handle:
+
+1. **Loading data** into ViewModels
+2. **Saving data** from ViewModels
+3. **Handling button clicks**
+
+### ConfigurationController
+
+**File:** `Controllers/ConfigurationController.cs`
+
+```csharp
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using EmbyStreams.Configuration;
+using EmbyStreams.Data;
+using EmbyStreams.Models;
+using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Services;
+
+namespace EmbyStreams.Controllers
+{
+    /// <summary>
+    /// Controller for loading/saving ViewModels and handling button clicks.
+    /// </summary>
+    [Route("embystreams/config")]
+    public class ConfigurationController : IService, IRequiresRequest
+    {
+        private readonly DatabaseManager _db;
+        private readonly ILogger<ConfigurationController> _logger;
+
+        public ConfigurationController(DatabaseManager db, ILogger<ConfigurationController> logger)
+        {
+            _db = db;
+            _logger = logger;
+        }
+
+        public IRequest Request { get; set; } = null!;
+
+        #region Wizard
+
+        [Route("wizard")]
+        public async Task<WizardViewModel> GetWizard(CancellationToken ct)
+        {
+            var config = Plugin.Instance!.Configuration;
+            return new WizardViewModel
+            {
+                ApiKey = config.ApiKey,
+                MoviesLibraryPath = config.MoviesLibraryPath,
+                SeriesLibraryPath = config.SeriesLibraryPath,
+                AnimeLibraryPath = config.AnimeLibraryPath,
+                EnableAutoSync = config.EnableAutoSync,
+                SyncIntervalHours = config.SyncIntervalHours,
+                PluginVersion = config.Version,
+                LastSyncAt = config.LastSyncAt,
+                Status = config.PluginStatus
+            };
+        }
+
+        [Route("wizard")]
+        public async Task SaveWizard(WizardViewModel viewModel, CancellationToken ct)
+        {
+            var config = Plugin.Instance!.Configuration;
+            config.ApiKey = viewModel.ApiKey;
+            config.MoviesLibraryPath = viewModel.MoviesLibraryPath;
+            config.SeriesLibraryPath = viewModel.SeriesLibraryPath;
+            config.AnimeLibraryPath = viewModel.AnimeLibraryPath;
+            config.EnableAutoSync = viewModel.EnableAutoSync;
+            config.SyncIntervalHours = viewModel.SyncIntervalHours;
+            Plugin.Instance!.SaveConfiguration();
+        }
+
+        #endregion
+
+        #region Content Management
+
+        [Route("content-management")]
+        public async Task<ContentManagementViewModel> GetContentManagement(CancellationToken ct)
+        {
+            var viewModel = new ContentManagementViewModel();
+
+            // Load sources
+            var sources = await _db.GetSourcesAsync(ct);
+            viewModel.Sources = sources.Select(s => new SourceRow
+            {
+                Name = s.Name,
+                ItemCount = s.ItemCount,
+                LastSyncedAt = s.LastSyncedAt,
+                Enabled = s.Enabled,
+                ShowAsCollection = s.ShowAsCollection
+            }).ToList();
+
+            // Load collections
+            var collections = await _db.GetCollectionsAsync(ct);
+            viewModel.Collections = collections.Select(c => new CollectionRow
+            {
+                CollectionName = c.Name,
+                SourceName = c.Name,
+                LastSyncedAt = c.LastSyncedAt
+            }).ToList();
+
+            // Load all items
+            var allItems = await _db.GetItemsAsync(null, null, null, 50, 0, ct);
+            viewModel.AllItems = allItems.Select(i => new ItemRow
+            {
+                Title = i.Title,
+                Year = i.Year,
+                MediaType = i.MediaType,
+                Status = i.Status,
+                SaveReason = i.SaveReason,
+                Superseded = i.Superseded,
+                SupersededConflict = i.SupersededConflict
+            }).ToList();
+
+            // Load needs review
+            var needsReview = allItems.Where(i => i.SupersededConflict).ToList();
+            viewModel.NeedsReview = needsReview.Select(i => new ItemRow
+            {
+                Title = i.Title,
+                Year = i.Year,
+                MediaType = i.MediaType,
+                Status = i.Status,
+                SaveReason = i.SaveReason,
+                Superseded = i.Superseded,
+                SupersededConflict = i.SupersededConflict
+            }).ToList();
+
+            viewModel.PluginVersion = Plugin.Instance!.Configuration.Version;
+            viewModel.LastSyncAt = Plugin.Instance!.Configuration.LastSyncAt;
+            viewModel.Status = Plugin.Instance!.Configuration.PluginStatus;
+
+            return viewModel;
+        }
+
+        [Route("content-management/sources/{sourceId}/sync")]
+        public async Task SyncSource(string sourceId, CancellationToken ct)
+        {
+            // Trigger sync for specific source
+        }
+
+        [Route("content-management/sync")]
+        public async Task SyncAll(CancellationToken ct)
+        {
+            // Trigger sync all
+        }
+
+        [Route("content-management/purge-cache")]
+        public async Task PurgeCache(CancellationToken ct)
+        {
+            // Purge stream URL cache
+        }
+
+        [Route("content-management/reset")]
+        public async Task ResetDatabase(CancellationToken ct)
+        {
+            // Reset database
+        }
+
+        #endregion
+
+        #region My Library
+
+        [Route("my-library")]
+        public async Task<MyLibraryViewModel> GetMyLibrary(CancellationToken ct)
+        {
+            var userId = GetUserId();
+            var viewModel = new MyLibraryViewModel();
+
+            // Load saved items for this user
+            var savedItems = await _db.GetSavedItemsAsync(userId, ct);
+            viewModel.SavedItems = savedItems.Select(i => new ItemRow
+            {
+                Title = i.Title,
+                Year = i.Year,
+                MediaType = i.MediaType,
+                Status = i.Status
+            }).ToList();
+
+            // Load blocked items for this user
+            var blockedItems = await _db.GetBlockedItemsAsync(userId, ct);
+            viewModel.BlockedItems = blockedItems.Select(i => new ItemRow
+            {
+                Title = i.Title,
+                Year = i.Year,
+                MediaType = i.MediaType,
+                Status = i.Status
+            }).ToList();
+
+            viewModel.PluginVersion = Plugin.Instance!.Configuration.Version;
+            viewModel.LastSyncAt = Plugin.Instance!.Configuration.LastSyncAt;
+            viewModel.Status = Plugin.Instance!.Configuration.PluginStatus;
+
+            return viewModel;
+        }
+
+        private string GetUserId()
+        {
+            return Request?.GetUserId() ?? "default";
+        }
+
+        #endregion
+    }
+}
+```
+
+**Acceptance Criteria:**
+- [ ] Wizard GET endpoint returns populated WizardViewModel
+- [ ] Wizard POST endpoint saves configuration
+- [ ] Content Management GET endpoint returns populated ContentManagementViewModel
+- [ ] Content Management action endpoints handle button clicks
+- [ ] My Library GET endpoint returns per-user MyLibraryViewModel
+- [ ] User ID extracted from request context
 
 ---
 
 ## Sprint 117 Completion Criteria
 
-- [ ] Config page HTML structure
-- [ ] All tabs implemented (Sources, Collections, Saved, Needs Review, Blocked, Actions, Logs)
-- [ ] Status badge uses pluginStatus (NOT manifestStatus)
-- [ ] All API calls work
-- [ ] Toast notifications work
-- [ ] Confirmations work for dangerous actions
-- [ ] Reset Database uses double confirmation (dialog + type "RESET")
-- [ ] Install notice shows THREE separate libraries
-- [ ] Install note about hidden navigation
-- [ ] Needs Review tab for superseded_conflict items
-- [ ] Item Inspector with season save display
-- [ ] CSS styling complete
-- [ ] Build succeeds
-- [ ] E2E: Config page works in browser
+| Criteria | Status | Notes |
+|-----------|--------|-------|
+| BasePluginViewModel base class created | ⏸️ Pending | Common properties for all ViewModels |
+| UI attributes created (TabGroup, DataGrid, RunButton, etc.) | ⏸️ Pending | In Emby.Plugin.UI.Attributes namespace |
+| WizardViewModel created with all setup fields | ⏸️ Pending | API key, library paths, sync settings |
+| ContentManagementViewModel created with all tabs | ⏸️ Pending | Sources, Collections, Items, Needs Review, Actions |
+| MyLibraryViewModel created with per-user tabs | ⏸️ Pending | Saved, Blocked, Watch History |
+| Row models created (SourceRow, CollectionRow, ItemRow) | ⏸️ Pending | For DataGrid display |
+| Plugin.GetPages() returns all three pages | ⏸️ Pending | Wizard, Content Management, My Library |
+| ConfigurationController loads ViewModels | ⏸️ Pending | GET endpoints for each page |
+| ConfigurationController saves ViewModels | ⏸️ Pending | POST endpoints for each page |
+| ConfigurationController handles button clicks | ⏸️ Pending | Sync, Purge Cache, Reset Database, etc. |
+| Build succeeds | ⏸️ Pending | 0 warnings, 0 errors |
+| E2E: UI works in Emby browser | ⏸️ Pending | Three pages render correctly |
 
 ---
 
-## Sprint 117 Notes
+## Sprint 117 Notes (Declarative UI)
 
-**Tabs:**
-- Sources: Manage enabled/disabled sources, ShowAsCollection
-- Collections: View and sync collections
-- Saved: List and manage saved items
-- Needs Review: Handle superseded_conflict items (Your Files conflicts)
-- Blocked: List and manage blocked items
-- Actions: Trigger manual sync, cleanup, etc.
-- Logs: View pipeline logs
+**Three-Tier Architecture:**
+- **Wizard** — Re-entrant setup page for all users
+- **Content Management** — Admin-only page for sources, collections, items, actions
+- **My Library** — Per-user page for saved, blocked, watch history
 
-**Status Badge (CRITICAL):**
-- Use `status.pluginStatus` or `status.status` (overall plugin status)
-- Do NOT use `status.manifestStatus` (v20 concept, removed in v3.3)
+**Declarative UI Pattern:**
+- No custom HTML/JS/CSS
+- UI generated automatically from ViewModels with attributes
+- Attributes: `TabGroup`, `DataGrid`, `RunButton`, `Dangerous`, `FilterOptions`, `ReadOnly`, `Required`, `DisplayName`, `Description`
+- Base class: `BasePluginViewModel` extends `BasePluginConfiguration`
 
-**Library Visibility on Install (v3.3 Spec §15):**
-- On first install, EmbyStreams creates THREE separate libraries:
-  1. `/embystreams/library/movies/` → TMDB/IMDB movies
-  2. `/embystreams/library/series/` → TMDB/IMDB series
-  3. `/embystreams/library/anime/` → AniList/AniDB content
-- All THREE libraries are automatically hidden from navigation panel
-- Install notice shown to all users on first visit to config page
-- Install notice explains THREE separate library structure
-- User can unhide libraries via Emby user settings if desired
-- Dismiss button hides notice permanently (stored in config)
+**Row Models:**
+- `SourceRow` — Data row for Sources grid
+- `CollectionRow` — Data row for Collections grid
+- `ItemRow` — Data row for Items grid
+- `WatchHistoryRow` — Data row for Watch History grid
 
-**Needs Review Tab (v3.3 Spec §11.2):**
-- Displays items with `superseded_conflict = true`
-- These are Saved items that also match Your Files (superseded = true)
-- Two resolution options:
-  - "Keep Saved" → clears superseded_conflict flag, keeps Saved status
-  - "Accept Your Files" → deletes .strm, removes from Emby, keeps superseded=true
-- Admin review required before automatic cleanup
-- Item inspector shows both saved and superseded status
+**Permissions:**
+- Wizard: All users (re-entrant)
+- Content Management: Admin only
+- My Library: Per-user
 
-**Series Season Save Display (v3.3 Spec §9.2):**
-- Item inspector shows saved season for series items
-- Displays: "Saved Season X" badge
-- Explains: "All episodes in Season X were saved automatically because you watched an episode from this season"
-- Only shown for series with `savedSeason != null`
+**Database Integration:**
+- Controllers load data from DatabaseManager
+- Controllers save data to DatabaseManager
+- ViewModels are DTOs for UI display
 
-**Dangerous Actions:**
-- Purge Cache: Confirm once
-- Reset Database: Double confirm (dialog + type "RESET")
-  - First confirmation: "Are you sure?"
-  - Second confirmation: Prompt user to type "RESET"
-  - Only proceed if user types exactly "RESET"
-- This prevents accidental database resets
+**Emby Integration:**
+- `Plugin.GetPages()` registers the three pages
+- `PluginConfiguration` stores persisted settings
+- `IRequiresRequest` provides request context for user ID
 
-**Toast Notifications:**
-- Success: Green
-- Error: Red
-- Auto-dismiss after 3 seconds
-- Fixed position at bottom-right
-
-**Item Inspector (v3.3 Spec §12):**
-- Modal popup when user clicks "Details" button
-- Shows item metadata: title, year, status, save reason
-- Shows saved season info for series
-- Shows superseded status and conflict information
-- Shows superseded date if available
+**Next Steps:**
+1. Create BasePluginViewModel.cs
+2. Create all UI attributes in Configuration/Attributes/
+3. Create all ViewModels (WizardViewModel, ContentManagementViewModel, MyLibraryViewModel)
+4. Create all row models (SourceRow, CollectionRow, ItemRow, WatchHistoryRow)
+5. Update Plugin.cs to register pages
+6. Create ConfigurationController.cs
+7. Test UI in Emby browser

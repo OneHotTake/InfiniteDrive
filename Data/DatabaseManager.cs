@@ -6,6 +6,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using EmbyStreams.Models;
 using EmbyStreams.Repositories.Interfaces;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Channels;
 using MediaBrowser.Model.Dto;
 using SQLitePCL.pretty;
@@ -31,7 +33,7 @@ namespace EmbyStreams.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 20;
+        private const int CurrentSchemaVersion = 21;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -45,6 +47,7 @@ namespace EmbyStreams.Data
             public const string ApiBudget        = "api_budget";
             public const string SyncState        = "sync_state";
             public const string CollectionMembership = "collection_membership";
+            public const string HomeSectionTracking = "home_section_tracking";
         }
 
         // ── Fields ──────────────────────────────────────────────────────────────
@@ -2615,6 +2618,34 @@ CREATE TABLE IF NOT EXISTS plugin_metadata (
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (20);");
                 version = 20;
             }
+
+            // ── V20 → V21 ────────────────────────────────────────────────────────
+            // Adds home_section_tracking table for per-user per-rail home screen section tracking.
+            // Sprint 118: Home Screen Rails.
+            if (version < 21)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V21", version);
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS home_section_tracking (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
+    rail_type       TEXT NOT NULL,
+    emby_section_id TEXT,
+    section_marker  TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, rail_type)
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_home_section_user
+    ON home_section_tracking(user_id);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_home_section_marker
+    ON home_section_tracking(section_marker);");
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (21);");
+                version = 21;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -4708,6 +4739,119 @@ LIMIT 1";
             await ExecuteWriteAsync(sql, _ => { }, cancellationToken);
             _logger?.LogInformation("[DatabaseManager] Purged expired cache entries");
         }
+
+        #region Home Section Tracking (Sprint 118C)
+
+        /// <summary>
+        /// Inserts a new home section tracking record.
+        /// Sprint 118: Home Screen Rails.
+        /// </summary>
+        public async Task InsertHomeSectionTrackingAsync(
+            EmbyStreams.Models.HomeSectionTracking tracking,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO home_section_tracking
+                    (id, user_id, rail_type, emby_section_id, section_marker, created_at, updated_at)
+                VALUES (@id, @user_id, @rail_type, @emby_section_id, @section_marker, @created_at, @updated_at);";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", tracking.Id);
+                BindText(cmd, "@user_id", tracking.UserId);
+                BindText(cmd, "@rail_type", tracking.RailType);
+                BindNullableText(cmd, "@emby_section_id", tracking.EmbySectionId);
+                BindText(cmd, "@section_marker", tracking.SectionMarker);
+                BindText(cmd, "@created_at", tracking.CreatedAt.ToString("o"));
+                BindText(cmd, "@updated_at", tracking.UpdatedAt.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets a home section tracking record by user ID and rail type.
+        /// Sprint 118: Home Screen Rails.
+        /// </summary>
+        public async Task<EmbyStreams.Models.HomeSectionTracking?> GetHomeSectionTrackingAsync(
+            string userId,
+            string railType,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, user_id, rail_type, emby_section_id, section_marker, created_at, updated_at
+                FROM home_section_tracking
+                WHERE user_id = @user_id AND rail_type = @rail_type
+                LIMIT 1;";
+
+            var results = await QueryListAsync(sql, cmd =>
+            {
+                BindText(cmd, "@user_id", userId);
+                BindText(cmd, "@rail_type", railType);
+            }, row => new EmbyStreams.Models.HomeSectionTracking
+            {
+                Id = row.GetString(0),
+                UserId = row.GetString(1),
+                RailType = row.GetString(2),
+                EmbySectionId = row.IsDBNull(3) ? null : row.GetString(3),
+                SectionMarker = row.GetString(4),
+                CreatedAt = DateTimeOffset.Parse(row.GetString(5)),
+                UpdatedAt = DateTimeOffset.Parse(row.GetString(6))
+            });
+
+            return results.FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Updates an existing home section tracking record.
+        /// Sprint 118: Home Screen Rails.
+        /// </summary>
+        public async Task UpdateHomeSectionTrackingAsync(
+            EmbyStreams.Models.HomeSectionTracking tracking,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE home_section_tracking
+                SET emby_section_id = @emby_section_id,
+                    updated_at = @updated_at
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", tracking.Id);
+                BindNullableText(cmd, "@emby_section_id", tracking.EmbySectionId);
+                BindText(cmd, "@updated_at", tracking.UpdatedAt.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets all home section tracking records for a user.
+        /// Sprint 118: Home Screen Rails.
+        /// </summary>
+        public async Task<List<EmbyStreams.Models.HomeSectionTracking>> GetAllHomeSectionTrackingAsync(
+            string userId,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, user_id, rail_type, emby_section_id, section_marker, created_at, updated_at
+                FROM home_section_tracking
+                WHERE user_id = @user_id
+                ORDER BY rail_type;";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindText(cmd, "@user_id", userId);
+            }, row => new EmbyStreams.Models.HomeSectionTracking
+            {
+                Id = row.GetString(0),
+                UserId = row.GetString(1),
+                RailType = row.GetString(2),
+                EmbySectionId = row.IsDBNull(3) ? null : row.GetString(3),
+                SectionMarker = row.GetString(4),
+                CreatedAt = DateTimeOffset.Parse(row.GetString(5)),
+                UpdatedAt = DateTimeOffset.Parse(row.GetString(6))
+            });
+        }
+
+        #endregion
     }
 
     /// <summary>
