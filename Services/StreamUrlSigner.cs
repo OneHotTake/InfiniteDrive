@@ -20,6 +20,63 @@ namespace EmbyStreams.Services
     /// </summary>
     public static class StreamUrlSigner
     {
+        private const int DefaultExpirationHours = 1;
+
+        /// <summary>
+        /// Signs a raw stream URL with HMAC-SHA256 for short-term playback.
+        /// Adds timestamp and signature to prevent replay attacks.
+        /// </summary>
+        /// <param name="url">The raw stream URL to sign.</param>
+        /// <param name="pluginSecret">HMAC key from PluginConfiguration.PluginSecret.</param>
+        /// <param name="validityHours">Optional validity period; defaults to 1 hour.</param>
+        /// <returns>Signed URL in format: {url}|{timestamp}|{signature}</returns>
+        public static string Sign(
+            string url,
+            string pluginSecret,
+            int validityHours = DefaultExpirationHours)
+        {
+            if (string.IsNullOrEmpty(pluginSecret))
+            {
+                return url; // Return unsigned if no secret configured
+            }
+
+            var timestamp = DateTimeOffset.UtcNow.AddHours(validityHours).ToUnixTimeSeconds();
+            var message = $"{url}|{timestamp}";
+            var signature = ComputeHmacSimple(message, pluginSecret);
+
+            return $"{url}|{timestamp}|{signature}";
+        }
+
+        /// <summary>
+        /// Verifies a signed URL returned by Sign().
+        /// Checks both HMAC signature and timestamp expiration.
+        /// </summary>
+        /// <param name="signedUrl">The signed URL in format: {url}|{timestamp}|{signature}</param>
+        /// <param name="pluginSecret">HMAC key from PluginConfiguration.PluginSecret.</param>
+        /// <returns>True if signature valid and not expired; false otherwise.</returns>
+        public static bool Verify(string signedUrl, string pluginSecret)
+        {
+            if (string.IsNullOrEmpty(pluginSecret))
+                return true; // Allow unsigned if no secret configured
+
+            var parts = signedUrl.Split('|');
+            if (parts.Length != 3) return false;
+
+            var url = parts[0];
+            if (!long.TryParse(parts[1], out long timestamp)) return false;
+            var signature = parts[2];
+
+            // Check timestamp expiration
+            if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > timestamp)
+                return false;
+
+            // Verify signature
+            var message = $"{url}|{timestamp}";
+            var expectedSignature = ComputeHmacSimple(message, pluginSecret);
+
+            return signature == expectedSignature;
+        }
+
         /// <summary>
         /// Generates a complete signed URL for the /EmbyStreams/Stream endpoint.
         /// </summary>
@@ -116,6 +173,19 @@ namespace EmbyStreams.Services
         }
 
         // ── Private ──────────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Computes HMAC-SHA256 hash for the simple URL signing format.
+        /// </summary>
+        private static string ComputeHmacSimple(string message, string secret)
+        {
+            var keyBytes = Encoding.UTF8.GetBytes(secret);
+            var msgBytes = Encoding.UTF8.GetBytes(message);
+
+            using var hmac = new HMACSHA256(keyBytes);
+            var hash = hmac.ComputeHash(msgBytes);
+            return Convert.ToHexString(hash).ToLowerInvariant();
+        }
 
         /// <summary>
         /// HMAC message format: "{id}:{type}:{season}:{episode}:{exp}"

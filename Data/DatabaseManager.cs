@@ -2674,6 +2674,99 @@ AFTER DELETE ON discover_catalog BEGIN
 END;");
             }
 
+            // ── Safeguard: Ensure sources and collections tables exist (Sprint 116+) ──
+            if (!TableExists(conn, "sources"))
+            {
+                _logger.LogInformation("[EmbyStreams] sources table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS sources (
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    url                 TEXT,
+    type                TEXT NOT NULL CHECK(type IN ('BuiltIn', 'Aio', 'Trakt', 'MdbList')),
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    show_as_collection   INTEGER NOT NULL DEFAULT 0,
+    max_items           INTEGER NOT NULL DEFAULT 100,
+    sync_interval_hours  INTEGER NOT NULL DEFAULT 6,
+    last_synced_at      TEXT,
+    emby_collection_id  TEXT,
+    collection_name      TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_sources_enabled
+    ON sources(enabled);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_sources_show_as_collection
+    ON sources(show_as_collection);");
+            }
+
+            if (!TableExists(conn, "collections"))
+            {
+                _logger.LogInformation("[EmbyStreams] collections table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS collections (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    source_id           TEXT NOT NULL,
+    name                TEXT NOT NULL,
+    emby_collection_id  TEXT,
+    collection_name      TEXT,
+    last_synced_at      TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_collections_source_id
+    ON collections(source_id);");
+            }
+
+            // ── Safeguard: Ensure log tables exist (Sprint 120+) ──
+            if (!TableExists(conn, "item_pipeline_log"))
+            {
+                _logger.LogInformation("[EmbyStreams] item_pipeline_log table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS item_pipeline_log (
+    primary_id       TEXT NOT NULL,
+    primary_id_type  TEXT NOT NULL,
+    media_type       TEXT NOT NULL,
+    phase            TEXT NOT NULL,
+    trigger          TEXT NOT NULL,
+    success          INTEGER NOT NULL,
+    details          TEXT,
+    timestamp         TEXT NOT NULL DEFAULT (datetime('now'))
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_pipeline_timestamp
+    ON item_pipeline_log(timestamp);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_pipeline_primary_id
+    ON item_pipeline_log(primary_id);");
+            }
+
+            if (!TableExists(conn, "stream_resolution_log"))
+            {
+                _logger.LogInformation("[EmbyStreams] stream_resolution_log table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS stream_resolution_log (
+    primary_id       TEXT NOT NULL,
+    primary_id_type  TEXT NOT NULL,
+    media_type       TEXT NOT NULL,
+    media_id         TEXT NOT NULL,
+    stream_count     INTEGER NOT NULL,
+    selected_stream   TEXT,
+    duration_ms      INTEGER NOT NULL,
+    timestamp        TEXT NOT NULL DEFAULT (datetime('now'))
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_resolution_timestamp
+    ON stream_resolution_log(timestamp);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_resolution_primary_id
+    ON stream_resolution_log(primary_id);");
+            }
+
 _logger.LogDebug("[EmbyStreams] Schema at version {Version}", version);
         }
 
@@ -2840,6 +2933,9 @@ _logger.LogDebug("[EmbyStreams] Schema at version {Version}", version);
             if (value == null) stmt.BindParameters[name].BindNull();
             else               stmt.BindParameters[name].Bind(value.Value);
         }
+
+        private static void BindInt(IStatement stmt, string name, int value)
+            => stmt.BindParameters[name].Bind(value);
 
         private static void BindNullableLong(IStatement stmt, string name, long? value)
         {
@@ -3428,6 +3524,1062 @@ LIMIT 1";
         }
 
         #endregion
+
+        // ── New Schema Operations (media_items, sources, source_memberships, etc.) ─────────────────
+
+        /// <summary>
+        /// Gets a media item by ID.
+        /// </summary>
+        public async Task<MediaItem?> GetMediaItemAsync(string itemId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, primary_id_type, primary_id, media_type, title, year,
+                       status, failure_reason, saved, saved_at, saved_by, save_reason, saved_season,
+                       blocked, blocked_at, created_at, updated_at, grace_started_at,
+                       superseded, superseded_conflict, superseded_at,
+                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       watch_progress_pct, favorited
+                FROM media_items
+                WHERE id = @ItemId
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@ItemId", itemId),
+                ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Finds a media item by provider ID (TMDB, IMDB, TVDB, AniList, AniDB, Kitsu).
+        /// </summary>
+        public async Task<MediaItem?> FindMediaItemByProviderIdAsync(string idType, string idValue, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
+                       mi.superseded, mi.superseded_conflict, mi.superseded_at,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.watch_progress_pct, mi.favorited
+                FROM media_items mi
+                INNER JOIN media_item_ids mii ON mi.id = mii.media_item_id
+                WHERE mii.id_type = @IdType
+                  AND mii.id_value = @IdValue
+                  AND mii.is_primary = 1
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql,
+                cmd =>
+                {
+                    BindText(cmd, "@IdType", idType.ToLowerInvariant());
+                    BindText(cmd, "@IdValue", idValue);
+                },
+                ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Finds media items by source membership.
+        /// </summary>
+        public async Task<List<MediaItem>> FindMediaItemsBySourceAsync(string sourceId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
+                       mi.superseded, mi.superseded_conflict, mi.superseded_at,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.watch_progress_pct, mi.favorited
+                FROM media_items mi
+                INNER JOIN source_memberships sm ON mi.id = sm.media_item_id
+                WHERE sm.source_id = @SourceId;";
+
+            return await QueryListAsync(sql,
+                cmd => BindText(cmd, "@SourceId", sourceId),
+                ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Gets media items by saved state.
+        /// </summary>
+        public async Task<List<MediaItem>> GetItemsBySavedAsync(bool saved, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
+                       mi.superseded, mi.superseded_conflict, mi.superseded_at,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.watch_progress_pct, mi.favorited
+                FROM media_items mi
+                WHERE mi.saved = @Saved
+                ORDER BY mi.title;";
+
+            return await QueryListAsync(sql,
+                cmd => BindInt(cmd, "@Saved", saved ? 1 : 0),
+                ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Gets media items with active grace period.
+        /// </summary>
+        public async Task<List<MediaItem>> GetItemsByGraceStartedAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
+                       mi.superseded, mi.superseded_conflict, mi.superseded_at,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.watch_progress_pct, mi.favorited
+                FROM media_items mi
+                WHERE mi.grace_started_at IS NOT NULL
+                ORDER BY mi.grace_started_at;";
+
+            return await QueryListAsync(sql, null, ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Gets media items with pagination and filtering (for API).
+        /// </summary>
+        public async Task<List<MediaItem>> GetItemsAsync(
+            Models.ItemStatus? status,
+            string orderBy,
+            string orderDirection,
+            int limit,
+            int offset,
+            CancellationToken cancellationToken = default)
+        {
+            var whereClause = status.HasValue ? "WHERE mi.status = @Status" : "";
+            var orderClause = $"ORDER BY mi.{orderBy} {orderDirection.ToUpperInvariant()}";
+
+            const string sqlTemplate = @"
+                SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
+                       mi.superseded, mi.superseded_conflict, mi.superseded_at,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.watch_progress_pct, mi.favorited
+                FROM media_items mi
+                {0}
+                {1}
+                LIMIT @Limit OFFSET @Offset;";
+
+            var sql = string.Format(sqlTemplate, whereClause, orderClause);
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                if (status.HasValue)
+                    BindText(cmd, "@Status", status.Value.ToString());
+                BindInt(cmd, "@Limit", limit);
+                BindInt(cmd, "@Offset", offset);
+            }, ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Gets total count of media items (for API pagination).
+        /// </summary>
+        public Task<int> GetItemCountAsync(Models.ItemStatus? status, CancellationToken cancellationToken = default)
+        {
+            var whereClause = status.HasValue ? "WHERE status = @Status" : "";
+            var sql = $"SELECT COUNT(*) FROM media_items {whereClause};";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            if (status.HasValue)
+                BindText(stmt, "@Status", status.Value.ToString());
+
+            foreach (var row in stmt.AsRows())
+                return Task.FromResult(row.GetInt(0));
+            return Task.FromResult(0);
+        }
+
+        /// <summary>
+        /// Searches media items by query string (for API).
+        /// </summary>
+        public async Task<List<MediaItem>> SearchItemsAsync(string query, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
+                       mi.superseded, mi.superseded_conflict, mi.superseded_at,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.watch_progress_pct, mi.favorited
+                FROM media_items mi
+                WHERE mi.title LIKE @Query
+                   OR mi.primary_id LIKE @Query
+                ORDER BY mi.title
+                LIMIT 100;";
+
+            var searchPattern = $"%{query}%";
+            return await QueryListAsync(sql, cmd => BindText(cmd, "@Query", searchPattern), ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Inserts or updates a media item.
+        /// </summary>
+        public async Task UpsertMediaItemAsync(MediaItem item, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO media_items
+                    (id, primary_id_type, primary_id, media_type, title, year,
+                     status, failure_reason, saved, saved_at, saved_by, save_reason, saved_season,
+                     blocked, blocked_at, created_at, updated_at, grace_started_at,
+                     superseded, superseded_conflict, superseded_at,
+                     emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                     watch_progress_pct, favorited)
+                VALUES
+                    (@id, @primary_id_type, @primary_id, @media_type, @title, @year,
+                     @status, @failure_reason, @saved, @saved_at, @saved_by, @save_reason, @saved_season,
+                     @blocked, @blocked_at, @created_at, @updated_at, @grace_started_at,
+                     @superseded, @superseded_conflict, @superseded_at,
+                     @emby_item_id, @emby_indexed_at, @strm_path, @nfo_path,
+                     @watch_progress_pct, @favorited)
+                ON CONFLICT(id) DO UPDATE SET
+                    status = excluded.status,
+                    failure_reason = excluded.failure_reason,
+                    saved = excluded.saved,
+                    saved_at = excluded.saved_at,
+                    saved_by = excluded.saved_by,
+                    save_reason = excluded.save_reason,
+                    saved_season = excluded.saved_season,
+                    blocked = excluded.blocked,
+                    blocked_at = excluded.blocked_at,
+                    updated_at = excluded.updated_at,
+                    grace_started_at = excluded.grace_started_at,
+                    superseded = excluded.superseded,
+                    superseded_conflict = excluded.superseded_conflict,
+                    superseded_at = excluded.superseded_at,
+                    emby_item_id = excluded.emby_item_id,
+                    emby_indexed_at = excluded.emby_indexed_at,
+                    strm_path = excluded.strm_path,
+                    nfo_path = excluded.nfo_path,
+                    watch_progress_pct = excluded.watch_progress_pct,
+                    favorited = excluded.favorited;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", item.Id);
+                BindText(cmd, "@primary_id_type", item.PrimaryId.Type.ToLowerString());
+                BindText(cmd, "@primary_id", item.PrimaryId.Value);
+                BindText(cmd, "@media_type", item.MediaType);
+                BindText(cmd, "@title", item.Title);
+                BindNullableInt(cmd, "@year", item.Year);
+                BindText(cmd, "@status", item.Status.ToString().ToLowerInvariant());
+                BindNullableText(cmd, "@failure_reason", item.FailureReason != FailureReason.None ? item.FailureReason.ToString().ToLowerInvariant() : null);
+                BindInt(cmd, "@saved", item.Saved ? 1 : 0);
+                BindNullableText(cmd, "@saved_at", item.SavedAt?.ToString("o"));
+                BindNullableText(cmd, "@saved_by", item.SavedBy);
+                BindNullableText(cmd, "@save_reason", item.SaveReason?.ToString().ToLowerInvariant());
+                BindNullableInt(cmd, "@saved_season", item.SavedSeason);
+                BindInt(cmd, "@blocked", item.Blocked ? 1 : 0);
+                BindNullableText(cmd, "@blocked_at", item.BlockedAt?.ToString("o"));
+                BindText(cmd, "@created_at", item.CreatedAt.ToString("o"));
+                BindText(cmd, "@updated_at", item.UpdatedAt.ToString("o"));
+                BindNullableText(cmd, "@grace_started_at", item.GraceStartedAt?.ToString("o"));
+                BindInt(cmd, "@superseded", item.Superseded ? 1 : 0);
+                BindInt(cmd, "@superseded_conflict", item.SupersededConflict ? 1 : 0);
+                BindNullableText(cmd, "@superseded_at", item.SupersededAt?.ToString("o"));
+                BindNullableText(cmd, "@emby_item_id", item.EmbyItemId);
+                BindNullableText(cmd, "@emby_indexed_at", item.EmbyIndexedAt?.ToString("o"));
+                BindNullableText(cmd, "@strm_path", item.StrmPath);
+                BindNullableText(cmd, "@nfo_path", item.NfoPath);
+                BindInt(cmd, "@watch_progress_pct", item.WatchProgressPct);
+                BindInt(cmd, "@favorited", item.Favorited ? 1 : 0);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Checks if an item has any enabled source (Coalition rule).
+        /// Uses single JOIN query per spec.
+        /// </summary>
+        public Task<bool> ItemHasEnabledSourceAsync(string itemId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT 1 FROM source_memberships sm
+                JOIN sources s ON sm.source_id = s.id
+                WHERE sm.media_item_id = @ItemId
+                  AND s.enabled = 1
+                LIMIT 1;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@ItemId", itemId);
+            return Task.FromResult(stmt.AsRows().Any());
+        }
+
+        /// <summary>
+        /// Updates a media item.
+        /// </summary>
+        public async Task UpdateMediaItemAsync(MediaItem item, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE media_items
+                SET primary_id_type = @primary_id_type,
+                    primary_id = @primary_id,
+                    media_type = @media_type,
+                    title = @title,
+                    year = @year,
+                    status = @status,
+                    failure_reason = @failure_reason,
+                    saved = @saved,
+                    saved_at = @saved_at,
+                    saved_by = @saved_by,
+                    save_reason = @save_reason,
+                    saved_season = @saved_season,
+                    blocked = @blocked,
+                    blocked_at = @blocked_at,
+                    grace_started_at = @grace_started_at,
+                    superseded = @superseded,
+                    superseded_conflict = @superseded_conflict,
+                    superseded_at = @superseded_at,
+                    emby_item_id = @emby_item_id,
+                    emby_indexed_at = @emby_indexed_at,
+                    strm_path = @strm_path,
+                    nfo_path = @nfo_path,
+                    watch_progress_pct = @watch_progress_pct,
+                    favorited = @favorited,
+                    updated_at = datetime('now')
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", item.Id);
+                BindText(cmd, "@primary_id_type", item.PrimaryId.Type.ToLowerString());
+                BindText(cmd, "@primary_id", item.PrimaryId.Value);
+                BindText(cmd, "@media_type", item.MediaType);
+                BindText(cmd, "@title", item.Title);
+                BindNullableInt(cmd, "@year", item.Year);
+                BindText(cmd, "@status", item.Status.ToString().ToLowerInvariant());
+                BindNullableText(cmd, "@failure_reason", item.FailureReason != FailureReason.None ? item.FailureReason.ToString().ToLowerInvariant() : null);
+                BindInt(cmd, "@saved", item.Saved ? 1 : 0);
+                BindNullableText(cmd, "@saved_at", item.SavedAt?.ToString("o"));
+                BindNullableText(cmd, "@saved_by", item.SavedBy);
+                BindNullableText(cmd, "@save_reason", item.SaveReason?.ToString().ToLowerInvariant());
+                BindNullableInt(cmd, "@saved_season", item.SavedSeason);
+                BindInt(cmd, "@blocked", item.Blocked ? 1 : 0);
+                BindNullableText(cmd, "@blocked_at", item.BlockedAt?.ToString("o"));
+                BindNullableText(cmd, "@grace_started_at", item.GraceStartedAt?.ToString("o"));
+                BindInt(cmd, "@superseded", item.Superseded ? 1 : 0);
+                BindInt(cmd, "@superseded_conflict", item.SupersededConflict ? 1 : 0);
+                BindNullableText(cmd, "@superseded_at", item.SupersededAt?.ToString("o"));
+                BindNullableText(cmd, "@emby_item_id", item.EmbyItemId);
+                BindNullableText(cmd, "@emby_indexed_at", item.EmbyIndexedAt?.ToString("o"));
+                BindNullableText(cmd, "@strm_path", item.StrmPath);
+                BindNullableText(cmd, "@nfo_path", item.NfoPath);
+                BindInt(cmd, "@watch_progress_pct", item.WatchProgressPct);
+                BindInt(cmd, "@favorited", item.Favorited ? 1 : 0);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets all sources.
+        /// </summary>
+        public async Task<List<Source>> GetAllSourcesAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, name, url, type, enabled, show_as_collection,
+                       max_items, sync_interval_hours, last_synced_at,
+                       emby_collection_id, collection_name, created_at, updated_at
+                FROM sources
+                ORDER BY name;";
+
+            return await QueryListAsync(sql, null, ReadSource);
+        }
+
+        /// <summary>
+        /// Gets enabled sources only.
+        /// </summary>
+        public async Task<List<Source>> GetEnabledSourcesAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, name, url, type, enabled, show_as_collection,
+                       max_items, sync_interval_hours, last_synced_at,
+                       emby_collection_id, collection_name, created_at, updated_at
+                FROM sources
+                WHERE enabled = 1
+                ORDER BY name;";
+
+            return await QueryListAsync(sql, null, ReadSource);
+        }
+
+        /// <summary>
+        /// Gets sources with ShowAsCollection = true.
+        /// </summary>
+        public async Task<List<Source>> GetSourcesWithShowAsCollectionAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, name, url, type, enabled, show_as_collection,
+                       max_items, sync_interval_hours, last_synced_at,
+                       emby_collection_id, collection_name, created_at, updated_at
+                FROM sources
+                WHERE show_as_collection = 1
+                ORDER BY name;";
+
+            return await QueryListAsync(sql, null, ReadSource);
+        }
+
+        /// <summary>
+        /// Sets the enabled state of a source.
+        /// </summary>
+        public async Task SetSourceEnabledAsync(string sourceId, bool enabled, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE sources
+                SET enabled = @Enabled,
+                    updated_at = datetime('now')
+                WHERE id = @SourceId;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@SourceId", sourceId);
+                cmd.BindParameters["@Enabled"].Bind(enabled ? 1 : 0);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Sets the ShowAsCollection flag for a source.
+        /// </summary>
+        public async Task SetSourceShowAsCollectionAsync(string sourceId, bool show, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE sources
+                SET show_as_collection = @Show,
+                    updated_at = datetime('now')
+                WHERE id = @SourceId;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@SourceId", sourceId);
+                cmd.BindParameters["@Show"].Bind(show ? 1 : 0);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets a single source by ID.
+        /// </summary>
+        public async Task<Source?> GetSourceAsync(string sourceId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, name, url, type, enabled, show_as_collection,
+                       max_items, sync_interval_hours, last_synced_at,
+                       emby_collection_id, collection_name, created_at, updated_at
+                FROM sources
+                WHERE id = @SourceId;";
+
+            return await QuerySingleAsync(sql, cmd => BindText(cmd, "@SourceId", sourceId), ReadSource);
+        }
+
+        /// <summary>
+        /// Upserts a source (inserts or updates).
+        /// </summary>
+        public async Task UpsertSourceAsync(Source source, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO sources (id, name, url, type, enabled, show_as_collection,
+                                   max_items, sync_interval_hours, last_synced_at,
+                                   emby_collection_id, collection_name, created_at, updated_at)
+                VALUES (@Id, @Name, @Url, @Type, @Enabled, @ShowAsCollection,
+                        @MaxItems, @SyncIntervalHours, @LastSyncedAt,
+                        @EmbyCollectionId, @CollectionName, @CreatedAt, @UpdatedAt)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = @Name,
+                    url = @Url,
+                    type = @Type,
+                    enabled = @Enabled,
+                    show_as_collection = @ShowAsCollection,
+                    max_items = @MaxItems,
+                    sync_interval_hours = @SyncIntervalHours,
+                    last_synced_at = @LastSyncedAt,
+                    emby_collection_id = @EmbyCollectionId,
+                    collection_name = @CollectionName,
+                    updated_at = @UpdatedAt;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@Id", source.Id);
+                BindText(cmd, "@Name", source.Name);
+                BindText(cmd, "@Url", source.Url);
+                BindText(cmd, "@Type", source.Type.ToString());
+                cmd.BindParameters["@Enabled"].Bind(source.Enabled ? 1 : 0);
+                cmd.BindParameters["@ShowAsCollection"].Bind(source.ShowAsCollection ? 1 : 0);
+                BindInt(cmd, "@MaxItems", source.MaxItems);
+                BindInt(cmd, "@SyncIntervalHours", source.SyncIntervalHours);
+                BindText(cmd, "@LastSyncedAt", source.LastSyncedAt?.ToString("o"));
+                BindText(cmd, "@EmbyCollectionId", source.EmbyCollectionId);
+                BindText(cmd, "@CollectionName", source.CollectionName);
+                BindText(cmd, "@CreatedAt", source.CreatedAt.ToString("o"));
+                BindText(cmd, "@UpdatedAt", source.UpdatedAt.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Deletes a source by ID.
+        /// </summary>
+        public async Task DeleteSourceAsync(string sourceId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"DELETE FROM sources WHERE id = @SourceId;";
+            await ExecuteWriteAsync(sql, cmd => BindText(cmd, "@SourceId", sourceId), cancellationToken);
+        }
+
+        // ── Log Query Methods (Sprint 120) ─────────────────────────────────────────
+
+        /// <summary>
+        /// Gets pipeline logs with optional filters (for API).
+        /// </summary>
+        public Task<List<Models.PipelineLogEntry>> GetPipelineLogsAsync(
+            string? primaryId,
+            string? primaryIdType,
+            string? mediaType,
+            string? trigger,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            var whereClauses = new List<string>();
+            if (!string.IsNullOrEmpty(primaryId))
+                whereClauses.Add("primary_id = @PrimaryId");
+            if (!string.IsNullOrEmpty(primaryIdType))
+                whereClauses.Add("primary_id_type = @PrimaryIdType");
+            if (!string.IsNullOrEmpty(mediaType))
+                whereClauses.Add("media_type = @MediaType");
+            if (!string.IsNullOrEmpty(trigger))
+                whereClauses.Add("trigger = @Trigger");
+
+            var whereClause = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+            var sql = $@"
+                SELECT primary_id, primary_id_type, media_type, phase, trigger, success, details, timestamp
+                FROM item_pipeline_log
+                {whereClause}
+                ORDER BY timestamp DESC
+                LIMIT @Limit;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            if (!string.IsNullOrEmpty(primaryId))
+                BindText(stmt, "@PrimaryId", primaryId);
+            if (!string.IsNullOrEmpty(primaryIdType))
+                BindText(stmt, "@PrimaryIdType", primaryIdType);
+            if (!string.IsNullOrEmpty(mediaType))
+                BindText(stmt, "@MediaType", mediaType);
+            if (!string.IsNullOrEmpty(trigger))
+                BindText(stmt, "@Trigger", trigger);
+            BindInt(stmt, "@Limit", limit);
+
+            var results = new List<Models.PipelineLogEntry>();
+            foreach (var row in stmt.AsRows())
+            {
+                results.Add(new Models.PipelineLogEntry
+                {
+                    PrimaryId = row.GetString(0),
+                    PrimaryIdType = row.GetString(1),
+                    MediaType = row.GetString(2),
+                    Phase = row.GetString(3),
+                    Trigger = row.GetString(4),
+                    Success = row.GetInt(5) == 1,
+                    Details = row.IsDBNull(6) ? null : row.GetString(6),
+                    Timestamp = DateTimeOffset.Parse(row.GetString(7))
+                });
+            }
+            return Task.FromResult(results);
+        }
+
+        /// <summary>
+        /// Gets resolution logs with optional filters (for API).
+        /// </summary>
+        public Task<List<Models.ResolutionLogEntry>> GetResolutionLogsAsync(
+            string? primaryId,
+            string? primaryIdType,
+            string? mediaType,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            var whereClauses = new List<string>();
+            if (!string.IsNullOrEmpty(primaryId))
+                whereClauses.Add("primary_id = @PrimaryId");
+            if (!string.IsNullOrEmpty(primaryIdType))
+                whereClauses.Add("primary_id_type = @PrimaryIdType");
+            if (!string.IsNullOrEmpty(mediaType))
+                whereClauses.Add("media_type = @MediaType");
+
+            var whereClause = whereClauses.Count > 0 ? "WHERE " + string.Join(" AND ", whereClauses) : "";
+            var sql = $@"
+                SELECT primary_id, primary_id_type, media_type, media_id, stream_count, selected_stream, duration_ms, timestamp
+                FROM stream_resolution_log
+                {whereClause}
+                ORDER BY timestamp DESC
+                LIMIT @Limit;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            if (!string.IsNullOrEmpty(primaryId))
+                BindText(stmt, "@PrimaryId", primaryId);
+            if (!string.IsNullOrEmpty(primaryIdType))
+                BindText(stmt, "@PrimaryIdType", primaryIdType);
+            if (!string.IsNullOrEmpty(mediaType))
+                BindText(stmt, "@MediaType", mediaType);
+            BindInt(stmt, "@Limit", limit);
+
+            var results = new List<Models.ResolutionLogEntry>();
+            foreach (var row in stmt.AsRows())
+            {
+                results.Add(new Models.ResolutionLogEntry
+                {
+                    PrimaryId = row.GetString(0),
+                    PrimaryIdType = row.GetString(1),
+                    MediaType = row.GetString(2),
+                    MediaId = row.GetString(3),
+                    StreamCount = row.GetInt(4),
+                    SelectedStream = row.IsDBNull(5) ? null : row.GetString(5),
+                    DurationMs = row.GetInt(6),
+                    Timestamp = DateTimeOffset.Parse(row.GetString(7))
+                });
+            }
+            return Task.FromResult(results);
+        }
+
+        /// <summary>
+        /// Gets recent logs from both pipeline and resolution tables (for API).
+        /// </summary>
+        public Task<List<Models.RecentLogEntry>> GetRecentLogsAsync(
+            string? level,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            // Note: Log level filtering is not implemented in DB schema
+            // This is a placeholder implementation
+            var sql = @"
+                SELECT 'pipeline' as log_type, timestamp, phase, success, details
+                FROM item_pipeline_log
+                UNION ALL
+                SELECT 'resolution' as log_type, timestamp, selected_stream, null as details
+                FROM stream_resolution_log
+                ORDER BY timestamp DESC
+                LIMIT @Limit;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindInt(stmt, "@Limit", limit);
+
+            var results = new List<Models.RecentLogEntry>();
+            foreach (var row in stmt.AsRows())
+            {
+                var logType = row.GetString(0);
+                var timestamp = DateTimeOffset.Parse(row.GetString(1));
+                var message = logType == "pipeline" ? $"Phase: {row.GetString(2)}, Success: {row.GetInt(3) == 1}" : $"Stream: {row.GetString(2)}";
+                var details = row.IsDBNull(3) ? null : row.GetString(3);
+
+                results.Add(new Models.RecentLogEntry
+                {
+                    Timestamp = timestamp,
+                    LogType = logType,
+                    Level = "info", // Default level since not stored in DB
+                    Message = message,
+                    Details = details
+                });
+            }
+            return Task.FromResult(results);
+        }
+
+        // ── Media Item Operations ───────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Sets the superseded flag for a media item.
+        /// </summary>
+        public async Task SetSupersededAsync(string itemId, bool superseded, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE media_items
+                SET superseded = @Superseded,
+                    updated_at = datetime('now')
+                WHERE id = @ItemId;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@ItemId", itemId);
+                cmd.BindParameters["@Superseded"].Bind(superseded ? 1 : 0);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Sets the superseded_conflict flag for a media item.
+        /// </summary>
+        public async Task SetSupersededConflictAsync(string itemId, bool supersededConflict, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE media_items
+                SET superseded_conflict = @SupersededConflict,
+                    updated_at = datetime('now')
+                WHERE id = @ItemId;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@ItemId", itemId);
+                cmd.BindParameters["@SupersededConflict"].Bind(supersededConflict ? 1 : 0);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Sets the superseded_at timestamp for a media item.
+        /// </summary>
+        public async Task SetSupersededAtAsync(string itemId, DateTimeOffset timestamp, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE media_items
+                SET superseded_at = @SupersededAt,
+                    updated_at = datetime('now')
+                WHERE id = @ItemId;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@ItemId", itemId);
+                BindText(cmd, "@SupersededAt", timestamp.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Upserts a source membership.
+        /// </summary>
+        public async Task UpsertSourceMembershipAsync(string sourceId, string mediaItemId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO source_memberships (source_id, media_item_id)
+                VALUES (@SourceId, @MediaItemId)
+                ON CONFLICT(source_id, media_item_id) DO NOTHING;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@SourceId", sourceId);
+                BindText(cmd, "@MediaItemId", mediaItemId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Deletes all source memberships for a source.
+        /// </summary>
+        public async Task DeleteSourceMembershipsForSourceAsync(string sourceId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                DELETE FROM source_memberships
+                WHERE source_id = @SourceId;";
+
+            await ExecuteWriteAsync(sql,
+                cmd => BindText(cmd, "@SourceId", sourceId),
+                cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets all collections as entities.
+        /// </summary>
+        public async Task<List<Models.Collection>> GetAllCollectionsListAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, name, emby_collection_id, source_id,
+                       enabled, collection_name, last_synced_at, created_at, updated_at
+                FROM collections
+                ORDER BY name;";
+
+            return await QueryListAsync(sql, null, ReadCollection);
+        }
+
+        /// <summary>
+        /// Gets a collection by source ID.
+        /// </summary>
+        public async Task<Models.Collection?> GetCollectionBySourceIdAsync(string sourceId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, name, emby_collection_id, source_id,
+                       enabled, collection_name, last_synced_at, created_at, updated_at
+                FROM collections
+                WHERE source_id = @SourceId
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@SourceId", sourceId),
+                ReadCollection);
+        }
+
+        /// <summary>
+        /// Upserts a collection.
+        /// </summary>
+        public async Task UpsertCollectionAsync(Models.Collection collection, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO collections (id, name, emby_collection_id, source_id, enabled, collection_name, last_synced_at, created_at, updated_at)
+                VALUES (@Id, @Name, @EmbyCollectionId, @SourceId, @Enabled, @CollectionName, @LastSyncedAt, @CreatedAt, @UpdatedAt)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    emby_collection_id = excluded.emby_collection_id,
+                    source_id = excluded.source_id,
+                    enabled = excluded.enabled,
+                    collection_name = excluded.collection_name,
+                    last_synced_at = excluded.last_synced_at,
+                    updated_at = excluded.updated_at;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@Id", collection.Id);
+                BindText(cmd, "@Name", collection.Name);
+                BindNullableText(cmd, "@EmbyCollectionId", collection.EmbyCollectionId);
+                BindNullableText(cmd, "@SourceId", collection.SourceId);
+                cmd.BindParameters["@Enabled"].Bind(collection.Enabled ? 1 : 0);
+                BindNullableText(cmd, "@CollectionName", collection.CollectionName);
+                BindNullableText(cmd, "@LastSyncedAt", collection.LastSyncedAt?.ToString("o"));
+                BindText(cmd, "@CreatedAt", collection.CreatedAt.ToString("o"));
+                BindText(cmd, "@UpdatedAt", collection.UpdatedAt.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Deletes a collection by ID.
+        /// </summary>
+        public async Task DeleteCollectionAsync(string collectionId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                DELETE FROM collections
+                WHERE id = @Id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@Id", collectionId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Logs a pipeline event.
+        /// </summary>
+        public async Task LogPipelineEventAsync(
+            string primaryId,
+            string primaryIdType,
+            string mediaType,
+            string triggerType,
+            string? fromStatus,
+            string? toStatus,
+            bool success,
+            string? errorMessage = null,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO item_pipeline_log
+                    (primary_id, primary_id_type, media_type, trigger_type, from_status, to_status, result, error_message)
+                VALUES
+                    (@PrimaryId, @PrimaryIdType, @MediaType, @TriggerType, @FromStatus, @ToStatus, @Result, @ErrorMessage);";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@PrimaryId", primaryId);
+                BindText(cmd, "@PrimaryIdType", primaryIdType);
+                BindText(cmd, "@MediaType", mediaType);
+                BindText(cmd, "@TriggerType", triggerType.ToLowerInvariant());
+                BindNullableText(cmd, "@FromStatus", fromStatus?.ToLowerInvariant());
+                BindNullableText(cmd, "@ToStatus", toStatus?.ToLowerInvariant());
+                BindText(cmd, "@Result", success ? "success" : "failed");
+                BindNullableText(cmd, "@ErrorMessage", errorMessage);
+            }, cancellationToken);
+        }
+
+        // ── Reader methods for new schema types ───────────────────────────────────────────────
+
+        private static MediaItem ReadMediaItem(IResultSet r)
+        {
+            var idTypeStr = r.GetString(1);
+            var idValue = r.GetString(2);
+            var idType = MediaIdTypeExtensions.Parse(idTypeStr);
+
+            return new MediaItem
+            {
+                Id = r.GetString(0),
+                PrimaryId = new MediaId(idType, idValue),
+                MediaType = r.GetString(3),
+                Title = r.GetString(4),
+                Year = r.IsDBNull(5) ? null : (int?)r.GetInt(5),
+                Status = Enum.Parse<ItemStatus>(r.GetString(6), ignoreCase: true),
+                FailureReason = r.IsDBNull(7) ? FailureReason.None : Enum.Parse<FailureReason>(r.GetString(7), ignoreCase: true),
+                Saved = r.GetInt(8) == 1,
+                SavedAt = r.IsDBNull(9) ? null : DateTimeOffset.Parse(r.GetString(9)),
+                SavedBy = r.GetString(10),
+                SaveReason = r.IsDBNull(11) ? null : Enum.Parse<SaveReason>(r.GetString(11), ignoreCase: true),
+                SavedSeason = r.IsDBNull(12) ? null : (int?)r.GetInt(12),
+                Blocked = r.GetInt(13) == 1,
+                BlockedAt = r.IsDBNull(14) ? null : DateTimeOffset.Parse(r.GetString(14)),
+                CreatedAt = DateTimeOffset.Parse(r.GetString(15)),
+                UpdatedAt = DateTimeOffset.Parse(r.GetString(16)),
+                GraceStartedAt = r.IsDBNull(17) ? null : DateTimeOffset.Parse(r.GetString(17)),
+                Superseded = r.GetInt(18) == 1,
+                SupersededConflict = r.GetInt(19) == 1,
+                SupersededAt = r.IsDBNull(20) ? null : DateTimeOffset.Parse(r.GetString(20)),
+                EmbyItemId = r.GetString(21),
+                EmbyIndexedAt = r.IsDBNull(22) ? null : DateTimeOffset.Parse(r.GetString(22)),
+                StrmPath = r.GetString(23),
+                NfoPath = r.GetString(24),
+                WatchProgressPct = r.GetInt(25),
+                Favorited = r.GetInt(26) == 1
+            };
+        }
+
+        private static Source ReadSource(IResultSet r)
+        {
+            return new Source
+            {
+                Id = r.GetString(0),
+                Name = r.GetString(1),
+                Url = r.GetString(2),
+                Type = Models.SourceTypeExtensions.Parse(r.GetString(3)),
+                Enabled = r.GetInt(4) == 1,
+                ShowAsCollection = r.GetInt(5) == 1,
+                MaxItems = r.GetInt(6),
+                SyncIntervalHours = r.GetInt(7),
+                LastSyncedAt = r.IsDBNull(8) ? null : DateTimeOffset.Parse(r.GetString(8)),
+                EmbyCollectionId = r.GetString(9),
+                CollectionName = r.GetString(10),
+                CreatedAt = DateTimeOffset.Parse(r.GetString(11)),
+                UpdatedAt = DateTimeOffset.Parse(r.GetString(12))
+            };
+        }
+
+        private static Models.Collection ReadCollection(IResultSet r)
+        {
+            return new Models.Collection
+            {
+                Id = r.GetString(0),
+                Name = r.GetString(1),
+                EmbyCollectionId = r.GetString(2),
+                SourceId = r.GetString(3),
+                Enabled = r.GetInt(4) == 1,
+                CollectionName = r.IsDBNull(5) ? null : r.GetString(5),
+                LastSyncedAt = r.IsDBNull(6) ? null : DateTimeOffset.Parse(r.GetString(6)),
+                CreatedAt = DateTimeOffset.Parse(r.GetString(7)),
+                UpdatedAt = DateTimeOffset.Parse(r.GetString(8))
+            };
+        }
+
+        /// <summary>
+        /// Gets all media items from database.
+        /// </summary>
+        public async Task<List<MediaItem>> GetAllMediaItemsAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, primary_id_type, primary_id_value, media_type, title, year,
+                       status, failure_reason, saved, saved_at, saved_by, save_reason, saved_season,
+                       blocked, blocked_at, created_at, updated_at, grace_started_at,
+                       superseded, superseded_conflict, superseded_at,
+                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       watch_progress_pct, favorited
+                FROM media_items;";
+
+            return await QueryListAsync(sql, null, ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Checks if a media item exists by primary ID.
+        /// </summary>
+        public Task<bool> MediaItemExistsByPrimaryIdAsync(MediaId mediaId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT 1 FROM media_items
+                WHERE primary_id_type = @IdType
+                  AND primary_id_value = @IdValue
+                LIMIT 1;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@IdType", mediaId.Type.ToLowerString());
+            BindText(stmt, "@IdValue", mediaId.Value);
+            return Task.FromResult(stmt.AsRows().Any());
+        }
+
+        // ── Stream cache operations (Sprint 112B) ───────────────────────────────────
+
+        /// <summary>
+        /// Gets cached stream entry for a media ID.
+        /// </summary>
+        public Task<(string? Url, string? UrlSecondary)> GetCachedStreamAsync(string mediaId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT url, url_secondary
+                FROM stream_cache
+                WHERE media_id = @MediaId
+                  AND expires_at > datetime('now');";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@MediaId", mediaId);
+
+            foreach (var row in stmt.AsRows())
+            {
+                var url = row.IsDBNull(0) ? null : row.GetString(0);
+                var urlSecondary = row.IsDBNull(1) ? null : row.GetString(1);
+                return Task.FromResult((url, urlSecondary));
+            }
+
+            return Task.FromResult<(string?, string?)>((null, null));
+        }
+
+        /// <summary>
+        /// Sets primary cached URL for a media ID.
+        /// </summary>
+        public async Task SetCachedStreamPrimaryAsync(string mediaId, string url, TimeSpan? ttl = null, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT INTO stream_cache (media_id, url, created_at, expires_at)
+                VALUES (@MediaId, @Url, datetime('now'), @ExpiresAt)
+                ON CONFLICT(media_id) DO UPDATE SET
+                    url = excluded.url,
+                    created_at = datetime('now'),
+                    expires_at = excluded.expires_at;";
+
+            var expiresAt = DateTimeOffset.UtcNow.Add(ttl ?? TimeSpan.FromHours(24));
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@MediaId", mediaId);
+                BindText(cmd, "@Url", url);
+                BindText(cmd, "@ExpiresAt", expiresAt.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Sets secondary cached URL for a media ID.
+        /// </summary>
+        public async Task SetCachedStreamSecondaryAsync(string mediaId, string url, TimeSpan? ttl = null, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE stream_cache
+                SET url_secondary = @Url,
+                    expires_at = @ExpiresAt
+                WHERE media_id = @MediaId;";
+
+            var expiresAt = DateTimeOffset.UtcNow.Add(ttl ?? TimeSpan.FromHours(24));
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@MediaId", mediaId);
+                BindText(cmd, "@Url", url);
+                BindText(cmd, "@ExpiresAt", expiresAt.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Deletes cached stream entry for a media ID.
+        /// </summary>
+        public async Task DeleteCachedStreamAsync(string mediaId, CancellationToken cancellationToken = default)
+        {
+            const string sql = "DELETE FROM stream_cache WHERE media_id = @MediaId;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@MediaId", mediaId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Purges all expired cache entries.
+        /// </summary>
+        public async Task PurgeExpiredCacheAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = "DELETE FROM stream_cache WHERE expires_at <= datetime('now');";
+
+            await ExecuteWriteAsync(sql, _ => { }, cancellationToken);
+            _logger?.LogInformation("[DatabaseManager] Purged expired cache entries");
+        }
     }
 
     /// <summary>
