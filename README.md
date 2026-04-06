@@ -29,6 +29,18 @@ This is an early-stage project under active development. Many features are incom
 
 ### Roadmap
 
+---
+
+> **Design Principle: Simplicity Over Complexity**
+>
+> Users want simplicity, administrators want flexibility, nobody wants complexity. Fortunately for us, the debrid and usenet streaming world is inherently complex.
+>
+> When making architectural decisions: prefer the simple approach that works over the sophisticated one that handles every edge case.
+
+---
+
+### Roadmap
+
 | Phase | Status |
 |-------|--------|
 | Core AIOStreams integration | ✅ Complete |
