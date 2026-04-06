@@ -1,6 +1,6 @@
 # EmbyStreams Repository Map
 
-_Generated 2026-04-01. Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
+_Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
 
 ---
 
@@ -78,6 +78,31 @@ _Generated 2026-04-01. Covers all `.cs` files in root, Services/, Data/, Models/
 - `_unsavedChanges` — tracks pending config changes
 
 ---
+
+## Data/Schema.cs (Sprint 109)
+> v3.3 database schema definitions for 9 tables (media_items, media_item_ids, sources, source_memberships, collections, stream_resolution_log, item_pipeline_log, schema_version, home_section_tracking).
+
+### Key Types / Constants
+- `Schema.CurrentSchemaVersion` = 1
+- `Schema.Tables` - IReadOnlyList<TableDefinition> with all table CREATE SQL
+- `TableDefinition` - Table name and CREATE SQL statement
+
+### Tables
+- media_items - Core item table with ItemStatus, SaveReason, FailureReason
+- media_item_ids - Multi-provider ID matching (imdb, tmdb, tvdb, anilist, anidb, kitsu)
+- sources - Enabled/Disabled sources with ShowAsCollection flag
+- source_memberships - Which items belong to which sources
+- collections - Emby BoxSet references
+- stream_resolution_log - Resolution history for debugging
+- item_pipeline_log - Item lifecycle event log
+- schema_version - Schema version tracking
+- home_section_tracking - Per-user per-rail section tracking
+
+## Data/DatabaseInitializer.cs (Sprint 109)
+> Initializes v3.3 database schema from scratch. Clean initialization with no migration from v20.
+
+### Public Methods
+- `Initialize(dbPath)` - Creates all 9 tables, enables WAL mode, sets schema version = 1
 
 ## Data/DatabaseManager.cs
 > SQLite repository for all five tables; handles schema creation and migration.
@@ -286,6 +311,21 @@ _Generated 2026-04-01. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ---
 
+## Services/LibraryProvisioning.cs (Sprint 109)
+> Service for provisioning Emby libraries on first plugin install. Creates THREE separate libraries: Movies, Series, Anime.
+
+### Public Methods
+- `EnsureLibrariesProvisionedAsync()` - Checks and performs provisioning if needed
+- `ResetProvisioningFlag()` - Resets provisioning flag for testing/re-provisioning
+
+### Key Features
+- Creates THREE directory paths (movies/, series/, anime/)
+- Registers THREE Emby libraries (via REST API - placeholder)
+- Hides libraries for all users (placeholder)
+- Provisioning flag mechanism prevents re-application
+
+---
+
 ## Services/SetupService.cs
 > Setup wizard endpoints: directory creation, API key rotation, .strm file rewrite.
 
@@ -365,6 +405,60 @@ _Generated 2026-04-01. Covers all `.cs` files in root, Services/, Data/, Models/
 ### Public Methods
 - `ExpandSeriesFromMetadataAsync(item, config, ct)` — fetches meta, creates season folders, writes per-episode .strm files
 - `WriteEpisodeNfoFileAsync()` — writes detailed episode NFO files with plot, aired date, and series context
+
+---
+
+## Services/YourFilesScanner.cs (Sprint 114)
+> Scans library for user-added files ("Your Files"), filters out EmbyStreams-managed items (.strm files).
+
+### Public Methods
+- `ScanAsync(ct)` — scans library for Movie/Episode items, filters out EmbyStreams items
+- `IsEmbyStreamsItem(item)` — checks if item is EmbyStreams-managed (.strm or embystreams provider ID)
+
+### Key Features
+- Filters out .strm files
+- Filters out items with "embystreams" provider ID
+- Returns user-added files for matching
+
+---
+
+## Services/YourFilesMatcher.cs (Sprint 114)
+> Matches "Your Files" items against media_item_ids table using multi-provider ID matching.
+
+### Public Methods
+- `MatchAsync(yourFilesItems, ct)` — matches items against media_item_ids by provider ID
+- `FindMatchingMediaItemAsync(item, ct)` — finds matching MediaItem by provider ID
+- `DetermineMatchType(item)` — determines match type (Imdb, Tmdb, Tvdb, AniList, AniDB, Kitsu, Other)
+
+### Key Types / Constants
+- `YourFilesMatchType` — enum for match types (priority: Imdb > Tmdb > Tvdb > AniList > AniDB > Kitsu)
+- `YourFilesMatchResult` — record containing YourFilesItem, MediaItem, and MatchType
+
+### Matching Priority
+1. IMDB (most reliable)
+2. TMDB
+3. TVDB
+4. AniList
+5. AniDB
+6. Kitsu
+
+---
+
+## Services/YourFilesConflictResolver.cs (Sprint 114)
+> Resolves conflicts between "Your Files" items and EmbyStreams items using coalition rules.
+
+### Public Methods
+- `ResolveAsync(match, ct)` — resolves a match according to coalition rules
+- `DeleteStrmFileAsync(item)` — deletes .strm file for superseded items
+
+### Key Types / Constants
+- `ConflictResolution` — enum for resolution outcomes (KeepBlocked, SupersededWithEnabledSource, SupersededWithoutEnabledSource, SupersededConflict)
+
+### Coalition Rule Implementation
+- Blocked → KeepBlocked (never supersede user's explicit block)
+- Saved + enabled source → SupersededConflict (admin review needed)
+- Active + enabled source → SupersededWithEnabledSource (supersede stream, keep item)
+- No enabled source → SupersededWithoutEnabledSource (delete .strm)
 
 ---
 
@@ -458,6 +552,89 @@ _Generated 2026-04-01. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ---
 
+## Tasks/YourFilesTask.cs (Sprint 114)
+> Scheduled task (every 6 hours) that reconciles "Your Files" with EmbyStreams items.
+
+### Public Methods
+- `Execute(ct, progress)` — runs 4-phase reconciliation (scan → match → resolve → report)
+- `GetDefaultTriggers()` — returns 6-hour interval trigger
+
+### Key Types / Constants
+- `YourFilesSummary` — summary record with TotalScanned, TotalMatches, KeptBlocked, SupersededWithEnabledSource, SupersededWithoutEnabledSource, SupersededConflict
+
+### Phases
+1. **Scan** (0-25%): Scan library for user-added files
+2. **Match** (25-50%): Match items against media_item_ids
+3. **Resolve** (50-75%): Resolve conflicts per coalition rules
+4. **Report** (75-100%): Log summary statistics
+
+---
+
+## Models/RemovalResult.cs (Sprint 115)
+> Result record for removal operations.
+
+### Key Types / Constants
+- `RemovalResult(bool IsSuccess, string Message)` — operation result with Success()/Failure() static constructors
+
+---
+
+## Services/RemovalService.cs (Sprint 115)
+> Manages item removal with grace period and Coalition rule compliance.
+
+### Public Methods
+- `MarkForRemovalAsync(itemId, ct)` — starts 7-day grace period
+- `RemoveItemAsync(itemId, ct)` — removes item if grace period expired
+- `RemoveStrmFileAsync(item)` — deletes .strm file from disk
+- `RemoveFromEmbyAsync(item, ct)` — removes from Emby library (TODO: IsPlayed check)
+- `GetStrmPath(item)` — resolves to movies/, series/, anime/ based on media type
+
+### Key Types / Constants
+- `RemovalResult` — result record from Models/RemovalResult.cs
+- `_gracePeriod` — 7-day TimeSpan
+- Coalition rule check via `ItemHasEnabledSourceAsync()` — single JOIN query
+
+---
+
+## Services/RemovalPipeline.cs (Sprint 115)
+> Pipeline for processing expired grace period items.
+
+### Public Methods
+- `ProcessExpiredGraceItemsAsync(ct)` — processes all grace period items
+
+### Key Types / Constants
+- `RemovalPipelineResult` — summary record with TotalProcessed, RemovedCount, CancelledCount, ExtendedCount, SuccessCount, FailureCount, Results
+
+### Phases
+1. **Get Items**: Fetch all items with active grace period
+2. **Check Expiration**: Verify grace period expired
+3. **Coalition Rule**: Single JOIN query via `ItemHasEnabledSourceAsync()`
+4. **Revert or Remove**: Cancel grace for items with enabled source, remove for others
+
+---
+
+## Tasks/RemovalTask.cs (Sprint 115)
+> Scheduled task for removal pipeline cleanup (every 1 hour).
+
+### Public Methods
+- `Execute(ct, progress)` — runs removal pipeline with SyncLock
+- `GetDefaultTriggers()` — returns 1-hour interval trigger
+
+---
+
+## Controllers/RemovalController.cs (Sprint 115)
+> API endpoints for removal operations.
+
+### Public Methods
+- `POST /mark` — starts grace period
+- `POST /remove` — removes item (if grace expired)
+- `POST /process` — processes all expired grace items
+- `GET /list` — lists grace period items
+
+### Key Types / Constants
+- Uses `CancellationToken.None` (Emby SDK limitation: IRequest has no AbortToken)
+
+---
+
 ## Models/ItemState.cs
 > Item states for the Doctor reconciliation engine (Sprint 66).
 
@@ -541,6 +718,132 @@ _Generated 2026-04-01. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ---
 
+## Models/MediaIdType.cs (Sprint 109)
+> Enum defining supported external provider types for media identification (Tmdb, Imdb, Tvdb, AniList, AniDB, Kitsu).
+
+### Key Types / Constants
+- Parse(string) - Parses lowercase string to MediaIdType
+- ToLowerString() - Returns lowercase string representation
+
+---
+
+## Models/MediaId.cs (Sprint 109)
+> Value type representing a media identifier with provider type and value. Format: "type:value" (e.g., "imdb:tt123456").
+
+### Key Methods
+- Parse(string input) - Parses "type:value" format into MediaId
+- TryParse(string input, out MediaId mediaId) - Safe parsing with boolean result
+- ToString() - Returns "type:value" format
+- IEquatable<MediaId> - Full equality implementation
+
+---
+
+## Models/ItemStatus.cs (Sprint 109)
+> Lifecycle states for media items (Known, Resolved, Hydrated, Created, Indexed, Active, Failed, Deleted).
+
+### Key Methods
+- CanTransitionTo(ItemStatus targetStatus) - Validates state transitions
+- IsTerminal() - Checks if status is terminal (no further transitions)
+- IsErrorState() - Checks if status is an error
+- ToDisplayString() - User-friendly display string
+
+---
+
+## Models/FailureReason.cs (Sprint 109)
+> Reason codes for why an item failed to process.
+
+### Key Methods
+- ToDisplayString() - User-friendly display string
+- ToDescription() - Detailed description for logging/UI
+- IsRecoverable() - Checks if failure can be retried
+
+---
+
+## Models/PipelineTrigger.cs (Sprint 109)
+> Events or actions that trigger the item pipeline.
+
+### Key Methods
+- ToDisplayString() - User-friendly display
+- ToDescription() - Detailed description for logging
+- IsUserTriggered() - Checks if trigger was user-initiated
+- IsHighPriority() - Checks if trigger is high-priority
+
+---
+
+## Models/SaveReason.cs (Sprint 109)
+> Reason why an item was saved by the user.
+
+### Key Methods
+- ToDisplayString() - User-friendly display
+- ToDescription() - Detailed description
+- IsAutomatic() - Checks if save was automatic
+
+---
+
+## Models/SourceType.cs (Sprint 109)
+> Type of source for catalog content (BuiltIn, Aio, Trakt, MdbList).
+
+### Key Methods
+- Parse(string value) - Parses string to SourceType
+- ToLowerString() - Returns lowercase string
+- ToDisplayString() - User-friendly display
+
+---
+
+## Models/MediaItem.cs (Sprint 109)
+> Core entity representing a media item in the v3.3 system.
+
+### Key Fields
+- Id - TEXT UUID primary key
+- PrimaryId - MediaId with type and value
+- MediaType - "movie" or "series"
+- Status - ItemStatus lifecycle state
+- Saved/Blocked - Boolean states (not status values)
+- EmbyItemId - TEXT GUID for Emby integration
+- StrmPath/NfoPath - File paths
+
+### Key Methods
+- MarkSaved() - Marks item as saved
+- MarkBlocked() - Marks item as blocked
+- MarkFailed() - Marks item as failed
+- SetStatus() - Updates status with transition validation
+
+---
+
+## Models/Source.cs (Sprint 109)
+> Represents a content source (catalog) in the v3.3 system.
+
+### Key Fields
+- Id - TEXT UUID primary key
+- Name/Url/Type - Source identification
+- Enabled/ShowAsCollection - State flags
+- MaxItems/SyncIntervalHours/LastSyncedAt - Sync metadata
+- EmbyCollectionId/CollectionName - BoxSet metadata
+
+### Key Methods
+- MarkSynced() - Updates last synced timestamp
+- Toggle/Enable/Disable() - State management
+
+---
+
+## Models/AioStreamsPrefixDefaults.cs (Sprint 109)
+> Default prefix mappings for AIOStreams media ID types.
+
+### Key Types / Constants
+- DefaultPrefixMap - Dictionary mapping MediaIdType to prefix string
+- GetPrefix(MediaIdType) - Gets prefix for type
+- ToAioStreamsPath(MediaId) - Formats MediaId as AIOStreams path
+
+---
+
+## Models/ClientCompatEntry.cs
+> Learned per-client streaming capabilities in `client_compat` table.
+
+### Key Types / Constants
+- `SupportsRedirect` — 1 = redirect works; 0 = must proxy (e.g. Samsung/LG TVs)
+
+---
+
 ## Models/ResolutionCacheStats.cs
 > Snapshot of resolution_cache row counts (total, valid, stale, failed).
 
@@ -557,3 +860,163 @@ _Generated 2026-04-01. Covers all `.cs` files in root, Services/, Data/, Models/
 ## Logging/EmbyLoggerAdapter.cs
 > Adapts Emby's ILogger to MEL ILogger<T> so all log call sites write to the Emby log file.
 
+---
+
+## Sprint Plans (.ai/SPRINT_NNN.md)
+
+### Sprints 105-108
+**Status:** Superseded by Sprint 109
+
+Originally planned as extension of v20 architecture. Superseded after v3.3 design review determined a full architectural breaking change is required.
+
+### Sprint 109 — Foundation & Migration (v3.3)
+**File:** `.ai/SPRINT_109.md`
+**Risk:** HIGH (breaking change, full wipe migration)
+
+**Phases:**
+- Phase 109A — New Database Schema (7 tables)
+- Phase 109B — Core Domain Models (MediaId, ItemStatus, enums)
+- Phase 109C — Migration from v20 to v3 Schema
+
+**Key Changes:**
+- MediaId system replaces IMDB-only keys
+- ItemStatus lifecycle machine
+- Sources model replaces Catalog model
+- Saved/Blocked states replace PIN model
+- Your Files detection via media_item_ids
+
+### Sprint 110 — Services Layer (v3.3)
+**File:** `.ai/SPRINT_110.md`
+**Risk:** MEDIUM
+
+**Services:**
+- ItemPipelineService — Item lifecycle orchestration
+- StreamResolver — AIOStreams resolution and ranking
+- MetadataHydrator — Cinemeta/AIOMetadata
+- YourFilesReconciler — Your Files detection
+- SourcesService — Source management
+- CollectionsService — BoxSet management
+- SavedService — Save/Block actions
+
+### Sprint 111 — Sync Pipeline (v3.3)
+**File:** `.ai/SPRINT_111.md`
+**Risk:** MEDIUM
+
+**Flow:** fetch → filter → diff → process → handle removed
+
+**Components:**
+- ManifestFetcher — AIOStreams with TTL
+- ManifestFilter — Filter blocked/duplicate/over-cap
+- ManifestDiff — Manifest vs database
+- SyncTask — Full pipeline orchestration
+
+### Sprint 112 — Stream Resolution and Playback (v3.3)
+**File:** `.ai/SPRINT_112.md`
+**Risk:** MEDIUM
+
+**Components:**
+- PlaybackService — Cache-first resolution
+- StreamCache — TTL-based caching
+- StreamUrlSigner — HMAC-SHA256 signing
+- ProgressStreamer — SSE progress events
+
+### Sprint 113 — Saved/Blocked User Actions (v3.3)
+**File:** `.ai/SPRINT_113.md`
+**Risk:** LOW
+
+**Components:**
+- SavedRepository — Persist saved/blocked state
+- SavedActionService — Action logic with Coalition rule
+- SavedController — Admin API
+- Saved UI — Config page UI
+
+### Sprint 114 — Your Files Detection (v3.3) ✅ Complete
+**File:** `.ai/SPRINT_114.md`
+**Risk:** MEDIUM
+
+**Components:**
+- YourFilesScanner — Scans library for user files, filters out .strm items
+- YourFilesMatcher — Multi-provider ID matching (IMDB → TMDB → TVDB → AniList → AniDB → Kitsu)
+- YourFilesConflictResolver — Conflict resolution with coalition rules
+- YourFilesTask — Scheduled reconciliation (every 6 hours)
+
+### Sprint 115 — Removal Pipeline (v3.3) ✅ Complete
+**File:** `.ai/SPRINT_115.md`
+**Risk:** LOW
+
+**Components:**
+- RemovalService — Mark and remove items
+- RemovalPipeline — Process removed items
+- RemovalTask — Scheduled cleanup
+- RemovalController — Admin API
+
+### Sprint 116 — Collection Management (v3.3)
+**File:** `.ai/SPRINT_116.md`
+**Risk:** LOW
+
+**Components:**
+- BoxSetRepository — Persist BoxSet metadata
+- BoxSetService — Emby BoxSet API wrapper
+- CollectionSyncService — Sync sources to BoxSets
+- CollectionTask — Scheduled sync
+
+### Sprint 117 — Admin UI (v3.3)
+**File:** `.ai/SPRINT_117.md`
+**Risk:** LOW
+
+**Tabs:**
+- Sources — Enable/disable sources
+- Collections — View/sync collections
+- Saved — Saved items
+- Blocked — Blocked items
+- Actions — Manual actions
+- Logs — Pipeline logs
+
+### Sprint 118 — Home Screen Rails (v3.3)
+**File:** `.ai/SPRINT_118.md`
+**Risk:** LOW
+
+**Rail Types:**
+- Saved — User-saved items
+- New — Recently added
+- Collections — Emby BoxSets
+- RecentlyResolved — Fresh streams
+
+### Sprint 119 — API Endpoints (v3.3)
+**File:** `.ai/SPRINT_119.md`
+**Risk:** LOW
+
+**Controllers:**
+- StatusController — Plugin status
+- SourcesController — Source management
+- CollectionsController — Collection management
+- ItemsController — Item queries
+- ActionsController — Manual actions
+- LogsController — Log retrieval
+
+### Sprint 120 — Logging (v3.3)
+**File:** `.ai/SPRINT_120.md`
+**Risk:** LOW
+
+**Components:**
+- PipelineLogger — Item lifecycle events
+- ResolutionLogger — Stream resolution events
+- LogRepository — Persist logs
+- LogRetentionService — Cleanup old logs
+- LogRetentionTask — Scheduled cleanup
+
+**Retention:**
+- Pipeline logs: 30 days
+- Resolution logs: 7 days
+
+### Sprint 121 — E2E Validation (v3.3)
+**File:** `.ai/SPRINT_121.md`
+**Risk:** LOW
+
+**Test Categories:**
+- Migration Tests — v20 → v3
+- Sync Pipeline Tests — Full flow
+- Playback Tests — Resolution and signing
+- User Action Tests — Save/Block
+- Your Files Tests — Detection
+- E2E Test Plan — Manual scenarios
