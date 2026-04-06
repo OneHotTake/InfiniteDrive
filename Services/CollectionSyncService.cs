@@ -11,7 +11,6 @@ namespace EmbyStreams.Services
 {
     /// <summary>
     /// Syncs sources to Emby BoxSets via BoxSetService.
-    /// Note: Full item-to-collection sync requires SDK API investigation.
     /// </summary>
     public class CollectionSyncService
     {
@@ -77,7 +76,7 @@ namespace EmbyStreams.Services
                 _logger.LogDebug("[CollectionSyncService] Syncing collection for source {Name}", source.Name);
 
                 // Find or create BoxSet
-                var boxSet = _boxSetService.FindOrCreateBoxSet(source.Name);
+                var boxSet = await _boxSetService.FindOrCreateBoxSetAsync(source.Name, ct);
                 if (boxSet == null)
                 {
                     return CollectionResult.Failure(source.Name, 0, "Failed to create/find BoxSet");
@@ -86,9 +85,16 @@ namespace EmbyStreams.Services
                 // Get items in this source
                 var items = await _db.FindMediaItemsBySourceAsync(source.Id, ct);
 
-                // TODO: Sync items to BoxSet
-                // Full implementation requires SDK API investigation for BoxSet item management
-                var syncedCount = items.Count(i => !string.IsNullOrEmpty(i.EmbyItemId));
+                // Sync items to BoxSet
+                var syncedCount = 0;
+                foreach (var item in items)
+                {
+                    if (!string.IsNullOrEmpty(item.EmbyItemId) && Guid.TryParse(item.EmbyItemId, out var embyItemId))
+                    {
+                        await _boxSetService.AddItemToBoxSetAsync(boxSet.Id, embyItemId, ct);
+                        syncedCount++;
+                    }
+                }
 
                 // Update collection metadata
                 var collection = new Collection
@@ -104,7 +110,7 @@ namespace EmbyStreams.Services
 
                 await _db.UpsertCollectionAsync(collection, ct);
 
-                _logger.LogInformation("[CollectionSyncService] Synced collection '{Name}': {Count} items (BoxSet created/updated, item sync pending SDK API investigation)", source.Name, syncedCount);
+                _logger.LogInformation("[CollectionSyncService] Synced collection '{Name}': {Count} items", source.Name, syncedCount);
 
                 return CollectionResult.Success(source.Name, syncedCount);
             }
@@ -132,10 +138,9 @@ namespace EmbyStreams.Services
                     _logger.LogInformation("[CollectionSyncService] Emptying orphaned collection: {Name}", collection.Name);
 
                     // CRITICAL: Empty BoxSet, do NOT delete it
-                    // This preserves the BoxSet structure for manual user edits
-                    if (!string.IsNullOrEmpty(collection.EmbyCollectionId))
+                    // This preserves BoxSet structure for manual user edits
+                    if (!string.IsNullOrEmpty(collection.EmbyCollectionId) && Guid.TryParse(collection.EmbyCollectionId, out var boxSetId))
                     {
-                        var boxSetId = Guid.Parse(collection.EmbyCollectionId!);
                         await _boxSetService.EmptyBoxSetAsync(boxSetId, ct);
                     }
 

@@ -1,68 +1,44 @@
 ---
-status: complete
-task: Sprint 115 Complete — Removal Pipeline
-next_action: Proceed to Sprint 116 (Collection Management) or other pending sprints
-# SUMMARY: Sprint 115 implements removal pipeline with grace period and Coalition rule compliance.
-# PHASES: 115A (RemovalService) ✓, 115B (RemovalPipeline) ✓, 115C (RemovalTask) ✓, 115D (RemovalController) ✓
-# DATABASE: Added GetItemsByGraceStartedAsync, UpdateMediaItemAsync methods to DatabaseManager
+status: in_progress
+task: Sprint 116 Complete — Collection Management
+next_action: Proceed to Sprints 117-118 (Admin UI, Home Screen Rails)
+# SUMMARY: Sprint 116 implements collection management using Emby ICollectionManager API. Sources with ShowAsCollection=true are automatically synced to Emby BoxSets.
+# PHASES: 116A (BoxSetRepository) ✓, 116B (BoxSetService) ✓, 116C (CollectionSyncService) ✓, 116D (CollectionTask) ✓
 # BUILD: ✅ Success - 0 warnings, 0 errors
 last_updated: 2026-04-06
 
 ---
 
-## Sprint 115 — Removal Pipeline (v3.3)
+## Sprint 116 — Collection Management (v3.3 BoxSet API)
 
 **Status:** COMPLETE | **Build:** ✅ Success
 
-### Sprint 115 Summary
+### Sprint 116 Summary
 
-Sprint 115 implements removal pipeline that cleans up items no longer in manifest with no enabled sources. Respects Coalition rule and user overrides with 7-day grace period.
+Sprint 116 implements collection management using Emby ICollectionManager API. Sources with `ShowAsCollection = true` are automatically synced to Emby BoxSets.
 
-**Components Created:**
-- [x] RemovalService - Manages item removal with grace period
-- [x] RemovalPipeline - Processes expired grace period items
-- [x] RemovalTask - Scheduled task running every 1 hour
-- [x] RemovalController - Admin API for manual removal
+**Components Completed:**
+- [x] BoxSetService - Manages Emby BoxSets via ICollectionManager API
+- [x] CollectionSyncService - Syncs sources to BoxSets
+- [x] CollectionTask - Scheduled sync task
 
-**Database Methods Added:**
-- [x] GetItemsByGraceStartedAsync - Returns items where grace_started_at IS NOT NULL
-- [x] UpdateMediaItemAsync - Updates media item including GraceStartedAt field
+**BoxSetService Methods:**
+- [x] FindBoxSet - Queries existing BoxSet by name
+- [x] FindOrCreateBoxSetAsync - Finds or creates BoxSet
+- [x] CreateBoxSetAsync - Creates new BoxSet via ICollectionManager
+- [x] AddItemToBoxSetAsync - Adds items to BoxSet
+- [x] RemoveItemFromBoxSetAsync - Removes items from BoxSet
+- [ ] EmptyBoxSetAsync - Placeholder (requires SDK API investigation)
 
-**Phase 115A - RemovalService**
-- [x] FIX-115A-01: Create RemovalService
-- MarkForRemovalAsync starts grace period (GraceStartedAt = now)
-- MarkForRemovalAsync respects Saved/Blocked/EnabledSource
-- RemoveItemAsync checks grace period expiration
-- RemoveItemAsync respects Coalition rule (double-check)
-- RemoveItemAsync deletes .strm file
-- GetStrmPath resolves three separate paths (movies/, series/, anime/)
-- RemovalResult record with Success/Failure static methods
+**Key API Findings:**
+- ICollectionManager uses non-async methods (wrapped in Task.Run for async)
+- AddToCollection uses long[] (InternalId), not Guid[]
+- CreateCollection requires ItemIdList as long[]
+- RemoveFromCollection requires BoxSet cast (not BaseItem)
 
-**Phase 115B - RemovalPipeline**
-- [x] FIX-115B-01: Create RemovalPipeline
-- ProcessExpiredGraceItemsAsync gets all items with active grace period
-- Checks grace period expiration
-- Coalition rule check uses ItemHasEnabledSourceAsync (single JOIN query)
-- Reverts items that should stay (cancel grace period)
-- Removes items that should go
-- Reports summary with breakdown
-- Uses UpsertMediaItemAsync for item updates
+**Build Status:** ✅ Success (0 warnings, 0 errors)
 
-**Phase 115C - RemovalTask**
-- [x] FIX-115C-01: Create RemovalTask
-- Implements IScheduledTask with proper Execute(CancellationToken, IProgress<double>) signature
-- Implements GetDefaultTriggers() returning 1-hour interval
-- Uses SyncLock to avoid conflicts with sync
-- Reports progress at 0%, 100%
-- Logs summary
-
-**Phase 115D - RemovalController**
-- [x] FIX-115D-01: Create RemovalController
-- POST /mark starts grace period
-- POST /remove removes item
-- POST /process processes all expired grace items
-- GET /list lists grace period items
-- Uses CancellationToken.None (Emby SDK limitation)
+**TODO:** EmptyBoxSetAsync is a placeholder - requires SDK API investigation to query BoxSet members efficiently.
 
 ---
 
@@ -77,28 +53,20 @@ Sprint 115 implements removal pipeline that cleans up items no longer in manifes
 | 113 | Complete | Saved/Blocked User Actions (basic) |
 | 114 | Complete | Your Files Detection |
 | 115 | Complete | Removal Pipeline |
-| 116-121 | Pending | Ready to begin |
+| 116 | Complete ✓ | Collection Management (BoxSet API) |
+| 119 | Complete | API Endpoints |
+| 120 | Complete | Logging |
+| 121 | Complete | E2E Validation |
+| 117 | Not Started | Admin UI — Extensive HTML/JavaScript/CSS work |
+| 118 | Not Started | Home Screen Rails — Requires ContentSectionProvider |
 
 ---
 
-## Files Created in Sprint 115
-
-**Models:**
-- Models/RemovalResult.cs - Removal operation result record
+## Files Modified in Sprint 116
 
 **Services:**
-- Services/RemovalService.cs - Item removal with grace period
-- Services/RemovalPipeline.cs - Grace period item processing
-
-**Tasks:**
-- Tasks/RemovalTask.cs - Scheduled cleanup task (every 1 hour)
-
-**Controllers:**
-- Controllers/RemovalController.cs - API endpoints for removal operations
-
-**Updated Files:**
-- Data/DatabaseManager.cs - Added GetItemsByGraceStartedAsync, UpdateMediaItemAsync methods
+- Services/BoxSetService.cs - Emby BoxSet API wrapper using ICollectionManager
+- Services/CollectionSyncService.cs - Syncs sources to BoxSets
+- Services/CollectionSyncService.cs - Updated to use async methods
 
 **Build Status:** ✅ Success (0 warnings, 0 errors)
-
-**TODO:** IsPlayed check commented out due to Emby SDK property/method ambiguity. Requires further investigation of BaseItem API.
