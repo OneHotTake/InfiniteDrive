@@ -1,6 +1,6 @@
 # Sprint 116 — Collection Management (v3.3 BoxSet API)
 
-**Version:** v3.3 | **Status:** Planning | **Risk:** LOW | **Depends:** Sprint 115
+**Version:** v3.3 | **Status:** Complete ✓ | **Risk:** LOW | **Depends:** Sprint 115
 
 ---
 
