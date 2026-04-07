@@ -39,6 +39,10 @@ namespace EmbyStreams.Services
         [ApiMember(Name = "episode_id", Description = "Stremio episode ID (imdbId:season:episode)", IsRequired = false, DataType = "string", ParameterType = "query")]
         public string? EpisodeId { get; set; }
 
+        /// <summary>Version slot key for quality-aware stream selection.</summary>
+        [ApiMember(Name = "slot", Description = "Version slot key", DataType = "string", ParameterType = "query")]
+        public string? Slot { get; set; }
+
         /// <summary>DEPRECATED: No longer used. Authentication is handled via Emby's [Authenticated] attribute.</summary>
         [ApiMember(Name = "apikey", Description = "[DEPRECATED - no longer used]", DataType = "string", ParameterType = "query")]
         public string? ApiKey { get; set; }

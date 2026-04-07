@@ -492,6 +492,55 @@ namespace EmbyStreams
         public bool EnableCinemetaDefault { get; set; } = true;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  VERSIONED PLAYBACK                                                  ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// How many hours a normalized stream candidate remains valid before
+        /// it is considered expired and cleaned up.  The <c>expires_at</c> column
+        /// in the <c>candidates</c> table is computed as
+        /// <c>datetime('now', '+' || CandidateTtlHours || ' hours')</c>.
+        ///
+        /// Expired candidates are pruned by <c>DeleteExpiredCandidatesAsync()</c>.
+        /// Default: 6 hours.
+        /// </summary>
+        [DataMember]
+        public int CandidateTtlHours { get; set; } = 6;
+
+        /// <summary>
+        /// Slot key of the default quality version used for playback when no
+        /// specific slot is requested.  Must match a row in the
+        /// <c>version_slots</c> table where <c>is_enabled = 1</c>.
+        ///
+        /// Default: <c>hd_broad</c> (1080p SDR Broad).
+        /// </summary>
+        [DataMember]
+        public string DefaultSlotKey { get; set; } = "hd_broad";
+
+        /// <summary>
+        /// Last known Emby server LAN address, stored as "host:port" (normalized).
+        /// Compared against the current address on every server startup by
+        /// <see cref="Services.VersionPlaybackStartupDetector"/>.  When a change
+        /// is detected, all materialized .strm files are rewritten with the new URL.
+        ///
+        /// Empty on fresh install — populated automatically on first startup.
+        /// </summary>
+        [DataMember]
+        public string LastKnownServerAddress { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Queue of pending rehydration operations serialised as JSON.
+        ///
+        /// Each entry is an object with a <c>type</c> field and a <c>slotKey</c> field:
+        /// <c>[{"type":"AddSlot","slotKey":"4k_hdr"}, ...]</c>
+        ///
+        /// Consumed by the <c>RehydrationTask</c> on next execution to add, remove,
+        /// or rename .strm/.nfo file pairs across the catalog.
+        /// </summary>
+        [DataMember]
+        public List<string> PendingRehydrationOperations { get; set; } = new();
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  NEXT-UP PRE-WARM                                                    ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -569,6 +618,7 @@ namespace EmbyStreams
             SyncScheduleHour          = SyncScheduleHour == -1 ? -1 : Clamp(SyncScheduleHour, 0, 23);
             CandidatesPerProvider     = Clamp(CandidatesPerProvider,     1,     10);
             MaxFallbacksToStore       = Clamp(MaxFallbacksToStore,       1,     50);
+            CandidateTtlHours         = Clamp(CandidateTtlHours,         1,     168);    // 1 h – 7 days
             SignatureValidityDays    = Clamp(SignatureValidityDays,    1,     3650);
             SkipFutureEpisodes          = SkipFutureEpisodes;
             FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);

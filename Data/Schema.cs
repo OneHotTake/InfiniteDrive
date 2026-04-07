@@ -9,7 +9,7 @@ namespace EmbyStreams.Data
     /// </summary>
     public static class Schema
     {
-        public const int CurrentSchemaVersion = 1;
+        public const int CurrentSchemaVersion = 22;
 
         /// <summary>
         /// All v3.3 database tables with their CREATE SQL statements.
@@ -195,7 +195,89 @@ CREATE TABLE stream_cache (
     created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
     expires_at    TEXT    NOT NULL
 );
-CREATE INDEX idx_cache_expires ON stream_cache(expires_at);")
+CREATE INDEX idx_cache_expires ON stream_cache(expires_at);"),
+
+            // Versioned playback tables (Sprint 122)
+            new TableDefinition("version_slots", @"
+CREATE TABLE version_slots (
+    slot_key        TEXT PRIMARY KEY,
+    label           TEXT NOT NULL,
+    resolution      TEXT NOT NULL,
+    video_codecs    TEXT NOT NULL DEFAULT 'any',
+    hdr_classes     TEXT NOT NULL DEFAULT '',
+    audio_preferences TEXT NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);"),
+
+            new TableDefinition("candidates", @"
+CREATE TABLE candidates (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    rank            INTEGER NOT NULL,
+    service         TEXT,
+    stream_type     TEXT NOT NULL DEFAULT 'debrid',
+    resolution      TEXT,
+    video_codec     TEXT,
+    hdr_class       TEXT,
+    audio_codec     TEXT,
+    audio_channels  TEXT,
+    file_name       TEXT,
+    file_size       INTEGER,
+    bitrate_kbps    INTEGER,
+    languages       TEXT,
+    source_type     TEXT,
+    is_cached       INTEGER NOT NULL DEFAULT 0,
+    fingerprint     TEXT NOT NULL,
+    binge_group     TEXT,
+    info_hash       TEXT,
+    file_idx        INTEGER,
+    confidence_score REAL NOT NULL DEFAULT 0.0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at      TEXT NOT NULL,
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_candidates_item_slot ON candidates(media_item_id, slot_key, rank);
+CREATE INDEX idx_candidates_fingerprint ON candidates(fingerprint);
+CREATE INDEX idx_candidates_expires ON candidates(expires_at);
+CREATE UNIQUE INDEX idx_candidates_unique ON candidates(media_item_id, slot_key, fingerprint);"),
+
+            new TableDefinition("version_snapshots", @"
+CREATE TABLE version_snapshots (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    candidate_id    TEXT NOT NULL,
+    snapshot_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    playback_url    TEXT,
+    playback_url_cached_at TEXT,
+    playback_url_expires_at TEXT,
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (media_item_id, slot_key)
+);
+CREATE INDEX idx_snapshots_item ON version_snapshots(media_item_id);"),
+
+            new TableDefinition("materialized_versions", @"
+CREATE TABLE materialized_versions (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    strm_path       TEXT NOT NULL,
+    nfo_path        TEXT NOT NULL,
+    strm_url_hash   TEXT NOT NULL,
+    is_base         INTEGER NOT NULL DEFAULT 0,
+    materialized_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (media_item_id, slot_key)
+);
+CREATE INDEX idx_materialized_item ON materialized_versions(media_item_id);
+CREATE INDEX idx_materialized_slot ON materialized_versions(slot_key);
+CREATE INDEX idx_materialized_base ON materialized_versions(is_base) WHERE is_base = 1;")
         };
     }
 

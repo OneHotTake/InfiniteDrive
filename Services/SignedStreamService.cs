@@ -49,6 +49,10 @@ namespace EmbyStreams.Services
         /// <summary>Episode number for series (omit for movies).</summary>
         [ApiMember(Name = "episode", Description = "Episode number (series only)", DataType = "int", ParameterType = "query")]
         public int? Episode { get; set; }
+
+        /// <summary>Version slot key for quality-aware stream selection.</summary>
+        [ApiMember(Name = "slot", Description = "Version slot key", DataType = "string", ParameterType = "query")]
+        public string? Slot { get; set; }
     }
 
     // ── Service ──────────────────────────────────────────────────────────────────
