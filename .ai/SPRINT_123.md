@@ -132,7 +132,7 @@ http://[emby-server-lan-ip]:[port]/EmbyStreams/play?titleId={id}&slot={slot_key}
  items processed one at a time
 
 
- **Depends on:** FIX-122C-01 (VersionPlaybackService), FIX-123A-01 (VersionMaterializer)
+ **Depends on:** FIX-122C-01 (VersionSlotRepository), FIX-122C-02 (CandidateRepository), FIX-123A-01 (VersionMaterializer)
 
 **Must not break:** Existing CatalogSyncTask behavior preserved. New rehydration triggers are explicitly scheduled actions.
 
