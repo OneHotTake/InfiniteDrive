@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -35,6 +36,30 @@ namespace EmbyStreams
     {
         /// <summary>Stable plugin GUID — never change this after first release.</summary>
         public static readonly Guid PluginGuid = new Guid("3c45a87e-2b4f-4d1a-9e73-8f12c3456789");
+
+        /// <summary>
+        /// Static constructor runs when the assembly is first loaded — before any
+        /// instance members or type scanning. Registers an AssemblyResolve handler
+        /// so transitive dependencies (Polly.Core etc.) are found in the plugins dir.
+        /// </summary>
+        static Plugin()
+        {
+            var location = Assembly.GetExecutingAssembly().Location;
+            var pluginsDir = !string.IsNullOrEmpty(location)
+                ? Path.GetDirectoryName(location)
+                : null;
+            if (string.IsNullOrEmpty(pluginsDir)) return;
+
+            // Dependencies live in a "libs" subfolder next to EmbyStreams.dll
+            // to avoid Emby's GetTypes() scan hitting Polly.dll in the plugins root.
+            var libsDir = Path.Combine(pluginsDir, "libs");
+
+            AssemblyLoadContext.Default.Resolving += (context, name) =>
+            {
+                var path = Path.Combine(libsDir, name.Name + ".dll");
+                return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
+            };
+        }
 
         /// <summary>
         /// Singleton accessor used by scheduled tasks and services to reach

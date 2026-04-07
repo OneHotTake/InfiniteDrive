@@ -47,13 +47,16 @@ echo "      Done."
 # ── 4. Build and deploy DLL ───────────────────────────────────────────────────
 echo "[4/5] Building EmbyStreams..."
 cd "$SCRIPT_DIR"
-dotnet build -c Release || { echo "BUILD FAILED — aborting."; exit 1; }
+dotnet publish -c Release || { echo "BUILD FAILED — aborting."; exit 1; }
 
-DLL="$SCRIPT_DIR/bin/Release/net8.0/EmbyStreams.dll"
+DLL="$SCRIPT_DIR/bin/Release/net8.0/publish/EmbyStreams.dll"
 if [ ! -f "$DLL" ]; then
     echo "ERROR: DLL not found at $DLL"; exit 1
 fi
 cp "$DLL" "$DATA_DIR/plugins/EmbyStreams.dll"
+mkdir -p "$DATA_DIR/plugins/EmbyStreams/libs"
+cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/EmbyStreams/libs/" 2>/dev/null || true
+cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/EmbyStreams/libs/" 2>/dev/null || true
 echo "      DLL deployed to $DATA_DIR/plugins/"
 cp "$SCRIPT_DIR/plugin.json" "$DATA_DIR/plugins/"
 echo "      plugin.json deployed to $DATA_DIR/plugins/"
