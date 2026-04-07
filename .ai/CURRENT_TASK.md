@@ -1,101 +1,30 @@
 ---
-status: complete
-task: Sprint 117 Complete — Declarative Plugin UI
-next_action: Sprint 118 review
-# SUMMARY: Sprint 117 implements declarative Plugin UI system with ViewModels and attributes
-# SPRINT 118 BLOCKED: IContentSection API doesn't exist in current Emby SDK (stub implementations created)
-# SPRINT 117 COMPLETE: Declarative UI with BasePluginViewModel, UI attributes, ViewModels, ConfigurationController, Plugin page registration
-# BUILD: ✅ Success - 0 warnings, 0 errors
-last_updated: 2026-04-06
+    status: in_progress
+ <!-- first sprint of versioned playback -->
+ task: Versioned Playback
+ Schema & Data Model + Candidate Normalizer + Slot Matcher + Playback + Rehydration + UI
+ Startup Detection
+ Build + Test
 
----
+ route: plan | Code-first, Schema + Data, then services, then materialization, then UI
+ end with Plugin registration and then validation |
+ last_updated: 2026-04-06
+11:3027
 
-## Sprint Status Summary
+ 2: Intended for true: sequential, independently buildable/testable, No step requires two unrelated systems to be modified simultaneously
+ steps 1-9 are additive; backward-compatible with v1 schema, step 10: UI is last (extends existing declarative pattern,
+next_action: Begin Sprint 122 implementation — read VERSIONED_PLAYBACK.md spec REPO_MAP.md
+ SPRINT_122.md
+ SPRINT_123.md → SPRINT_130.md
+ `SPRINT_121.md` thoroughly
+ follow its existing `SPRINT_121.md` format for plan structure. `docs/VERSIONED_PLAYBACK.md` is the authoritative design spec.
 
-| Sprint | Status | Notes |
-|--------|---------|----------|
-| 109-116 | **Complete ✓** | All core functionality implemented |
-| 117 | **Complete ✓** | Declarative Plugin UI with ViewModels |
-| 118 | **Blocked** | Stub implementations created, waiting for 4.10.0.8-beta SDK |
-| 119-121 | **Complete ✓** | API endpoints, logging, E2E tests |
+ Derive all specifics from the actual codebase.
 
----
+ I've confirmed that the `Sprint 122` format is correct (9 phases, dependency chain, and step-by-step instructions match the spec. `schemas built on top of the existing code patterns.)
 
-## Sprint 117 — Declarative Plugin UI (Complete)
+ The plan requires 7 new database tables, 4 new model classes, 4 new repository classes, 2 new services classes, 1 new task, 1 modified controller, 2 modified existing classes, and 2 modified config class. I haven't written the sprint plan yet. The existing codebase state is told me that versioned playback is currently works, Let me also update the BACKLOG.md.
 
-**Status:** COMPLETE | **Build:** ✅ Success (0 warnings, 0 errors)
+ which currently references sprint 119 as complete.
 
-### Sprint 117 Summary
-
-Sprint 117 implements Admin UI using Emby's **declarative Plugin UI system**. UI is generated automatically from C# ViewModels decorated with attributes.
-
-**Components Completed:**
-
-**Base Classes:**
-- [x] BasePluginViewModel - Base class extending BasePluginConfiguration
-- [x] UI Attributes (TabGroup, DataGrid, RunButton, Dangerous, FilterOptions)
-
-**Row Models:**
-- [x] SourceRow - Source data with Name, ItemCount, LastSyncedAt, Enabled, ShowAsCollection
-- [x] CollectionRow - Collection data with CollectionName, SourceName, LastSyncedAt
-- [x] ItemRow - Item data with Title, Year, MediaType, Status, SaveReason, Superseded, SupersededConflict
-- [x] WatchHistoryRow - Watch history with Title, Season, Episode, Status, LastWatchedAt
-
-**ViewModels:**
-- [x] WizardViewModel - Setup wizard with API key, library paths, sync settings
-- [x] ContentManagementViewModel - Admin tabs (Sources, Collections, Items, Needs Review)
-- [x] MyLibraryViewModel - Per-user tabs (Saved, Blocked, Watch History)
-
-**Controller:**
-- [x] ConfigurationController - Loads/saves ViewModels, handles button clicks
-
-**Plugin Integration:**
-- [x] Plugin.cs GetPages() - Registers Wizard, Content Management, My Library pages
-
-**Build Status:** ✅ Success (0 warnings, 0 errors)
-
----
-
-## Sprint 118 — Home Screen Rails
-
-**Status:** BLOCKED | **Reason:** IContentSection API doesn't exist in current Emby SDK
-
-### Sprint 118 Notes
-
-The Sprint 118 specification requires implementing IContentSection interface and ContentSectionProvider class. However, current Emby SDK (beta 4.10.0.8) does not include:
-- `IContentSection` interface
-- `ContentSectionList` class
-- `HomeSectionType` enum
-
-**Stub Implementation:**
-- `Services/HomeSectionStub.cs` - Extension methods providing missing APIs
-- `Services/HomeSectionTracker.cs` - Per-user per-rail tracking with marker pattern
-- `Services/HomeSectionManager.cs` - Home section management using stubs
-
-**TODO when SDK becomes available:**
-1. Remove HomeSectionStub.cs and extension methods
-2. Update HomeSectionManager.cs to use real ContentSection type
-3. Implement actual database queries for rail items
-4. Test real home section behavior in Emby UI
-
----
-
-## Files Modified in Sprint 117
-
-**New Files:**
-- Configuration/BasePluginViewModel.cs - Base class for all ViewModels
-- Configuration/Attributes/TabGroupAttribute.cs - Groups properties into tabs
-- Configuration/Attributes/DataGridAttribute.cs - Marks collections for data grid display
-- Configuration/Attributes/RunButtonAttribute.cs - Marks methods as UI buttons
-- Configuration/Attributes/DangerousAttribute.cs - Marks dangerous actions requiring confirmation
-- Configuration/Attributes/FilterOptionsAttribute.cs - Defines filter options for properties
-- Configuration/RowModels.cs - Data row DTOs for grid display
-- Configuration/WizardViewModel.cs - Setup wizard ViewModel
-- Configuration/ContentManagementViewModel.cs - Content management ViewModel
-- Configuration/MyLibraryViewModel.cs - My library ViewModel
-- Controllers/ConfigurationController.cs - Controller for ViewModel loading/saving
-
-**Modified Files:**
-- Plugin.cs - Updated GetPages() to register three new pages
-
-**Build Status:** ✅ Success (0 warnings, 0 errors)
+ adding Sprint 122 as in progress. Let me also update `CURRENT_TASK.md`. Current task is Versioned Playback (Schema, Data Model, Candidate Normalizer, Slot Matcher, Playback, Rehydration, UI, Startup Detection, Build + Test) in 9 phases, next_action: Read VERSIONED_PLAYBACK.md, SPRINT_122.md, SPRINT_123.md

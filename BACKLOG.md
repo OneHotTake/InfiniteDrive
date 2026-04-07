@@ -1131,7 +1131,11 @@ Implements comprehensive logging.
 
 ---
 
-## Sprint 121 — E2E Validation (v3.3)
+## Sprint 122 — Versioned Playback (Schema, Data, Data Models, Candidate Normalizer, Slot Matcher, Playback, Rehydration, UI)
+
+ Startup Detection)
+
+ Build + Test) | **Status:** Planning | **Risk:** HIGH | **Depends:** Sprint 121
 
 **Status:** Planning | **Risk:** LOW | **Depends:** Sprint 120
 

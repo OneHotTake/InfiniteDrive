@@ -1009,7 +1009,84 @@ Originally planned as extension of v20 architecture. Superseded after v3.3 desig
 - Pipeline logs: 30 days
 - Resolution logs: 7 days
 
-### Sprint 121 — E2E Validation (v3.3)
+**File:** `.ai/SPRINT_122.md` | **Risk:** HIGH | **Depends:** Sprint 121 |
+
+| `### Sprint 123 — File Materialization (.strm/.nfo writing + rehydration) | **Status:** Planned | **Risk:** HIGH | **Depends:** Sprint 122 |
+
+ |
+| `### Sprint 124 — Playback Endpoint Changes | **Status:** Planned | **Risk:** MEDIUM | **Depends:** Sprint 123 |
+ |
+| `### Sprint 125 — UI: Wizard Step 3 ( Stream Quality) | **Status:** Planned | **Risk:** LOW | **Depends:** Sprint 122, **Depends:** Sprint 121 |
+ |
+| `### Sprint 126 — UI: Settings Page ( Stream Versions) | **Status:** Planned | **Risk:** LOW | **Depends:** Sprint 125, **Depends:** Sprint 121 | |
+ |
+| `### Sprint 127 - Startup Detection (Server Address) | **Status:** Planned | **Risk:** LOW | **Depends:** Sprint 124, **Depends:** Sprint 121 | |
+ |
+| `### Sprint 128 — Plugin Registration + Build + Test) | **Status:** Planned | **Risk:** LOW | **Depends:** Sprint 127 | **Depends:** Sprint 121 | |
+ |
+| `### Sprint 129 — Build Verification | **Status:** Planned | **Risk:** LOW | **Depends:** Sprint 128 | **Depends:** Sprint 121 | |
+|
+  `### Sprint 130 — Integration Testing | **Status:** Planned | **Risk:** MEDIUM | **Depends:** Sprint 129, **Depends:** Sprint 121 |
+ |
+|
+  **Key Components:**
+  - 4 new database tables (version_slots, candidates, version_snapshots, materialized_versions)
+
+ - 4 new ORM models
+VersionSlot, Candidate, VersionSnapshot, MaterializedVersion)
+  - 4 new repository classes
+VersionSlotRepository, CandidateRepository, VersionSnapshotRepository, MaterializedVersionRepository)
+    - Candidate normalizer ( normalizes raw AIOStreams streams)
+    - Slot matcher ( filters + ranks candidates against slot policies)
+    - Versioned playback service ( extends PlaybackService with slot parameter)
+    - Rehydration service ( orchestrates add/remove/reename)
+    - Version materializer ( writes .strm/.nfo files with slot suffixes)
+  - Startup detector ( server address change → URL rewrite)
+    - Wizard Step 3 ( Stream Quality)
+    - Settings page ( Stream Versions section)
+    - Plugin configuration ( versioning preferences)    - Build + test verification
+ |
+|
+    `### Sprint 122 — Versioned Playback (Schema, Data, Models)
+ Candidate Normalizer, Slot Matcher)
+ Playback, Rehydration, UI, Startup Detection, Build + Test) |
+| `### Sprint 123 — File Materialization (.strm/.nfo Writing + rehydration) | **Status:** Planning | **Risk:** HIGH | **Depends:** Sprint 122, |
+| `### Sprint 124 — Playback Endpoint Changes | **Status:** Planning | **Risk:** MEDIUM | **Depends:** Sprint 123, |
+| `### Sprint 125 — UI: Wizard Step 3 ( Stream Quality) | **Status:** Planning | **Risk:** LOW | **Depends:** Sprint 122, **Depends:** Sprint 121 | |
+| `### Sprint 126 — UI: Settings Page ( Stream Versions) | **Status:** Planning | **Risk:** LOW | **Depends:** Sprint 125, **Depends:** Sprint 121 | |
+ | `### Sprint 127 — Startup Detection (Server Address) | **Status:** Planning | **Risk:** LOW | **Depends:** Sprint 124, **Depends:** Sprint 121 | |
+| `### Sprint 128 — Plugin Registration + Build + Test) | **Status:** Planning | **Risk:** LOW | **Depends:** Sprint 127, **Depends:** Sprint 121 | |
+| `### Sprint 129 — Build Verification | **Status:** Planning | **Risk:** LOW | **Depends:** Sprint 128, **Depends:** Sprint 121 | |
+| `### Sprint 130 — Integration Testing | **Status:** Planning | **Risk:** MEDIUM | **Depends:** Sprint 129, **Depends:** Sprint 121 | |
+|
+    **See Also:**
+    - `.ai/SPRINT_122.md` — Sprint 122 details
+    - `.ai/SPRINT_123.md` — Sprint 123 details ( and subsequent)
+    - `docs/VERSIONED_PLAYBACK.md` — Design spec ( |
+|
+    `## v3.3 Summary`
+ |
+|
+    **Sprints:** 109-130 (22 sprints) |
+    **Status:** Planning complete for Sprints 122-130 |
+    **Release Target:** v3.3.0 |
+
+    **Breaking Change:** Full database reset required` |
+
+    **Key Features:** |
+    - Versioned playback with 7 quality slots per - Multi-version .strm/.nfo per file generation |
+    - Candidate normalization from AIOStreams payloads |
+    - Slot-based stream resolution with fallback ladder |
+    - Catalog-wide rehydration (add/remove/reename) |
+    - Wizard quality profile selection |
+    - Settings version management with confirmation dialogs |
+    - Server address change detection |
+    - Maximum 8 enabled slots enforcement |
+
+    **See Also:**
+    - `.ai/SPRINT_109.md` through `.ai/SPRINT_121.md` — Sprint details
+    - `.ai/SPRINT_122.md` through `.ai/SPRINT_130.md` — Versioned playback sprints
+    - `docs/VERSIONED_PLAYBACK.md` — Design spec |
 **File:** `.ai/SPRINT_121.md`
 **Risk:** LOW
 
