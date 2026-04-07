@@ -33,7 +33,7 @@ namespace EmbyStreams.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 21;
+        private const int CurrentSchemaVersion = 22;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -2646,6 +2646,130 @@ CREATE INDEX IF NOT EXISTS idx_home_section_marker
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (21);");
                 version = 21;
             }
+
+            // ── V21 → V22 ────────────────────────────────────────────────────────
+            // Versioned Playback (Sprint 122): 4 new tables for quality-slot-based
+            // stream management. version_slots is seeded with 7 predefined quality
+            // profiles; hd_broad is enabled + default. All tables are additive — no
+            // existing tables or columns are modified.
+            if (version < 22)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V22", version);
+
+                // version_slots — global slot configuration (7 predefined quality profiles)
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS version_slots (
+    slot_key        TEXT PRIMARY KEY,
+    label           TEXT NOT NULL,
+    resolution      TEXT NOT NULL,
+    video_codecs    TEXT NOT NULL DEFAULT 'any',
+    hdr_classes     TEXT NOT NULL DEFAULT '',
+    audio_preferences TEXT NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);");
+
+                // candidates — normalized stream candidates per title per slot
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS candidates (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    rank            INTEGER NOT NULL,
+    service         TEXT,
+    stream_type     TEXT NOT NULL DEFAULT 'debrid',
+    resolution      TEXT,
+    video_codec     TEXT,
+    hdr_class       TEXT,
+    audio_codec     TEXT,
+    audio_channels  TEXT,
+    file_name       TEXT,
+    file_size       INTEGER,
+    bitrate_kbps    INTEGER,
+    languages       TEXT,
+    source_type     TEXT,
+    is_cached       INTEGER NOT NULL DEFAULT 0,
+    fingerprint     TEXT NOT NULL,
+    binge_group     TEXT,
+    info_hash       TEXT,
+    file_idx        INTEGER,
+    confidence_score REAL NOT NULL DEFAULT 0.0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at      TEXT NOT NULL,
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_candidates_item_slot
+    ON candidates(media_item_id, slot_key, rank);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_candidates_fingerprint
+    ON candidates(fingerprint);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_candidates_expires
+    ON candidates(expires_at);");
+                ExecuteInline(conn, @"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_unique
+    ON candidates(media_item_id, slot_key, fingerprint);");
+
+                // version_snapshots — selected top candidate per title per slot
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS version_snapshots (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    candidate_id    TEXT NOT NULL,
+    snapshot_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    playback_url    TEXT,
+    playback_url_cached_at TEXT,
+    playback_url_expires_at TEXT,
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (media_item_id, slot_key)
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_snapshots_item
+    ON version_snapshots(media_item_id);");
+
+                // materialized_versions — tracks which slots have .strm/.nfo on disk
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS materialized_versions (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    strm_path       TEXT NOT NULL,
+    nfo_path        TEXT NOT NULL,
+    strm_url_hash   TEXT NOT NULL,
+    is_base         INTEGER NOT NULL DEFAULT 0,
+    materialized_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (media_item_id, slot_key)
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_materialized_item
+    ON materialized_versions(media_item_id);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_materialized_slot
+    ON materialized_versions(slot_key);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_materialized_base
+    ON materialized_versions(is_base) WHERE is_base = 1;");
+
+                // Seed version_slots — one ExecuteInline per row (safe: hardcoded literals, no user input)
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_broad', 'HD · Broad', '1080p', 'h264', '', 'dd_plus_51,dd_51,aac_stereo', 1, 1, 0);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('best_available', 'Best Available', 'highest', 'any', 'any', 'atmos,dd_plus_71,dd_plus_51,dd_51', 0, 0, 1);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_dv', '4K · Dolby Vision', '2160p', 'hevc,av1', 'dv', 'atmos,dd_plus_71,dd_plus_51', 0, 0, 2);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_hdr', '4K · HDR', '2160p', 'hevc,av1', 'hdr10', 'atmos,dd_plus_51,dd_51', 0, 0, 3);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_sdr', '4K · SDR', '2160p', 'hevc,av1', '', 'dd_plus_51,dd_51,aac', 0, 0, 4);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_efficient', 'HD · Efficient', '1080p', 'hevc', '', 'dd_plus_51,aac_stereo', 0, 0, 5);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('compact', 'Compact', '720p', 'h264', '', 'aac,dd', 0, 0, 6);");
+
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (22);");
+                version = 22;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -2796,6 +2920,150 @@ CREATE INDEX IF NOT EXISTS idx_resolution_timestamp
                 ExecuteInline(conn, @"
 CREATE INDEX IF NOT EXISTS idx_resolution_primary_id
     ON stream_resolution_log(primary_id);");
+            }
+
+            // ── Safeguard: Ensure versioned playback tables exist (Sprint 122+) ──
+            if (!TableExists(conn, "version_slots"))
+            {
+                _logger.LogInformation("[EmbyStreams] version_slots table missing — creating and seeding");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS version_slots (
+    slot_key        TEXT PRIMARY KEY,
+    label           TEXT NOT NULL,
+    resolution      TEXT NOT NULL,
+    video_codecs    TEXT NOT NULL DEFAULT 'any',
+    hdr_classes     TEXT NOT NULL DEFAULT '',
+    audio_preferences TEXT NOT NULL,
+    enabled         INTEGER NOT NULL DEFAULT 0,
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    sort_order      INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);");
+                // Seed using parameterized INSERT per row (same pattern as V22 migration)
+                var safeguardSlots = new (string Key, string Label, string Resolution, string VideoCodecs, string HdrClasses, string AudioPreferences, int Enabled, int IsDefault, int SortOrder)[]
+                {
+                    ("hd_broad", "HD · Broad", "1080p", "h264", "", "dd_plus_51,dd_51,aac_stereo", 1, 1, 0),
+                    ("best_available", "Best Available", "highest", "any", "any", "atmos,dd_plus_71,dd_plus_51,dd_51", 0, 0, 1),
+                    ("4k_dv", "4K · Dolby Vision", "2160p", "hevc,av1", "dv", "atmos,dd_plus_71,dd_plus_51", 0, 0, 2),
+                    ("4k_hdr", "4K · HDR", "2160p", "hevc,av1", "hdr10", "atmos,dd_plus_51,dd_51", 0, 0, 3),
+                    ("4k_sdr", "4K · SDR", "2160p", "hevc,av1", "", "dd_plus_51,dd_51,aac", 0, 0, 4),
+                    ("hd_efficient", "HD · Efficient", "1080p", "hevc", "", "dd_plus_51,aac_stereo", 0, 0, 5),
+                    ("compact", "Compact", "720p", "h264", "", "aac,dd", 0, 0, 6),
+                };
+                const string safeguardInsertSql = @"
+INSERT OR IGNORE INTO version_slots
+    (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order)
+VALUES
+    (@slot_key, @label, @resolution, @video_codecs, @hdr_classes, @audio_preferences, @enabled, @is_default, @sort_order);";
+                foreach (var slot in safeguardSlots)
+                {
+                    using var stmt = conn.PrepareStatement(safeguardInsertSql);
+                    stmt.BindParameters["@slot_key"].Bind(slot.Key);
+                    stmt.BindParameters["@label"].Bind(slot.Label);
+                    stmt.BindParameters["@resolution"].Bind(slot.Resolution);
+                    stmt.BindParameters["@video_codecs"].Bind(slot.VideoCodecs);
+                    stmt.BindParameters["@hdr_classes"].Bind(slot.HdrClasses);
+                    stmt.BindParameters["@audio_preferences"].Bind(slot.AudioPreferences);
+                    stmt.BindParameters["@enabled"].Bind(slot.Enabled);
+                    stmt.BindParameters["@is_default"].Bind(slot.IsDefault);
+                    stmt.BindParameters["@sort_order"].Bind(slot.SortOrder);
+                    while (stmt.MoveNext()) { }
+                }
+            }
+
+            if (!TableExists(conn, "candidates"))
+            {
+                _logger.LogInformation("[EmbyStreams] candidates table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS candidates (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    rank            INTEGER NOT NULL,
+    service         TEXT,
+    stream_type     TEXT NOT NULL DEFAULT 'debrid',
+    resolution      TEXT,
+    video_codec     TEXT,
+    hdr_class       TEXT,
+    audio_codec     TEXT,
+    audio_channels  TEXT,
+    file_name       TEXT,
+    file_size       INTEGER,
+    bitrate_kbps    INTEGER,
+    languages       TEXT,
+    source_type     TEXT,
+    is_cached       INTEGER NOT NULL DEFAULT 0,
+    fingerprint     TEXT NOT NULL,
+    binge_group     TEXT,
+    info_hash       TEXT,
+    file_idx        INTEGER,
+    confidence_score REAL NOT NULL DEFAULT 0.0,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at      TEXT NOT NULL,
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_candidates_item_slot
+    ON candidates(media_item_id, slot_key, rank);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_candidates_fingerprint
+    ON candidates(fingerprint);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_candidates_expires
+    ON candidates(expires_at);");
+                ExecuteInline(conn, @"
+CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_unique
+    ON candidates(media_item_id, slot_key, fingerprint);");
+            }
+
+            if (!TableExists(conn, "version_snapshots"))
+            {
+                _logger.LogInformation("[EmbyStreams] version_snapshots table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS version_snapshots (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    candidate_id    TEXT NOT NULL,
+    snapshot_at     TEXT NOT NULL DEFAULT (datetime('now')),
+    playback_url    TEXT,
+    playback_url_cached_at TEXT,
+    playback_url_expires_at TEXT,
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (media_item_id, slot_key)
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_snapshots_item
+    ON version_snapshots(media_item_id);");
+            }
+
+            if (!TableExists(conn, "materialized_versions"))
+            {
+                _logger.LogInformation("[EmbyStreams] materialized_versions table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS materialized_versions (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id   TEXT NOT NULL,
+    slot_key        TEXT NOT NULL,
+    strm_path       TEXT NOT NULL,
+    nfo_path        TEXT NOT NULL,
+    strm_url_hash   TEXT NOT NULL,
+    is_base         INTEGER NOT NULL DEFAULT 0,
+    materialized_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (media_item_id, slot_key)
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_materialized_item
+    ON materialized_versions(media_item_id);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_materialized_slot
+    ON materialized_versions(slot_key);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_materialized_base
+    ON materialized_versions(is_base) WHERE is_base = 1;");
             }
 
 _logger.LogDebug("[EmbyStreams] Schema at version {Version}", version);

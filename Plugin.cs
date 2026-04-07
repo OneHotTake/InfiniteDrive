@@ -120,6 +120,36 @@ namespace EmbyStreams
         public DatabaseManager DatabaseManager { get; private set; } = null!;
 
         /// <summary>
+        /// Version slot repository for quality slot CRUD operations (Sprint 122).
+        /// </summary>
+        public Data.VersionSlotRepository VersionSlotRepository { get; private set; } = null!;
+
+        /// <summary>
+        /// Candidate repository for normalized stream candidates (Sprint 122).
+        /// </summary>
+        public Data.CandidateRepository CandidateRepository { get; private set; } = null!;
+
+        /// <summary>
+        /// Snapshot repository for top-candidate tracking per slot (Sprint 122).
+        /// </summary>
+        public Data.SnapshotRepository SnapshotRepository { get; private set; } = null!;
+
+        /// <summary>
+        /// Materialized version repository for .strm/.nfo pair tracking (Sprint 122).
+        /// </summary>
+        public Data.MaterializedVersionRepository MaterializedVersionRepository { get; private set; } = null!;
+
+        /// <summary>
+        /// Candidate normalizer — parses raw AIOStreams streams into normalized candidates (Sprint 122).
+        /// </summary>
+        public Services.CandidateNormalizer CandidateNormalizer { get; private set; } = null!;
+
+        /// <summary>
+        /// Slot matcher — filters and ranks candidates against slot policies (Sprint 122).
+        /// </summary>
+        public Services.SlotMatcher SlotMatcher { get; private set; } = null!;
+
+        /// <summary>
         /// Home section tracker for per-user per-rail state.
         /// Sprint 118: Home Screen Rails.
         /// </summary>
@@ -349,6 +379,21 @@ namespace EmbyStreams
                 // Initialise repository layer (Sprint 104D-02)
                 CatalogRepository = new CatalogRepository(DatabaseManager, _logManager);
                 _logger.LogInformation("[EmbyStreams] Repository layer initialised");
+
+                // Initialise version slot repository (Sprint 122: Versioned Playback)
+                VersionSlotRepository = new Data.VersionSlotRepository(dbDirectory, _logger);
+                _logger.LogInformation("[EmbyStreams] Version slot repository initialised");
+
+                // Initialise versioned playback repositories (Sprint 127: Registration)
+                CandidateRepository = new Data.CandidateRepository(DatabaseManager, _logger);
+                SnapshotRepository = new Data.SnapshotRepository(DatabaseManager, _logger);
+                MaterializedVersionRepository = new Data.MaterializedVersionRepository(DatabaseManager, _logger);
+                _logger.LogInformation("[EmbyStreams] Versioned playback repositories initialised");
+
+                // Initialise versioned playback services (Sprint 127: Registration)
+                CandidateNormalizer = new Services.CandidateNormalizer(_logger);
+                SlotMatcher = new Services.SlotMatcher();
+                _logger.LogInformation("[EmbyStreams] Versioned playback services initialised");
 
                 // Initialise home section tracker (Sprint 118: Home Screen Rails)
                 HomeSectionTracker = new HomeSectionTracker(DatabaseManager, new EmbyLoggerAdapter<HomeSectionTracker>(_logManager.GetLogger("HomeSectionTracker")));
