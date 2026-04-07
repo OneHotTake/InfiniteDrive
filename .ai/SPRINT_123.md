@@ -101,16 +101,28 @@ http://[emby-server-lan-ip]:[port]/EmbyStreams/play?titleId={id}&slot={slot_key}
  ... }
 
 // Change default slot ( RehydrationType.ChangeDefault )
-//   - Rename: new default's suffixed files → base pair
-     // 2. Rename: old base pair → suffixed with old default label
-     // 3. Update materialized_versions records
-     // 4. Net file count unchanged
-     // 5. No candidate re-fetch required — rename only
+//   - This is a paired DB + filesystem operation, NOT just a rename:
+//     1. DB: Begin transaction → swap is_base flags in materialized_versions
+//     2. DB: Update version_slots.is_default for old and new default slots
+//     3. Filesystem: Rename old base pair → suffixed with old default label
+//     4. Filesystem: Rename new default's suffixed files → base pair (no suffix)
+//     5. DB: Commit transaction
+//   - If filesystem rename fails after DB commit → rollback DB + log error
+//   - Net file count unchanged per title
+//   - No candidate re-fetch required — rename only
  public async Task<RehydrationResult> ChangeDefaultAsync(string newDefaultSlotKey, CancellationToken ct) { ... }
 
  ```
 
 **`enum RehydrationType { AddSlot, RemoveSlot, ChangeDefault }`
+
+**Rehydration Queue Mechanism (Issue 6):**
+- Operations are queued in `PluginConfiguration.PendingRehydrationOperations` (a `List<string>` of JSON objects)
+- Each entry: `{"type":"AddSlot","slotKey":"4k_hdr"}` or `{"type":"RemoveSlot","slotKey":"4k_hdr"}` or `{"type":"ChangeDefault","slotKey":"4k_hdr"}`
+- Admin UI/API enqueues operation, saves config immediately
+- `RehydrationTask.Execute()` drains the queue on next scheduled run
+- Each operation processed sequentially; on failure, operation stays in queue for retry
+- On success, operation removed from queue and config saved
 
 **Rehydration respects trickle rate limits:**
 - Uses existing `ApiCallDelayMs` delay between items
@@ -166,11 +178,52 @@ public class RehydrationTask : IScheduledTask
 **Depends on:** FIX-123B-01 (RehydrationService)
 **Must not break:** Existing scheduled tasks registry. No auto-triggers.
 
-
-
 ---
 
-## Sprint 123 Dependencies
+## Phase 123C — CandidateNormalizer Integration with CatalogSyncTask
+
+### FIX-123C-01: Wire CandidateNormalizer into CatalogSyncTask
+
+**File:** `Tasks/CatalogSyncTask.cs` (modify)
+
+**What:** This is the critical integration point that connects the versioned playback pipeline to the existing catalog sync flow. Without this, `CandidateNormalizer` and `SlotMatcher` are orphaned services with no data input.
+
+**Integration points in CatalogSyncTask:**
+
+1. **After `AioStreamsClient.GetStreamsAsync()` returns raw streams** (per-item during hydration):
+   - Pass raw `AioStreamsStream` list to `CandidateNormalizer.NormalizeStreams()`
+   - Get back normalized `Candidate` list (slot-agnostic)
+   - Pass candidates to `SlotMatcher.MatchToAllSlots()` with enabled slots
+   - Store matched candidates per slot in `candidates` table via `CandidateRepository.UpsertCandidatesAsync()`
+   - Create version snapshot (top candidate per slot) via `SnapshotRepository.UpsertSnapshotAsync()`
+
+2. **After candidate normalization + slot matching, before .strm write:**
+   - For each enabled slot with matched candidates: call `VersionMaterializer.WriteStrmFile()` + `WriteNfoFile()`
+   - Record materialization in `materialized_versions` table
+   - Base pair (default slot) gets unsuffixed filename, other slots get suffixed
+
+3. **Existing single-version path preserved:**
+   - If `VersionSlotRepository.GetEnabledSlotCountAsync() == 1` (only `hd_broad`) → fall through to existing `.strm` write logic (no versioning overhead)
+   - This is the "Simple mode" fast path — zero versioned playback overhead
+
+**Flow diagram:**
+```
+CatalogSyncTask (existing hydration loop, per item)
+  │
+  ├─ Fetch streams from AioStreams (existing)
+  │
+  ├─ [NEW] Normalize → MatchToAllSlots → Store candidates
+  │     (skipped if only hd_broad enabled)
+  │
+  ├─ Write .strm file(s) (existing for hd_broad, new for additional slots)
+  │     Base .strm: existing WriteStrmFile() path
+  │     Additional .strm files: VersionMaterializer.WriteStrmFile()
+  │
+  └─ Continue to next item (existing)
+```
+
+**Depends on:** Sprint 122 (CandidateNormalizer, SlotMatcher, repositories), FIX-123A-01 (VersionMaterializer)
+**Must not break:** Existing CatalogSyncTask behavior when only `hd_broad` is enabled. The new normalization + slot matching code path activates only when additional slots are enabled.
 
 - **Previous Sprint:** 122 (Schema + Data)
   **Blocked By:** Sprint 122

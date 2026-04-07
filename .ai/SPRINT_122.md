@@ -83,10 +83,9 @@ CREATE TABLE candidates (
     source_type     TEXT,
     is_cached       INTEGER NOT NULL DEFAULT 0,
 
-    -- Stable identity
+    -- Stable identity (no debrid URL stored — hard constraint)
     fingerprint     TEXT NOT NULL,
     binge_group     TEXT,
-    stream_url      TEXT NOT NULL,
     info_hash       TEXT,
     file_idx        INTEGER,
 
@@ -95,6 +94,8 @@ CREATE TABLE candidates (
 
     -- Lifecycle
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    -- TTL sourced from PluginConfiguration.CandidateTtlHours (default: 6 hours)
+    -- expires_at = datetime('now', '+' || @ttlHours || ' hours')
     expires_at      TEXT NOT NULL,
 
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
@@ -108,12 +109,18 @@ CREATE UNIQUE INDEX idx_candidates_unique ON candidates(media_item_id, slot_key,
 **Depends on:** None
 **Must not break:** No existing table modified.
 
+**Important — no debrid URLs on disk:** The `candidates` table intentionally omits `stream_url`. Debrid URLs are never persisted. At play time, `VersionPlaybackService` reconstructs the stream URL from `info_hash` + `file_idx` via AIOStreams resolve endpoint. This is a hard constraint.
+
+**Candidate TTL:** `expires_at` is computed as `datetime('now', '+' || CandidateTtlHours || ' hours')` where `CandidateTtlHours` is sourced from `PluginConfiguration.CandidateTtlHours` (default: 6). Expired candidates are cleaned up by `DeleteExpiredCandidatesAsync()`.
+
 ---
 
 ### FIX-122A-03: Add `version_snapshots` Table
 
 **File:** `Data/Schema.cs` (modify)
 **What:** Tracks the selected top candidate per title per slot, plus ephemeral playback URL cache.
+
+**Snapshot vs Ladder:** The snapshot stores only the top candidate ID. The full fallback ladder (ranked candidates 0..N) lives in the `candidates` table. During playback, if the top candidate fails, the service walks the `candidates` ladder by rank. The snapshot is the "current best pick"; candidates are the "ordered alternatives."
 
 ```sql
 CREATE TABLE version_snapshots (
@@ -251,10 +258,10 @@ public class Candidate
     public string SourceType { get; set; }
     public bool IsCached { get; set; }
 
-    // Stable identity
+    // Stable identity (no StreamUrl — debrid URLs are never persisted to disk)
+    // Playback resolution reconstructs URL from info_hash + file_idx via AIOStreams at play time
     public string Fingerprint { get; set; }
     public string BingeGroup { get; set; }
-    public string StreamUrl { get; set; }
     public string InfoHash { get; set; }
     public int? FileIdx { get; set; }
 
@@ -269,6 +276,8 @@ public class Candidate
 
 **Depends on:** None
 **Must not break:** New file. Distinct from existing `StreamCandidate` which serves the pre-versioned playback path.
+
+**No StreamUrl property:** Unlike `StreamCandidate`, the new `Candidate` model intentionally omits `StreamUrl`. Debrid URLs are reconstructed at play time from `InfoHash` + `FileIdx` via AIOStreams.
 
 ---
 
@@ -408,6 +417,33 @@ public class MaterializedVersion
 
 ---
 
+### FIX-122C-05: Add Config Fields to PluginConfiguration
+
+**File:** `PluginConfiguration.cs` (modify)
+
+**What:** Add configuration fields needed by the versioned playback system.
+
+```csharp
+[DataMember]
+public int CandidateTtlHours { get; set; } = 6;
+
+[DataMember]
+public string DefaultSlotKey { get; set; } = "hd_broad";
+
+[DataMember]
+public List<string> PendingRehydrationOperations { get; set; } = new();
+// Queue of pending rehydration operations serialized as JSON:
+// [{"type":"AddSlot","slotKey":"4k_hdr"}, ...]
+// Consumed by RehydrationTask on next execution.
+```
+
+**Why:** `CandidateTtlHours` controls candidate expiration (Issue 2). `PendingRehydrationOperations` provides the rehydration queue mechanism (Issue 6). `DefaultSlotKey` is the persisted default slot.
+
+**Depends on:** None
+**Must not break:** Existing config fields.
+
+---
+
 ## Phase 122D — Candidate Normalizer & Slot Matcher
 
 ### FIX-122D-01: CandidateNormalizer Service
@@ -441,6 +477,8 @@ public List<Candidate> NormalizeStreams(
 ```
 
 Returns candidates keyed by `slot_key = null` (unslotted). Slot matching is separate.
+
+**Slot-agnostic by design:** The normalizer does not know about slots. It produces flat, normalized `Candidate` objects with technical metadata. Simple vs Advanced mode is purely a `VersionSlot` configuration concern — the normalizer output is the same regardless. `SlotMatcher` handles the slot-to-candidate filtering downstream.
 
 **Depends on:** FIX-122B-02
 **Must not break:** New file. Does not modify `AioStreamsClient` or existing parsing.

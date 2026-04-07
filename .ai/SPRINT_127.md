@@ -42,7 +42,9 @@ public class VersionPlaybackStartupDetector : IServerEntryPoint, IDisposable
 - Query `materialized_versions` for all `.strm` paths
 - For each file: read current content, replace old base URL with new base URL
 - Preserve all query parameters (`titleId`, `slot`, `token`)
-- Rate limit: use existing `ApiCallDelayMs` between file rewrites
+- Rate limit: use a dedicated filesystem delay (e.g., 50ms between file rewrites), NOT `ApiCallDelayMs`
+  - `ApiCallDelayMs` is for network API calls to AIOStreams; URL rewrite is filesystem-only
+  - Use `PluginConfiguration.FileOperationDelayMs` (default: 50) or a simple `Task.Delay(50)` constant
 - Trigger single Emby library scan on completion
 - No candidate re-fetch required — URL rewrite only
 
@@ -106,7 +108,7 @@ public string LastKnownServerAddress { get; set; } = string.Empty;
 
  **Performance:**
 - For large catalogs (1000+ items), rewrite sweep may take several minutes
-- Rate limiting prevents disk I/O saturation
+- Rate limiting prevents disk I/O saturation — use filesystem delay, NOT API delay
 - Library scan triggered only once at end
 
  **First Startup Behavior:**

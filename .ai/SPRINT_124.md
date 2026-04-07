@@ -42,7 +42,7 @@
 
 **Depends on:** Sprint 122 (schema)
 
-**Must not break:** Existing playback requests still works when `slot` is null or not provided. Default is `null`, which maps to the "HD Broad" behavior (single-version mode).
+**Must not break:** Existing playback requests still works when `slot` is null or not provided. Default is `null`, which resolves to whichever slot has `is_default = 1` in `version_slots` (NOT hardcoded to `hd_broad`). Currently that is `hd_broad`, but the code must query it, not assume it.
 
 
 
@@ -96,30 +96,14 @@
 
 ## Phase 124C — Extend StreamCache
 
-### FIX-124C-01: Add Slot-Aware Cache Methods to StreamCache
+### FIX-124C-01: Collapse Cache into SnapshotRepository (no VersionedStreamCache)
 
-**File:** (extend existing stream cache, if present, or create new `Services/VersionedStreamCache.cs`)
+**What:** Do NOT create a separate `VersionedStreamCache` class. The `SnapshotRepository` already has `CachePlaybackUrlAsync()` and `GetCachedPlaybackUrlAsync()` methods (from FIX-122C-03). Use those directly.
 
-**What:** Adds slot-aware caching methods alongside existing cache behavior.
+**Decision:** `SnapshotRepository` owns both the snapshot record and the ephemeral playback URL cache. `VersionPlaybackService` calls `SnapshotRepository.GetCachedPlaybackUrlAsync()` directly. There is no `VersionedStreamCache` — it was a phantom duplicate that would have two caches fighting over the same `version_snapshots.playback_url` column. One owner, one cache.
 
-```csharp
- public class VersionedStreamCache {
-     // Get cached playback URL for a specific slot
- public Task<string?> GetPlaybackUrlAsync(string mediaItemId, string slotKey, CancellationToken ct);
-
-     // Cache a resolved playback URL for a slot
- public Task CachePlaybackUrlAsync(string mediaItemId, string slotKey, string url, TimeSpan ttl, CancellationToken ct);
-     // Invalidate cached URL for a slot
- public Task InvalidatePlaybackUrlAsync(string mediaItemId, string slotKey, CancellationToken ct); }
- }
-```
-
-**Why:** The existing `StreamCache` doesn't know about slots. Versioned playback needs per-slot caching. Rather than modifying `StreamCache` directly (risk of breaking existing behavior), we create a companion class.
-
-**Depends on:** FIX-122A-03 (version_snapshots table)
-**Must not break:** Existing `StreamCache` behavior completely unchanged.
-
-VersionedStreamCache` is additive.
+**Depends on:** FIX-122C-03 (SnapshotRepository with cache methods)
+**Must not break:** Existing `StreamCache` behavior completely unchanged. No new class needed here.
 
 ---
 
@@ -158,7 +142,7 @@ VersionedStreamCache` is additive.
 ## Sprint 124 Completion Criteria
 
  - [ ] PlayRequest has slot parameter works ( defaults to null → single-version mode) - [ ] VersionPlaybackService resolves slot-aware streams ( cache → resolve → fallback → error)
- - [ ] VersionedStreamCache provides per-slot caching
+ - [ ] SnapshotRepository provides per-slot caching (no separate VersionedStreamCache)
  - [ ] SignedStreamService passes slot through in signed URLs
  - [ ] Build succeeds ( 0 warnings, 0 errors) |
 
@@ -168,9 +152,10 @@ VersionedStreamCache` is additive.
 
  **Slot Default Behavior:**
 
-- When `slot` parameter is null/empty → use the default slot (from `version_slots.is_default = 1`)
+- When `slot` parameter is null/empty → resolve via `version_slots.is_default = 1` (NOT hardcoded to `hd_broad`)
+- The default slot is looked up from the database, never assumed
+- Currently `hd_broad` is the seeded default, but admin may change it via settings
 - When `slot` parameter is provided → use the specified slot for resolution
- - Default slot key stored in `PluginConfiguration.DefaultSlotKey` (default: `hd_broad`)
 
  **Playback Flow:**
 1. Existing PlaybackService continues to handle slot=null requests for backward compatibility
