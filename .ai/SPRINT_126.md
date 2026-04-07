@@ -23,33 +23,48 @@
  **New Fields:**
 
 ```csharp
- [TabGroup("Stream Versions", Order = 5)]
-    [Display(Name = "Enabled Versions", Description = "Versioned quality slots enabled")]
- public List<string> EnabledVersions { get; set; } // computed from version_slots table,
+// Individual bool properties per slot (NOT List<string> — Emby VMC/MC pattern requires concrete properties)
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "HD · Broad", Description = "Always enabled — cannot be disabled")]
+public bool SlotHdBroad { get; set; } = true; // Locked, always true
 
- hd_broad` always included, count excludes hd_broad
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "Best Available", Description = "Highest quality from any source")]
+public bool SlotBestAvailable { get; set; } = false;
 
- e.g., 2
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "4K · Dolby Vision", Description = "4K Dolby Vision HDR")]
+public bool Slot4kDv { get; set; } = false;
 
- 4K HDR)
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "4K · HDR", Description = "4K HDR10")]
+public bool Slot4kHdr { get; set; } = false;
 
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "4K · SDR", Description = "4K Standard Dynamic Range")]
+public bool Slot4kSdr { get; set; } = false;
 
- [TabGroup("Stream Versions", Order = 5)]
-    [Display(Name = "Default Version", Description = "Which version plays by default")]
- public string DefaultVersion { get; set; } = "hd_broad"; // shows enabled slots only
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "HD · Efficient", Description = "HD with efficient codec")]
+public bool SlotHdEfficient { get; set; } = false;
 
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "Compact", Description = "720p compact streams")]
+public bool SlotCompact { get; set; } = false;
 
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "Default Version", Description = "Which version plays by default")]
+public string DefaultVersion { get; set; } = "hd_broad"; // Dropdown, shows enabled slots only
 
- [TabGroup("Stream Versions", Order = 5)]
-    [Display(Name = "Version Count", Description = "Current enabled version count")]
- public string VersionCount { get; set; } // computed: "Enabled: N / 8"
+[TabGroup("Stream Versions", Order = 5)]
+[Display(Name = "Version Count", Description = "Current enabled version count")]
+public string VersionCount { get; set; } // Computed: "Enabled: N / 8"
 
-
- [TabGroup("Stream Versions", Order = 5)]
-    [Dangerous]
- [Display(Name = "Save Version Changes", Description = "Save version slot configuration")]
- public string SaveVersionChanges { get; set; }
- // Validate + save + trigger rehydration
+[TabGroup("Stream Versions", Order = 5)]
+[Dangerous]
+[Display(Name = "Save Version Changes", Description = "Save version slot configuration")]
+public string SaveVersionChanges { get; set; }
+// Validate + save + enqueue rehydration
 ```
 
 **Settings Page Behavior:**
@@ -118,16 +133,16 @@
 
 ## Sprint 126 Completion Criteria
 
- - [ ] Settings page shows Stream Versions tab
- version slot checklist)
+ - [ ] Settings page shows Stream Versions tab (individual slot checkboxes per slot)
 - [ ] HD Broad checkbox is locked, cannot be unchecked
- - [ ] Default version dropdown shows enabled slots only - [ ] Version count: `Enabled: N / 8` displayed in real-time
- - [ ] Save button triggers confirmation dialog
- - [ ] Confirmation dialog shows correct copy per design spec)
- - [ ] Rehydration triggered after confirmation
- - [ ] 8-slot maximum enforced in UI and service layer)
- - [ ] Catalog size estimated for database at dialog-open time)
- - [ ] Build succeeds ( 0 warnings, 0 errors) |
+ - [ ] Default version dropdown shows enabled slots only
+ - [ ] Version count: `Enabled: N / 8` displayed in real-time
+ - [ ] Save button triggers confirmation dialog (with `[Dangerous]` fallback pattern)
+ - [ ] Confirmation dialog shows correct copy per design spec
+ - [ ] Rehydration enqueued after confirmation (via PendingRehydrationOperations)
+ - [ ] 8-slot maximum enforced in UI and service layer
+ - [ ] Catalog size estimated from database at dialog-open time
+ - [ ] Build succeeds ( 0 warnings, 0 errors)
 
 ---
 
@@ -135,13 +150,26 @@
 
  **UI Pattern:**
 - Uses existing `BasePluginViewModel` pattern with `TabGroup`, `DataGrid`, `RunButton`, `Dangerous` attributes
-  - Slot checklist uses `DataGrid` attribute on display list of slots
+  - Slot checklist uses individual `bool` properties per slot (same as wizard in Sprint 125)
 - Default version uses dropdown (only shows enabled slots)
 - Save button uses `RunButton` attribute with `Dangerous` confirmation dialog
 
  Inline counter: computed from `version_slots` table, `COUNT(*) WHERE enabled = 1`
 
  Inline warning: shown when additional slot checked (uses declarative `Dangerous` attribute or custom validation in service layer)
+
+ **`[Dangerous]` Fallback Pattern (Issue 11):**
+- The `[Dangerous]` attribute's behavior in Emby SDK 4.10-beta is unverified
+- Implementation must use a **two-step save pattern** as fallback:
+  1. First click: POST returns a confirmation token + dialog text (JSON response)
+  2. Frontend (Emby's auto-generated UI) shows confirmation dialog
+  3. Second click: POST includes confirmation token → operation executes
+- If `[Dangerous]` works correctly → use it directly
+- If `[Dangerous]` does NOT work in 4.10-beta → fall back to two-step save:
+  - `VersionSlotController.UpdateVersionsRequest` gets `ConfirmationToken` field
+  - First POST without token → returns `{ "requiresConfirmation": true, "message": "...", "token": "..." }`
+  - Second POST with token → executes the operation
+- Test both paths during Sprint 130 integration testing
 
  **Rehydration Time Estimation:**
 - Catalog size from `DatabaseManager.GetActiveCatalogItemCountAsync()`

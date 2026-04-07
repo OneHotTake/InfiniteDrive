@@ -29,48 +29,62 @@
  **New Fields:**
 
 ```csharp
- [TabGroup("Stream Quality", Order = 3)]
-    [Display(Name = "Quality Mode", Description = "Simple or Advanced")]
- public string QualityMode { get; set; } = "simple"; // = "Simple` (default), or `advanced`
- = `advanced`
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "Quality Mode", Description = "Simple or Advanced")]
+public string QualityMode { get; set; } = "simple"; // "simple" (default) or "advanced"
 
+// Individual bool properties per slot (NOT List<string> — Emby VMC/MC pattern requires concrete properties)
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "HD · Broad", Description = "Always enabled — cannot be disabled")]
+public bool SlotHdBroad { get; set; } = true; // Locked, always true
 
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "Best Available", Description = "Highest quality from any source")]
+public bool SlotBestAvailable { get; set; } = false;
 
- [TabGroup("Stream Quality", Order = 3)]
-    [Display(Name = "Default Version", Description = "Which version plays by default if none")]
- public string DefaultVersion { get; set; } = "hd_broad"; // Default slot key
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "4K · Dolby Vision", Description = "4K Dolby Vision HDR")]
+public bool Slot4kDv { get; set; } = false;
 
- HD Broad
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "4K · HDR", Description = "4K HDR10")]
+public bool Slot4kHdr { get; set; } = false;
 
- readonly dropdown
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "4K · SDR", Description = "4K Standard Dynamic Range")]
+public bool Slot4kSdr { get; set; } = false;
 
- shows enabled slots
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "HD · Efficient", Description = "HD with efficient codec")]
+public bool SlotHdEfficient { get; set; } = false;
 
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "Compact", Description = "720p compact streams")]
+public bool SlotCompact { get; set; } = false;
 
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "Default Version", Description = "Which version plays by default")]
+public string DefaultVersion { get; set; } = "hd_broad"; // Dropdown, shows enabled slots only
 
- [TabGroup("Stream Quality", Order = 3)]
-    [Display(Name = "Additional slots", Description = "Additional quality versions to enable")]
- public List<string> AdditionalSlots { get; set; } = new(); // e.g., "4k_hdr", "4K SDR"
- empty list
-
- initially disabled until enabled
-
- shows when enabled,
-
- string.Empty;
-
- }
-
- }
+[TabGroup("Stream Quality", Order = 3)]
+[Display(Name = "Version Count", Description = "Current enabled version count")]
+public string VersionCount { get; set; } // Computed: "Enabled: N / 8"
 ```
 
 **Wizard Behavior:**
-- Step 3 shows when `IsFirstRunComplete` is false` (first hydration):
- Simple mode is selected → wizard finishes immediately, no further configuration needed
- HD Broad locked in.
- Advanced mode → shows slot checklist, inline in Step 3
- Admin can check/unenable additional slots and change default, and save and continue
- `Slot enabled > 7` counter enforced. HD Broad cannot be unchecked.
+- Step 3 shows when `IsFirstRunComplete` is false (first run):
+  - Simple mode is selected → wizard finishes immediately, no further configuration needed
+  - HD Broad locked in
+  - Advanced mode → shows slot checkboxes inline in Step 3
+  - Admin can check additional slots and change default, then save and continue
+  - `SlotHdBroad` checkbox is locked/disabled — cannot be unchecked
+  - Version counter enforced: max 8 enabled
+- Step 3 shows when re-entering wizard (`IsFirstRunComplete` is true):
+  - Shows current slot configuration with confirmation dialogs
+  - Enabling new slot → shows confirmation dialog → enqueues rehydration
+  - Disabling slot → shows confirmation dialog → enqueues removal rehydration
+  - Changing default → shows confirmation dialog → enqueues default change rehydration
+  - Re-entrant wizard uses same validation as settings page (Sprint 126)
 
 
  **Depends on:** FIX-122B-01 (VersionSlotRepository)
@@ -89,13 +103,11 @@
  Saves settings to `PluginConfiguration`. Validates rules ( enforces  8-slot maximum, HD Broad always enabled, default slot must be an enabled slots).
 
 **Validation:**
-- `hd_broad` must always be `AdditionalSlots` list
- removing it is `AdditionalSlots` disables it warns
- then prevents save
- removing `hd_broad` from `AdditionalSlots` → prevent save
- error, `AdditionalSlots` count > 8 → prevent save with error
- removing slots from disabled slots from `AdditionalSlots` after save
- error, `Default version must be enabled slot
+- `SlotHdBroad` must always be true — prevent save if somehow false
+- Count of true slot bools > 8 → prevent save with error
+- `DefaultVersion` must correspond to a slot that is checked true
+- On save: map bool properties to `VersionSlotRepository` enable/disable calls
+- Re-entrant saves (wizard re-opened after first run) trigger confirmation dialogs and enqueue rehydration operations
 
 
  **Depends on:** FIX-125A-01, Sprint 122 (schema)
@@ -105,13 +117,15 @@
 
 ## Sprint 125 Completion Criteria
 
- - [ ] Wizard Step 3 shows Stream Quality optionsSimple` vs `Advanced` modes)
+ - [ ] Wizard Step 3 shows Stream Quality options (`Simple` vs `Advanced` modes)
 - [ ] Simple mode: HD Broad locked in, no additional configuration
- - [ ] Advanced mode: slot checklist visible with HD Broad locked
- - [ ] Default version dropdown shows enabled slots only - [ ] `Enabled: N / 8` counter en real-time
- - [ ] 8-slot maximum enforced in both UI and service layer)
+ - [ ] Advanced mode: individual slot checkboxes visible with HD Broad locked
+ - [ ] Default version dropdown shows enabled slots only
+ - [ ] `Enabled: N / 8` counter enforced in real-time
+ - [ ] 8-slot maximum enforced in both UI and service layer
+ - [ ] Re-entrant wizard shows confirmation dialogs and triggers rehydration
  - [ ] Saving wizard step updates PluginConfiguration correctly
- - [ ] Build succeeds ( 0 warnings, 0 errors) |
+ - [ ] Build succeeds ( 0 warnings, 0 errors)
 
 ---
 
@@ -130,8 +144,9 @@
 
  **Service Layer Validation (per design spec):**
 - `VersionSlotRepository.GetEnabledSlotsAsync()` → validate enabled count
- hd Broad always present
-  VersionSlotRepository` validates slot is not enabled + already → saves new slot to  `VersionSlotRepository` validates  slot exists in `enabled` → returns error
-  `VersionSlotRepository.SetEnabledAsync(slotKey)` to enable slot → saves config
- `VersionSlotRepository` validates default slot is valid → saves config. If slot key matches an enabled slot → returns error (must be an enabled slots)
+- HD Broad always present (SlotHdBroad is always true)
+- `VersionSlotRepository.SetEnabledAsync(slotKey, enabled)` → enable/disable slot in DB
+- `VersionSlotRepository.SetDefaultSlotAsync(slotKey)` → change default, must be enabled slot
+- Enable count (including hd_broad) must not exceed 8
+- Default slot must be an enabled slot
 

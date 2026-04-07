@@ -30,8 +30,7 @@
 | `MaterializedVersionRepository` | Singleton | Data access for materialized_versions |
 | `CandidateNormalizer` | Singleton | Stream normalization |
 | `SlotMatcher` | Singleton | Candidate filtering + ranking |
-| `VersionPlaybackService` | Transient | Per-request playback |
-| `VersionedStreamCache` | Singleton | Slot-aware cache |
+| `VersionPlaybackService` | Singleton | Per-request playback. Uses `IRequiresRequest` for per-request context, not Transient lifetime. Same pattern as existing `PlaybackService`. |
 | `VersionMaterializer` | Singleton | File writing |
 | `RehydrationService` | Singleton | Rehydration orchestration |
 | `RehydrationTask` | Singleton | Scheduled task |
@@ -126,6 +125,7 @@
 
  **Backward Compatibility:**
 - `PlaybackService` must still handle requests without `slot` parameter
-- Default behavior: resolve using default slot (hd_broad)
-- This ensures existing `.strm` files ( without slot parameter) continue working
+- Default behavior: resolve using `version_slots.is_default = 1` (NOT hardcoded to `hd_broad`)
+- Currently `hd_broad` is the seeded default, but the code queries the database
+- This ensures existing `.strm` files (without slot parameter) continue working
  ``` |

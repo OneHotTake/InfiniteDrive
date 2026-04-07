@@ -84,18 +84,22 @@
 **Verification checklist:**
 - [ ] `dotnet build -c Release` → 0 warnings, 0 errors
 - [ ] Fresh database initialization creates all 4 new tables
- - [ ] Schema migration from v1 → v2 works
- - [ ] 7 slots seeded into `version_slots` on fresh install)
- - [ ] `hd_broad` is enabled + default after migration
- - [ ] Version playback with slot=hd_broad` resolves correctly
- - [ ] Version playback with slot=4k_hdr` resolves correctly ( - [ ] Version playback with slot=null` falls back to default slot ( - [ ] Rehydration adds slot files correctly
- - [ ] Rehydration removes slot files correctly
- - [ ] Rehydration renames base pair correctly ( - [ ] Startup detection triggers URL rewrite
- - [ ] Wizard Step 3 saves quality mode correctly
- - [ ] Settings page manages versions correctly
- - [ ] 8-slot maximum enforced in both UI and service layers
-
- - [ ] `hd_broad` cannot be disabled in UI or service layers
+- [ ] Schema migration from v1 → v2 works
+- [ ] 7 slots seeded into `version_slots` on fresh install
+- [ ] `hd_broad` is enabled + default after migration
+- [ ] Version playback with `slot=hd_broad` resolves correctly
+- [ ] Version playback with `slot=4k_hdr` resolves correctly
+- [ ] Version playback with `slot=null` falls back to default slot (from `version_slots.is_default = 1`, NOT hardcoded)
+- [ ] Rehydration adds slot files correctly (through PendingRehydrationOperations queue)
+- [ ] Rehydration removes slot files correctly
+- [ ] Rehydration changes default correctly (paired DB + filesystem operation)
+- [ ] Startup detection triggers URL rewrite (using filesystem delay, NOT ApiCallDelayMs)
+- [ ] Wizard Step 3 saves quality mode correctly (individual bool properties)
+- [ ] Settings page manages versions correctly (individual bool properties)
+- [ ] 8-slot maximum enforced in both UI and service layers
+- [ ] `hd_broad` cannot be disabled in UI or service layers
+- [ ] No debrid URL persisted to candidates table (stream_url column removed)
+- [ ] CandidateNormalizer wired into CatalogSyncTask hydration path
 
 
 
@@ -127,24 +131,27 @@
 
 ## Sprint 129 Notes
 
- **Silent Absence:**
-- When a title has no candidates for a specific slot ( no files are written for that title/slot
+**Silent Absence:**
+- When a title has no candidates for a specific slot → no files are written for that title/slot
+- The title still appears in the library with other versions, but that slot is absent
+- This is expected behavior — not an error, just a missing version
+- A title with no candidates for ANY slot still gets base `hd_broad` .strm via existing fallback
 
-- The title still appears in the library with the other versions
- but the - This is expected behavior — not an error, just an missing version
-
-- A title with no candidates for ANY slot has still get base `hd_broad` .strm via existing fallback
-
-
-
- **Concurrent Rehydration:**
+**Concurrent Rehydration:**
 - Multiple rehydration operations for the same slot must be collapsed into a single operation
- - Use `SingleFlight.Run(key, ...)` pattern from existing codebase
+- Use `SingleFlight.Run(key, ...)` pattern from existing codebase
+- Rehydration queue in `PluginConfiguration.PendingRehydrationOperations` is drained sequentially
 
-
-
- **Series Episodes:**
+**Series Episodes:**
 - Series require episode-by-episode resolution during rehydration
- - Each episode is resolved as an independent item with rate limiting between API calls
- - Use existing `seasons_json` from media_items to determine episode structure
- - Respect `ApiCallDelayMs` delay between episode resolutions, not between series) |
+- Each episode is resolved as an independent item with rate limiting between API calls
+- Use existing `seasons_json` from media_items to determine episode structure
+- Respect `ApiCallDelayMs` delay between episode resolutions, not between series
+
+**No Debrid URLs on Disk:**
+- Verify candidates table has NO `stream_url` column
+- URLs are reconstructed from `info_hash` + `file_idx` at play time
+
+**CandidateNormalizer Integration:**
+- Verify CatalogSyncTask calls CandidateNormalizer after fetching AIOStreams streams
+- Verify slot matching + candidate storage happens before .strm file writing
