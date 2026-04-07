@@ -25,11 +25,13 @@ export PATH="$PATH:$HOME/.dotnet"
 cd /home/onehottake/Projects/emby/embyStreams
 
 echo "=== Building EmbyStreams plugin ==="
-dotnet build -c Release || { echo "Build failed"; exit 1; }
+dotnet publish -c Release || { echo "Build failed"; exit 1; }
 
 echo "=== Deploying plugin to dev directory ==="
-mkdir -p ~/emby-dev-data/plugins
-cp bin/Release/net8.0/EmbyStreams.dll ~/emby-dev-data/plugins/
+mkdir -p ~/emby-dev-data/plugins/EmbyStreams/libs
+cp bin/Release/net8.0/publish/EmbyStreams.dll ~/emby-dev-data/plugins/
+cp bin/Release/net8.0/publish/Polly.dll ~/emby-dev-data/plugins/EmbyStreams/libs/ 2>/dev/null || true
+cp bin/Release/net8.0/publish/Polly.Core.dll ~/emby-dev-data/plugins/EmbyStreams/libs/ 2>/dev/null || true
 cp plugin.json ~/emby-dev-data/plugins/
 
 echo "=== Checking for existing emby processes ==="
