@@ -707,26 +707,52 @@ namespace EmbyStreams.Services
 
                 var strmPath = Path.Combine(movieFolder, strmFilename);
 
-                // Generate HMAC-signed URL for public playback (works with all HTTP clients)
+                // Generate resolve token URL for public playback (works with all HTTP clients)
                 var secret = Plugin.Instance?.Configuration?.PluginSecret;
+                var defaultSlot = Plugin.Instance?.Configuration?.DefaultSlotKey ?? "hd_broad";
                 string strmContent;
+
                 if (!string.IsNullOrEmpty(secret))
                 {
-                    strmContent = StreamUrlSigner.GenerateSignedUrl(
-                        config.EmbyBaseUrl,
-                        req.ImdbId,
-                        req.Type.ToLowerInvariant() == "series" ? "series" : "movie",
-                        null, null, secret, TimeSpan.FromDays(config.SignatureValidityDays > 0 ? config.SignatureValidityDays : 365));
+                    // New resolve token format: /EmbyStreams/resolve?token={quality}:{imdbId}:{exp}:{sig}&quality={quality}&id={id}&idType=imdb
+                    var resolveToken = StreamUrlSigner.GenerateResolveToken(
+                        defaultSlot, req.ImdbId, secret, validityHours: 8760); // 365 days
+                    strmContent = $"{config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/resolve" +
+                        $"?token={Uri.EscapeDataString(resolveToken)}" +
+                        $"&quality={Uri.EscapeDataString(defaultSlot)}" +
+                        $"&id={Uri.EscapeDataString(req.ImdbId)}" +
+                        $"&idType=imdb";
                 }
                 else
                 {
-                    // Fallback: authenticated endpoint (requires X-Emby-Token)
-                    strmContent = $"{config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/Play?imdb={req.ImdbId}";
+                    // Fallback: direct stream URL (requires Emby authentication)
+                    strmContent = $"{config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/resolve" +
+                        $"?quality={Uri.EscapeDataString(defaultSlot)}" +
+                        $"&id={Uri.EscapeDataString(req.ImdbId)}" +
+                        $"&idType=imdb";
                 }
 
                 await File.WriteAllTextAsync(strmPath, strmContent, new System.Text.UTF8Encoding(false));
 
                 _logger.LogInformation("Created .strm file at {Path} for {ImdbId}", strmPath, req.ImdbId);
+
+                // Write minimal .nfo file for Emby metadata matching
+                var nfoPath = Path.ChangeExtension(strmPath, ".nfo");
+                var nfoSb = new System.Text.StringBuilder();
+                nfoSb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+                var rootElement = req.Type.ToLowerInvariant() == "series" ? "tvshow" : "movie";
+                nfoSb.AppendLine($"<{rootElement} lockdata=\"false\">");
+                if (!string.IsNullOrEmpty(req.Title))
+                    nfoSb.AppendLine($"  <title>{System.Security.SecurityElement.Escape(req.Title)}</title>");
+                if (req.Year.HasValue)
+                    nfoSb.AppendLine($"  <year>{req.Year}</year>");
+                nfoSb.AppendLine("  <uniqueid type=\"imdb\" default=\"true\">");
+                nfoSb.AppendLine($"    {req.ImdbId}");
+                nfoSb.AppendLine("  </uniqueid>");
+                nfoSb.AppendLine($"</{rootElement}>");
+                await File.WriteAllTextAsync(nfoPath, nfoSb.ToString(), new System.Text.UTF8Encoding(false));
+
+                _logger.LogDebug("Created .nfo file at {Path}", nfoPath);
 
                 // Create catalog_item entry with PINNED state
                 var now = DateTime.UtcNow.ToString("o");
