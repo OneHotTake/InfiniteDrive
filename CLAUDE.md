@@ -141,3 +141,47 @@ Never depend on chat history for state. Always read `.ai/CURRENT_TASK.md`.
 Retired scripts are in `_retired/` — do not use them.
 
 Full dev guide: `docs/dev-guide.md`
+
+---
+
+## Recent Sprint Amendments (2026-04-08)
+
+### Commit Discipline (Non-Negotiable)
+After completing every sprint, commit and push immediately before starting next sprint. No accumulated uncommitted work.
+
+### Schema: User Pins Table (Sprint 142)
+Replace global pin with `user_item_pins` table. Pinning is per-user, not global.
+- Users can have independent pins based on playback history
+- `pin_source` values: `'playback'` (auto), `'discover'` (manual), `'admin'` (global)
+- Items blocked by admin are tombstones; Deep Clean must skip them entirely
+
+### Auto-Pin on Playback Hook (Sprint 142 or 148)
+Wire `IEventConsumer<PlaybackStartEventArgs>` in EmbyEventHandler.cs.
+When user plays an EmbyStreams `.strm` item, auto-create a `user_item_pins` row with `pin_source = 'playback'`.
+
+### Blocked Items: Admin-Only, Permanent Tombstone (Sprints 142, 145, 147)
+- `Blocked` state is admin-initiated only
+- Blocked items have `blocked_at` and `blocked_by` columns
+- Deep Clean must skip Blocked rows entirely (never delete)
+- Admin can unblock, which removes tombstone and re-queues item
+- Catalog sync and Refresh must silently skip items matching Blocked tombstones
+
+### Admin UI: Blocked Tab (Sprint 146)
+Add to admin Content Management page:
+- Shows all Blocked items (`WHERE item_state = Blocked`)
+- Columns: Title, Year, Type, Blocked date, Blocked by (admin user)
+- Action: "Unblock" — sets state to Queued, removes tombstone
+
+### User Discover Page (New Sprint 148)
+Separate user Discover from admin Content Management:
+- Filtered by user's Emby parental rating ceiling
+- Items above rating ceiling are hidden server-side
+- Single action: "Add to My Library" — creates user pin with `pin_source = 'discover'`
+- Items already pinned by this user show as "In My Library" (disabled button)
+
+### My Picks Tab (New Sprint 148)
+Alongside User Discover, add "My Picks" tab:
+- Shows all items user has pinned (auto-pin via playback or manual Discover add)
+- Sorted by `pinned_at DESC`
+- Action: "I'm done with this" — deletes user pin
+- Item remains in library until Deep Clean removes it (no immediate delete)
