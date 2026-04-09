@@ -36,7 +36,7 @@ namespace EmbyStreams.Data
         {
             const string sql = @"
                 SELECT id, media_item_id, slot_key, strm_path, nfo_path,
-                       strm_url_hash, is_base, materialized_at, updated_at
+                       strm_url_hash, is_base, materialized_at, updated_at, strm_token_expires_at
                 FROM materialized_versions
                 WHERE media_item_id = @mid;";
 
@@ -56,7 +56,7 @@ namespace EmbyStreams.Data
         {
             const string sql = @"
                 SELECT id, media_item_id, slot_key, strm_path, nfo_path,
-                       strm_url_hash, is_base, materialized_at, updated_at
+                       strm_url_hash, is_base, materialized_at, updated_at, strm_token_expires_at
                 FROM materialized_versions
                 WHERE media_item_id = @mid AND slot_key = @sk;";
 
@@ -76,7 +76,7 @@ namespace EmbyStreams.Data
         {
             const string sql = @"
                 SELECT id, media_item_id, slot_key, strm_path, nfo_path,
-                       strm_url_hash, is_base, materialized_at, updated_at
+                       strm_url_hash, is_base, materialized_at, updated_at, strm_token_expires_at
                 FROM materialized_versions
                 WHERE slot_key = @sk;";
 
@@ -96,7 +96,7 @@ namespace EmbyStreams.Data
         {
             const string sql = @"
                 SELECT id, media_item_id, slot_key, strm_path, nfo_path,
-                       strm_url_hash, is_base, materialized_at, updated_at
+                       strm_url_hash, is_base, materialized_at, updated_at, strm_token_expires_at
                 FROM materialized_versions
                 WHERE media_item_id = @mid AND is_base = 1;";
 
@@ -115,7 +115,7 @@ namespace EmbyStreams.Data
         {
             const string sql = @"
                 SELECT id, media_item_id, slot_key, strm_path, nfo_path,
-                       strm_url_hash, is_base, materialized_at, updated_at
+                       strm_url_hash, is_base, materialized_at, updated_at, strm_token_expires_at
                 FROM materialized_versions
                 WHERE strm_path IS NOT NULL;";
 
@@ -149,16 +149,17 @@ namespace EmbyStreams.Data
             const string sql = @"
                 INSERT INTO materialized_versions
                     (id, media_item_id, slot_key, strm_path, nfo_path,
-                     strm_url_hash, is_base, materialized_at, updated_at)
+                     strm_url_hash, is_base, materialized_at, updated_at, strm_token_expires_at)
                 VALUES
                     (@id, @mid, @sk, @strm, @nfo,
-                     @hash, @is_base, @mat_at, @upd_at)
+                     @hash, @is_base, @mat_at, @upd_at, @expires)
                 ON CONFLICT(media_item_id, slot_key) DO UPDATE SET
                     strm_path       = excluded.strm_path,
                     nfo_path        = excluded.nfo_path,
                     strm_url_hash   = excluded.strm_url_hash,
                     is_base         = excluded.is_base,
-                    updated_at      = excluded.updated_at;";
+                    updated_at      = excluded.updated_at,
+                    strm_token_expires_at = excluded.strm_token_expires_at;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -171,7 +172,57 @@ namespace EmbyStreams.Data
                 cmd.BindParameters["@is_base"].Bind(version.IsBase ? 1 : 0);
                 BindText(cmd, "@mat_at", version.MaterializedAt);
                 BindText(cmd, "@upd_at", version.UpdatedAt);
+                if (version.StrmTokenExpiresAt.HasValue)
+                    cmd.BindParameters["@expires"].Bind(version.StrmTokenExpiresAt.Value);
+                else
+                    cmd.BindParameters["@expires"].BindNull();
             }, ct);
+        }
+
+        /// <summary>
+        /// Updates the strm_token_expires_at timestamp for a materialized version.
+        /// Used after successful .strm file writes to track token rotation schedule.
+        /// </summary>
+        public async Task SetStrmTokenExpiryAsync(
+            string mediaItemId,
+            string slotKey,
+            long expiresAtUnix,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE materialized_versions
+                SET strm_token_expires_at = @expires,
+                    updated_at = datetime('now')
+                WHERE media_item_id = @mid AND slot_key = @sk;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@mid", mediaItemId);
+                BindText(cmd, "@sk", slotKey);
+                cmd.BindParameters["@expires"].Bind(expiresAtUnix);
+            }, ct);
+        }
+
+        /// <summary>
+        /// Returns materialized versions with tokens expiring within specified seconds or NULL.
+        /// Used by HousekeepingService for token rotation (Sprint 141).
+        /// </summary>
+        public async Task<List<MaterializedVersion>> GetMaterializedVersionsExpiringAsync(
+            long withinSeconds,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id, media_item_id, slot_key, strm_path, nfo_path,
+                       strm_url_hash, is_base, materialized_at, updated_at, strm_token_expires_at
+                FROM materialized_versions
+                WHERE strm_token_expires_at < @threshold
+                   OR strm_token_expires_at IS NULL
+                ORDER BY strm_token_expires_at ASC NULLS FIRST;";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindText(cmd, "@threshold", DateTimeOffset.UtcNow.AddSeconds(withinSeconds).ToUnixTimeSeconds().ToString());
+            }, ReadMaterializedVersion);
         }
 
         /// <summary>
@@ -228,6 +279,7 @@ namespace EmbyStreams.Data
             IsBase = !row.IsDBNull(6) && row.GetInt(6) == 1,
             MaterializedAt = row.GetString(7),
             UpdatedAt = row.GetString(8),
+            StrmTokenExpiresAt = row.IsDBNull(9) ? null : row.GetInt64(9),
         };
 
         // ── SQLite helpers ────────────────────────────────────────────────────
