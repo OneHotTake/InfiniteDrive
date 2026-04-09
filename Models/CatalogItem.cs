@@ -112,5 +112,16 @@ namespace EmbyStreams.Models
         /// Null for non-pinned items.
         /// </summary>
         public string? PinnedAt { get; set; }
+
+        // ── Sprint 142: Refresh Lifecycle Properties ─────────────────────────────
+
+        /// <summary>NFO enrichment status for Refresh lifecycle.</summary>
+        public string? NfoStatus { get; set; }
+
+        /// <summary>Number of enrichment retries attempted.</summary>
+        public int RetryCount { get; set; }
+
+        /// <summary>Unix timestamp for next retry attempt.</summary>
+        public long? NextRetryAt { get; set; }
     }
 }

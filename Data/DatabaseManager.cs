@@ -114,12 +114,14 @@ namespace EmbyStreams.Data
                     (id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
                      source, source_list_id, seasons_json, strm_path,
                      added_at, updated_at, removed_at,
-                     local_path, local_source, item_state, pin_source, pinned_at)
+                     local_path, local_source, item_state, pin_source, pinned_at,
+                     nfo_status, retry_count, next_retry_at)
                 VALUES
                     (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                      @source, @source_list_id, @seasons_json, @strm_path,
                      @added_at, @updated_at, @removed_at,
-                     @local_path, @local_source, @item_state, @pin_source, @pinned_at)
+                     @local_path, @local_source, @item_state, @pin_source, @pinned_at,
+                     @nfo_status, @retry_count, @next_retry_at)
                 ON CONFLICT(imdb_id, source) DO UPDATE SET
                     tmdb_id       = excluded.tmdb_id,
                     unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -132,6 +134,9 @@ namespace EmbyStreams.Data
                     item_state    = COALESCE(excluded.item_state,    catalog_items.item_state),
                     pin_source    = COALESCE(excluded.pin_source,    catalog_items.pin_source),
                     pinned_at     = COALESCE(excluded.pinned_at,     catalog_items.pinned_at),
+                    nfo_status    = COALESCE(excluded.nfo_status, catalog_items.nfo_status),
+                    retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
+                    next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
                     updated_at    = excluded.updated_at,
                     removed_at    = NULL;";
 
@@ -156,6 +161,12 @@ namespace EmbyStreams.Data
                 cmd.BindParameters["@item_state"].Bind((int)item.ItemState);
                 BindNullableText(cmd, "@pin_source",     item.PinSource);
                 BindNullableText(cmd, "@pinned_at",      item.PinnedAt);
+                BindNullableText(cmd, "@nfo_status",     item.NfoStatus);
+                BindInt(cmd,         "@retry_count",    item.RetryCount);
+                if (item.NextRetryAt.HasValue)
+                    cmd.BindParameters["@next_retry_at"].Bind(item.NextRetryAt.Value);
+                else
+                    cmd.BindParameters["@next_retry_at"].BindNull();
             });
         }
 
@@ -1262,6 +1273,174 @@ namespace EmbyStreams.Data
             return Task.FromResult(result);
         }
 
+        // ── ingestion_state repository (Sprint 142) ─────────────────────────────
+
+        public async Task<IngestionState?> GetIngestionStateAsync(
+            string sourceId,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT source_id, last_poll_at, last_found_at, watermark
+                FROM ingestion_state
+                WHERE source_id = @sid;";
+
+            return await QuerySingleAsync(sql, cmd =>
+            {
+                BindText(cmd, "@sid", sourceId);
+            }, row => new IngestionState
+            {
+                SourceId = row.GetString(0),
+                LastPollAt = row.GetString(1),
+                LastFoundAt = row.GetString(2),
+                Watermark = row.GetString(3),
+            });
+        }
+
+        public async Task UpsertIngestionStateAsync(
+            IngestionState state,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                INSERT INTO ingestion_state (source_id, last_poll_at, last_found_at, watermark)
+                VALUES (@sid, @poll, @found, @watermark)
+                ON CONFLICT(source_id) DO UPDATE SET
+                    last_poll_at = excluded.last_poll_at,
+                    last_found_at = excluded.last_found_at,
+                    watermark = excluded.watermark;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@sid", state.SourceId);
+                BindText(cmd, "@poll", state.LastPollAt);
+                BindText(cmd, "@found", state.LastFoundAt);
+                BindText(cmd, "@watermark", state.Watermark);
+            }, ct);
+        }
+
+        // ── refresh_run_log repository (Sprint 142) ─────────────────────────────
+
+        public Task<long> InsertRunLogAsync(
+            string worker,
+            string step,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                INSERT INTO refresh_run_log (worker, step, status)
+                VALUES (@worker, @step, 'started');";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@worker", worker);
+            BindText(stmt, "@step", step);
+            stmt.MoveNext();
+            return Task.FromResult(GetLastInsertRowId(conn));
+        }
+
+        public async Task UpdateRunLogAsync(
+            long id,
+            string status,
+            int itemsAffected,
+            string? notes,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE refresh_run_log
+                SET status = @status,
+                    items_affected = @affected,
+                    notes = @notes
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@status", status);
+                BindInt(cmd, "@affected", itemsAffected);
+                BindNullableText(cmd, "@notes", notes);
+                BindInt(cmd, "@id", (int)id);
+            }, ct);
+        }
+
+        public async Task<RefreshRunLog?> GetLatestRunAsync(
+            string worker,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id, run_at, worker, step, status, items_affected, notes
+                FROM refresh_run_log
+                WHERE worker = @worker
+                ORDER BY id DESC
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql, cmd =>
+            {
+                BindText(cmd, "@worker", worker);
+            }, row => new RefreshRunLog
+            {
+                Id = row.GetInt64(0),
+                RunAt = row.GetString(1),
+                Worker = row.GetString(2),
+                Step = row.GetString(3),
+                Status = row.GetString(4),
+                ItemsAffected = row.GetInt(5),
+                Notes = row.IsDBNull(6) ? null : row.GetString(6),
+            });
+        }
+
+        // ── Sprint 142: NFO status methods ─────────────────────────────────────
+
+        public async Task UpdateNfoStatusAsync(
+            string imdbId,
+            string source,
+            string nfoStatus,
+            int? retryCount,
+            string? nextRetryAt,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET nfo_status = @nfo_status,
+                    retry_count = COALESCE(@retry_count, retry_count + 1),
+                    next_retry_at = @next_retry_at
+                WHERE imdb_id = @imdb_id AND source = @source;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@nfo_status", nfoStatus);
+                if (retryCount.HasValue)
+                    BindInt(cmd, "@retry_count", retryCount.Value);
+                else
+                    cmd.BindParameters["@retry_count"].BindNull();
+                if (nextRetryAt != null)
+                    BindText(cmd, "@next_retry_at", nextRetryAt);
+                else
+                    cmd.BindParameters["@next_retry_at"].BindNull();
+                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@source", source);
+            }, ct);
+        }
+
+        public async Task<List<CatalogItem>> GetItemsByNfoStatusAsync(
+            string nfoStatus,
+            int limit,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at,
+                       unique_ids_json, nfo_status, retry_count, next_retry_at
+                FROM catalog_items
+                WHERE nfo_status = @nfo_status
+                LIMIT @limit;";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindText(cmd, "@nfo_status", nfoStatus);
+                BindInt(cmd, "@limit", limit);
+            }, ReadCatalogItem);
+        }
+
         // ── playback_log repository ─────────────────────────────────────────────
 
         /// <summary>
@@ -2152,7 +2331,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     tmdb_id         TEXT,
     title           TEXT NOT NULL,
     year            INTEGER,
-    media_type      TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
+    media_type      TEXT NOT NULL CHECK(media_type IN ('movie', 'series', 'anime', 'episode', 'other')),
     source          TEXT NOT NULL,
     source_list_id  TEXT,
     seasons_json    TEXT,
@@ -2166,6 +2345,10 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     item_state      INTEGER NOT NULL DEFAULT 0,
     pin_source      TEXT,
     pinned_at       TEXT,
+    unique_ids_json  TEXT,
+    nfo_status      TEXT,
+    retry_count      INTEGER DEFAULT 0,
+    next_retry_at   INTEGER,
     UNIQUE(imdb_id, source)
 );
 
@@ -2784,6 +2967,100 @@ CREATE INDEX IF NOT EXISTS idx_materialized_base
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (23);");
                 version = 23;
             }
+
+            // ── V23 → V24 ─────────────────────────────────────────────────────────
+            // Adds Library Worker tables and expands catalog_items schema (Sprint 142).
+            if (version < 24)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V24", version);
+
+                // Create ingestion_state table for per-source watermark tracking
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS ingestion_state (
+    source_id      TEXT PRIMARY KEY,
+    last_poll_at   TEXT,
+    last_found_at  TEXT,
+    watermark      TEXT
+);");
+
+                // Create refresh_run_log table for structured run logging
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS refresh_run_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    worker          TEXT NOT NULL,
+    step            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'started',
+    items_affected  INTEGER DEFAULT 0,
+    notes           TEXT
+);");
+
+                // Add lifecycle columns to catalog_items
+                if (!ColumnExists(conn, "catalog_items", "nfo_status"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN nfo_status TEXT;");
+                if (!ColumnExists(conn, "catalog_items", "retry_count"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN retry_count INTEGER DEFAULT 0;");
+                if (!ColumnExists(conn, "catalog_items", "next_retry_at"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN next_retry_at INTEGER;");
+
+                // Rebuild catalog_items to expand media_type CHECK constraint
+                // SQLite does not support ALTER TABLE on CHECK constraints
+                conn.RunInTransaction(c =>
+                {
+                    // Create new table with widened constraint
+                    ExecuteInline(conn, @"
+CREATE TABLE catalog_items_v24 (
+    id              TEXT PRIMARY KEY,
+    imdb_id         TEXT NOT NULL,
+    tmdb_id         TEXT,
+    title           TEXT NOT NULL,
+    year            INTEGER,
+    media_type      TEXT NOT NULL CHECK(media_type IN ('movie', 'series', 'anime', 'episode', 'other')),
+    source          TEXT NOT NULL,
+    source_list_id  TEXT,
+    seasons_json    TEXT,
+    strm_path       TEXT,
+    added_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    removed_at      TEXT,
+    local_path      TEXT,
+    local_source    TEXT,
+    resurrection_count INTEGER DEFAULT 0,
+    item_state      INTEGER NOT NULL DEFAULT 0,
+    pin_source      TEXT,
+    pinned_at       TEXT,
+    unique_ids_json  TEXT,
+    nfo_status      TEXT,
+    retry_count      INTEGER DEFAULT 0,
+    next_retry_at   INTEGER,
+    UNIQUE(imdb_id, source)
+);");
+
+                    // Copy data across
+                    ExecuteInline(conn, @"
+INSERT INTO catalog_items_v24
+SELECT id, imdb_id, tmdb_id, title, year, media_type, source, source_list_id,
+       seasons_json, strm_path, added_at, updated_at, removed_at, local_path,
+       local_source, resurrection_count, item_state, pin_source, pinned_at,
+       unique_ids_json, nfo_status, retry_count, next_retry_at
+FROM catalog_items;");
+
+                    // Drop old table
+                    ExecuteInline(conn, "DROP TABLE catalog_items;");
+
+                    // Rename new table
+                    ExecuteInline(conn, "ALTER TABLE catalog_items_v24 RENAME TO catalog_items;");
+
+                    // Recreate indexes
+                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_catalog_imdb ON catalog_items(imdb_id);");
+                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(removed_at) WHERE removed_at IS NULL;");
+                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_catalog_media_type ON catalog_items(media_type, removed_at);");
+                });
+
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (24);");
+                version = 24;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -3257,6 +3534,14 @@ _logger.LogDebug("[EmbyStreams] Schema at version {Version}", version);
             else               stmt.BindParameters[name].Bind(value.Value);
         }
 
+        private static long GetLastInsertRowId(IDatabaseConnection conn)
+        {
+            using var stmt = conn.PrepareStatement("SELECT last_insert_rowid();");
+            foreach (var row in stmt.AsRows())
+                return row.GetInt64(0);
+            return -1;
+        }
+
         // ── Discover Catalog ────────────────────────────────────────────────────
 
         public async Task UpsertDiscoverCatalogEntryAsync(DiscoverCatalogEntry entry, CancellationToken cancellationToken = default)
@@ -3579,6 +3864,10 @@ LIMIT 1";
             ItemState         = r.IsDBNull(16) ? ItemState.Catalogued : (ItemState)r.GetInt(16),
             PinSource         = r.IsDBNull(17) ? null : r.GetString(17),
             PinnedAt          = r.IsDBNull(18) ? null : r.GetString(18),
+            UniqueIdsJson     = r.IsDBNull(19) ? null : r.GetString(19),
+            NfoStatus         = r.IsDBNull(20) ? null : r.GetString(20),
+            RetryCount        = r.IsDBNull(21) ? 0    : r.GetInt(21),
+            NextRetryAt       = r.IsDBNull(22) ? (long?)null : r.GetInt64(22),
         };
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry
