@@ -1,34 +1,23 @@
 ---
 status: ready
-task: Sprint 137 — Deprecated Removal
+task: Sprint 138 Skipped
 phase: Implementation
 last_updated: 2026-04-08
 
-## Sprint 135 Skipped
-- DoctorTask was deleted in a previous sprint
+## Sprint 138 Skipped
 
-## Sprint 136 Complete
-
-### Committed and Pushed
-- Improbability Drive tab with "DON'T PANIC" header
-- Status indicator with 🟢 nominal state
-- Summon Marvin button with grumbling animation
-- Tab switching support
-- JavaScript handlers for status and Marvin
-- Commit: 72e2554
-
-### Build Status
-- 0 errors, 0 warnings (pre-existing EMBY_HAS_CONTENTSECTION_API warning only)
+### Reason
+Integration testing requires live Emby server with configured AIOStreams providers.
+Cannot be automated without actual test infrastructure.
 
 ---
 
-## Sprint 137 — Deprecated Removal
+## Sprint 139 — Discover Alignment
 
 ### Phases
-- 137A: Remove deprecated files
-- 137B: Remove deprecated code paths
-- 137C: Update documentation
-- 137D: Build verification
+- 139A: Update Discover UI for multi-tier
+- 139B: Add tier selection
+- 139C: Build verification
 
 ### Next Action
-Start Sprint 137A — Remove deprecated files
+Start Sprint 139A — Update Discover UI
