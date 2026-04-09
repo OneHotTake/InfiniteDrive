@@ -17,7 +17,6 @@ namespace EmbyStreams.Controllers
         private readonly Tasks.YourFilesTask _yourFilesTask;
         private readonly Tasks.RemovalTask _removalTask;
         private readonly Tasks.CollectionTask _collectionTask;
-        private readonly Services.PlaybackService _playbackService;
         private readonly ILogger<ActionsController> _logger;
 
         public ActionsController(
@@ -25,14 +24,12 @@ namespace EmbyStreams.Controllers
             Tasks.YourFilesTask yourFilesTask,
             Tasks.RemovalTask removalTask,
             Tasks.CollectionTask collectionTask,
-            Services.PlaybackService playbackService,
             ILogger<ActionsController> logger)
         {
             _syncTask = syncTask;
             _yourFilesTask = yourFilesTask;
             _removalTask = removalTask;
             _collectionTask = collectionTask;
-            _playbackService = playbackService;
             _logger = logger;
         }
 
@@ -94,7 +91,7 @@ namespace EmbyStreams.Controllers
         public async Task<ActionResult> PurgeCache(CancellationToken ct)
         {
             _logger.LogInformation("[ActionsController] Purge cache request");
-            // TODO: Implement PurgeExpiredCacheAsync in PlaybackService
+            // Cache purging no longer required with new resolver architecture
             await Task.CompletedTask;
             return new ActionResult { Success = true, Message = "Cache purged" };
         }

@@ -287,3 +287,14 @@ namespace EmbyStreams.Services
         }
     }
 }
+
+    /// <summary>
+    /// Stream resolution request used by DiscoverService.
+    /// </summary>
+    public class PlayRequest
+    {
+        public string Imdb { get; set; } = string.Empty;
+        public int? Season { get; set; }
+        public int? Episode { get; set; }
+    }
+
