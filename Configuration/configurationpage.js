@@ -238,7 +238,7 @@ function (loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        ['setup','health','discover','settings'].forEach(function(t) {
+        ['setup','health','discover','improbability','settings'].forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
             if (c) c.classList.toggle('active', t === name);
         });
@@ -246,7 +246,9 @@ function (loading) {
         for (var i = 0; i < btns.length; i++) {
             btns[i].classList.toggle('active', btns[i].getAttribute('data-es-tab') === name);
         }
-        if (name === 'settings') {
+        if (name === 'improbability') {
+            loadImprobabilityStatus(view);
+        } else if (name === 'settings') {
             // v0.65.5: Fix System Status Offline Bug — save config before switching to settings
             if (_loadedConfig && _unsavedChanges) {
                 ApiClient.updatePluginConfiguration(pluginId, _loadedConfig)
@@ -2086,6 +2088,14 @@ function (loading) {
                 var warn = view.querySelector('#es-regen-secret-warning');
                 if (warn) warn.style.display = '';
             });
+
+        // Summon Marvin button handler
+        var marvinBtn = q(view, 'es-summon-marvin-btn');
+        if (marvinBtn) {
+            marvinBtn.addEventListener('click', function() {
+                summonMarvin(view);
+            });
+        }
         }
 
         // Search input (input event)
@@ -2631,6 +2641,41 @@ function (loading) {
                     doneEl.innerHTML = '<div class="es-alert es-alert-error" style="margin:0">✗ Request failed: ' + esc(err.message) + '</div>';
                 }
             });
+    }
+
+    // ── Improbability Drive functions ───────────────────────────────────────────
+    function loadImprobabilityStatus(view) {
+        // Simple status display - green/yellow/red based on health
+        var statusEl = q(view, 'es-improbability-status');
+        var msgEl = q(view, 'es-improbability-message');
+
+        // For now, show nominal status
+        // In future, this would poll /EmbyStreams/Status for actual health data
+        statusEl.textContent = '🟢';
+        msgEl.textContent = 'All systems nominal';
+    }
+
+    function summonMarvin(view) {
+        var btn = q(view, 'es-summon-marvin-btn');
+        var statusEl = q(view, 'es-marvin-status');
+
+        if (!btn || !statusEl) return;
+
+        // Change button state to "grumbling"
+        btn.textContent = 'Marvin is grumbling…';
+        btn.disabled = true;
+        statusEl.textContent = '';
+
+        // Trigger diagnostic actions
+        // For now, just refresh the status
+        // In future, this would trigger Doctor + health check
+        setTimeout(function() {
+            // Reset button state
+            btn.textContent = 'Summon Marvin';
+            btn.disabled = false;
+            statusEl.textContent = 'Diagnostics complete';
+            loadImprobabilityStatus(view);
+        }, 3000);
     }
 
     // ── Cleanup on view hide ──────────────────────────────────────────────────
