@@ -102,7 +102,7 @@ namespace EmbyStreams.Services
         private const string TaskFileResurrection     = "file_resurrection";
         private const string TaskLibraryReadoption    = "library_readoption";
         private const string TaskEpisodeExpand        = "episode_expand";
-        private const string TaskDoctor               = "doctor";         // Sprint 66: unified reconciliation engine
+        // Doctor task removed in Sprint 147 - replaced by RefreshTask + DeepCleanTask
         private const string TaskCollectionSync       = "collection_sync"; // Sprint 100C-02: Collection sync task
         private const string TaskClearClientProfiles  = "clear_client_profiles";
         private const string TaskForceSyncReset       = "force_sync";   // A7: bypass interval guard
@@ -180,12 +180,6 @@ namespace EmbyStreams.Services
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 #pragma warning restore CS0618
-
-                // Sprint 66: Doctor — unified catalog reconciliation engine
-                case TaskDoctor:
-                    FireAndForget(ct => new DoctorTask(_libraryManager, _logManager)
-                        .Execute(ct, new Progress<double>()), TaskDoctor);
-                    break;
 
                 // Sprint 100C-02: Collection sync task
                 case TaskCollectionSync:
@@ -353,7 +347,7 @@ namespace EmbyStreams.Services
                                   $"{TaskCatalogSync}, {TaskCatalogDiscover}, " +
                                   $"{TaskLinkResolver}, " +
                                   $"{TaskFileResurrection}, {TaskLibraryReadoption}, " +
-                                  $"{TaskEpisodeExpand}, {TaskDoctor}, {TaskCollectionSync}, " +
+                                  $"{TaskEpisodeExpand}, {TaskCollectionSync}, " +
                                   $"{TaskClearClientProfiles}, " +
                                   $"{TaskForceSyncReset}, {TaskClearCache}, {TaskDeadLinkScan}, " +
                                   $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}",

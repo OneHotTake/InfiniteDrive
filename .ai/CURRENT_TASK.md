@@ -1,35 +1,78 @@
 ---
-    status: complete
-    task: Sprint 129-130 — Edge Case Hardening + Live Testing
-    phase: Sprint 129 complete, live testing complete, Sprint 130 remaining
-    last_updated: 2026-04-07
+    status: awaiting_clarification
+    task: Recovery Complete, Sprint Amendments Applied
+    phase: Amendments documented, awaiting direction on Sprints 142-148
+    last_updated: 2026-04-08
 
-## Current State
+## Recovery Audit Complete
 
-Sprint 129 edge-case fixes applied and verified via live API testing. All endpoints functional.
+**Last Confirmed Sprint:** Sprint 130 (Versioned Playback)
+**Work Lost:** Sprints 146-148 (7 files deleted as untracked)
+**Build Status:** 0 errors, 1 pre-existing warning
 
-### Sprint 129 Fixes Applied
-1. RehydrationService.cs — null-guard on Plugin.Instance (was `!` bang operator)
-2. VersionPlaybackService.cs — singleton repos via Plugin.Instance (was new per request)
-3. VersionPlaybackService.cs — snapshot existence check before CachePlaybackUrlAsync
-4. VersionSlotController.cs — ILogManager DI instead of direct repo injection
-5. MaterializedVersionRepository.cs — renamed GetAllWithStrmPathsAsync, removed broken SQL filter
-6. VersionPlaybackStartupDetector.cs — scheme-agnostic address replacement (http:// + https://)
-7. CandidateRepository.cs — fixed log message group count
-8. **Route collision fix** — VersionPlaybackService changed from `/EmbyStreams/Play` to `/EmbyStreams/VersionedPlay` to avoid conflict with existing PlaybackService
-9. VersionMaterializer.cs — updated BuildStrmUrl to use `/EmbyStreams/VersionedPlay`
+### Audit Files Created
+1. `.ai/INVENTORY.md` — Complete file inventory (129 .cs files)
+2. `.ai/SCHEMA.md` — All CREATE TABLE statements (18 tables)
+3. `.ai/GAP_ANALYSIS.md` — Current vs planned code analysis
+4. `.ai/RECOVERY_SUMMARY.md` — Recovery options summary
+5. `.ai/BLOCKERS.md` — Sprint 146-148 blocker documentation
 
-### Live API Test Results (all passing)
-- GET /EmbyStreams/Versions → 200, 7 slots returned
-- POST /EmbyStreams/Versions → 200, enabled 4k_hdr
-- POST /EmbyStreams/Versions/Rehydrate → 200, enqueued
-- GET /EmbyStreams/VersionedPlay?titleId=tt0000000 → 404 (expected, no catalog data)
-- GET /EmbyStreams/VersionedPlay (no titleId) → 400 (validation works)
-- GET /EmbyStreams/VersionedPlay (no auth) → 401 (auth enforced)
+### Key Findings
+- **Files Missing:** StreamEndpointService, ResolverService, M3u8Builder, StrmWriterService, RefreshTask, DeepCleanTask, ImprobabilityDriveStatus
+- **Current Architecture:** Doctor-era (ItemState: Catalogued, Present, Resolved, Retired, Orphaned, Pinned)
+- **Database Schema:** 18 tables, no refresh_run_log, no nfo_status in catalog_items
+
+---
+
+## Sprint Amendments Applied (2026-04-08)
+
+### Commit Discipline (Non-Negotiable)
+Added to CLAUDE.md: After every sprint, commit and push immediately. No accumulated uncommitted work.
+
+### Schema: User Pins Table (Sprint 142)
+- Replace global pin with `user_item_pins` table (per-user pinning)
+- `pin_source` values: 'playback', 'discover', 'admin'
+- Items blocked by admin are tombstones
+
+### Auto-Pin on Playback Hook (Sprint 142 or 148)
+- Wire `IEventConsumer<PlaybackStartEventArgs>` in EmbyEventHandler.cs
+- Auto-pin when user plays EmbyStreams .strm item
+
+### Blocked Items: Admin-Only, Permanent Tombstone (Sprints 142, 145, 147)
+- `Blocked` state is admin-initiated only
+- Deep Clean must skip Blocked rows entirely
+- Catalog sync and Refresh must skip Blocked tombstones
+
+### Admin UI: Blocked Tab (Sprint 146)
+- Shows all Blocked items with Unblock action
+
+### User Discover Page (New Sprint 148)
+- Separate user Discover from admin Content Management
+- Filter by user's Emby parental rating ceiling
+- "Add to My Library" creates user pin
+
+### My Picks Tab (New Sprint 148)
+- Shows all user's pinned items
+- "I'm done with this" deletes user pin
+- Item stays in library until Deep Clean
+
+---
+
+## Clarification Required
+
+**Before proceeding, need to decide:**
+
+1. **Should Sprints 142-148 be implemented?** (User pins, Blocked items, Auto-pin, User Discover/My Picks UI)
+   - Or are these changes deprecated/archived?
+   - If implemented, commit and push them
+
+2. **What is the next sprint?**
+   - Sprint 131? (Any feature not in Sprints 122-130)
+   - Or stabilization/maintenance?
+   - Or bug fixes only?
 
 ### Build Status
-- 1 warning (pre-existing EMBY_HAS_CONTENTSECTION_API define), 0 errors
-- Schema v22, all 7 version_slots seeded
+- 0 errors, 1 warning
 
 ### Next Action
-Sprint 130 (integration testing) or end-of-sprint commit
+Awaiting clarification on sprint direction
