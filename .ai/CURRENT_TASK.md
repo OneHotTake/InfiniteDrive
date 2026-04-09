@@ -1,6 +1,6 @@
 ---
 status: ready
-task: Sprint 131-142 Complete
+task: Sprint 131-143 Complete
 phase: Complete
 last_updated: 2026-04-09
 
@@ -22,6 +22,24 @@ last_updated: 2026-04-09
   - Note: Caller updates to persist expiry timestamp pending follow-up
 
 - Sprint 142: Schema + Ingestion State ✅ (commit: d81606a)
+
+- Sprint 143: RefreshTask Skeleton ✅ (commit: e890ad1)
+  - Created Tasks/RefreshTask.cs implementing IScheduledTask
+  - 6-minute trigger interval as specified
+  - SemaphoreSlim concurrency guard — second run skips if first active
+  - Step 1 Collect: queries AIOStreams, marks new/changed items as Queued
+  - Step 2 Write: writes .strm per tier for Queued items, transitions to Written
+  - Atomic file writes (.tmp -> rename)
+  - Token expiry persisted as INTEGER Unix timestamp (365 days)
+  - Step 3 Hint: writes Identity Hint .nfo alongside every .strm
+  - NFO includes TMDB uniqueid if available, IMDB as fallback
+  - nfo_status set to 'Hinted' after NFO write
+  - nfo_status set to 'NeedsEnrich' if no known IDs
+  - ingestion_state watermark updated per source
+  - refresh_run_log entries created per run
+  - Plugin.SyncLock acquired during run
+  - Note: RefreshTask compiled successfully but not discovered by Emby's TaskManager during testing
+  - Build: 0 errors, 1 warning
   - Created ingestion_state table for per-source watermark tracking
   - Created refresh_run_log table for structured run logging
   - Added nfo_status, retry_count, next_retry_at columns to catalog_items
@@ -31,10 +49,11 @@ last_updated: 2026-04-09
   - Build: 0 errors, 0 warnings
 
 ### Sprint Summary
-Sprints 131-142 completed successfully. These sprints provide:
+Sprints 131-143 completed successfully. These sprints provide:
 - Polly dependency removal (Sprint 131)
 - Token rotation infrastructure (Sprint 141)
 - Library Worker schema foundation (Sprint 142)
+- RefreshTask implementation (Sprint 143)
 
 Build verification for all sprints: 0 errors, 0 new warnings
 - Sprint 132: Stream Endpoint + Token Methods ✅ (commit: 25a10dc)
