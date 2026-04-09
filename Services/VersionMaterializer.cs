@@ -11,7 +11,7 @@ namespace EmbyStreams.Services
 {
     /// <summary>
     /// Writes versioned .strm and .nfo files with slot suffixes.
-    /// Default slot gets the unsuffixed base filename; other slots get
+    /// Default slot gets unsuffixed base filename; other slots get
     /// <c>" - {FileSuffix}"</c> appended before the extension.
     /// </summary>
     public class VersionMaterializer
@@ -26,35 +26,51 @@ namespace EmbyStreams.Services
         // ── URL Building ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Builds a .strm URL with slot parameter for versioned playback.
+        /// Builds a .strm URL with resolve token for multi-tier playback.
         /// <para>
-        /// Format when API key available:
-        ///   <c>http://[emby-base]/EmbyStreams/VersionedPlay?titleId={imdbId}&amp;slot={slotKey}&amp;token={apiKey}</c>
+        /// Format:
+        ///   <c>{embyBase}/EmbyStreams/resolve?token={resolve_token}&amp;quality={tier}&amp;id={id}&amp;idType={type}[&amp;season={n}&amp;episode={m}]</c>
         /// </para>
         /// <para>
-        /// Falls back to a signed URL via <see cref="CatalogSyncTask.BuildSignedStrmUrl"/>
-        /// when no API key is configured.
+        /// Token format: <c>{quality}:{imdbId}:{exp}:{signature}</c>
+        /// Valid for 365 days.
         /// </para>
         /// </summary>
         public string BuildStrmUrl(
             string embyBaseUrl,
             string titleId,
             string slotKey,
-            string? apiToken)
+            string idType,
+            int? season,
+            int? episode)
         {
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 throw new InvalidOperationException("Plugin configuration not available");
 
-            // Prefer API-key based URL (simpler, no expiry)
-            if (!string.IsNullOrEmpty(apiToken))
+            var baseUrl = embyBaseUrl.TrimEnd('/');
+
+            // Generate resolve token (365-day validity for .strm files)
+            var token = StreamUrlSigner.GenerateResolveToken(slotKey, titleId, config.PluginSecret, 365 * 24);
+
+            var sb = new StringBuilder();
+            sb.Append(baseUrl);
+            sb.Append("/EmbyStreams/resolve?");
+            sb.Append("token=").Append(Uri.EscapeDataString(token));
+            sb.Append("&quality=").Append(Uri.EscapeDataString(slotKey));
+            sb.Append("&id=").Append(Uri.EscapeDataString(titleId));
+            sb.Append("&idType=").Append(Uri.EscapeDataString(idType));
+
+            if (season.HasValue)
             {
-                var baseUrl = embyBaseUrl.TrimEnd('/');
-                return $"{baseUrl}/EmbyStreams/VersionedPlay?titleId={Uri.EscapeDataString(titleId)}&slot={Uri.EscapeDataString(slotKey)}&token={Uri.EscapeDataString(apiToken)}";
+                sb.Append("&season=").Append(season.Value);
+            }
+            if (episode.HasValue)
+            {
+                sb.Append("&episode=").Append(episode.Value);
             }
 
-            // Fall back to signed URL
-            return Tasks.CatalogSyncTask.BuildSignedStrmUrl(config, titleId, "movie", null, null);
+            return sb.ToString();
         }
 
         // ── File Naming ─────────────────────────────────────────────────────────
@@ -123,7 +139,7 @@ namespace EmbyStreams.Services
         /// <param name="topCandidate">Best candidate for this slot (may be null).</param>
         /// <param name="rootElement">Root XML element name ("movie" or "episodedetails").</param>
         /// <param name="item">Catalog item for title/IDs, or null for minimal NFO.</param>
-        /// <returns>Absolute path to the written .nfo file.</returns>
+        /// <returns>Absolute path to written .nfo file.</returns>
         public string WriteNfoFile(
             string basePath,
             string baseName,
@@ -188,7 +204,7 @@ namespace EmbyStreams.Services
                     writer.WriteEndElement(); // </video>
 
                     if (!string.IsNullOrEmpty(topCandidate.AudioCodec)
-                        || !string.IsNullOrEmpty(topCandidate.AudioChannels))
+                    || !string.IsNullOrEmpty(topCandidate.AudioChannels))
                     {
                         writer.WriteStartElement("audio");
                         if (!string.IsNullOrEmpty(topCandidate.AudioCodec))

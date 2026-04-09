@@ -132,12 +132,16 @@ namespace EmbyStreams.Services
                     var baseName = Tasks.CatalogSyncTask.SanitisePathPublic(
                         item.Title ?? "Unknown");
 
-                    // Build .strm URL
+                    // Build .strm URL with resolve token
+                    // Note: Season/Episode are null for series-level catalog items
+                    // Episode-level .strm files are handled by CatalogSyncTask expansion
                     var strmUrl = materializer.BuildStrmUrl(
                         config.EmbyBaseUrl,
                         item.ImdbId,
                         slot.SlotKey,
-                        config.EmbyApiKey);
+                        item.MediaType,
+                        null, // Season
+                        null); // Episode
 
                     // Write .strm file
                     var strmPath = materializer.WriteStrmFile(

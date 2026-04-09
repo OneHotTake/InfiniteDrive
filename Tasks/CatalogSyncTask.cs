@@ -2036,16 +2036,17 @@ namespace EmbyStreams.Tasks
         }
 
         /// <summary>
-        /// Generates a signed URL for the /EmbyStreams/Stream endpoint.
+        /// Generates a signed URL for /EmbyStreams/resolve endpoint using resolve tokens.
         /// Falls back to the legacy /EmbyStreams/Play URL if PluginSecret is not configured,
-        /// so the plugin continues to function during upgrades.
+        /// so that the plugin continues to function during upgrades.
         /// </summary>
         internal static string BuildSignedStrmUrl(
             PluginConfiguration config,
             string imdbId,
             string mediaType,
             int? season,
-            int? episode)
+            int? episode,
+            string quality = "hd_broad")
         {
             // Ensure PluginSecret is initialized before accessing Configuration
             Plugin.Instance?.EnsureInitialization();
@@ -2053,21 +2054,36 @@ namespace EmbyStreams.Tasks
             var secret = Plugin.Instance?.Configuration?.PluginSecret;
             if (!string.IsNullOrEmpty(secret))
             {
-                return Services.StreamUrlSigner.GenerateSignedUrl(
-                    config.EmbyBaseUrl,
-                    imdbId,
-                    mediaType,
-                    season,
-                    episode,
-                    secret,
-                    TimeSpan.FromDays(config.SignatureValidityDays > 0 ? config.SignatureValidityDays : 365));
+                var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
+
+                // Generate resolve token (365-day validity for .strm files)
+                var token = Services.StreamUrlSigner.GenerateResolveToken(quality, imdbId, secret, 365 * 24);
+
+                var sb = new System.Text.StringBuilder();
+                sb.Append(baseUrl);
+                sb.Append("/EmbyStreams/resolve?");
+                sb.Append("token=").Append(Uri.EscapeDataString(token));
+                sb.Append("&quality=").Append(Uri.EscapeDataString(quality));
+                sb.Append("&id=").Append(Uri.EscapeDataString(imdbId));
+                sb.Append("&idType=").Append(Uri.EscapeDataString(mediaType));
+
+                if (season.HasValue)
+                {
+                    sb.Append("&season=").Append(season.Value);
+                }
+                if (episode.HasValue)
+                {
+                    sb.Append("&episode=").Append(episode.Value);
+                }
+
+                return sb.ToString();
             }
 
             // Fallback: legacy authenticated endpoint (requires X-Emby-Token)
-            var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
+            var fallbackUrl = config.EmbyBaseUrl.TrimEnd('/');
             if (season.HasValue && episode.HasValue)
-                return $"{baseUrl}/EmbyStreams/Play?imdb={imdbId}&season={season}&episode={episode}";
-            return $"{baseUrl}/EmbyStreams/Play?imdb={imdbId}";
+                return $"{fallbackUrl}/EmbyStreams/Play?imdb={imdbId}&season={season}&episode={episode}";
+            return $"{fallbackUrl}/EmbyStreams/Play?imdb={imdbId}";
         }
 
         private static string SanitisePath(string input)
