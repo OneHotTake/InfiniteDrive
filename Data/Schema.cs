@@ -9,7 +9,7 @@ namespace EmbyStreams.Data
     /// </summary>
     public static class Schema
     {
-        public const int CurrentSchemaVersion = 22;
+        public const int CurrentSchemaVersion = 23;
 
         /// <summary>
         /// All v3.3 database tables with their CREATE SQL statements.

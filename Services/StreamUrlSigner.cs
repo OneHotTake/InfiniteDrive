@@ -1,6 +1,5 @@
 using System;
 using System.Security.Cryptography;
-using System.Text;
 
 namespace EmbyStreams.Services
 {
@@ -64,7 +63,6 @@ namespace EmbyStreams.Services
 
             var url = parts[0];
             if (!long.TryParse(parts[1], out long timestamp)) return false;
-            var signature = parts[2];
 
             // Check timestamp expiration
             if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > timestamp)
@@ -74,7 +72,7 @@ namespace EmbyStreams.Services
             var message = $"{url}|{timestamp}";
             var expectedSignature = ComputeHmacSimple(message, pluginSecret);
 
-            return signature == expectedSignature;
+            return parts[2] == expectedSignature;
         }
 
         /// <summary>
@@ -86,7 +84,7 @@ namespace EmbyStreams.Services
         /// <param name="season">Season number for series; null for movies.</param>
         /// <param name="episode">Episode number for series; null for movies.</param>
         /// <param name="pluginSecret">HMAC key — from PluginConfiguration.PluginSecret.</param>
-        /// <param name="validity">How long the URL stays valid. Use TimeSpan.FromDays(365) for .strm files.</param>
+        /// <param name="validity">How long to URL stays valid. Use TimeSpan.FromDays(365) for .strm files.</param>
         /// <returns>Fully formed signed URL string.</returns>
         public static string GenerateSignedUrl(
             string embyBaseUrl,
@@ -100,12 +98,12 @@ namespace EmbyStreams.Services
             var exp = DateTimeOffset.UtcNow.Add(validity).ToUnixTimeSeconds();
             var sig = ComputeHmac(imdbId, mediaType, season, episode, exp, pluginSecret);
 
-            var sb = new StringBuilder();
+            var sb = new System.Text.StringBuilder();
             sb.Append(embyBaseUrl.TrimEnd('/'));
             sb.Append("/EmbyStreams/Stream?id=");
-            sb.Append(Uri.EscapeDataString(imdbId));
+            sb.Append(System.Uri.EscapeDataString(imdbId));
             sb.Append("&type=");
-            sb.Append(Uri.EscapeDataString(mediaType));
+            sb.Append(System.Uri.EscapeDataString(mediaType));
             sb.Append("&exp=");
             sb.Append(exp);
             if (season.HasValue)
@@ -148,8 +146,8 @@ namespace EmbyStreams.Services
             var expected = ComputeHmac(id, type, season, episode, exp, pluginSecret);
 
             // Constant-time byte comparison — prevents timing oracle attacks
-            var expectedBytes = Encoding.UTF8.GetBytes(expected);
-            var actualBytes   = Encoding.UTF8.GetBytes(sig ?? string.Empty);
+            var expectedBytes = System.Text.Encoding.UTF8.GetBytes(expected);
+            var actualBytes = System.Text.Encoding.UTF8.GetBytes(sig ?? string.Empty);
 
             // CryptographicOperations.FixedTimeEquals requires equal-length inputs;
             // a length mismatch is already a definitive mismatch, but we must not
@@ -157,7 +155,58 @@ namespace EmbyStreams.Services
             if (expectedBytes.Length != actualBytes.Length)
                 return false;
 
-            return CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
+            return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes);
+        }
+
+        /// <summary>
+        /// Generates a short-lived resolve token for /EmbyStreams/Resolve endpoint.
+        /// Format: {quality}:{imdbId}:{exp}:{signature}
+        /// </summary>
+        /// <param name="quality">Quality label (e.g. "4k", "1080p", "720p").</param>
+        /// <param name="imdbId">IMDB ID of the item to resolve.</param>
+        /// <param name="pluginSecret">HMAC key from PluginConfiguration.PluginSecret.</param>
+        /// <param name="validityHours">Optional validity period; defaults to 1 hour.</param>
+        /// <returns>Resolve token string.</returns>
+        public static string GenerateResolveToken(
+            string quality,
+            string imdbId,
+            string pluginSecret,
+            int validityHours = 1)
+        {
+            var exp = DateTimeOffset.UtcNow.AddHours(validityHours).ToUnixTimeSeconds();
+            var message = $"{quality}:{imdbId}:{exp}";
+            var sig = ComputeHmacSimple(message, pluginSecret);
+            return $"{message}:{sig}";
+        }
+
+        /// <summary>
+        /// Validates a stream token returned by GenerateResolveToken().
+        /// Format: {quality}:{imdbId}:{exp}:{signature}
+        /// </summary>
+        /// <param name="token">The stream token to validate.</param>
+        /// <param name="pluginSecret">HMAC key from PluginConfiguration.PluginSecret.</param>
+        /// <returns>True if token format is valid, signature matches, and not expired.</returns>
+        public static bool ValidateStreamToken(string token, string pluginSecret)
+        {
+            if (string.IsNullOrEmpty(pluginSecret) || string.IsNullOrEmpty(token))
+                return false;
+
+            var parts = token.Split(':');
+            if (parts.Length != 4)
+                return false;
+
+            if (!long.TryParse(parts[2], out long exp))
+                return false;
+
+            // Check expiration
+            if (DateTimeOffset.UtcNow.ToUnixTimeSeconds() > exp)
+                return false;
+
+            // Verify signature
+            var message = $"{parts[0]}:{parts[1]}:{parts[2]}";
+            var expectedSignature = ComputeHmacSimple(message, pluginSecret);
+
+            return parts[3] == expectedSignature;
         }
 
         /// <summary>
@@ -167,7 +216,7 @@ namespace EmbyStreams.Services
         public static string GenerateSecret()
         {
             var bytes = new byte[32];
-            using var rng = RandomNumberGenerator.Create();
+            using var rng = System.Security.Cryptography.RandomNumberGenerator.Create();
             rng.GetBytes(bytes);
             return Convert.ToBase64String(bytes);
         }
@@ -179,10 +228,10 @@ namespace EmbyStreams.Services
         /// </summary>
         private static string ComputeHmacSimple(string message, string secret)
         {
-            var keyBytes = Encoding.UTF8.GetBytes(secret);
-            var msgBytes = Encoding.UTF8.GetBytes(message);
+            var keyBytes = System.Text.Encoding.UTF8.GetBytes(secret);
+            var msgBytes = System.Text.Encoding.UTF8.GetBytes(message);
 
-            using var hmac = new HMACSHA256(keyBytes);
+            using var hmac = new System.Security.Cryptography.HMACSHA256(keyBytes);
             var hash = hmac.ComputeHash(msgBytes);
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
@@ -197,14 +246,14 @@ namespace EmbyStreams.Services
             var message = string.Concat(
                 id, ":",
                 type, ":",
-                season?.ToString()   ?? string.Empty, ":",
-                episode?.ToString()  ?? string.Empty, ":",
+                season?.ToString() ?? string.Empty, ":",
+                episode?.ToString() ?? string.Empty, ":",
                 exp.ToString());
 
-            var keyBytes  = Encoding.UTF8.GetBytes(secret);
-            var msgBytes  = Encoding.UTF8.GetBytes(message);
+            var keyBytes = System.Text.Encoding.UTF8.GetBytes(secret);
+            var msgBytes = System.Text.Encoding.UTF8.GetBytes(message);
 
-            using var hmac = new HMACSHA256(keyBytes);
+            using var hmac = new System.Security.Cryptography.HMACSHA256(keyBytes);
             var hash = hmac.ComputeHash(msgBytes);
             return Convert.ToHexString(hash).ToLowerInvariant();
         }
