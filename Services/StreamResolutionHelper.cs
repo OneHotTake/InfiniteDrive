@@ -160,35 +160,6 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Creates a ProxySession token for the given resolution.
-        /// </summary>
-        public static string CreateProxyToken(
-            ResolutionEntry entry,
-            List<StreamCandidate> candidates)
-        {
-            var candidateUrls = candidates
-                .OrderBy(c => c.Rank)
-                .Select(c => c.Url)
-                .ToList();
-
-            var session = new ProxySession
-            {
-                StreamUrl = entry.StreamUrl,
-                Fallback1 = candidateUrls.Count > 1 ? candidateUrls[1] : null,
-                Fallback2 = candidateUrls.Count > 2 ? candidateUrls[2] : null,
-                ImdbId = entry.ImdbId,
-                Season = entry.Season,
-                Episode = entry.Episode,
-                TorrentHash = entry.TorrentHash,
-                QualityTier = entry.QualityTier,
-                EstimatedBitrateKbps = candidates.FirstOrDefault()?.BitrateKbps ?? 0,
-                ExpiresAt = DateTime.UtcNow.AddHours(4)
-            };
-
-            return ProxySessionStore.Create(session);
-        }
-
-        /// <summary>
         /// Builds the ordered list of AIOStreams providers to try for stream resolution.
         /// </summary>
         private static List<AioProvider> GetProvidersToTry(PluginConfiguration config)
@@ -230,8 +201,9 @@ namespace EmbyStreams.Services
 
         /// <summary>
         /// Builds a ResolutionEntry from the primary (rank=0) candidate.
+        /// Public for use by LinkResolverTask.
         /// </summary>
-        private static ResolutionEntry BuildEntryFromCandidates(
+        public static ResolutionEntry BuildEntryFromCandidates(
             List<StreamCandidate> candidates,
             PlayRequest req,
             PluginConfiguration config,

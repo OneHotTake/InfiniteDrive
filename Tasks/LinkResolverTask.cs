@@ -314,8 +314,20 @@ namespace EmbyStreams.Tasks
 
             // Build ranked candidates and primary ResolutionEntry
             var fakeReq = new PlayRequest { Imdb = work.ImdbId, Season = work.Season, Episode = work.Episode };
-            var (entry, candidates) = PlaybackService.StreamResponseToEntryAndCandidates(
-                response, fakeReq, config, tier);
+            var candidates = StreamHelpers.RankAndFilterStreams(
+                response, work.ImdbId, work.Season, work.Episode,
+                config.ProviderPriorityOrder,
+                config.CandidatesPerProvider,
+                config.CacheLifetimeMinutes);
+
+            ResolutionEntry? entry = null;
+            if (candidates.Count > 0)
+            {
+                entry = StreamResolutionHelper.BuildEntryFromCandidates(candidates, fakeReq, config, tier);
+                // Preserve torrent hash from the original rank-0 stream for season-pack detection
+                var primary = response.Streams?.FirstOrDefault(s => !string.IsNullOrEmpty(s.Url));
+                entry.TorrentHash = primary?.InfoHash;
+            }
 
             if (entry == null)
             {
@@ -326,10 +338,10 @@ namespace EmbyStreams.Tasks
             // Season pack detection: if AIOStreams signals a season pack via filename,
             // record the torrent hash for future bulk invalidation and queue all
             // other episodes of the season for Tier 1 background resolution.
-            var filename = response.Streams[0].BehaviorHints?.Filename;
+            var filename = response.Streams?.FirstOrDefault()?.BehaviorHints?.Filename;
             if (StreamHelpers.IsSeasonPack(filename))
             {
-                entry.TorrentHash = response.Streams[0].InfoHash;
+                entry!.TorrentHash = response.Streams?.FirstOrDefault()?.InfoHash;
                 _logger.LogDebug("[EmbyStreams] Season pack detected for {Imdb} S{S} — hash={Hash}",
                     work.ImdbId, work.Season, entry.TorrentHash ?? "(none)");
 
