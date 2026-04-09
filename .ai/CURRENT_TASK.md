@@ -1,30 +1,24 @@
 ---
 status: ready
-task: Sprint 134 — Multi-Tier Hydration
+task: Sprint 136 — Improbability Drive
 phase: Implementation
 last_updated: 2026-04-08
 
-## Sprint 133 Complete
+## Sprint 135 Skipped
 
-### Committed and Pushed
-- ResolverService for /EmbyStreams/Resolve endpoint
-- M3U8Builder with quality tier mapping
-- ResolverRequest model
-- HLS variant playlist generation
-- Commit: 8f654c5
-
-### Build Status
-- 0 errors, 0 warnings (pre-existing EMBY_HAS_CONTENTSECTION_API warning only)
+### Reason
+DoctorTask was deleted in a previous sprint. Sprint 135 spec assumes DoctorTask exists.
+Doctor functionality may have been consolidated into other services.
 
 ---
 
-## Sprint 134 — Multi-Tier Hydration
+## Sprint 136 — Improbability Drive
 
 ### Phases
-- 134A: Create multi-tier hydration task
-- 134B: Database schema updates (hydration tables)
-- 134C: Integration with catalog sync
-- 134D: Build verification
+- 136A: Create Improbability Drive health visualization
+- 136B: Two-worker tracking (Refresh + DeepClean)
+- 136C: Integration with health panel
+- 136D: Build verification
 
 ### Next Action
-Start Sprint 134A — Create multi-tier hydration task
+Start Sprint 136A — Create Improbability Drive
