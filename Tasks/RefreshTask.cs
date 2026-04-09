@@ -9,7 +9,6 @@ using EmbyStreams.Data;
 using EmbyStreams.Logging;
 using EmbyStreams.Models;
 using EmbyStreams.Services;
-using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
@@ -35,18 +34,14 @@ namespace EmbyStreams.Tasks
         // ── Fields ───────────────────────────────────────────────────────────────
 
         private readonly ILogger<RefreshTask>           _logger;
-        private readonly ILibraryManager                  _libraryManager;
         private VersionMaterializer? _materializer;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
 
         // ── Constructor ──────────────────────────────────────────────────────────
 
-        public RefreshTask(
-            ILibraryManager libraryManager,
-            ILogManager     logManager)
+        public RefreshTask(ILogManager logManager)
         {
-            _libraryManager = libraryManager;
             _logger         = new EmbyLoggerAdapter<RefreshTask>(logManager.GetLogger("EmbyStreams"));
             _materializer    = new VersionMaterializer(_logger);
         }
