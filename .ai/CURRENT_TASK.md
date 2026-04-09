@@ -1,6 +1,6 @@
 ---
 status: ready
-task: Sprint 141 — Token Rotation
+task: Sprint 142 — Ingestion State
 phase: In Progress
 last_updated: 2026-04-09
 
@@ -8,6 +8,11 @@ last_updated: 2026-04-09
 
 ### Completed Sprints
 - Sprint 131: Remove Polly Dependency ✅ (commit: afef648)
+- Sprint 141: Token Rotation Infrastructure ✅ (commit: 3e6bd77)
+  - Schema migration V23 adds strm_token_expires_at to materialized_versions
+  - Repository methods added for expiry tracking and rotation
+  - HousekeepingService.RotateExpiredTokensAsync implemented
+  - Note: Caller updates to persist expiry timestamp pending follow-up
 - Sprint 132: Stream Endpoint + Token Methods ✅ (commit: 25a10dc)
 - Sprint 133: Resolver Service + M3U8 Builder ✅ (commit: 8f654c5)
 - Sprint 134: Multi-Tier Hydration (Part 1) ✅ (commit: 3523ec0)

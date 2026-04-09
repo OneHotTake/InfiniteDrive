@@ -51,6 +51,26 @@ namespace EmbyStreams.Models
         /// User explicitly added via Discover "Add to Library".
         /// Protected from catalog removal. Can transition to RETIRED if real file appears.
         /// </summary>
-        Pinned = 5
+        Pinned = 5,
+
+        // ── Refresh lifecycle states (Sprint 142) ─────────────────────────
+
+        /// <summary>New/changed item awaiting .strm write</summary>
+        Queued = 6,
+
+        /// <summary>.strm on disk, awaiting Emby notification</summary>
+        Written = 7,
+
+        /// <summary>Emby notified, awaiting verification</summary>
+        Notified = 8,
+
+        /// <summary>Fully verified, item is live</summary>
+        Ready = 9,
+
+        /// <summary>NFO enrichment needed</summary>
+        NeedsEnrich = 10,
+
+        /// <summary>Enrichment failed after max retries</summary>
+        Blocked = 11
     }
 }
