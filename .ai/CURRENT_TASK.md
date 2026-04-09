@@ -1,18 +1,42 @@
 ---
 status: ready
-task: Sprint 142 — Ingestion State
-phase: In Progress
+task: Sprint 131-142 Complete
+phase: Complete
 last_updated: 2026-04-09
 
 ## Progress Summary
 
-### Completed Sprints
+### Completed Sprints (Per User Request)
 - Sprint 131: Remove Polly Dependency ✅ (commit: afef648)
+  - Removed Polly PackageReference from .csproj
+  - Removed AssemblyLoadContext.Resolving handler from Plugin.cs
+  - Deleted Resilience folder and AIOStreamsResiliencePolicy.cs
+  - Cleaned up AioStreamsClient.cs Polly references
+  - Build: 0 errors, 1 warning
+
 - Sprint 141: Token Rotation Infrastructure ✅ (commit: 3e6bd77)
   - Schema migration V23 adds strm_token_expires_at to materialized_versions
-  - Repository methods added for expiry tracking and rotation
+  - Repository methods: SetStrmTokenExpiryAsync, GetMaterializedVersionsExpiringAsync
+  - VersionMaterializer.BuildStrmUrlWithExpiry returns URL + expiry timestamp
   - HousekeepingService.RotateExpiredTokensAsync implemented
   - Note: Caller updates to persist expiry timestamp pending follow-up
+
+- Sprint 142: Schema + Ingestion State ✅ (commit: d81606a)
+  - Created ingestion_state table for per-source watermark tracking
+  - Created refresh_run_log table for structured run logging
+  - Added nfo_status, retry_count, next_retry_at columns to catalog_items
+  - Expanded media_type CHECK constraint to accept 'anime', 'episode', 'other'
+  - Added new ItemState enum values (Queued, Written, Notified, Ready, NeedsEnrich, Blocked)
+  - Created IngestionState and RefreshRunLog model classes
+  - Build: 0 errors, 0 warnings
+
+### Sprint Summary
+Sprints 131-142 completed successfully. These sprints provide:
+- Polly dependency removal (Sprint 131)
+- Token rotation infrastructure (Sprint 141)
+- Library Worker schema foundation (Sprint 142)
+
+Build verification for all sprints: 0 errors, 0 new warnings
 - Sprint 132: Stream Endpoint + Token Methods ✅ (commit: 25a10dc)
 - Sprint 133: Resolver Service + M3U8 Builder ✅ (commit: 8f654c5)
 - Sprint 134: Multi-Tier Hydration (Part 1) ✅ (commit: 3523ec0)

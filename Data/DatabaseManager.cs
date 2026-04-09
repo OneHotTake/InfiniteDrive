@@ -115,13 +115,15 @@ namespace EmbyStreams.Data
                      source, source_list_id, seasons_json, strm_path,
                      added_at, updated_at, removed_at,
                      local_path, local_source, item_state, pin_source, pinned_at,
-                     nfo_status, retry_count, next_retry_at)
+                     nfo_status, retry_count, next_retry_at, strm_token_expires_at,
+                     blocked_at, blocked_by)
                 VALUES
                     (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                      @source, @source_list_id, @seasons_json, @strm_path,
                      @added_at, @updated_at, @removed_at,
                      @local_path, @local_source, @item_state, @pin_source, @pinned_at,
-                     @nfo_status, @retry_count, @next_retry_at)
+                     @nfo_status, @retry_count, @next_retry_at, @strm_token_expires_at,
+                     @blocked_at, @blocked_by)
                 ON CONFLICT(imdb_id, source) DO UPDATE SET
                     tmdb_id       = excluded.tmdb_id,
                     unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -137,6 +139,9 @@ namespace EmbyStreams.Data
                     nfo_status    = COALESCE(excluded.nfo_status, catalog_items.nfo_status),
                     retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
                     next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
+                    strm_token_expires_at = COALESCE(excluded.strm_token_expires_at, catalog_items.strm_token_expires_at),
+                    blocked_at    = COALESCE(catalog_items.blocked_at, excluded.blocked_at),
+                    blocked_by    = COALESCE(catalog_items.blocked_by, excluded.blocked_by),
                     updated_at    = excluded.updated_at,
                     removed_at    = NULL;";
 
@@ -167,6 +172,12 @@ namespace EmbyStreams.Data
                     cmd.BindParameters["@next_retry_at"].Bind(item.NextRetryAt.Value);
                 else
                     cmd.BindParameters["@next_retry_at"].BindNull();
+                if (item.StrmTokenExpiresAt.HasValue)
+                    cmd.BindParameters["@strm_token_expires_at"].Bind(item.StrmTokenExpiresAt.Value);
+                else
+                    cmd.BindParameters["@strm_token_expires_at"].BindNull();
+                BindNullableText(cmd, "@blocked_at", item.BlockedAt);
+                BindNullableText(cmd, "@blocked_by", item.BlockedBy);
             });
         }
 
@@ -2349,6 +2360,8 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     nfo_status      TEXT,
     retry_count      INTEGER DEFAULT 0,
     next_retry_at   INTEGER,
+    blocked_at      TEXT,
+    blocked_by      TEXT,
     UNIQUE(imdb_id, source)
 );
 
@@ -2995,6 +3008,20 @@ CREATE TABLE IF NOT EXISTS refresh_run_log (
     notes           TEXT
 );");
 
+                // Create user_item_pins table for per-user pin tracking
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS user_item_pins (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    emby_user_id    TEXT NOT NULL,
+    catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+    pinned_at       TEXT NOT NULL,
+    pin_source      TEXT NOT NULL CHECK(pin_source IN ('playback', 'discover', 'admin')),
+    UNIQUE(emby_user_id, catalog_item_id)
+);");
+
+                ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_catalog_item ON user_item_pins(catalog_item_id);");
+                ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_user ON user_item_pins(emby_user_id);");
+
                 // Add lifecycle columns to catalog_items
                 if (!ColumnExists(conn, "catalog_items", "nfo_status"))
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN nfo_status TEXT;");
@@ -3002,6 +3029,10 @@ CREATE TABLE IF NOT EXISTS refresh_run_log (
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN retry_count INTEGER DEFAULT 0;");
                 if (!ColumnExists(conn, "catalog_items", "next_retry_at"))
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN next_retry_at INTEGER;");
+                if (!ColumnExists(conn, "catalog_items", "blocked_at"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN blocked_at TEXT;");
+                if (!ColumnExists(conn, "catalog_items", "blocked_by"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN blocked_by TEXT;");
 
                 // Rebuild catalog_items to expand media_type CHECK constraint
                 // SQLite does not support ALTER TABLE on CHECK constraints
@@ -3033,6 +3064,8 @@ CREATE TABLE catalog_items_v24 (
     nfo_status      TEXT,
     retry_count      INTEGER DEFAULT 0,
     next_retry_at   INTEGER,
+    blocked_at      TEXT,
+    blocked_by      TEXT,
     UNIQUE(imdb_id, source)
 );");
 
@@ -3042,7 +3075,7 @@ INSERT INTO catalog_items_v24
 SELECT id, imdb_id, tmdb_id, title, year, media_type, source, source_list_id,
        seasons_json, strm_path, added_at, updated_at, removed_at, local_path,
        local_source, resurrection_count, item_state, pin_source, pinned_at,
-       unique_ids_json, nfo_status, retry_count, next_retry_at
+       unique_ids_json, nfo_status, retry_count, next_retry_at, strm_token_expires_at, blocked_at, blocked_by
 FROM catalog_items;");
 
                     // Drop old table
@@ -3868,6 +3901,9 @@ LIMIT 1";
             NfoStatus         = r.IsDBNull(20) ? null : r.GetString(20),
             RetryCount        = r.IsDBNull(21) ? 0    : r.GetInt(21),
             NextRetryAt       = r.IsDBNull(22) ? (long?)null : r.GetInt64(22),
+            StrmTokenExpiresAt = r.IsDBNull(23) ? (long?)null : r.GetInt64(23),
+            BlockedAt         = r.IsDBNull(24) ? null : r.GetString(24),
+            BlockedBy         = r.IsDBNull(25) ? null : r.GetString(25),
         };
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry

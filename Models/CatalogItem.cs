@@ -123,5 +123,14 @@ namespace EmbyStreams.Models
 
         /// <summary>Unix timestamp for next retry attempt.</summary>
         public long? NextRetryAt { get; set; }
+
+        /// <summary>Unix timestamp when .strm token expires.</summary>
+        public long? StrmTokenExpiresAt { get; set; }
+
+        /// <summary>UTC timestamp when item was blocked (ISO8601).</summary>
+        public string? BlockedAt { get; set; }
+
+        /// <summary>Emby user ID of admin who blocked the item.</summary>
+        public string? BlockedBy { get; set; }
     }
 }
