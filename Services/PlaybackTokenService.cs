@@ -17,7 +17,7 @@ namespace EmbyStreams.Services
     ///   - Constant-time comparison prevents timing oracle attacks
     ///   - Rotating PluginSecret invalidates all existing .strm files
     /// </summary>
-    public static class StreamUrlSigner
+    public static class PlaybackTokenService
     {
         private const int DefaultExpirationHours = 1;
 

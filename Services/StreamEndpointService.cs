@@ -93,7 +93,7 @@ namespace EmbyStreams.Services
                 return Error(500, "server_error", "Plugin not initialized");
             }
 
-            if (!StreamUrlSigner.ValidateStreamToken(req.Token, _config.PluginSecret))
+            if (!PlaybackTokenService.ValidateStreamToken(req.Token, _config.PluginSecret))
             {
                 _logger.LogWarning("[EmbyStreams][Stream] Invalid or expired stream token");
                 return Error(401, "unauthorized", "Invalid or expired token");
@@ -214,7 +214,7 @@ namespace EmbyStreams.Services
         private static string BuildProxyUrl(string embyBaseUrl, string secret, string upstreamUrl)
         {
             // Sign the upstream URL with timestamp and HMAC signature
-            var signedUrl = StreamUrlSigner.Sign(upstreamUrl, secret, 1); // 1 hour expiry
+            var signedUrl = PlaybackTokenService.Sign(upstreamUrl, secret, 1); // 1 hour expiry
 
             return $"{embyBaseUrl.TrimEnd('/')}/EmbyStreams/stream?url={Uri.EscapeDataString(signedUrl)}";
         }

@@ -163,7 +163,7 @@ namespace EmbyStreams.Services
                 .Select(s =>
                 {
                     // Sign stream URL
-                    var signedUrl = StreamUrlSigner.Sign(s.Url!, _config.PluginSecret, 1);
+                    var signedUrl = PlaybackTokenService.Sign(s.Url!, _config.PluginSecret, 1);
                     var proxyUrl = $"{_config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/stream?url={Uri.EscapeDataString(signedUrl)}";
 
                     // Get resolution from parsed metadata

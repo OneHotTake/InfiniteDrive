@@ -50,7 +50,7 @@ namespace EmbyStreams.Services
             if (cachedUrl != null)
             {
                 _logger.LogDebug("[StreamResolution] Cache primary hit for {MediaId}", mediaId);
-                return StreamUrlSigner.Sign(cachedUrl, pluginSecret);
+                return PlaybackTokenService.Sign(cachedUrl, pluginSecret);
             }
 
             // 2. Try secondary cached URL
@@ -58,7 +58,7 @@ namespace EmbyStreams.Services
             if (cachedUrl2 != null)
             {
                 _logger.LogDebug("[StreamResolution] Cache secondary hit for {MediaId}", mediaId);
-                return StreamUrlSigner.Sign(cachedUrl2, pluginSecret);
+                return PlaybackTokenService.Sign(cachedUrl2, pluginSecret);
             }
 
             // 3. Live resolution from AIOStreams
@@ -97,7 +97,7 @@ namespace EmbyStreams.Services
                 bestStream.QualityTier ?? "unknown", bestStream.ProviderKey);
 
             // 5. Return signed URL (DO NOT cache here - ItemPipelineService caches)
-            return StreamUrlSigner.Sign(bestStream.Url, pluginSecret);
+            return PlaybackTokenService.Sign(bestStream.Url, pluginSecret);
         }
 
         /// <summary>
