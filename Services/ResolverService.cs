@@ -61,6 +61,27 @@ namespace EmbyStreams.Services
                 return Error(400, "bad_request", $"invalid quality tier: {req.Quality}");
             }
 
+            // Validate resolve token (Sprint 140A-03)
+            if (string.IsNullOrEmpty(_config.PluginSecret))
+            {
+                return Error(500, "server_error", "Plugin not initialized");
+            }
+
+            if (!PlaybackTokenService.ValidateStreamToken(req.Token, _config.PluginSecret))
+            {
+                _logger.LogWarning("[EmbyStreams][Resolve] Invalid or expired resolve token");
+                return Error(401, "unauthorized", "Invalid or expired token");
+            }
+
+            // Verify token matches request parameters (security check)
+            var tokenParts = req.Token?.Split(':');
+            if (tokenParts?.Length >= 3 &&
+                (tokenParts[0] != req.Quality || tokenParts[1] != req.Id))
+            {
+                _logger.LogWarning("[EmbyStreams][Resolve] Token quality/id mismatch with request");
+                return Error(401, "unauthorized", "Token parameters don't match request");
+            }
+
             // 2. Resolve stream from AIOStreams
             var streams = await ResolveStreamsAsync(req);
             if (streams == null || streams.Count == 0)
