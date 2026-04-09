@@ -39,26 +39,11 @@ namespace EmbyStreams
 
         /// <summary>
         /// Static constructor runs when the assembly is first loaded — before any
-        /// instance members or type scanning. Registers an AssemblyResolve handler
-        /// so transitive dependencies (Polly.Core etc.) are found in the plugins dir.
+        /// instance members or type scanning. (Sprint 131: Removed Polly AssemblyResolve handler)
         /// </summary>
         static Plugin()
         {
-            var location = Assembly.GetExecutingAssembly().Location;
-            var pluginsDir = !string.IsNullOrEmpty(location)
-                ? Path.GetDirectoryName(location)
-                : null;
-            if (string.IsNullOrEmpty(pluginsDir)) return;
-
-            // Dependencies live in a "libs" subfolder next to EmbyStreams.dll
-            // to avoid Emby's GetTypes() scan hitting Polly.dll in the plugins root.
-            var libsDir = Path.Combine(pluginsDir, "libs");
-
-            AssemblyLoadContext.Default.Resolving += (context, name) =>
-            {
-                var path = Path.Combine(libsDir, name.Name + ".dll");
-                return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
-            };
+            // No assembly resolution needed — plugin has no transitive dependencies
         }
 
         /// <summary>

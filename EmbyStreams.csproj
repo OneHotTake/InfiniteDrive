@@ -75,10 +75,10 @@
                       PrivateAssets="All" ExcludeAssets="runtime" />
 
     <!--
-      Polly resilience patterns for HTTP calls to AIOStreams (Sprint 104C)
-      Provides retry, circuit breaker, and timeout policies.
+      Sprint 131: Removed Polly resilience policy.
+      HTTP timeout is now handled by HttpClient.Timeout property.
+      Circuit breaker removed for simplicity.
     -->
-    <PackageReference Include="Polly" Version="8.4.0" />
 
   </ItemGroup>
 
