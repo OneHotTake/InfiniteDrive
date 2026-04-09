@@ -455,7 +455,7 @@ namespace EmbyStreams
                     return;
                 }
 
-                Configuration.PluginSecret = StreamUrlSigner.GenerateSecret();
+                Configuration.PluginSecret = PlaybackTokenService.GenerateSecret();
                 SaveConfiguration();
                 _secretEnsured = true;
                 _logger.LogInformation("[EmbyStreams] PluginSecret generated and saved");

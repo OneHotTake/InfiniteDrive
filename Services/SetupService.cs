@@ -238,8 +238,8 @@ namespace EmbyStreams.Services
                         var mediaType = strmFile.Contains("/shows/") || strmFile.Contains("/anime/")
                             ? "series" : "movie";
 
-                        // Re-sign with new validity period using StreamUrlSigner
-                        var newUrl = StreamUrlSigner.GenerateSignedUrl(
+                        // Re-sign with new validity period using PlaybackTokenService
+                        var newUrl = PlaybackTokenService.GenerateSignedUrl(
                             baseUrl,
                             imdbId,
                             mediaType,

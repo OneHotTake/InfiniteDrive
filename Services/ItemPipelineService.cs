@@ -220,7 +220,7 @@ namespace EmbyStreams.Services
             // This is a placeholder - actual implementation would use:
             // - Plugin.Instance.Configuration.EmbyBaseUrl
             // - Plugin.Instance.Configuration.PluginSecret
-            // - StreamUrlSigner to generate signed URLs
+            // - PlaybackTokenService to generate signed URLs
             // - File I/O to write to item.StrmPath
 
             _logger.LogInformation("[ItemPipeline] Would write .strm file for {MediaId}",

@@ -251,7 +251,7 @@ namespace EmbyStreams.Services
                 var season = int.Parse(parts[1]);
                 var episode = int.Parse(parts[2]);
 
-                return StreamUrlSigner.GenerateSignedUrl(
+                return PlaybackTokenService.GenerateSignedUrl(
                     config.EmbyBaseUrl, imdbId, "series", season, episode,
                     secret,
                     TimeSpan.FromDays(config.SignatureValidityDays > 0 ? config.SignatureValidityDays : 365));

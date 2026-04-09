@@ -715,7 +715,7 @@ namespace EmbyStreams.Services
                 if (!string.IsNullOrEmpty(secret))
                 {
                     // New resolve token format: /EmbyStreams/resolve?token={quality}:{imdbId}:{exp}:{sig}&quality={quality}&id={id}&idType=imdb
-                    var resolveToken = StreamUrlSigner.GenerateResolveToken(
+                    var resolveToken = PlaybackTokenService.GenerateResolveToken(
                         defaultSlot, req.ImdbId, secret, validityHours: 8760); // 365 days
                     strmContent = $"{config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/resolve" +
                         $"?token={Uri.EscapeDataString(resolveToken)}" +

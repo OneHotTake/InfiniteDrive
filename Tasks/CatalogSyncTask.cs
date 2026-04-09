@@ -2057,7 +2057,7 @@ namespace EmbyStreams.Tasks
                 var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
 
                 // Generate resolve token (365-day validity for .strm files)
-                var token = Services.StreamUrlSigner.GenerateResolveToken(quality, imdbId, secret, 365 * 24);
+                var token = Services.PlaybackTokenService.GenerateResolveToken(quality, imdbId, secret, 365 * 24);
 
                 var sb = new System.Text.StringBuilder();
                 sb.Append(baseUrl);
