@@ -166,6 +166,100 @@ namespace EmbyStreams.Services
 
             return count;
         }
+
+        // ── Token rotation (Sprint 141) ───────────────────────────────────────────
+
+        /// <summary>
+        /// Finds materialized versions with tokens expiring within 90 days or NULL
+        /// (legacy items) and refreshes them with new tokens.
+        /// Returns count of tokens rotated.
+        /// </summary>
+        public async Task<int> RotateExpiredTokensAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+            var mvRepo = Plugin.Instance?.MaterializedVersionRepository;
+            var config = Plugin.Instance?.Configuration;
+
+            if (db == null || mvRepo == null || config == null || string.IsNullOrEmpty(config.PluginSecret))
+                return 0;
+
+            // Query for items expiring within 90 days or NULL (legacy items)
+            var rotated = 0;
+            var ninetyDaysSeconds = 90 * 24 * 60 * 60;
+
+            var expiring = await mvRepo.GetMaterializedVersionsExpiringAsync(ninetyDaysSeconds, cancellationToken);
+            foreach (var mv in expiring)
+            {
+                try
+                {
+                    if (!File.Exists(mv.StrmPath))
+                    {
+                        _logger.LogDebug(
+                            "[EmbyStreams] Skipping token rotation for missing .strm: {Path}", mv.StrmPath);
+                        continue;
+                    }
+
+                    // Read current .strm to extract ID for token generation
+                    var currentContent = await File.ReadAllTextAsync(mv.StrmPath, cancellationToken);
+
+                    // Parse URL to extract id and idType parameters
+                    var idMatch = System.Text.RegularExpressions.Regex.Match(currentContent, @"[?&]id=([^&]+)");
+                    var idTypeMatch = System.Text.RegularExpressions.Regex.Match(currentContent, @"[?&]idType=([^&]+)");
+                    var qualityMatch = System.Text.RegularExpressions.Regex.Match(currentContent, @"[?&]quality=([^&]+)");
+
+                    if (!idMatch.Success || !idTypeMatch.Success || !qualityMatch.Success)
+                    {
+                        _logger.LogWarning(
+                            "[EmbyStreams] Could not parse .strm URL for token rotation: {Path}", mv.StrmPath);
+                        continue;
+                    }
+
+                    var id = System.Uri.UnescapeDataString(idMatch.Groups[1].Value);
+                    var idType = System.Uri.UnescapeDataString(idTypeMatch.Groups[1].Value);
+                    var quality = System.Uri.UnescapeDataString(qualityMatch.Groups[1].Value);
+
+                    // Generate fresh token
+                    var expiresAt = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
+                    var newToken = PlaybackTokenService.GenerateResolveToken(
+                        quality, id, config.PluginSecret, 365 * 24);
+
+                    // Build new URL
+                    var urlBuilder = new System.Text.StringBuilder();
+                    urlBuilder.Append(currentContent.Substring(0, currentContent.IndexOf('?') + 1));
+                    urlBuilder.Append("token=").Append(System.Uri.EscapeDataString(newToken));
+                    // Keep other parameters as-is
+                    var ampIndex = currentContent.IndexOf("&", currentContent.IndexOf('?'));
+                    if (ampIndex >= 0)
+                        urlBuilder.Append(currentContent.Substring(ampIndex));
+
+                    var newContent = urlBuilder.ToString();
+
+                    // Atomic write
+                    var tmpPath = mv.StrmPath + ".tmp";
+                    await File.WriteAllTextAsync(tmpPath, newContent, cancellationToken);
+                    File.Move(tmpPath, mv.StrmPath, overwrite: true);
+
+                    // Update DB after successful write
+                    await mvRepo.SetStrmTokenExpiryAsync(
+                        mv.MediaItemId, mv.SlotKey, expiresAt, cancellationToken);
+
+                    _logger.LogInformation(
+                        "[EmbyStreams] Rotated token: {Id} | {Type} | {Quality} | expires={Expiry}",
+                        id, idType, quality,
+                        DateTimeOffset.FromUnixTimeSeconds(expiresAt).ToString("o"));
+
+                    rotated++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "[EmbyStreams] Failed to rotate token for {Path}", mv.StrmPath);
+                }
+            }
+
+            return rotated;
+        }
     }
 
     public class ExpiredStrmResult

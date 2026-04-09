@@ -2744,6 +2744,7 @@ CREATE TABLE IF NOT EXISTS materialized_versions (
     is_base         INTEGER NOT NULL DEFAULT 0,
     materialized_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    strm_token_expires_at INTEGER,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     UNIQUE (media_item_id, slot_key)
 );");
@@ -2769,6 +2770,19 @@ CREATE INDEX IF NOT EXISTS idx_materialized_base
                 ExecuteInline(conn,
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (22);");
                 version = 22;
+            }
+
+            // ── V22 → V23 ─────────────────────────────────────────────────────────
+            // Adds strm_token_expires_at to materialized_versions so token rotation
+            // can be scheduled efficiently. (Sprint 141)
+            if (version < 23)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V23", version);
+                if (!ColumnExists(conn, "materialized_versions", "strm_token_expires_at"))
+                    ExecuteInline(conn, "ALTER TABLE materialized_versions ADD COLUMN strm_token_expires_at INTEGER;");
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (23);");
+                version = 23;
             }
             }
 
@@ -3052,6 +3066,7 @@ CREATE TABLE IF NOT EXISTS materialized_versions (
     is_base         INTEGER NOT NULL DEFAULT 0,
     materialized_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    strm_token_expires_at INTEGER,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     UNIQUE (media_item_id, slot_key)
 );");

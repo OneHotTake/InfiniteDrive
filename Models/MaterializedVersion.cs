@@ -34,5 +34,8 @@ namespace EmbyStreams.Models
 
         /// <summary>UTC timestamp when last updated.</summary>
         public string UpdatedAt { get; set; } = DateTime.UtcNow.ToString("o");
+
+        /// <summary>Unix timestamp when the .strm token expires (365 days after write).</summary>
+        public long? StrmTokenExpiresAt { get; set; }
     }
 }

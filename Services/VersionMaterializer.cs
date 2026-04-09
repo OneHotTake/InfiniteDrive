@@ -44,6 +44,21 @@ namespace EmbyStreams.Services
             int? season,
             int? episode)
         {
+            return BuildStrmUrlWithExpiry(embyBaseUrl, titleId, slotKey, idType, season, episode).Url;
+        }
+
+        /// <summary>
+        /// Builds a .strm URL with resolve token and returns both the URL and expiry timestamp.
+        /// Used for token rotation tracking (Sprint 141).
+        /// </summary>
+        public (string Url, long ExpiresAtUnix) BuildStrmUrlWithExpiry(
+            string embyBaseUrl,
+            string titleId,
+            string slotKey,
+            string idType,
+            int? season,
+            int? episode)
+        {
             var config = Plugin.Instance?.Configuration;
             if (config == null)
                 throw new InvalidOperationException("Plugin configuration not available");
@@ -52,6 +67,9 @@ namespace EmbyStreams.Services
 
             // Generate resolve token (365-day validity for .strm files)
             var token = PlaybackTokenService.GenerateResolveToken(slotKey, titleId, config.PluginSecret, 365 * 24);
+
+            // Calculate expiry timestamp for tracking
+            var expiresAtUnix = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
 
             var sb = new StringBuilder();
             sb.Append(baseUrl);
@@ -70,7 +88,7 @@ namespace EmbyStreams.Services
                 sb.Append("&episode=").Append(episode.Value);
             }
 
-            return sb.ToString();
+            return (sb.ToString(), expiresAtUnix);
         }
 
         // ── File Naming ─────────────────────────────────────────────────────────
