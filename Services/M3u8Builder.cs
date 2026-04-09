@@ -22,8 +22,8 @@ namespace EmbyStreams.Services
         {
             ["4k_hdr"] = new TierMetadata { DisplayName = "4K HDR", Resolution = "2160p", Is4K = true, IsHDR = true },
             ["4k_sdr"] = new TierMetadata { DisplayName = "4K SDR", Resolution = "2160p", Is4K = true, IsHDR = false },
-            ["hd_broad"] = new TierMetadata { DisplayName = "1080p Broad", Resolution = "1080p", Is4K = false, IsHDR = false },
-            ["sd_broad"] = new TierMetadata { DisplayName = "SD Broad", Resolution = "480p-720p", Is4K = false, IsHDR = false },
+            ["hd_broad"] = new TierMetadata { DisplayName = "1080p", Resolution = "1080p", Is4K = false, IsHDR = false },
+            ["sd_broad"] = new TierMetadata { DisplayName = "720p", Resolution = "480p-720p", Is4K = false, IsHDR = false },
         };
 
         /// <summary>

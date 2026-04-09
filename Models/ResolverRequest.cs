@@ -37,5 +37,11 @@ namespace EmbyStreams.Models
         /// Not used for movies.
         /// </summary>
         public int? Episode { get; set; }
+
+        /// <summary>
+        /// Resolve token for authentication.
+        /// Format: {quality}:{id}:{exp}:{signature}
+        /// </summary>
+        public string? Token { get; set; }
     }
 }
