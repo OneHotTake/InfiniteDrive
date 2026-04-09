@@ -1,146 +1,185 @@
-# Sprint 133 — Resolver Endpoint (`/EmbyStreams/resolve`) + M3u8 Builder
+# Sprint 133 — Resolver Service + M3U8 Builder
 
-**Version:** v3.3 | **Status:** Code Written (token update pending) | **Risk:** HIGH | **Depends:** Sprint 132
+**Version:** v3.3 | **Status:** Plan | **Risk:** LOW | **Depends:** Sprint 132
 
 ---
 
 ## Overview
 
-New `ResolverService.cs` and `M3u8Builder.cs` implementing the resolver + m3u8 model. The resolver collects all available streams at the requested quality tier and all lower tiers, returning an HLS master playlist (m3u8) with quality downgrade options.
+Create \`Services/ResolverService.cs\` and \`Services/M3u8Builder.cs\` for /EmbyStreams/Resolve endpoint. These provide:
+1. AIOStreams stream resolution with tier selection
+2. M3U8 variant playlist generation for Emby clients
 
-**Endpoint:** `GET /EmbyStreams/resolve?token=<resolve_token>&quality=<tier>&id=<id>&idType=<type>[&season=&episode=]`
+### Why This Exists
 
-**Token model (updated):**
-- Resolve tokens are long-lived HMAC-signed tokens (365d expiry), embedded in .strm files
-- Validation: `StreamUrlSigner.ValidateResolveToken(token, secret, quality, id, idType)` — HMAC + expiry + param match
-- Each m3u8 entry gets a fresh short-lived stream token via `GenerateStreamToken(secret)`
-- HEVC streams sorted before AVC within each tier; NAME reflects codec (e.g. "1080p H.265 – RealDebrid")
-
-**Key capabilities:**
-- Cache hierarchy: in-memory (10 min TTL, 1000 entry cap) → SQLite `resolution_cache` → live AIOStreams query
-- Collect ALL streams at requested quality + all lower tiers
-- Sort: exact match → HEVC before AVC → cached first → bandwidth descending
-- Wrap each debrid URL as `/EmbyStreams/stream?token={stream_token}&url=...` with fresh token
-- Return HLS master playlist (m3u8) with `#EXT-X-STREAM-INF` per entry
-- `NAME` attribute includes codec: "4K HDR H.265 – Source A" or "1080p H.264 – Source B"
-- Always include at least one downgrade option when available
-- Failure states: no streams → 503 + `Retry-After: 30`, invalid token → 401
+The \`LinkResolverTask\` exists but is a task-based scheduled approach. We need:
+1. Service layer for real-time resolution (Sprint 122 AIOStreams API integration)
+2. M3U8 variant generation for HLS clients (Emby, Roku, Apple TV)
 
 ---
 
-## Phase 133A — M3u8 Builder
+## Phase 133A — Resolver Service
 
-### FIX-133A-01: Create `Services/M3u8Builder.cs`
+### FIX-133A-01: Create ResolverService
 
-**File:** `Services/M3u8Builder.cs` (new)
+**File:** \`Services/ResolverService.cs\` (create)
 
 **What:**
-1. `M3u8Variant` model: Bandwidth, Resolution, Codecs, Name, Url
-2. `TierMetadata` dictionary: 4 tiers with resolution, HEVC codec, AVC codec, bitrate, display label
-3. Display labels: `hd_broad` → "1080p", `sd_broad` → "720p" (internal keys unchanged)
-4. `TierOrder` array: highest to lowest quality ordering
-5. `BuildMasterPlaylist(List<M3u8Variant>)` → `#EXTM3U` + `#EXT-X-VERSION:3` + per-variant `#EXT-X-STREAM-INF`
-6. `CreateVariant(tier, url, sourceLabel, bandwidthOverride?, isHevc?)` → codec-aware variant builder
-7. `GetDowngradeTiers(requestedTier)` → all tiers at or below requested
+1. Create \`ResolverService\` class implementing \`IService\`:
+\`\`csharp
+public class ResolverService : IService, IRequiresRequest
+{
+    private readonly ILogger<ResolverService> _logger;
+    private readonly ILogManager _logManager;
+    private readonly AioStreamsClient _aioClient;
+    private readonly DatabaseManager _db;
+    private readonly M3u8Builder _m3u8Builder;
 
-**HEVC/AVC codec strings per tier:**
-- 4K HDR: HEVC `hvc1.21600000,ec-3` / AVC `avc1.640033,ec-3`
-- 4K SDR: HEVC `hvc1.21600000,ac-3` / AVC `avc1.640033,ac-3`
-- 1080p: HEVC `hvc1.640028,mp4a.40.2` / AVC `avc1.640028,mp4a.40.2`
-- 720p: HEVC `hvc1.64001f,mp4a.40.2` / AVC `avc1.64001f,mp4a.40.2`
+    public ResolverService(
+        ILogManager logManager,
+        AioStreamsClient aioClient,
+        DatabaseManager db,
+        M3u8Builder m3u8Builder)
+    {
+        _logger = new EmbyLoggerAdapter<ResolverService>(logManager.GetLogger("EmbyStreams"));
+        _logManager = logManager;
+        _aioClient = aioClient;
+        _db = db;
+        _m3u8Builder = m3u8Builder;
+    }
 
-**Depends on:** Sprint 132 (needs stream token generation)
+    public async Task<object> Get(ResolverRequest req)
+    {
+        // Resolve stream for given imdbId, quality, mediaType
+        // Return M3U8 manifest with signed stream URLs
+    }
+}
+\`\`
 
-### FIX-133A-02: Define 4 quality tiers
-
-**What:** Collapse existing 6 slots to spec's 4 tiers:
-- `4k_hdr` → 4K HDR (3840×2160 HDR10/DV, Atmos/TrueHD) — 30 Mbps
-- `4k_sdr` → 4K SDR (3840×2160 SDR, DD+/DTS) — 20 Mbps
-- `hd_broad` → 1080p (1920×1080, DD+) — 8 Mbps — DEFAULT
-- `sd_broad` → 720p (1280×720, Stereo) — 4 Mbps
-
-**Remove:** `4k_dv`, `1080p` (redundant with hd_broad), `480p`
-
-**Depends on:** None (data model only)
-
----
-
-## Phase 133B — Resolver Service
-
-### FIX-133B-01: Create `Services/ResolverService.cs`
-
-**File:** `Services/ResolverService.cs` (new)
-
-**What:**
-1. `ResolverRequest` DTO with `[Route("/EmbyStreams/resolve", "GET")]` and `[Unauthenticated]`
-2. Token validation via `StreamUrlSigner.ValidateResolveToken(token, secret, quality, id, idType)`
-3. In-memory manifest cache with 10-minute TTL and 1000-entry eviction
-4. SQLite `resolution_cache` lookup as second-tier cache
-5. Live AIOStreams query fallback: `GetMovieStreamsAsync` / `GetSeriesStreamsAsync`
-6. Stream-to-tier mapping using `StreamHelpers.ParseQualityTier` + HDR detection
-7. Per-tier sorting: cached first → HEVC before AVC → by codec score → max 3 variants per tier
-8. Per-variant stream token: `StreamUrlSigner.GenerateStreamToken(secret)` — fresh token per m3u8 entry
-9. HEVC detection: `IsHevcStream(stream)` — checks codec field and filename
-10. Proxy URL wrapping: `{embyBase}/EmbyStreams/stream?token={streamToken}&url=...`
-11. Quality mismatch logging: `ts | id | idType | requested | served | token[6]`
-12. Empty manifest logging: `ts | id | idType | requested | result=empty`
-
-**Depends on:** FIX-133A-01
-
----
-
-## Phase 133C — Registration + Build
-
-### FIX-133C-01: Verify service auto-discovery
-
-**What:** Both services use `[Route]` and `[Unauthenticated]` attributes — Emby auto-discovers them. No manual registration in Plugin.cs needed.
-
-### FIX-133C-02: Build verification
-
-**What:** `dotnet build -c Release` → 0 errors, 0 new warnings
+2. Implement Resolve logic:
+\`\`csharp
+private async Task<object> ResolveAsync(string imdbId, string quality, string mediaType)
+{
+    // 1. Query AIOStreams API for streams
+    // 2. Filter by quality tier (4k_hdr, 4k_sdr, hd_broad, sd_broad)
+    // 3. Select top tier per source
+    // 4. Generate M3U8 playlist with signed URLs
+    // 5. Return manifest
+}
+\`\`
 
 **Depends on:** FIX-133B-01
 
 ---
 
-## Sprint 133 Dependencies
+## Phase 133B — M3U8 Builder
 
-- **Previous Sprint:** 132 (Stream Endpoint + Token Methods)
-- **Blocked By:** Sprint 132
-- **Blocks:** Sprint 134 (Hydration Pipeline needs resolve URL format)
+### FIX-133B-01: Create M3U8 Builder
+
+**File:** \`Services/M3u8Builder.cs\` (create)
+
+**What:**
+1. Create \`M3u8Builder\` class:
+\`\`csharp
+public class M3u8Builder
+{
+    public const string MimeType = "application/vnd.apple.mpegurl";
+    public const string Version = "6";
+
+    // Quality tier metadata
+    public static readonly Dictionary<string, TierMetadata> TierMetadata = new()
+    {
+        ["4k_hdr"] = new TierMetadata { DisplayName = "4K HDR", Resolution = "2160p", Is4K = true, IsHDR = true },
+        ["4k_sdr"] = new TierMetadata { DisplayName = "4K SDR", Resolution = "2160p", Is4K = true, IsHDR = false },
+        ["hd_broad"] = new TierMetadata { DisplayName = "1080p Broad", Resolution = "1080p", Is4K = false, IsHDR = false },
+        ["sd_broad"] = new TierMetadata { DisplayName = "SD Broad", Resolution = "480p-720p", Is4K = false, IsHDR = false },
+    };
+
+    // Stream quality detection helpers
+    public static string MapStreamToTier(AioStreamsStream stream) { ... }
+    public static string GetSourceName(AioStreamsStream stream) { ... }
+    public static bool IsHevcStream(AioStreamsStream stream) { ... }
+
+    // M3U8 manifest generation
+    public string CreateVariantPlaylist(
+        string baseUrl,
+        string quality,
+        List<M3U8Variant> variants) { ... }
+}
+\`\`
+
+2. Add quality tier metadata:
+\`\`csharp
+public class TierMetadata
+{
+    public string DisplayName { get; set; }
+    public string Resolution { get; set; }
+    public bool Is4K { get; set; }
+    public bool IsHDR { get; set; }
+}
+\`\`
+
+**Depends on:** FIX-133A-01
+
+---
+
+## Phase 133C — Request Models
+
+### FIX-133C-01: Resolver Request Model
+
+**File:** \`Models/ResolverRequest.cs\` (create)
+
+**What:**
+\`\`csharp
+public class ResolverRequest : IReturn<object>
+{
+    public string Id { get; set; }
+    public string Quality { get; set; }
+    public string IdType { get; set; }  // "movie" or "series"
+}
+\`\`
+
+---
+
+## Phase 133D — API Endpoint
+
+### FIX-133D-01: Register Resolve Endpoint
+
+**File:** \`Plugin.cs\` (modify)
+
+**What:**
+Add to service registration:
+\`\`csharp
+AddSingleton<ResolverService>();
+\`\`
+
+---
+
+## Phase 133E — Build Verification
+
+### FIX-133E-01: Build + Test
+
+**What:**
+1. \`dotnet build -c Release\` — 0 errors, 0 warnings
+2. Manual test \`/EmbyStreams/Resolve?id=tt0000000&quality=hd_broad\`
+3. Verify M3U8 format and signed URLs
 
 ---
 
 ## Sprint 133 Completion Criteria
 
-- [x] `Services/M3u8Builder.cs` created
-- [x] `Services/ResolverService.cs` created
-- [x] HEVC/AVC codec awareness in tier metadata
-- [x] Display labels updated: hd_broad → "1080p", sd_broad → "720p"
-- [x] IsHevcStream detection from codec field + filename
-- [x] HEVC sorted before AVC within each tier
-- [x] NAME attribute includes codec: "1080p H.265 – Source A"
+- [ ] \`Services/ResolverService.cs\` created
+- [ ] \`Services/M3u8Builder.cs\` created
+- [ ] \`Models/ResolverRequest.cs\` created
+- [ ] Resolver endpoint registered in Plugin.cs
 - [ ] Build succeeds with 0 errors
-- [ ] Resolve endpoint returns valid m3u8 with stream tokens
-- [ ] Quality tier downgrade ordering correct
-- [ ] In-memory cache hits on repeated requests
-- [ ] Invalid/expired resolve token returns 401
-- [ ] No streams returns 503 + Retry-After: 30
-- [ ] Quality mismatch logged
+- [ ] Manual \`/EmbyStreams/Resolve\` endpoint test
 
 ---
 
-## Sprint 133 Notes
+## Notes
 
-**Files created:** 2 (`Services/M3u8Builder.cs`, `Services/ResolverService.cs`)
+**Files created:** 3
+**Files modified:** 1 (\`Plugin.cs\`)
 
-**Risk assessment:** HIGH. The resolver orchestrates AIOStreams queries, tier mapping, caching, and m3u8 generation. Edge cases around stream-to-tier mapping, HEVC detection, and the downgrade ladder require testing.
-
-**Design decisions:**
-- 4 tiers replace 6 slots — simpler mental model, matches spec
-- In-memory cache before DB cache — fast repeated playback
-- Max 3 variants per tier — keeps manifest small for Emby
-- HEVC/AVC detection from both codec field and filename — covers AIOStreams variations
-- Stream tokens generated per-variant — each m3u8 entry has independent token
-- DB cache stores a marker (`m3u8:{tier}:{count}`) not full manifest — memory cache is authoritative
-- Resolve token validates quality/id/idType params — prevents URL tampering
+**Risk:** LOW
