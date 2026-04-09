@@ -959,18 +959,16 @@ namespace EmbyStreams.Services
                     };
                 }
 
-                // Create proxy token
-                var token = StreamResolutionHelper.CreateProxyToken(cached, candidates);
-
+                // Use direct stream URL (proxy tokens removed in Sprint 137)
+                var streamUrl = cached.StreamUrl;
                 var port = ParsePort(config.EmbyBaseUrl) ?? 8096;
-                var streamUrl = $"http://127.0.0.1:{port}/EmbyStreams/Stream/{token}";
 
-                _logger.LogInformation("[Discover] Stream resolution successful for {ImdbId}, token: {Token}", req.ImdbId, token);
+                _logger.LogInformation("[Discover] Stream resolution successful for {ImdbId}", req.ImdbId);
 
                 return new DiscoverTestStreamResolutionResponse
                 {
                     Success = true,
-                    ProxyToken = token,
+                    ProxyToken = null,
                     StreamUrl = streamUrl,
                     EmbyUrl = $"http://127.0.0.1:{port}/web/#/details/{req.ImdbId}"
                 };
