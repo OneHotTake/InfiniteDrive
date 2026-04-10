@@ -528,6 +528,8 @@ namespace EmbyStreams.Tasks
                 Source       = "aiostreams",
                 SourceListId = catalog.Id,
                 CatalogType  = rawType,
+                // Sprint 147: Set ItemState to Queued for RefreshTask to process
+                ItemState    = ItemState.Queued,
             };
         }
 
@@ -894,8 +896,10 @@ namespace EmbyStreams.Tasks
             // 4. Check that Emby libraries cover the sync paths; warn if not
             WarnIfLibrariesMissing(config);
 
-            // 5. Write .strm files in batches, scanning after each batch
-            await WriteStrmFilesAsync(db, deduplicated, config, cancellationToken, progress, async () => await TriggerLibraryScanAsync());
+            // Sprint 147: CatalogSyncTask no longer writes .strm files
+            // Items are persisted with ItemState = Queued for RefreshTask to process
+            // RefreshTask handles: Write -> Hint -> Notify -> Verify -> Promote
+            // DeepCleanTask handles: Validation, Enrichment, Token Renewal
             progress.Report(100);
 
             _logger.LogInformation("[EmbyStreams] CatalogSyncTask complete");

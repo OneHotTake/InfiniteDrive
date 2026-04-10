@@ -614,13 +614,41 @@
     <h1 class="es-hero-title">DON'T PANIC</h1>
   </div>
 
-  <!-- Status indicator -->
-  <div class="es-card" style="text-align: center; padding: 2em;">
-    <div id="es-improbability-status" style="font-size: 1.2em; margin-bottom: 1em;">
-      🟢
+  <!-- Two-worker status -->
+  <div class="es-card" style="padding: 1.5em;">
+    <!-- Refresh Worker -->
+    <div class="es-btn-row" style="align-items: center; justify-content: space-between; margin-bottom: 1em;">
+      <div style="display: flex; align-items: center; gap: 0.75em;">
+        <span id="es-refresh-dot" style="font-size: 1.2em;">🟢</span>
+        <div>
+          <div style="font-weight: 500;">Refresh Worker</div>
+          <div id="es-refresh-status" style="font-size: 0.85em; opacity: 0.7;">Idle</div>
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div id="es-refresh-last-run" style="font-size: 0.75em; opacity: 0.6;"></div>
+        <button id="es-refresh-now-btn" class="es-btn" style="margin-top: 0.25em; padding: 0.4em 0.8em; font-size: 0.85em;">Refresh Now</button>
+      </div>
     </div>
-    <div id="es-improbability-message" style="font-size: 1em; opacity: 0.8;">
-      All systems nominal
+
+    <!-- Deep Clean -->
+    <div class="es-btn-row" style="align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 0.75em;">
+        <span id="es-deepclean-dot" style="font-size: 1.2em;">🟢</span>
+        <div>
+          <div style="font-weight: 500;">Deep Clean</div>
+          <div id="es-deepclean-status" style="font-size: 0.85em; opacity: 0.7;">Idle</div>
+        </div>
+      </div>
+      <div id="es-deepclean-last-run" style="font-size: 0.75em; opacity: 0.6; text-align: right;"></div>
+    </div>
+  </div>
+
+  <!-- Enrichment summary -->
+  <div class="es-card" style="padding: 1.2em;">
+    <div class="es-btn-row" style="font-size: 0.9em; justify-content: center; gap: 2em;">
+      <span>Needs Enrich: <strong id="es-needs-enrich-count">0</strong></span>
+      <span>Blocked: <strong id="es-blocked-count">0</strong></span>
     </div>
   </div>
 

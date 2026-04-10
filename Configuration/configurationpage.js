@@ -1077,9 +1077,6 @@ function (loading) {
             })
             .then(function(d) { if (d) renderRecentErrors(view, d); })
             .catch(function() { /* non-admin or offline — silently skip */ });
-
-        // Sprint 67 v0.67.2: Fetch Doctor last run summary
-        loadDoctorLastRun(view);
     }
 
     function renderUnhealthyItems(view, d) {
@@ -1279,67 +1276,6 @@ function (loading) {
             btn.style.display = 'none';
             if (hostInfo) hostInfo.style.display = 'none';
         }
-    }
-
-    // ── Sprint 67 v0.67.2: Doctor LastRun Summary ─────────────────────────────────
-    function loadDoctorLastRun(view) {
-        esFetch('/EmbyStreams/Doctor/LastRun')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var lastRunEl = q(view, 'es-doctor-last-run');
-                var summaryEl = q(view, 'es-doctor-summary');
-                var summaryContentEl = q(view, 'es-doctor-summary-content');
-                var neverRunEl = q(view, 'es-doctor-never-run');
-
-                if (!lastRunEl) return;
-
-                if (data.lastRunStatus === 'never' || !data.lastRunAt) {
-                    if (lastRunEl) lastRunEl.textContent = '';
-                    if (summaryEl) summaryEl.style.display = 'none';
-                    if (neverRunEl) neverRunEl.style.display = 'block';
-                    return;
-                }
-
-                // Has run before
-                if (neverRunEl) neverRunEl.style.display = 'none';
-                if (summaryEl) summaryEl.style.display = 'block';
-
-                // Format last run time
-                var lastRunDate;
-                try { lastRunDate = new Date(data.lastRunAt); } catch(e) { lastRunDate = null; }
-                var timeStr = lastRunDate ? fmtDate(data.lastRunAt) : 'Unknown';
-                var statusBadge = data.lastRunStatus === 'success' ? '✅' : data.lastRunStatus === 'running' ? '⟳' : '✗';
-                if (lastRunEl) lastRunEl.textContent = 'Last run: ' + timeStr + '  ' + statusBadge;
-
-                if (summaryContentEl && data.Summary) {
-                    var s = data.Summary;
-                    var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:.4em;font-size:.82em">';
-                    if (s.ItemsHealthy !== undefined) html += '<div>✅ ' + s.ItemsHealthy + ' <span style="opacity:.6">healthy</span></div>';
-                    if (s.StrmWritten !== undefined) html += '<div>✅ ' + s.StrmWritten + ' <span style="opacity:.6">written</span></div>';
-                    if (s.EpisodesExpanded !== undefined && s.EpisodesExpanded > 0) html += '<div>✅ ' + s.EpisodesExpanded + ' <span style="opacity:.6">expanded</span></div>';
-                    if (s.Adopted !== undefined && s.Adopted > 0) html += '<div>✅ ' + s.Adopted + ' <span style="opacity:.6">retired</span></div>';
-                    if (s.PinnedPreserved !== undefined && s.PinnedPreserved > 0) html += '<div>✅ ' + s.PinnedPreserved + ' <span style="opacity:.6">preserved</span></div>';
-                    if (s.DeadUrlsFlagged !== undefined && s.DeadUrlsFlagged > 0) html += '<div>⚠️ ' + s.DeadUrlsFlagged + ' <span style="opacity:.6">dead URLs</span></div>';
-                    if (s.OrphansPurged !== undefined && s.OrphansPurged > 0) html += '<div>🗑️ ' + s.OrphansPurged + ' <span style="opacity:.6">purged</span></div>';
-                    if (s.Errors !== undefined && s.Errors > 0) html += '<div>✗ ' + s.Errors + ' <span style="opacity:.6">errors</span></div>';
-                    html += '</div>';
-
-                    // Phase details (collapsible)
-                    if (data.Phases && data.Phases.length > 0) {
-                        html += '<div style="margin-top:.6em;font-size:.8em;opacity:.7">Phases: ';
-                        data.Phases.forEach(function(p, i) {
-                            var icon = p.Status === 'success' ? '✅' : p.Status === 'warning' ? '⚠️' : p.Status === 'error' ? '✗' : '○';
-                            html += icon + ' ' + p.Name + (i < data.Phases.length - 1 ? ' · ' : '');
-                        });
-                        html += '</div>';
-                    }
-
-                    summaryContentEl.innerHTML = html;
-                }
-            })
-            .catch(function() {
-                // Silently fail — Doctor panel shows never-run state
-            });
     }
 
     function renderProviderHealth(view, providers) {
@@ -2096,6 +2032,14 @@ function (loading) {
                 summonMarvin(view);
             });
         }
+
+        // Refresh Now button handler
+        var refreshNowBtn = q(view, 'es-refresh-now-btn');
+        if (refreshNowBtn) {
+            refreshNowBtn.addEventListener('click', function() {
+                triggerRefreshNow(view);
+            });
+        }
         }
 
         // Search input (input event)
@@ -2645,14 +2589,138 @@ function (loading) {
 
     // ── Improbability Drive functions ───────────────────────────────────────────
     function loadImprobabilityStatus(view) {
-        // Simple status display - green/yellow/red based on health
-        var statusEl = q(view, 'es-improbability-status');
-        var msgEl = q(view, 'es-improbability-message');
+        // Fetch status from /EmbyStreams/Status
+        ApiClient.getJSON(ApiClient.getUrl('EmbyStreams/Status')).then(function(status) {
+            // Refresh Worker
+            var refreshDot = q(view, 'es-refresh-dot');
+            var refreshStatus = q(view, 'es-refresh-status');
+            var refreshLastRun = q(view, 'es-refresh-last-run');
 
-        // For now, show nominal status
-        // In future, this would poll /EmbyStreams/Status for actual health data
-        statusEl.textContent = '🟢';
-        msgEl.textContent = 'All systems nominal';
+            if (status.RefreshHasRun && status.RefreshLastRunAt) {
+                var refreshMinutesAgo = minutesAgo(status.RefreshLastRunAt);
+                if (refreshMinutesAgo < 12) {
+                    refreshDot.textContent = '🟢';
+                } else if (refreshMinutesAgo < 18) {
+                    refreshDot.textContent = '🟡';
+                } else {
+                    refreshDot.textContent = '🔴';
+                }
+                refreshLastRun.textContent = 'Last run: ' + formatTimeAgo(status.RefreshLastRunAt);
+            } else {
+                refreshDot.textContent = '⚪';
+                refreshLastRun.textContent = 'Not yet run';
+            }
+
+            // Active step
+            if (status.RefreshActiveStep) {
+                refreshDot.textContent = '🔄';
+                refreshStatus.textContent = 'Running: ' + status.RefreshActiveStep + ' (' + status.RefreshItemsProcessed + ' items)';
+            } else {
+                refreshStatus.textContent = 'Idle';
+            }
+
+            // Deep Clean
+            var deepCleanDot = q(view, 'es-deepclean-dot');
+            var deepCleanStatus = q(view, 'es-deepclean-status');
+            var deepCleanLastRun = q(view, 'es-deepclean-last-run');
+
+            if (status.DeepCleanHasRun && status.DeepCleanLastRunAt) {
+                var deepCleanHoursAgo = hoursAgo(status.DeepCleanLastRunAt);
+                if (deepCleanHoursAgo < 36) {
+                    deepCleanDot.textContent = '🟢';
+                } else if (deepCleanHoursAgo < 54) {
+                    deepCleanDot.textContent = '🟡';
+                } else {
+                    deepCleanDot.textContent = '🔴';
+                }
+                deepCleanLastRun.textContent = 'Last run: ' + formatTimeAgo(status.DeepCleanLastRunAt);
+            } else {
+                deepCleanDot.textContent = '⚪';
+                deepCleanLastRun.textContent = 'Not yet run';
+            }
+
+            deepCleanStatus.textContent = 'Idle';
+
+            // Enrichment counts
+            var needsEnrichEl = q(view, 'es-needs-enrich-count');
+            var blockedEl = q(view, 'es-blocked-count');
+            if (needsEnrichEl) needsEnrichEl.textContent = status.NeedsEnrichCount || 0;
+            if (blockedEl) blockedEl.textContent = status.BlockedCount || 0;
+        }).catch(function(err) {
+            console.error('Failed to load Improbability Drive status:', err);
+        });
+    }
+
+    function triggerRefreshNow(view) {
+        var btn = q(view, 'es-refresh-now-btn');
+        if (btn) {
+            btn.textContent = 'Starting...';
+            btn.disabled = true;
+        }
+
+        // Find RefreshTask and trigger it
+        ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
+            var refresh = (tasks || []).find(function(t) { return t.Key === 'EmbyStreamsRefresh'; });
+            if (refresh) {
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + refresh.Id) });
+
+                // Poll until active step appears (task started) then until it clears (task done)
+                var pollInterval = setInterval(function() {
+                    loadImprobabilityStatus(view);
+                    ApiClient.getJSON(ApiClient.getUrl('EmbyStreams/Status')).then(function(status) {
+                        if (!status.RefreshActiveStep && btn) {
+                            clearInterval(pollInterval);
+                            btn.textContent = 'Refresh Now';
+                            btn.disabled = false;
+                        }
+                    });
+                }, 2000);
+
+                // Safety: stop polling after 5 minutes max
+                setTimeout(function() { clearInterval(pollInterval); if (btn) { btn.textContent = 'Refresh Now'; btn.disabled = false; } }, 300000);
+            } else {
+                if (btn) {
+                    btn.textContent = 'Refresh Now';
+                    btn.disabled = false;
+                }
+            }
+        }).catch(function(err) {
+            console.error('Failed to trigger refresh:', err);
+            if (btn) {
+                btn.textContent = 'Refresh Now';
+                btn.disabled = false;
+            }
+        });
+    }
+
+    // Helper functions for time formatting
+    function minutesAgo(isoString) {
+        var now = new Date();
+        var then = new Date(isoString);
+        return Math.floor((now - then) / 60000);
+    }
+
+    function hoursAgo(isoString) {
+        var now = new Date();
+        var then = new Date(isoString);
+        return Math.floor((now - then) / 3600000);
+    }
+
+    function formatTimeAgo(isoString) {
+        var now = new Date();
+        var then = new Date(isoString);
+        var diffMs = now - then;
+        var diffMins = Math.floor(diffMs / 60000);
+
+        if (diffMins < 60) {
+            return diffMins + 'm ago';
+        }
+        var diffHours = Math.floor(diffMins / 60);
+        if (diffHours < 24) {
+            return diffHours + 'h ago';
+        }
+        var diffDays = Math.floor(diffHours / 24);
+        return diffDays + 'd ago';
     }
 
     function summonMarvin(view) {

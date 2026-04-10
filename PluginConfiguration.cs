@@ -583,6 +583,17 @@ namespace EmbyStreams
         public bool DeleteStrmOnReadoption { get; set; } = true;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  METADATA ENRICHMENT                                                  ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// Base URL for AIOMetadata API for enrichment.
+        /// Format: https://<instance>/meta/{type}/{id}.json
+        /// </summary>
+        [DataMember]
+        public string AioMetadataBaseUrl { get; set; } = string.Empty;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  FIRST-RUN WIZARD                                                    ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
