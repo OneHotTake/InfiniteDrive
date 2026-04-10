@@ -193,7 +193,8 @@ namespace EmbyStreams.Data
                        local_path, local_source, resurrection_count,
                        item_state, pin_source, pinned_at
                 FROM catalog_items
-                WHERE removed_at IS NULL;";
+                WHERE removed_at IS NULL
+                  AND blocked_at IS NULL;";
 
             return await QueryListAsync(sql, null, ReadCatalogItem);
         }
@@ -673,6 +674,7 @@ namespace EmbyStreams.Data
                        local_path, local_source, resurrection_count
                 FROM catalog_items
                 WHERE removed_at IS NULL
+                  AND blocked_at IS NULL
                   AND (strm_path IS NULL OR strm_path = '')
                   AND (local_source IS NULL OR local_source != 'library');";
 
@@ -1527,6 +1529,8 @@ namespace EmbyStreams.Data
                        unique_ids_json, nfo_status, retry_count, next_retry_at
                 FROM catalog_items
                 WHERE nfo_status = @nfo_status
+                  AND removed_at IS NULL
+                  AND blocked_at IS NULL
                 LIMIT @limit;";
 
             return await QueryListAsync(sql, cmd =>

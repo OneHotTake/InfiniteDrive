@@ -340,7 +340,7 @@ namespace EmbyStreams.Tasks
 
                 // Fetch metadata from AIOMetadata
                 var enriched = await aioClient.FetchAsync(item.ImdbId, item.Year);
-                if (enriched != null)
+                if (enriched == null)
                 {
                     // Failure: increment retry_count, set next_retry_at
                     item.RetryCount++;
@@ -376,7 +376,7 @@ namespace EmbyStreams.Tasks
                 }
                 else
                 {
-                    // Success: write enriched .nfo
+                    // Success: enriched is non-null — write enriched .nfo
                     await WriteEnrichedNfoAsync(item, enriched, cancellationToken);
 
                     // Set nfo_status = 'Enriched', retry_count = 0

@@ -668,9 +668,9 @@ namespace EmbyStreams.Tasks
 
             // Write uniqueid - prefer IMDB, fall back to TMDB
             if (!string.IsNullOrEmpty(meta.ImdbId))
-                nfoSb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{meta.ImdbId}</uniqueid>");
+                nfoSb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{SecurityElement.Escape(meta.ImdbId)}</uniqueid>");
             else if (!string.IsNullOrEmpty(meta.TmdbId))
-                nfoSb.AppendLine($"  <uniqueid type=\"tmdb\" default=\"true\">{meta.TmdbId}</uniqueid>");
+                nfoSb.AppendLine($"  <uniqueid type=\"tmdb\" default=\"true\">{SecurityElement.Escape(meta.TmdbId)}</uniqueid>");
 
             // Write genres
             if (meta.Genres != null && meta.Genres.Count > 0)

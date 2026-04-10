@@ -72,7 +72,9 @@ namespace EmbyStreams.Services
             var message = $"{url}|{timestamp}";
             var expectedSignature = ComputeHmacSimple(message, pluginSecret);
 
-            return parts[2] == expectedSignature;
+            return CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(parts[2] ?? string.Empty),
+                System.Text.Encoding.UTF8.GetBytes(expectedSignature));
         }
 
         /// <summary>
@@ -206,7 +208,9 @@ namespace EmbyStreams.Services
             var message = $"{parts[0]}:{parts[1]}:{parts[2]}";
             var expectedSignature = ComputeHmacSimple(message, pluginSecret);
 
-            return parts[3] == expectedSignature;
+            return CryptographicOperations.FixedTimeEquals(
+                System.Text.Encoding.UTF8.GetBytes(parts[3] ?? string.Empty),
+                System.Text.Encoding.UTF8.GetBytes(expectedSignature));
         }
 
         /// <summary>
