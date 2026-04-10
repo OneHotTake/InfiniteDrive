@@ -276,11 +276,13 @@ namespace EmbyStreams
         public int MaxConcurrentResolutions { get; set; } = 3;
 
         /// <summary>
-        /// Minimum delay in milliseconds between successive AIOStreams API calls
-        /// to avoid triggering rate limiting.  Default: 500 ms.
+        /// Resolved AIOStreams instance type (Shared or Private).
+        /// Auto-detected from <see cref="PrimaryManifestUrl"/> on every config save.
+        /// Not user-editable — stored in XML only.
+        /// Default: <see cref="Services.InstanceType.Shared"/> (safer fallback).
         /// </summary>
         [DataMember]
-        public int ApiCallDelayMs { get; set; } = 500;
+        public Services.InstanceType ResolvedInstanceType { get; set; } = Services.InstanceType.Shared;
 
         /// <summary>
         /// Maximum number of items fetched from any single catalog source per sync run.
@@ -355,20 +357,6 @@ namespace EmbyStreams
         /// </summary>
         [DataMember]
         public string PluginSecret { get; set; } = string.Empty;
-
-        // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  WEBHOOK SECURITY                                                    ║
-        // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>
-        /// Optional shared secret for webhook authentication.
-        /// When set, the <c>POST /EmbyStreams/Webhook/Sync</c> endpoint requires
-        /// callers to include an <c>Authorization: Bearer &lt;secret&gt;</c> or
-        /// <c>X-Api-Key: &lt;secret&gt;</c> header.  Leave empty to allow
-        /// unauthenticated webhook calls (only for trusted private networks).
-        /// </summary>
-        [DataMember]
-        public string WebhookSecret { get; set; } = string.Empty;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  MULTI-PROVIDER PRIORITY                                             ║
@@ -597,6 +585,74 @@ namespace EmbyStreams
         public bool IsFirstRunComplete { get; set; } = false;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  INSTANCE TYPE DETECTION                                             ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// Known public/shared AIOStreams instance hostnames.
+        /// Add new shared-hosting domains here as they emerge.
+        /// </summary>
+        private static readonly string[] SharedInstanceHosts =
+        {
+            "elfhosted.com",
+            "aiostreams.elfhosted.com",
+        };
+
+        /// <summary>
+        /// Detects the AIOStreams instance type from the manifest URL.
+        /// <list type="bullet">
+        ///   <item><c>Private</c> if host is localhost, 127.0.0.1, or RFC1918 range.</item>
+        ///   <item><c>Shared</c> if host matches known public-instance allowlist.</item>
+        ///   <item><c>Shared</c> for everything else (safer default).</item>
+        /// </list>
+        /// </summary>
+        public static Services.InstanceType DetectInstanceType(string manifestUrl)
+        {
+            if (string.IsNullOrWhiteSpace(manifestUrl))
+                return Services.InstanceType.Shared;
+
+            try
+            {
+                var uri = new Uri(manifestUrl);
+                var host = uri.Host.ToLowerInvariant();
+
+                // Loopback
+                if (host == "localhost" || host == "127.0.0.1" || host == "::1")
+                    return Services.InstanceType.Private;
+
+                // RFC1918 private ranges
+                if (host.StartsWith("10.") ||
+                    host.StartsWith("192.168.") ||
+                    Is17216To31(host))
+                    return Services.InstanceType.Private;
+
+                // Known shared instances (explicit allowlist)
+                foreach (var shared in SharedInstanceHosts)
+                {
+                    if (host == shared || host.EndsWith("." + shared))
+                        return Services.InstanceType.Shared;
+                }
+            }
+            catch
+            {
+                // Unparseable URL — assume shared (safer)
+            }
+
+            return Services.InstanceType.Shared;
+        }
+
+        private static bool Is17216To31(string host)
+        {
+            // 172.16.0.0 – 172.31.255.255
+            if (!host.StartsWith("172."))
+                return false;
+            var parts = host.Split('.');
+            if (parts.Length < 2) return false;
+            if (!int.TryParse(parts[1], out var second)) return false;
+            return second >= 16 && second <= 31;
+        }
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  BOUNDS VALIDATION                                                   ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -611,7 +667,6 @@ namespace EmbyStreams
             CacheLifetimeMinutes      = Clamp(CacheLifetimeMinutes,      30,    1_440);  // 30 min – 24 h
             ApiDailyBudget            = Clamp(ApiDailyBudget,            1,     100_000);
             MaxConcurrentResolutions  = Clamp(MaxConcurrentResolutions,  1,     20);
-            ApiCallDelayMs            = Clamp(ApiCallDelayMs,            0,     5_000);
             CatalogItemCap            = Clamp(CatalogItemCap,            1,     50_000);
             CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     168);    // 1 h – 7 days
             MaxConcurrentProxyStreams  = Clamp(MaxConcurrentProxyStreams, 1,     20);
@@ -624,6 +679,9 @@ namespace EmbyStreams
             SignatureValidityDays    = Clamp(SignatureValidityDays,    1,     3650);
             SkipFutureEpisodes          = SkipFutureEpisodes;
             FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);
+
+            // Recompute instance type from manifest URL
+            ResolvedInstanceType = DetectInstanceType(PrimaryManifestUrl);
         }
 
         [OnDeserialized]
