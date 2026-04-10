@@ -116,14 +116,16 @@ namespace EmbyStreams.Data
                      added_at, updated_at, removed_at,
                      local_path, local_source, item_state, pin_source, pinned_at,
                      nfo_status, retry_count, next_retry_at,
-                     blocked_at, blocked_by, first_added_by_user_id)
+                     blocked_at, blocked_by, first_added_by_user_id,
+                     tvdb_id, raw_meta_json, catalog_type)
                 VALUES
                     (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                      @source, @source_list_id, @seasons_json, @strm_path,
                      @added_at, @updated_at, @removed_at,
                      @local_path, @local_source, @item_state, @pin_source, @pinned_at,
                      @nfo_status, @retry_count, @next_retry_at,
-                     @blocked_at, @blocked_by, @first_added_by_user_id)
+                     @blocked_at, @blocked_by, @first_added_by_user_id,
+                     @tvdb_id, @raw_meta_json, @catalog_type)
                 ON CONFLICT(imdb_id, source) DO UPDATE SET
                     tmdb_id       = excluded.tmdb_id,
                     unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -142,7 +144,10 @@ namespace EmbyStreams.Data
                     blocked_at    = COALESCE(catalog_items.blocked_at, excluded.blocked_at),
                     blocked_by    = COALESCE(catalog_items.blocked_by, excluded.blocked_by),
                     updated_at    = excluded.updated_at,
-                    removed_at    = NULL;";
+                    removed_at    = NULL,
+                    tvdb_id        = COALESCE(catalog_items.tvdb_id,       excluded.tvdb_id),
+                    catalog_type   = COALESCE(catalog_items.catalog_type,  excluded.catalog_type),
+                    raw_meta_json  = excluded.raw_meta_json;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -174,6 +179,9 @@ namespace EmbyStreams.Data
                 BindNullableText(cmd, "@blocked_at", item.BlockedAt);
                 BindNullableText(cmd, "@blocked_by", item.BlockedBy);
                 BindNullableText(cmd, "@first_added_by_user_id", item.FirstAddedByUserId);
+                BindNullableText(cmd, "@tvdb_id", item.TvdbId);
+                BindNullableText(cmd, "@raw_meta_json", item.RawMetaJson);
+                BindNullableText(cmd, "@catalog_type", item.CatalogType);
             });
         }
 
@@ -211,7 +219,8 @@ namespace EmbyStreams.Data
                        local_path, local_source, resurrection_count,
                        item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
                        retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id
+                       blocked_at, blocked_by, first_added_by_user_id,
+                       tvdb_id, raw_meta_json, catalog_type
                 FROM catalog_items
                 WHERE removed_at IS NULL
                   AND blocked_at IS NULL;";
@@ -231,7 +240,8 @@ namespace EmbyStreams.Data
                        local_path, local_source, resurrection_count,
                        item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
                        retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id
+                       blocked_at, blocked_by, first_added_by_user_id,
+                       tvdb_id, raw_meta_json, catalog_type
                 FROM catalog_items
                 WHERE imdb_id = @imdb_id AND removed_at IS NULL
                 LIMIT 1;";
@@ -3369,6 +3379,20 @@ FROM catalog_items;");
                     "INSERT OR IGNORE INTO schema_version (version) VALUES (24);");
                 version = 24;
             }
+
+            // ── Sprint 160: IdResolverService columns (V24 → V25) ─────────────────────
+            if (version < 25)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V24 → V25: Adding IdResolverService columns");
+                ExecuteInline(conn,
+                    "ALTER TABLE catalog_items ADD COLUMN tvdb_id TEXT;");
+                ExecuteInline(conn,
+                    "ALTER TABLE catalog_items ADD COLUMN raw_meta_json TEXT;");
+                ExecuteInline(conn,
+                    "ALTER TABLE catalog_items ADD COLUMN catalog_type TEXT;");
+                _logger.LogInformation("[EmbyStreams] Schema V25 migration complete");
+                version = 25;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -4180,6 +4204,10 @@ LIMIT 1";
             BlockedAt         = r.IsDBNull(24) ? null : r.GetString(24),
             BlockedBy         = r.IsDBNull(25) ? null : r.GetString(25),
             FirstAddedByUserId = r.IsDBNull(26) ? null : r.GetString(26),
+            // Sprint 160: IdResolverService columns
+            TvdbId           = r.IsDBNull(27) ? null : r.GetString(27),
+            RawMetaJson      = r.IsDBNull(28) ? null : r.GetString(28),
+            CatalogType       = r.IsDBNull(29) ? null : r.GetString(29),
         };
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry

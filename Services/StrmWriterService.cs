@@ -60,7 +60,7 @@ namespace EmbyStreams.Services
                 if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return null;
                 var folder = Path.Combine(
                     config.SyncPathMovies,
-                    SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId)));
+                    SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
                 Directory.CreateDirectory(folder);
                 var fileName = $"{SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
                 var path = Path.Combine(folder, fileName);
@@ -73,7 +73,7 @@ namespace EmbyStreams.Services
             // Series — seed S01E01
             if (string.IsNullOrWhiteSpace(config.SyncPathShows)) return null;
             var showDir = Path.Combine(config.SyncPathShows,
-                SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId)));
+                SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
             var seasonDir = Path.Combine(showDir, "Season 01");
             Directory.CreateDirectory(seasonDir);
             var strmPath = Path.Combine(seasonDir, $"{SanitisePath(item.Title)} S01E01.strm");
@@ -162,14 +162,35 @@ namespace EmbyStreams.Services
         /// (TMDb, OMDb) to automatically fetch poster, backdrop, cast, and ratings
         /// without requiring a separate .nfo file for ID hinting.
         /// </summary>
-        private static string BuildFolderName(string title, int? year, string? imdbId)
+        private static string BuildFolderName(
+            string title,
+            int? year,
+            string? imdbId,
+            string? tmdbId,
+            string? tvdbId,
+            string mediaType)
         {
             var sb = new StringBuilder(title);
             if (year.HasValue) sb.Append($" ({year})");
-            // Only add [imdbid-X] for tt-prefixed IDs that Emby's scanner recognizes
+
+            // Priority: tt > tvdb (series) > tmdb > nothing
+            // Emby scanner reads the FIRST recognized hint in the folder name.
             if (!string.IsNullOrEmpty(imdbId) &&
                 imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+            {
                 sb.Append($" [imdbid-{imdbId}]");
+            }
+            else if (!string.IsNullOrEmpty(tvdbId) &&
+                     (mediaType == "series" || mediaType == "anime"))
+            {
+                sb.Append($" [tvdbid-{tvdbId}]");
+            }
+            else if (!string.IsNullOrEmpty(tmdbId))
+            {
+                sb.Append($" [tmdbid-{tmdbId}]");
+            }
+            // No hint if we have nothing — Emby will fuzzy-match by title+year
+
             return sb.ToString();
         }
 

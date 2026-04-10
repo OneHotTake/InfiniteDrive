@@ -208,6 +208,11 @@ namespace EmbyStreams
         public Services.CooldownGate CooldownGate { get; internal set; } = null!;
 
         /// <summary>
+        /// Stream probe service for checking stream availability before serving to users (Sprint 159).
+        /// </summary>
+        public Services.StreamProbeService StreamProbeService { get; private set; } = null!;
+
+        /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.
         /// Heavy initialization (database, repositories, PluginSecret) is deferred to
         /// EmbyStreamsInitializationService.Run() via IServerEntryPoint.
@@ -437,6 +442,11 @@ namespace EmbyStreams
                 // Initialise StrmWriterService (Sprint 156: Unified Write Path)
                 StrmWriterService = new Services.StrmWriterService(_logManager, DatabaseManager);
                 _logger.LogInformation("[EmbyStreams] StrmWriterService initialised");
+
+                // Initialise StreamProbeService (Sprint 159: Stream Availability Probe)
+                StreamProbeService = new Services.StreamProbeService(
+                    new EmbyLoggerAdapter<Services.StreamProbeService>(_logManager.GetLogger("StreamProbeService")));
+                _logger.LogInformation("[EmbyStreams] StreamProbeService initialised");
             }
             catch (Exception ex)
             {
