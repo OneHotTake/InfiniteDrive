@@ -38,11 +38,12 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 > Plugin configuration UI with 5-step wizard, Sources tab, and progressive disclosure.
 
 ### Structure
-- **Tab bar**: Setup, Sources, Discover, Advanced
+- **Tab bar**: Setup, Discover, My Picks, Health, Improbability Drive, Blocked Items (admin), Content Mgmt (admin), Settings
 - **Setup tab**: 5-step wizard with progress bar (Provider → Libraries → Metadata → Catalogs → Sync)
-- **Sources tab**: Catalog sources table with sync status
-- **Discover tab**: Search/browse interface for adding content
-- **Advanced tab**: Collapsible accordions for System Status, Catalog Sync, Playback & Cache, etc.
+- **Discover tab**: Search/browse interface for adding content; per-user InLibrary status
+- **My Picks tab**: User pins management (playback + discover) with "I'm done" removal
+- **Blocked Items tab (admin-only)**: View and unblock catalog items failed after 3 enrichment attempts
+- **Content Mgmt tab (admin-only)**: Force catalog sync, view sync sources
 
 ### Wizard Steps
 1. **Provider**: Manifest URL + Test Connection, Base URL (auto-detected from origin)
@@ -133,6 +134,10 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 - `PurgeCatalogAsync()` — hard-delete catalog + sync_state + candidates; keep cache
 - `ResetAllAsync()` — hard-delete every table; returns strm paths for disk cleanup
 - `GetDatabasePath()` — returns absolute path to embystreams.db
+- `GetBlockedItemsAsync()` — items with blocked_at IS NOT NULL (Sprint 150)
+- `UnblockItemAsync(itemId)` — clear tombstone, reset to NeedsEnrich (Sprint 150)
+- `GetUserPinnedImdbIdsAsync(userId)` — HashSet of IMDB IDs pinned by user (Sprint 150 H-4)
+- `GetCatalogItemsByIdsAsync(ids)` — batch fetch by primary key list (Sprint 150)
 
 ---
 
@@ -242,8 +247,27 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ---
 
+## Services/AdminService.cs (Sprint 150)
+> Admin-only REST endpoints for blocked catalog item management.
+
+### Endpoints
+- `GET /EmbyStreams/Admin/BlockedItems` — returns all admin-blocked items
+- `POST /EmbyStreams/Admin/UnblockItems` — resets blocked items to NeedsEnrich, clears tombstone
+
+---
+
+## Services/UserService.cs (Sprint 150)
+> User-facing REST endpoints for pin management (My Picks).
+
+### Endpoints
+- `GET /EmbyStreams/User/MyPins` — returns user's playback and discover pins with metadata
+- `POST /EmbyStreams/User/RemovePins` — removes selected pins for the current user
+
+---
+
 ## Services/DiscoverService.cs
 > REST API handlers for the Discover browsing/search/add-to-library feature.
+> Sprint 150 H-4: All browse/search/detail handlers load per-user pin status and pass to MapToDiscoverItem.
 
 ### Public Methods
 - `Get(DiscoverBrowseRequest req)` — paginated catalog listing from local DB
@@ -253,6 +277,8 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ### Key Types / Constants
 - `DiscoverItem` — unified response DTO combining metadata and library status
+- `MapToDiscoverItem(entry, userPinnedImdbIds?)` — per-user InLibrary when ids provided
+- `TryGetCurrentUserId()` — extracts user ID from IAuthorizationContext
 
 ---
 

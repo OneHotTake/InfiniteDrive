@@ -32,7 +32,12 @@ namespace EmbyStreams.Tasks
         private const string TaskName     = "EmbyStreams Refresh Worker";
         private const string TaskKey      = "EmbyStreamsRefresh";
         private const string TaskCategory = "EmbyStreams";
-        private const int    NotifyLimit = 42;  // Non-negotiable bound
+        private const int    NotifyLimit = 42;  // Non-negotiable bound — max Emby library items notified per refresh cycle
+
+        // Sentinel unix timestamp used when an item should never be retried automatically.
+        // Year 2100 is effectively "never" — reviewed only if an admin manually unblocks.
+        private static readonly long NeverRetryUnixSeconds =
+            new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -621,7 +626,7 @@ namespace EmbyStreams.Tasks
                         {
                             1 => DateTimeOffset.UtcNow.AddHours(4).ToUnixTimeSeconds(),
                             2 => DateTimeOffset.UtcNow.AddHours(24).ToUnixTimeSeconds(),
-                            _ => new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds() // Blocked (effectively never retry)
+                            _ => NeverRetryUnixSeconds // Blocked — admin must manually unblock
                         };
 
                         item.NextRetryAt = nextRetrySeconds;
@@ -635,8 +640,31 @@ namespace EmbyStreams.Tasks
                     // Throttle: 2 seconds between calls
                     await Task.Delay(2000, cancellationToken);
                 }
+                catch (OperationCanceledException)
+                {
+                    // Propagate cancellation — do not swallow
+                    throw;
+                }
+                catch (System.Net.Http.HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
+                {
+                    // Rate-limited — stop enrichment loop for this run, retry next cycle
+                    _logger.LogWarning("[EmbyStreams] RefreshTask: Enrich rate-limited (429). Stopping enrichment for this cycle.");
+                    break;
+                }
+                catch (IOException ex)
+                {
+                    // Disk I/O failure writing NFO — stop enrichment, likely a persistent problem
+                    _logger.LogError(ex, "[EmbyStreams] RefreshTask: Enrich I/O failure for {Title} ({Year}). Stopping enrichment.", item.Title, item.Year);
+                    break;
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    // Bad metadata response — skip this item and continue
+                    _logger.LogWarning(ex, "[EmbyStreams] RefreshTask: Enrich bad metadata for {Title} ({Year}), skipping.", item.Title, item.Year);
+                }
                 catch (Exception ex)
                 {
+                    // Unknown transient error — log and continue to next item
                     _logger.LogWarning(ex, "[EmbyStreams] RefreshTask: Enrich failed for {Title} ({Year})", item.Title, item.Year);
                 }
             }

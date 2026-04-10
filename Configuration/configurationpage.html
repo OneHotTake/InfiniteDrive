@@ -208,8 +208,11 @@
 <div class="es-tabs">
   <button class="es-tab active" data-es-tab="setup">Setup <span class="es-version" id="es-plugin-version">…</span></button>
   <button class="es-tab"        data-es-tab="discover">Discover</button>
+  <button class="es-tab"        data-es-tab="mypicks">My Picks</button>
   <button class="es-tab"        data-es-tab="health">Health</button>
   <button class="es-tab"        data-es-tab="improbability">Improbability Drive</button>
+  <button class="es-tab es-admin-tab" data-es-tab="blocked" style="display:none">Blocked Items</button>
+  <button class="es-tab es-admin-tab" data-es-tab="content-mgmt" style="display:none">Content Mgmt</button>
   <button class="es-tab"        data-es-tab="settings">Settings</button>
 </div>
 
@@ -1512,6 +1515,67 @@
   </div>
 
 </div><!-- /advanced tab -->
+
+<!-- ════════════════════════════ TAB — My Picks ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-mypicks">
+
+  <div class="es-card">
+    <h2 style="margin-top:0">My Picks</h2>
+    <p class="es-hint">Items you've added from Discover or played recently. Remove items you're done with — they'll be cleaned up automatically.</p>
+
+    <div style="margin-bottom:1.5em">
+      <h3 style="margin-bottom:.5em">Recently Played</h3>
+      <div id="es-playback-pins-list"></div>
+    </div>
+
+    <div style="margin-bottom:1.5em">
+      <h3 style="margin-bottom:.5em">Added from Discover</h3>
+      <div id="es-discover-pins-list"></div>
+    </div>
+
+    <button id="es-remove-pins-btn" class="es-btn es-btn-primary" style="margin-top:.5em">
+      I'm Done With These
+    </button>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════ TAB — Blocked Items (Admin) ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-blocked">
+
+  <div class="es-card">
+    <h2 style="margin-top:0">Blocked Items</h2>
+    <p class="es-hint">Items blocked after failing enrichment 3 times. Still playable but won't be retried automatically.</p>
+
+    <div id="es-blocked-items-list" style="margin-bottom:1em"></div>
+
+    <div style="display:flex;gap:.75em;flex-wrap:wrap">
+      <button id="es-unblock-selected-btn" class="es-btn es-btn-primary">Unblock Selected</button>
+      <button id="es-unblock-all-btn" class="es-btn">Unblock All</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════ TAB — Content Management (Admin) ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-content-mgmt">
+
+  <div class="es-card">
+    <h2 style="margin-top:0">Content Management</h2>
+
+    <div style="margin-bottom:1.5em">
+      <h3 style="margin-bottom:.5em">Catalog Sync</h3>
+      <p class="es-hint">Manually trigger catalog sync (normally runs every 6 hours).</p>
+      <button id="es-force-catalog-sync-btn" class="es-btn">Force Catalog Sync Now</button>
+    </div>
+
+    <div style="margin-bottom:1.5em">
+      <h3 style="margin-bottom:.5em">Sync Sources</h3>
+      <div id="es-sync-sources-list" class="es-hint">Loading…</div>
+    </div>
+  </div>
+
+</div>
 
 </div><!-- #es-page -->
 

@@ -18,19 +18,18 @@ namespace EmbyStreams.Services
     {
         private readonly PluginConfiguration _config;
         private readonly ILogger _logger;
-        private readonly HttpClient _httpClient;
 
         private const int TimeoutSeconds = 10;
+        private static readonly HttpClient _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(TimeoutSeconds)
+        };
         private Uri? _baseUrl;
 
         public AioMetadataClient(PluginConfiguration config, ILogger logger)
         {
             _config = config;
             _logger = logger;
-            _httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(TimeoutSeconds)
-            };
 
             if (!string.IsNullOrEmpty(config.AioMetadataBaseUrl))
             {

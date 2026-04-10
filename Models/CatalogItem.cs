@@ -132,5 +132,8 @@ namespace EmbyStreams.Models
 
         /// <summary>Emby user ID of admin who blocked the item.</summary>
         public string? BlockedBy { get; set; }
+
+        /// <summary>True if this item has been blocked by an admin.</summary>
+        public bool Blocked => !string.IsNullOrEmpty(BlockedAt);
     }
 }

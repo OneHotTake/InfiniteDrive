@@ -285,7 +285,7 @@ namespace EmbyStreams.Tasks
                         ELSE 1
                     END ASC,
                     created_at ASC
-                LIMIT 42;";
+                LIMIT 42;"; // 42: max enrichment items per deep-clean cycle — balanced to avoid long I/O stalls
 
             var needsEnrichItems = await db.QueryListAsync<EnrichedItem>(
                 needsEnrichQuery,

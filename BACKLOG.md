@@ -1195,3 +1195,40 @@ Implements comprehensive E2E testing.
 - `.ai/SPRINT_119.md` — Sprint 119 details
 - `.ai/SPRINT_120.md` — Sprint 120 details
 - `.ai/SPRINT_121.md` — Sprint 121 details
+
+
+---
+
+## Sprint 150 — Spec Drift & UX Fixes (2026-04-10)
+**Status:** [x] Complete
+
+### Completed
+- [x] M-6: Added RefreshHealth/DeepCleanHealth to StatusResponse DTO; computed in Get() with 2×/3× interval thresholds
+- [x] H-4: Per-user InLibrary in DiscoverService — added TryGetCurrentUserId(), GetUserPinnedImdbIdsAsync(), updated Browse/Search/Detail to overlay per-user pins
+- [x] H-5: Added composite index idx_user_item_pins_user_source_pinned on DatabaseManager schema
+- [x] MISSING-1: Added GetBlockedItemsAsync/UnblockItemAsync to DatabaseManager; created Services/AdminService.cs; added Blocked Items tab to configurationpage.html/js (admin-only)
+- [x] MISSING-2: Created Services/UserService.cs (GetUserPinsRequest, RemovePinsRequest); added My Picks tab to configurationpage.html/js (user-facing)
+- [x] MISSING-3: Added Content Mgmt admin tab to configurationpage.html; admin tab visibility toggled by ApiClient.getCurrentUser() in loadConfig()
+- [x] H-1 (Sprint 151): Added CatalogItem.Blocked computed property
+
+### Guidance
+- AdminService/UserService follow same IService + IRequiresRequest pattern as StatusService
+- Per-user InLibrary reads from user_item_pins joined to catalog_items — not discover_catalog.is_in_user_library
+- Admin tabs hidden by default (display:none), shown via JS for IsAdministrator users
+
+---
+
+## Sprint 151 — God Class Refactor (Safe Items) (2026-04-10)
+**Status:** [x] Complete
+
+### Completed
+- [x] H-1: CatalogItem.Blocked computed property (done under Sprint 150)
+- [x] M-1: Deleted dead private STRM methods from CatalogSyncTask.cs (WriteStrmFilesAsync, WriteStrmFileForItemAsync, WriteSeriesStrmAsync, WriteEpisodesFromSeasonsJsonAsync, WriteNfoFileAsync) — ~648 lines removed; kept WriteStrmFile helper and WriteStrmFileForItemPublicAsync
+- [x] M-3: AioMetadataClient._httpClient promoted from per-instance to static
+- [x] M-4: EnrichStepAsync exception handling improved — OperationCanceledException rethrown, 429 breaks loop, IOException breaks loop, JsonException/other continue
+- [x] L-2: NeverRetryUnixSeconds constant added to RefreshTask; replaces DateTimeOffset(2100,...) magic literal
+- [x] L-4: Comments added to 42 magic numbers in RefreshTask and DeepCleanTask
+
+### Skipped
+- H-3: CatalogRepository extraction — Emby SQLite API (SQLite3.Open) incompatibility risk
+- R-1: Repository decoupling from DatabaseManager — risky; deferred to Sprint 155+
