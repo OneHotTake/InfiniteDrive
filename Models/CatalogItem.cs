@@ -11,7 +11,12 @@ namespace EmbyStreams.Models
         /// <summary>UUID primary key.</summary>
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        /// <summary>IMDB ID, e.g. <c>tt1160419</c>.</summary>
+        /// <summary>
+        /// Canonical primary ID. May be a tt-prefixed IMDb ID when resolved,
+        /// or a native provider ID (e.g., tmdb_260192) when resolution failed.
+        /// Used as the deduplication key despite the column name.
+        /// Updated in Sprint 160 to clarify it's not always an IMDb ID.
+        /// </summary>
         public string ImdbId { get; set; } = string.Empty;
 
         /// <summary>TMDB numeric ID as string, or null if unknown.</summary>
@@ -87,9 +92,25 @@ namespace EmbyStreams.Models
 
         /// <summary>
         /// Raw catalog type from the source ("anime", "series", "movie").
-        /// Not persisted — set during sync to carry source type through to NFO writing.
+        /// Persisted in Sprint 160 (catalog_type column).
+        /// Used for NFO writing and ID resolution.
         /// </summary>
         public string? CatalogType { get; set; }
+
+        /// <summary>
+        /// TVDB ID for series Emby scanner hint ([tvdbid-xxx])
+        /// and NFO <tvdbid> tag. Separate from UniqueIdsJson for direct access.
+        /// Added in Sprint 160.
+        /// </summary>
+        public string? TvdbId { get; set; }
+
+        /// <summary>
+        /// Verbatim JSON response from the source addon's
+        /// /meta/{type}/{id}.json call. Null if call was skipped or failed.
+        /// Purpose: debugging ID resolution failures without re-fetching.
+        /// Added in Sprint 160.
+        /// </summary>
+        public string? RawMetaJson { get; set; }
 
         // ── Sprint 66: Doctor Item State Machine ───────────────────────────────────
 
