@@ -1536,6 +1536,67 @@ namespace EmbyStreams.Data
             }, ReadCatalogItem);
         }
 
+        /// <summary>
+        /// Sets the nfo_status for a catalog item by id.
+        /// Used by DeepCleanTask for enrichment retry backoff.
+        /// </summary>
+        public async Task SetNfoStatusAsync(string itemId, string nfoStatus, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET nfo_status = @nfo_status, updated_at = datetime('now')
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@nfo_status", nfoStatus);
+                BindText(cmd, "@id", itemId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Updates retry_count and next_retry_at for a catalog item by id.
+        /// Used by DeepCleanTask for enrichment retry backoff.
+        /// </summary>
+        public async Task UpdateItemRetryInfoAsync(
+            string itemId,
+            int retryCount,
+            long? nextRetryAt,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET retry_count = @retry_count,
+                    next_retry_at = @next_retry_at,
+                    updated_at = datetime('now')
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@retry_count", retryCount);
+                if (nextRetryAt.HasValue)
+                    BindInt(cmd, "@next_retry_at", (int)nextRetryAt.Value);
+                else
+                    cmd.BindParameters["@next_retry_at"].BindNull();
+                BindText(cmd, "@id", itemId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Queries for a scalar integer value (COUNT, SUM, etc.).
+        /// Used by DeepCleanTask for counting Blocked and NeedsEnrich items.
+        /// </summary>
+        public Task<int> QueryScalarIntAsync(string sql, CancellationToken cancellationToken = default)
+        {
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+
+            foreach (var row in stmt.AsRows())
+                return Task.FromResult(row.IsDBNull(0) ? 0 : row.GetInt(0));
+
+            return Task.FromResult(0);
+        }
+
         // ── playback_log repository ─────────────────────────────────────────────
 
         /// <summary>
@@ -3608,7 +3669,7 @@ _logger.LogDebug("[EmbyStreams] Schema at version {Version}", version);
             return Task.FromResult<T?>(null);
         }
 
-        private Task<List<T>> QueryListAsync<T>(
+        internal Task<List<T>> QueryListAsync<T>(
             string sql,
             Action<IStatement>? bindParams,
             Func<IResultSet, T> map)

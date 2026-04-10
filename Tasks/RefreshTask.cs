@@ -121,6 +121,8 @@ namespace EmbyStreams.Tasks
                 var totalItemsAffected = 0;
 
                 // Step 1: Collect
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "collect", cancellationToken);
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", "0", cancellationToken);
                 progress?.Report(0.08);
                 var collected = await CollectStepAsync(cancellationToken);
                 if (!collected.Any())
@@ -131,55 +133,70 @@ namespace EmbyStreams.Tasks
                 {
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Collected {Count} new/changed items", collected.Count);
                     totalItemsAffected += collected.Count;
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
                 // Step 2: Write (only if we have collected items)
                 var writtenItems = new List<CatalogItem>();
                 if (collected.Any())
                 {
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "write", cancellationToken);
                     progress?.Report(0.25);
                     var written = await WriteStepAsync(collected, cancellationToken);
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Wrote {Count} .strm files", written);
                     writtenItems.AddRange(collected);
                     totalItemsAffected += written;
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
                 // Step 3: Hint (only for written items)
                 if (writtenItems.Any())
                 {
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "hint", cancellationToken);
                     progress?.Report(0.42);
                     var hinted = await HintStepAsync(writtenItems, cancellationToken);
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Created {Count} Identity Hint NFOs", hinted);
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
                 // Step 4: Notify (42-item bound)
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "notify", cancellationToken);
                 progress?.Report(0.58);
                 var notified = await NotifyStepAsync(cancellationToken);
                 if (notified > 0)
                 {
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Notified {Count} items to Emby", notified);
                     totalItemsAffected += notified;
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
                 // Step 5: Verify (42-item bound + token renewal)
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "verify", cancellationToken);
                 progress?.Report(0.75);
                 var verified = await VerifyStepAsync(cancellationToken);
                 if (verified > 0)
                 {
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Verified {Count} items", verified);
                     totalItemsAffected += verified;
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
                 // Step 6: Stalled-item promotion (>24h Notified -> NeedsEnrich)
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "promote", cancellationToken);
                 progress?.Report(0.92);
                 var promoted = await PromoteStalledItemsAsync(cancellationToken);
                 if (promoted > 0)
                 {
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Promoted {Count} stalled items to NeedsEnrich", promoted);
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
                 progress?.Report(1.0);
                 _logger.LogInformation("[EmbyStreams] RefreshTask completed successfully. Total affected: {Count}", totalItemsAffected);
+
+                // Clear active step and persist last run time
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "", cancellationToken);
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("last_refresh_run_time", DateTime.UtcNow.ToString("o"), cancellationToken);
 
                 await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "complete", totalItemsAffected, "All steps completed", cancellationToken);
             }

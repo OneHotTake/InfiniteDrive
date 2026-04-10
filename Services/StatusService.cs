@@ -178,6 +178,34 @@ namespace EmbyStreams.Services
 
         /// <summary>Host of the AIOStreams instance.</summary>
         public string? ManifestHost { get; set; }
+
+        // ── Sprint 146: Improbability Drive (two-worker status) ────────────────
+
+        /// <summary>True if RefreshTask has run at least once since server start.</summary>
+        public bool RefreshHasRun { get; set; }
+
+        /// <summary>ISO-8601 UTC timestamp of last RefreshTask completion.</summary>
+        public string? RefreshLastRunAt { get; set; }
+
+        /// <summary>Active step during RefreshTask run: "collect", "write", "hint", "notify", "verify", or null.</summary>
+        public string? RefreshActiveStep { get; set; }
+
+        /// <summary>Number of items processed in current RefreshTask run.</summary>
+        public int RefreshItemsProcessed { get; set; }
+
+        /// <summary>True if DeepCleanTask has run at least once since server start.</summary>
+        public bool DeepCleanHasRun { get; set; }
+
+        /// <summary>ISO-8601 UTC timestamp of last DeepCleanTask completion.</summary>
+        public string? DeepCleanLastRunAt { get; set; }
+
+        /// <summary>Number of items with nfo_status = 'NeedsEnrich'.</summary>
+        public int NeedsEnrichCount { get; set; }
+
+        /// <summary>Number of items with nfo_status = 'Blocked'.</summary>
+        public int BlockedCount { get; set; }
+
+        // ── End Sprint 146 ───────────────────────────────────────────────────────
     }
 
     /// <summary>Connection status for an upstream service.</summary>
@@ -548,6 +576,38 @@ namespace EmbyStreams.Services
                     "AIOStreams is not configured. Paste your manifest URL into the plugin settings to enable stream resolution.");
             }
 
+            // ── Sprint 146: Improbability Drive status (two-worker) ─────────
+
+            try
+            {
+                // Read RefreshTask metadata
+                var lastRefreshRun = db.GetMetadata("last_refresh_run_time");
+                var refreshActiveStep = db.GetMetadata("refresh_active_step");
+                var refreshItemsProcessed = db.GetMetadata("refresh_items_processed");
+
+                response.RefreshHasRun = !string.IsNullOrEmpty(lastRefreshRun);
+                response.RefreshLastRunAt = lastRefreshRun;
+                response.RefreshActiveStep = string.IsNullOrEmpty(refreshActiveStep) ? null : refreshActiveStep;
+                response.RefreshItemsProcessed = int.TryParse(refreshItemsProcessed, out var processedCount) ? processedCount : 0;
+
+                // Read DeepCleanTask metadata
+                var lastDeepCleanRun = db.GetMetadata("last_deepclean_run_time");
+                response.DeepCleanHasRun = !string.IsNullOrEmpty(lastDeepCleanRun);
+                response.DeepCleanLastRunAt = lastDeepCleanRun;
+
+                // Count NeedsEnrich and Blocked items
+                var needsEnrichQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'NeedsEnrich' AND removed_at IS NULL;";
+                var blockedQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'Blocked' AND removed_at IS NULL;";
+                response.NeedsEnrichCount = await db.QueryScalarIntAsync(needsEnrichQuery);
+                response.BlockedCount = await db.QueryScalarIntAsync(blockedQuery);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[EmbyStreams] Status: Improbability Drive status query failed");
+            }
+
+            // ── End Sprint 146 ─────────────────────────────────────────────────────
+
             return response;
         }
 
@@ -617,74 +677,6 @@ namespace EmbyStreams.Services
             // Immediately return fresh status
             var statusReq = new StatusRequest();
             return await Get(statusReq);
-        }
-    }
-
-    // ╔══════════════════════════════════════════════════════════════════════════╗
-    // ║  DOCTOR LAST RUN ENDPOINT (Sprint 67 v0.67.2)                            ║
-    // ╚══════════════════════════════════════════════════════════════════════════╝
-
-    /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Doctor/LastRun</c>.
-    /// Returns the summary of the most recent Doctor task run.
-    /// </summary>
-    [Route("/EmbyStreams/Doctor/LastRun", "GET",
-        Summary = "Returns the most recent Doctor task run summary")]
-    public class DoctorLastRunRequest : IReturn<object> { }
-
-    /// <summary>
-    /// Handles <c>GET /EmbyStreams/Doctor/LastRun</c>.
-    /// Reads the persisted summary file and returns it to the UI.
-    /// </summary>
-    public class DoctorLastRunService : IService, IRequiresRequest
-    {
-        private readonly ILogger<DoctorLastRunService> _logger;
-
-        public IRequest Request { get; set; } = null!;
-
-        public DoctorLastRunService(ILogManager logManager)
-        {
-            _logger = new EmbyLoggerAdapter<DoctorLastRunService>(logManager.GetLogger("EmbyStreams"));
-        }
-
-        public async Task<object> Get(DoctorLastRunRequest _)
-        {
-            try
-            {
-                var db = EmbyStreams.Plugin.Instance?.DatabaseManager;
-                if (db == null)
-                    return new { lastRunStatus = "never", error = "Plugin not initialized" };
-
-                // Derive the EmbyStreams data directory from the database path
-                var dbPath = db.GetDatabasePath();
-                var dataDir = Path.GetDirectoryName(dbPath);
-                if (string.IsNullOrEmpty(dataDir))
-                    return new { lastRunStatus = "never", error = "Could not determine data directory" };
-
-                var summaryPath = Path.Combine(dataDir, "doctor_last_run.json");
-
-                if (!File.Exists(summaryPath))
-                {
-                    return new
-                    {
-                        lastRunStatus = "never",
-                        lastRunAt = (string?)null,
-                        message = "Doctor has not been run yet. Run it once to build your library."
-                    };
-                }
-
-                var json = await File.ReadAllTextAsync(summaryPath);
-                return System.Text.Json.JsonSerializer.Deserialize<object>(json);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[EmbyStreams] Failed to read Doctor last run summary");
-                return new
-                {
-                    lastRunStatus = "error",
-                    error = "Could not load last run summary"
-                };
-            }
         }
     }
 
@@ -2389,11 +2381,6 @@ body{{
         /// <summary>Last sync time (ISO8601).</summary>
         public string? LastSyncTime { get; set; }
 
-        /// <summary>Last doctor run time (ISO8601).</summary>
-        /// Sprint 102A-04: Read from plugin_metadata table.
-        /// </summary>
-        public string? LastDoctorRunTime { get; set; }
-
         /// <summary>Last collection sync time (ISO8601).</summary>
         /// Sprint 102A-04: Read from plugin_metadata table.
         /// </summary>
@@ -2481,7 +2468,6 @@ body{{
 
                 // Last sync times (Sprint 102A-04: Read from plugin_metadata table)
                 response.LastSyncTime = db.GetMetadata("last_sync_time");
-                response.LastDoctorRunTime = db.GetMetadata("last_doctor_run_time");
                 response.LastCollectionSyncTime = db.GetMetadata("last_collection_sync_time");
 
                 // Blocked addons
