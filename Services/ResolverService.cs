@@ -90,7 +90,7 @@ namespace EmbyStreams.Services
                 return Error(404, "not_found", "No streams available");
             }
 
-            // 3. Filter and select streams
+            // 3. Filter by quality tier
             var filtered = FilterStreamsByTier(streams, req.Quality);
             if (filtered.Count == 0)
             {
@@ -98,7 +98,12 @@ namespace EmbyStreams.Services
                 return Error(404, "not_found", $"No streams available for quality {req.Quality}");
             }
 
-            // 4. Select top stream per source
+            // 4. Probe top candidates and reorder — dead URLs sink to back of list.
+            //    Emby client sees working streams first; dead ones remain as fallback.
+            //    1.5s total budget shared across all probes (Sprint 159).
+            filtered = await ProbeAndReorderAsync(filtered);
+
+            // 5. Select top stream per source
             var variants = SelectTopStreams(filtered);
 
             // 5. Build M3U8 playlist with signed URLs
@@ -142,6 +147,46 @@ namespace EmbyStreams.Services
                 _logger.LogError(ex, "[EmbyStreams][Resolve] Failed to resolve streams for {Id}", req.Id);
                 return new List<AioStreamsStream>();
             }
+        }
+
+        /// <summary>
+        /// Probes the top 3 stream URLs and reorders the list so live streams
+        /// come first. Dead URLs sink to the back rather than being removed —
+        /// the Emby client can still attempt them as a last resort.
+        /// Total probe budget: 1.5s across all probes.
+        /// </summary>
+        private async Task<List<AioStreamsStream>> ProbeAndReorderAsync(
+            List<AioStreamsStream> streams)
+        {
+            var probe = Plugin.Instance?.StreamProbeService;
+            if (probe == null) return streams; // probe not available — pass through
+
+            var toProbe = streams.Take(3).ToList();
+            var rest    = streams.Skip(3).ToList();
+            var live    = new List<AioStreamsStream>();
+            var dead    = new List<AioStreamsStream>();
+
+            using var cts = new System.Threading.CancellationTokenSource(1500);
+
+            foreach (var stream in toProbe)
+            {
+                if (string.IsNullOrEmpty(stream.Url)) { dead.Add(stream); continue; }
+                try
+                {
+                    var result = await probe.ProbeAsync(stream.Url, cts.Token);
+                    if (result.Ok) live.Add(stream);
+                    else           dead.Add(stream);
+                }
+                catch (OperationCanceledException)
+                {
+                    // Budget exhausted — give benefit of the doubt to remaining
+                    dead.Add(stream);
+                    break;
+                }
+            }
+
+            // live probed → dead probed → unprobed tail (untouched)
+            return live.Concat(dead).Concat(rest).ToList();
         }
 
         /// <summary>

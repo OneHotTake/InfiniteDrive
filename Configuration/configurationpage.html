@@ -209,6 +209,7 @@
   <button class="es-tab active" data-es-tab="setup">Setup <span class="es-version" id="es-plugin-version">…</span></button>
   <button class="es-tab"        data-es-tab="discover">Discover</button>
   <button class="es-tab"        data-es-tab="mypicks">My Picks</button>
+  <button class="es-tab"        data-es-tab="mylists">My Lists</button>
   <button class="es-tab"        data-es-tab="health">Health</button>
   <button class="es-tab"        data-es-tab="improbability">Improbability Drive</button>
   <button class="es-tab es-admin-tab" data-es-tab="blocked" style="display:none">Blocked Items</button>
@@ -1539,6 +1540,33 @@
     <button id="es-remove-pins-btn" class="es-btn es-btn-primary" style="margin-top:.5em">
       I'm Done With These
     </button>
+  </div>
+
+</div>
+
+<!-- ════════════════════════════ TAB — My Lists ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-mylists">
+
+  <div class="es-card">
+    <h2 style="margin-top:0">My Lists</h2>
+    <p class="es-hint">Add a public <strong>Trakt</strong> or <strong>MDBList</strong> RSS URL and items will appear in Discover. Up to 5 lists per user.</p>
+
+    <!-- Top action: refresh all lists -->
+    <div style="margin-bottom:1.5em">
+      <button id="es-refresh-all-lists-btn" class="es-btn es-btn-primary">Refresh all my lists</button>
+      <span id="es-refresh-all-status" style="margin-left:1em;color:var(--es-muted, #888)"></span>
+    </div>
+
+    <!-- Add list -->
+    <div style="display:flex;gap:.75em;flex-wrap:wrap;margin-bottom:1.5em;align-items:center">
+      <input id="es-new-list-url" type="text" placeholder="https://trakt.tv/users/.../watchlist.rss"
+             style="flex:1;min-width:200px;padding:.5em .75em;border:1px solid var(--es-border,#ddd);border-radius:4px;background:var(--es-input-bg,#fff);color:inherit" />
+      <button id="es-add-list-btn" class="es-btn es-btn-primary">Add</button>
+    </div>
+    <p id="es-add-list-error" class="es-hint" style="color:var(--es-error,#d00);display:none"></p>
+
+    <!-- List of lists -->
+    <div id="es-user-catalogs-list"></div>
   </div>
 
 </div>

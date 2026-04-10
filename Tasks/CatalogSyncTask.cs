@@ -782,6 +782,7 @@ namespace EmbyStreams.Tasks
 
         private readonly ILogger<CatalogSyncTask> _logger;
         private readonly ILibraryManager          _libraryManager;
+        private readonly ILogManager              _logManager;
 
         // ── Constructor ─────────────────────────────────────────────────────────
 
@@ -794,6 +795,7 @@ namespace EmbyStreams.Tasks
             ILogManager      logManager)
         {
             _libraryManager = libraryManager;
+            _logManager     = logManager;
             _logger         = new EmbyLoggerAdapter<CatalogSyncTask>(logManager.GetLogger("EmbyStreams"));
         }
 
@@ -911,6 +913,35 @@ namespace EmbyStreams.Tasks
             // Items are persisted with ItemState = Queued for RefreshTask to process
             // RefreshTask handles: Write -> Hint -> Notify -> Verify -> Promote
             // DeepCleanTask handles: Validation, Enrichment, Token Renewal
+            progress.Report(90);
+
+            // Sprint 158: Backstop sync for all active user RSS catalogs (Trakt / MDBList).
+            // Runs after the system-catalog pass. Sequentially — cooldown gate handles politeness.
+            try
+            {
+                var userCatalogs = await db.GetAllActiveUserCatalogsAsync(cancellationToken);
+                if (userCatalogs.Count > 0)
+                {
+                    _logger.LogInformation(
+                        "[EmbyStreams] CatalogSyncTask: syncing {Count} active user catalogs", userCatalogs.Count);
+                    var userCatalogSync = new Services.UserCatalogSyncService(
+                        _logManager, db, Plugin.Instance!.StrmWriterService, Plugin.Instance.CooldownGate);
+                    foreach (var uc in userCatalogs)
+                    {
+                        if (cancellationToken.IsCancellationRequested) break;
+                        var result = await userCatalogSync.SyncOneAsync(uc.Id, cancellationToken);
+                        _logger.LogInformation(
+                            "[EmbyStreams] UserCatalog {Id} ({Name}): ok={Ok} fetched={F} added={A} elapsed={Ms}ms",
+                            uc.Id, uc.DisplayName, result.Ok, result.Fetched, result.Added, result.ElapsedMs);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { /* swallow — task was cancelled */ }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[EmbyStreams] CatalogSyncTask: error syncing user catalogs (non-fatal)");
+            }
+
             progress.Report(100);
 
             _logger.LogInformation("[EmbyStreams] CatalogSyncTask complete");

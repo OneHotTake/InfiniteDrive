@@ -33,7 +33,7 @@ namespace EmbyStreams.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 22;
+        private const int CurrentSchemaVersion = 25;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -3380,16 +3380,58 @@ FROM catalog_items;");
                 version = 24;
             }
 
-            // ── Sprint 160: IdResolverService columns (V24 → V25) ─────────────────────
+            // ── Sprint 160 + 158: IdResolverService columns + user_catalogs (V24 → V25) ────
             if (version < 25)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V24 → V25: Adding IdResolverService columns");
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V25", version);
+
+                // Sprint 160: ID resolver columns on catalog_items
+                if (!ColumnExists(conn, "catalog_items", "tvdb_id"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN tvdb_id TEXT;");
+                if (!ColumnExists(conn, "catalog_items", "raw_meta_json"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN raw_meta_json TEXT;");
+                if (!ColumnExists(conn, "catalog_items", "catalog_type"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN catalog_type TEXT;");
+
+                // Sprint 158: Migrate any legacy trakt/mdblist type values to user_rss.
+                // The CHECK constraint on an existing sources table cannot be altered in SQLite,
+                // but SQLite does NOT re-check constraints on existing rows, only on new writes.
+                // Any rows with 'trakt' or 'mdblist' are safe to migrate to 'user_rss'.
+                if (TableExists(conn, "sources"))
+                    ExecuteInline(conn,
+                        "UPDATE sources SET type = 'user_rss' WHERE type IN ('trakt','mdblist');");
+
+                // Sprint 158: user_catalogs table for public RSS user lists
+                if (!TableExists(conn, "user_catalogs"))
+                {
+                    ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS user_catalogs (
+    id                 TEXT PRIMARY KEY,
+    owner_user_id      TEXT NOT NULL,
+    source_type        TEXT NOT NULL CHECK (source_type IN ('user_rss')),
+    service            TEXT NOT NULL CHECK (service IN ('trakt','mdblist')),
+    rss_url            TEXT NOT NULL,
+    display_name       TEXT NOT NULL,
+    active             INTEGER NOT NULL DEFAULT 1,
+    last_synced_at     TEXT,
+    last_sync_status   TEXT,
+    created_at         TEXT NOT NULL,
+    UNIQUE (owner_user_id, rss_url)
+);");
+                    ExecuteInline(conn,
+                        "CREATE INDEX IF NOT EXISTS idx_user_catalogs_owner ON user_catalogs(owner_user_id);");
+                    ExecuteInline(conn,
+                        "CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHERE active = 1;");
+                }
+
+                // Sprint 158: user_catalog_id column on source_memberships
+                if (!ColumnExists(conn, "source_memberships", "user_catalog_id"))
+                    ExecuteInline(conn,
+                        "ALTER TABLE source_memberships ADD COLUMN user_catalog_id TEXT;");
                 ExecuteInline(conn,
-                    "ALTER TABLE catalog_items ADD COLUMN tvdb_id TEXT;");
-                ExecuteInline(conn,
-                    "ALTER TABLE catalog_items ADD COLUMN raw_meta_json TEXT;");
-                ExecuteInline(conn,
-                    "ALTER TABLE catalog_items ADD COLUMN catalog_type TEXT;");
+                    "CREATE INDEX IF NOT EXISTS idx_source_memberships_user_catalog ON source_memberships(user_catalog_id);");
+
+                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (25);");
                 _logger.LogInformation("[EmbyStreams] Schema V25 migration complete");
                 version = 25;
             }
@@ -3461,7 +3503,7 @@ CREATE TABLE IF NOT EXISTS sources (
     id                  TEXT PRIMARY KEY,
     name                TEXT NOT NULL,
     url                 TEXT,
-    type                TEXT NOT NULL CHECK(type IN ('BuiltIn', 'Aio', 'Trakt', 'MdbList')),
+    type                TEXT NOT NULL CHECK(type IN ('BuiltIn', 'Aio', 'UserRss')),
     enabled             INTEGER NOT NULL DEFAULT 1,
     show_as_collection   INTEGER NOT NULL DEFAULT 0,
     max_items           INTEGER NOT NULL DEFAULT 100,
@@ -5337,8 +5379,183 @@ LIMIT 1";
                 cancellationToken);
         }
 
+        // ── user_catalogs CRUD (Sprint 158) ─────────────────────────────────────
+
         /// <summary>
-        /// Gets all collections as entities.
+        /// Inserts a new user catalog row. Returns the generated UUID.
+        /// </summary>
+        public async Task<string> CreateUserCatalogAsync(
+            string ownerUserId,
+            string service,
+            string rssUrl,
+            string displayName,
+            CancellationToken ct = default)
+        {
+            var id = Guid.NewGuid().ToString();
+            const string sql = @"
+                INSERT INTO user_catalogs
+                    (id, owner_user_id, source_type, service, rss_url, display_name, active, created_at)
+                VALUES
+                    (@id, @owner_user_id, 'user_rss', @service, @rss_url, @display_name, 1, @created_at);";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", id);
+                BindText(cmd, "@owner_user_id", ownerUserId);
+                BindText(cmd, "@service", service);
+                BindText(cmd, "@rss_url", rssUrl);
+                BindText(cmd, "@display_name", displayName);
+                BindText(cmd, "@created_at", DateTimeOffset.UtcNow.ToString("o"));
+            }, ct);
+
+            return id;
+        }
+
+        /// <summary>
+        /// Returns user catalogs for the given owner. Pass activeOnly=true to filter inactive rows.
+        /// </summary>
+        public Task<IReadOnlyList<Models.UserCatalog>> GetUserCatalogsByOwnerAsync(
+            string ownerUserId,
+            bool activeOnly,
+            CancellationToken ct = default)
+        {
+            var sql = activeOnly
+                ? "SELECT id, owner_user_id, source_type, service, rss_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
+                : "SELECT id, owner_user_id, source_type, service, rss_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
+
+            var list = QueryListAsync(sql,
+                cmd => BindText(cmd, "@owner_user_id", ownerUserId),
+                ReadUserCatalog);
+            return Task.FromResult<IReadOnlyList<Models.UserCatalog>>(list.Result);
+        }
+
+        /// <summary>
+        /// Returns all active user catalogs across all users (used by CatalogSyncTask).
+        /// </summary>
+        public Task<IReadOnlyList<Models.UserCatalog>> GetAllActiveUserCatalogsAsync(CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id, owner_user_id, source_type, service, rss_url, display_name, active,
+                       last_synced_at, last_sync_status, created_at
+                FROM user_catalogs WHERE active = 1 ORDER BY created_at;";
+
+            var list = QueryListAsync(sql, null, ReadUserCatalog);
+            return Task.FromResult<IReadOnlyList<Models.UserCatalog>>(list.Result);
+        }
+
+        /// <summary>
+        /// Returns a single user catalog by ID, or null if not found.
+        /// </summary>
+        public Task<Models.UserCatalog?> GetUserCatalogByIdAsync(string catalogId, CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id, owner_user_id, source_type, service, rss_url, display_name, active,
+                       last_synced_at, last_sync_status, created_at
+                FROM user_catalogs WHERE id = @id;";
+
+            return QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@id", catalogId),
+                ReadUserCatalog);
+        }
+
+        private static Models.UserCatalog ReadUserCatalog(IResultSet row) =>
+            new Models.UserCatalog
+            {
+                Id             = row.GetString(0),
+                OwnerUserId    = row.GetString(1),
+                SourceType     = row.GetString(2),
+                Service        = row.GetString(3),
+                RssUrl         = row.GetString(4),
+                DisplayName    = row.GetString(5),
+                Active         = row.GetInt(6) == 1,
+                LastSyncedAt   = row.IsDBNull(7) ? null : row.GetString(7),
+                LastSyncStatus = row.IsDBNull(8) ? null : row.GetString(8),
+                CreatedAt      = row.GetString(9),
+            };
+
+        /// <summary>
+        /// Sets the active flag on a user catalog (soft-delete or restore).
+        /// </summary>
+        public async Task SetUserCatalogActiveAsync(string catalogId, bool active, CancellationToken ct = default)
+        {
+            const string sql = "UPDATE user_catalogs SET active = @active WHERE id = @id;";
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@active", active ? 1 : 0);
+                BindText(cmd, "@id", catalogId);
+            }, ct);
+        }
+
+        /// <summary>
+        /// Updates last_synced_at and last_sync_status after a sync run.
+        /// </summary>
+        public async Task UpdateUserCatalogSyncStatusAsync(
+            string catalogId,
+            DateTimeOffset syncedAt,
+            string status,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE user_catalogs
+                SET last_synced_at = @synced_at, last_sync_status = @status
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@synced_at", syncedAt.ToString("o"));
+                BindText(cmd, "@status", status);
+                BindText(cmd, "@id", catalogId);
+            }, ct);
+        }
+
+        /// <summary>
+        /// Returns the count of active source memberships for a catalog item.
+        /// Counts system-catalog memberships plus user-catalog memberships whose
+        /// user_catalog is still active. Used by Deep Clean / deprecation flow.
+        /// </summary>
+        public Task<int> CountActiveClaimsAsync(string catalogItemId, CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT COUNT(*) FROM source_memberships sm
+                WHERE sm.media_item_id = @item_id
+                  AND (sm.user_catalog_id IS NULL
+                   OR EXISTS (SELECT 1 FROM user_catalogs uc
+                              WHERE uc.id = sm.user_catalog_id AND uc.active = 1));";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@item_id", catalogItemId);
+            foreach (var row in stmt.AsRows())
+                return Task.FromResult(row.IsDBNull(0) ? 0 : row.GetInt(0));
+            return Task.FromResult(0);
+        }
+
+        /// <summary>
+        /// Upserts a source membership, optionally linking it to a user catalog.
+        /// Pass null for userCatalogId for system-catalog memberships.
+        /// </summary>
+        public async Task UpsertSourceMembershipWithCatalogAsync(
+            string sourceId,
+            string mediaItemId,
+            string? userCatalogId,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                INSERT INTO source_memberships (source_id, media_item_id, user_catalog_id)
+                VALUES (@SourceId, @MediaItemId, @UserCatalogId)
+                ON CONFLICT(source_id, media_item_id) DO UPDATE SET
+                    user_catalog_id = COALESCE(excluded.user_catalog_id, source_memberships.user_catalog_id);";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@SourceId", sourceId);
+                BindText(cmd, "@MediaItemId", mediaItemId);
+                BindNullableText(cmd, "@UserCatalogId", userCatalogId);
+            }, ct);
+        }
+
+        /// <summary>
+        /// Gets all collection as entities.
         /// </summary>
         public async Task<List<Models.Collection>> GetAllCollectionsListAsync(CancellationToken cancellationToken = default)
         {

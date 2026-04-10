@@ -159,6 +159,69 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ---
 
+## Models/UserCatalog.cs (Sprint 158)
+> POCO for user_catalogs table rows. Represents a public Trakt/MDBList RSS feed owned by a user.
+
+### Key Properties
+- `Id`, `OwnerUserId`, `Service` (trakt/mdblist), `RssUrl`, `DisplayName`
+- `Active` — soft-delete flag; false means excluded from sync and deprecation pending
+- `LastSyncedAt`, `LastSyncStatus`
+
+---
+
+## Services/RssFeedParser.cs (Sprint 158)
+> Parse-only RSS parser for public Trakt and MDBList feeds. No HTTP — input is raw XML string.
+
+### Key Types
+- `RssItem` record: Title, Year, ImdbId (extracted via regex), Link, Summary
+- Hard cap: 1000 items per feed
+
+### Public Methods
+- `Parse(xml, logger, out feedTitle, out skippedNoImdb)` — parses RSS/Atom XML, returns items
+- `DetectService(rssUrl)` — returns "trakt" or "mdblist", throws ArgumentException for unknown hosts
+
+---
+
+## Services/UserCatalogSyncService.cs (Sprint 158)
+> Syncs user-owned RSS catalogs into catalog_items. Used by both CatalogSyncTask backstop and impatient-user Refresh endpoint.
+
+### Key Types
+- `UserCatalogSyncResult` — ok, fetched, added, updated, removed, skippedNoImdb, elapsedMs, error
+
+### Public Methods
+- `SyncOneAsync(catalogId, ct)` — fetches feed, parses, upserts catalog items, writes .strm files
+- `SyncAllForOwnerAsync(ownerUserId, ct)` — sequentially syncs all active catalogs for one user
+
+---
+
+## Services/UserCatalogsService.cs (Sprint 158)
+> REST API for user-owned public RSS catalogs. All endpoints require authenticated user.
+
+### Endpoints
+- `GET /EmbyStreams/User/Catalogs` — returns caller's active catalogs + limit
+- `POST /EmbyStreams/User/Catalogs/Add` — validate URL, fetch feed, insert row, eager sync
+- `POST /EmbyStreams/User/Catalogs/Remove` — soft-delete (active=0), ownership check
+- `POST /EmbyStreams/User/Catalogs/Refresh` — synchronous single or all-catalog refresh
+
+---
+
+## Services/IdResolverService.cs (Sprint 160)
+> Normalises raw manifest IDs to canonical provider IDs. Never throws, never returns null.
+
+### Key Types
+- `ResolvedIds` record: CanonicalId, ImdbId, TmdbId, TvdbId, AniDbId, RawMetaJson
+
+### Resolution Chain
+1. Parse manifestId: tt → fast path; tmdb_/tmdb:, tvdb_/tvdb:, kitsu:, mal:, imdb: prefixes
+2. Call source addon `/meta/{type}/{id}.json` (1.5s timeout) → parse imdb_id, tmdb_id, tvdb_id
+3. AIOMetadata fallback if still no tt
+4. CanonicalId: tt > tmdb_ > tvdb_ > native
+
+### Public Methods
+- `ResolveAsync(manifestId, addonBaseUrl, mediaType, ct)` — full resolution chain
+
+---
+
 ## Services/AioStreamsClient.cs
 > HTTP client for all AIOStreams / Stremio addon communication; implements IManifestProvider.
 
