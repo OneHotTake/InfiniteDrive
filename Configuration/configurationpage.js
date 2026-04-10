@@ -238,7 +238,7 @@ function (loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        ['setup','health','discover','improbability','settings'].forEach(function(t) {
+        ['setup','health','discover','mypicks','improbability','blocked','content-mgmt','settings'].forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
             if (c) c.classList.toggle('active', t === name);
         });
@@ -269,6 +269,8 @@ function (loading) {
         if (name === 'setup' && _loadedConfig) { initWizardTab(view, _loadedConfig); }
         if (name === 'health') { refreshSourcesTab(view); }
         if (name === 'discover') { discoverInit(view); }
+        if (name === 'mypicks') { loadMyPicks(view); }
+        if (name === 'blocked') { loadBlockedItems(view); }
     }
 
     // ── Sources tab ───────────────────────────────────────────────────────────
@@ -702,6 +704,14 @@ function (loading) {
                 if (cfg.IsFirstRunComplete) {
                     showTab(view, 'setup');
                 }
+                // Show admin-only tabs for admin users
+                ApiClient.getCurrentUser().then(function(user) {
+                    if (user && user.Policy && user.Policy.IsAdministrator) {
+                        view.querySelectorAll('.es-admin-tab').forEach(function(t) {
+                            t.style.display = '';
+                        });
+                    }
+                }).catch(function() {});
                 loading.hide();
             })
             .catch(function() { loading.hide(); });
@@ -2050,6 +2060,10 @@ function (loading) {
         var discoverSearchEl = view.querySelector('#es-discover-q');
         if (discoverSearchEl) discoverSearchEl.addEventListener('input', function() { discoverSearchDebounce(view); });
 
+        // My Picks and Blocked tabs
+        initMyPicksTab(view);
+        initBlockedTab(view);
+
         // ── Single capture-phase delegated click listener ─────────────────────
         // Capture phase (3rd arg = true) fires BEFORE emby-button custom element
         // handlers and before any stopPropagation, so it survives DOM node
@@ -2763,6 +2777,129 @@ function (loading) {
                 var elS = q(view, 'wiz-derived-shows');
                 if (elM) elM.textContent = base + '/catalog/movies';
                 if (elS) elS.textContent = base + '/catalog/shows';
+            });
+        }
+    }
+
+    // ── My Picks tab ─────────────────────────────────────────────────────────────
+
+    function renderPinsList(container, pins) {
+        if (!container) return;
+        if (!pins || pins.length === 0) {
+            container.innerHTML = '<p style="opacity:.5;font-size:.85em">No items yet.</p>';
+            return;
+        }
+        container.innerHTML = pins.map(function(pin) {
+            return '<div class="es-pin-item" style="display:flex;align-items:center;gap:.75em;padding:.5em 0;border-bottom:1px solid rgba(255,255,255,.06)">' +
+                '<label style="display:flex;align-items:center;gap:.5em;flex:1;cursor:pointer">' +
+                '<input type="checkbox" class="es-pin-checkbox" data-catalog-id="' + esc(pin.CatalogItemId) + '" style="width:1em;height:1em">' +
+                '<span>' + esc(pin.Title) + (pin.Year ? ' (' + pin.Year + ')' : '') + '</span>' +
+                '</label>' +
+                '<span style="opacity:.5;font-size:.8em">' + esc(pin.ImdbId || '') + '</span>' +
+                '</div>';
+        }).join('');
+    }
+
+    function loadMyPicks(view) {
+        var playbackEl = view.querySelector('#es-playback-pins-list');
+        var discoverEl = view.querySelector('#es-discover-pins-list');
+        if (playbackEl) playbackEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
+        if (discoverEl) discoverEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
+
+        esFetch('/EmbyStreams/User/MyPins')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                renderPinsList(playbackEl, data.PlaybackPins);
+                renderPinsList(discoverEl, data.DiscoverPins);
+            })
+            .catch(function(err) {
+                if (playbackEl) playbackEl.innerHTML = '<p style="color:#dc3545;font-size:.85em">Failed to load pins.</p>';
+            });
+    }
+
+    function initMyPicksTab(view) {
+        var removeBtn = view.querySelector('#es-remove-pins-btn');
+        if (!removeBtn || removeBtn._esBound) return;
+        removeBtn._esBound = true;
+
+        removeBtn.addEventListener('click', function() {
+            var checked = view.querySelectorAll('.es-pin-checkbox:checked');
+            if (!checked.length) { Dashboard.alert('No items selected.'); return; }
+            var ids = Array.from(checked).map(function(cb) { return cb.getAttribute('data-catalog-id'); });
+
+            esFetch('/EmbyStreams/User/RemovePins', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ CatalogItemIds: ids })
+            })
+            .then(function() {
+                Dashboard.alert('Removed ' + ids.length + ' item(s) from your picks.');
+                loadMyPicks(view);
+            })
+            .catch(function() { Dashboard.alert('Failed to remove pins. Check server logs.'); });
+        });
+    }
+
+    // ── Blocked Items tab (admin) ─────────────────────────────────────────────
+
+    function loadBlockedItems(view) {
+        var listEl = view.querySelector('#es-blocked-items-list');
+        if (listEl) listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
+
+        esFetch('/EmbyStreams/Admin/BlockedItems')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!listEl) return;
+                if (!data.Items || data.Items.length === 0) {
+                    listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">No blocked items.</p>';
+                    return;
+                }
+                listEl.innerHTML = data.Items.map(function(item) {
+                    return '<div style="display:flex;align-items:center;gap:.75em;padding:.5em 0;border-bottom:1px solid rgba(255,255,255,.06)">' +
+                        '<label style="display:flex;align-items:center;gap:.5em;flex:1;cursor:pointer">' +
+                        '<input type="checkbox" class="es-blocked-checkbox" data-id="' + esc(item.Id) + '" style="width:1em;height:1em">' +
+                        '<span>' + esc(item.Title) + (item.Year ? ' (' + item.Year + ')' : '') + '</span>' +
+                        '</label>' +
+                        '<span style="opacity:.5;font-size:.8em">' + esc(item.ImdbId || '') + ' &bull; Retries: ' + (item.RetryCount || 0) + '</span>' +
+                        '</div>';
+                }).join('');
+            })
+            .catch(function() {
+                if (listEl) listEl.innerHTML = '<p style="color:#dc3545;font-size:.85em">Failed to load blocked items.</p>';
+            });
+    }
+
+    function initBlockedTab(view) {
+        function unblockIds(ids) {
+            esFetch('/EmbyStreams/Admin/UnblockItems', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ItemIds: ids })
+            })
+            .then(function() {
+                Dashboard.alert(ids.length + ' item(s) unblocked and queued for enrichment.');
+                loadBlockedItems(view);
+            })
+            .catch(function() { Dashboard.alert('Unblock failed. Check server logs.'); });
+        }
+
+        var selBtn = view.querySelector('#es-unblock-selected-btn');
+        if (selBtn && !selBtn._esBound) {
+            selBtn._esBound = true;
+            selBtn.addEventListener('click', function() {
+                var checked = view.querySelectorAll('.es-blocked-checkbox:checked');
+                if (!checked.length) { Dashboard.alert('No items selected.'); return; }
+                unblockIds(Array.from(checked).map(function(cb) { return cb.getAttribute('data-id'); }));
+            });
+        }
+
+        var allBtn = view.querySelector('#es-unblock-all-btn');
+        if (allBtn && !allBtn._esBound) {
+            allBtn._esBound = true;
+            allBtn.addEventListener('click', function() {
+                var checkboxes = view.querySelectorAll('.es-blocked-checkbox');
+                if (!checkboxes.length) { Dashboard.alert('No blocked items.'); return; }
+                unblockIds(Array.from(checkboxes).map(function(cb) { return cb.getAttribute('data-id'); }));
             });
         }
     }

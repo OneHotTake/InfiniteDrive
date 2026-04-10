@@ -304,8 +304,13 @@ namespace EmbyStreams.Services
                 var limit = Math.Min(Math.Max(req.Limit, 1), 200);
                 var offset = Math.Max(req.Offset, 0);
 
+                var userId = TryGetCurrentUserId();
+                var userPinnedIds = userId != null
+                    ? await _db.GetUserPinnedImdbIdsAsync(userId)
+                    : null;
+
                 var entries = await _db.GetDiscoverCatalogAsync(limit, offset);
-                var items = entries.Select(e => MapToDiscoverItem(e)).ToList();
+                var items = entries.Select(e => MapToDiscoverItem(e, userPinnedIds)).ToList();
                 var total = await _db.GetDiscoverCatalogCountAsync();
 
                 return new DiscoverBrowseResponse
@@ -339,8 +344,13 @@ namespace EmbyStreams.Services
                 }
 
                 // Step 1: Search local FTS5 index
+                var userId = TryGetCurrentUserId();
+                var userPinnedIds = userId != null
+                    ? await _db.GetUserPinnedImdbIdsAsync(userId)
+                    : null;
+
                 var localEntries = await _db.SearchDiscoverCatalogAsync(req.Query, req.Type);
-                var localItems = localEntries.Select(e => MapToDiscoverItem(e)).ToList();
+                var localItems = localEntries.Select(e => MapToDiscoverItem(e, userPinnedIds)).ToList();
 
                 // Step 2: Determine if we should do a live AIOStreams search
                 var shouldLiveSearch = req.Live || localItems.Count < 5;
@@ -363,10 +373,16 @@ namespace EmbyStreams.Services
                 // Step 3: Merge and deduplicate (local results take priority)
                 var mergedByImdbId = new Dictionary<string, DiscoverItem>(StringComparer.OrdinalIgnoreCase);
 
-                // Add live results first
+                // Add live results first (overlay per-user pin status)
                 foreach (var item in liveItems)
+                {
                     if (!mergedByImdbId.ContainsKey(item.ImdbId))
+                    {
+                        if (userPinnedIds != null)
+                            item.InLibrary = userPinnedIds.Contains(item.ImdbId ?? string.Empty);
                         mergedByImdbId[item.ImdbId] = item;
+                    }
+                }
 
                 // Override with local results (they're more up-to-date)
                 foreach (var item in localItems)
@@ -632,8 +648,13 @@ namespace EmbyStreams.Services
                     return new DiscoverDetailResponse { Item = null };
                 }
 
+                var userId = TryGetCurrentUserId();
+                var userPinnedIds = userId != null
+                    ? await _db.GetUserPinnedImdbIdsAsync(userId)
+                    : null;
+
                 var entry = await _db.GetDiscoverCatalogEntryByImdbIdAsync(req.ImdbId);
-                var item = entry != null ? MapToDiscoverItem(entry) : null;
+                var item = entry != null ? MapToDiscoverItem(entry, userPinnedIds) : null;
 
                 return new DiscoverDetailResponse { Item = item };
             }
@@ -856,13 +877,34 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
+        /// Returns the Emby user ID from the current request context.
+        /// </summary>
+        private string? TryGetCurrentUserId()
+        {
+            try
+            {
+                var user = _authCtx.GetAuthorizationInfo(Request).User;
+                return user?.Id.ToString("N");
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Maps a DiscoverCatalogEntry to a DiscoverItem (response DTO).
         /// Looks up the Emby internal item ID for library items.
+        /// userPinnedImdbIds: when non-null, overrides InLibrary with per-user pin status.
         /// </summary>
-        private DiscoverItem MapToDiscoverItem(DiscoverCatalogEntry entry)
+        private DiscoverItem MapToDiscoverItem(DiscoverCatalogEntry entry, HashSet<string>? userPinnedImdbIds = null)
         {
+            var inLibrary = userPinnedImdbIds != null
+                ? (!string.IsNullOrEmpty(entry.ImdbId) && userPinnedImdbIds.Contains(entry.ImdbId))
+                : entry.IsInUserLibrary;
+
             string? embyItemId = null;
-            if (entry.IsInUserLibrary && !string.IsNullOrWhiteSpace(entry.ImdbId))
+            if (inLibrary && !string.IsNullOrWhiteSpace(entry.ImdbId))
             {
                 try
                 {
@@ -895,7 +937,7 @@ namespace EmbyStreams.Services
                 Overview = entry.Overview,
                 Genres = entry.Genres,
                 ImdbRating = entry.ImdbRating,
-                InLibrary = entry.IsInUserLibrary,
+                InLibrary = inLibrary,
                 EmbyItemId = embyItemId,
                 CatalogSource = entry.CatalogSource
             };

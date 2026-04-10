@@ -1587,6 +1587,96 @@ namespace EmbyStreams.Data
         }
 
         /// <summary>
+        /// Returns all catalog items with blocked_at IS NOT NULL (admin-blocked tombstones).
+        /// Used by AdminService for the Blocked Items tab.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetBlockedItemsAsync(CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at,
+                       unique_ids_json, nfo_status, retry_count, next_retry_at,
+                       blocked_at, blocked_by
+                FROM catalog_items
+                WHERE blocked_at IS NOT NULL
+                ORDER BY blocked_at DESC;";
+
+            return await QueryListAsync(sql, null, ReadCatalogItem);
+        }
+
+        /// <summary>
+        /// Clears the blocked_at/blocked_by tombstone and resets the item to NeedsEnrich.
+        /// Used by AdminService Unblock action.
+        /// </summary>
+        public async Task UnblockItemAsync(string itemId, CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET blocked_at  = NULL,
+                    blocked_by  = NULL,
+                    nfo_status  = 'NeedsEnrich',
+                    retry_count = 0,
+                    next_retry_at = NULL,
+                    updated_at  = datetime('now')
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", itemId);
+            }, ct);
+
+            _logger.LogInformation("[DatabaseManager] Unblocked item {Id}", itemId);
+        }
+
+        /// <summary>
+        /// Returns the set of IMDB IDs the user has pinned (via any pin source).
+        /// Used by DiscoverService to compute per-user InLibrary status.
+        /// </summary>
+        public async Task<HashSet<string>> GetUserPinnedImdbIdsAsync(string userId, CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT ci.imdb_id
+                FROM user_item_pins uip
+                JOIN catalog_items ci ON ci.id = uip.catalog_item_id
+                WHERE uip.emby_user_id = @user_id
+                  AND ci.imdb_id IS NOT NULL;";
+
+            var results = await QueryListAsync(sql, cmd => BindText(cmd, "@user_id", userId), r => r.GetString(0));
+            return new HashSet<string>(results, StringComparer.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Returns catalog items by a list of IDs.
+        /// Used by UserService to fetch metadata for pinned items.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetCatalogItemsByIdsAsync(List<string> ids, CancellationToken ct = default)
+        {
+            if (ids == null || ids.Count == 0)
+                return new List<CatalogItem>();
+
+            var placeholders = string.Join(",", ids.Select((_, i) => $"@id{i}"));
+            var sql = $@"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at,
+                       unique_ids_json, nfo_status, retry_count, next_retry_at,
+                       blocked_at, blocked_by
+                FROM catalog_items
+                WHERE id IN ({placeholders});";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                for (var i = 0; i < ids.Count; i++)
+                    BindText(cmd, $"@id{i}", ids[i]);
+            }, ReadCatalogItem);
+        }
+
+        /// <summary>
         /// Queries for a scalar integer value (COUNT, SUM, etc.).
         /// Used by DeepCleanTask for counting Blocked and NeedsEnrich items.
         /// </summary>
@@ -3170,6 +3260,7 @@ CREATE TABLE IF NOT EXISTS user_item_pins (
 
                 ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_catalog_item ON user_item_pins(catalog_item_id);");
                 ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_user ON user_item_pins(emby_user_id);");
+                ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_user_source_pinned ON user_item_pins(emby_user_id, pin_source, pinned_at DESC);");
 
                 // Add lifecycle columns to catalog_items
                 if (!ColumnExists(conn, "catalog_items", "nfo_status"))

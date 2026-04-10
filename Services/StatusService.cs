@@ -205,6 +205,12 @@ namespace EmbyStreams.Services
         /// <summary>Number of items with nfo_status = 'Blocked'.</summary>
         public int BlockedCount { get; set; }
 
+        /// <summary>Health of RefreshTask: "green", "yellow", or "red" based on 2×/3× interval thresholds.</summary>
+        public string? RefreshHealth { get; set; }
+
+        /// <summary>Health of DeepCleanTask: "green", "yellow", or "red" based on 2×/3× interval thresholds.</summary>
+        public string? DeepCleanHealth { get; set; }
+
         // ── End Sprint 146 ───────────────────────────────────────────────────────
     }
 
@@ -600,6 +606,27 @@ namespace EmbyStreams.Services
                 var blockedQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'Blocked' AND removed_at IS NULL;";
                 response.NeedsEnrichCount = await db.QueryScalarIntAsync(needsEnrichQuery);
                 response.BlockedCount = await db.QueryScalarIntAsync(blockedQuery);
+
+                // Sprint 150 M-6: Compute health status using 2×/3× interval thresholds
+                if (!string.IsNullOrEmpty(lastRefreshRun)
+                    && DateTime.TryParse(lastRefreshRun, null, System.Globalization.DateTimeStyles.RoundtripKind, out var refreshLastRun))
+                {
+                    var refreshAge = DateTime.UtcNow - refreshLastRun;
+                    var refreshInterval = TimeSpan.FromMinutes(6);
+                    response.RefreshHealth = refreshAge > refreshInterval * 3 ? "red"
+                                           : refreshAge > refreshInterval * 2 ? "yellow"
+                                           : "green";
+                }
+
+                if (!string.IsNullOrEmpty(lastDeepCleanRun)
+                    && DateTime.TryParse(lastDeepCleanRun, null, System.Globalization.DateTimeStyles.RoundtripKind, out var deepCleanLastRun))
+                {
+                    var deepCleanAge = DateTime.UtcNow - deepCleanLastRun;
+                    var deepCleanInterval = TimeSpan.FromHours(18);
+                    response.DeepCleanHealth = deepCleanAge > deepCleanInterval * 3 ? "red"
+                                             : deepCleanAge > deepCleanInterval * 2 ? "yellow"
+                                             : "green";
+                }
             }
             catch (Exception ex)
             {
