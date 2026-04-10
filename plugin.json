@@ -5,7 +5,7 @@
   "overview": "Discover browsable streaming catalog from AIOStreams, play via Real-Debrid. Fetches catalogs, writes .strm files, resolves URLs on demand. No external processes needed.",
   "owner": "EmbyStreams",
   "category": "General",
-  "version": "0.52.0.0",
+  "version": "0.51.0.0",
   "targetAbi": "4.10.0.6",
   "framework": "net8.0",
   "imageUrl": ""
