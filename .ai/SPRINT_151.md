@@ -13,54 +13,72 @@ DatabaseManager.cs is 5,624 lines with ~152 public methods handling 10+ concerns
 
 **Goal:** Reduce DatabaseManager to <2,000 lines. Make future spec drift catchable in review.
 
+**MAINTENANCE.md Update:** After completion, add "Database access — CatalogRepository owns catalog_items methods (Sprint 151). Remaining concerns stay in DatabaseManager until future sprints."
+
 ---
 
 ## Task H-3: Extract CatalogRepository
 
 **Target:** Reduce DatabaseManager by ~1,000 lines
 
+**MAINTENANCE.md Reference:** Data integrity rules #5, #6 (blocked filtering, pin guards)
+
 ### Part 1: Create new repository
 
 **File:** Data/Repositories/CatalogRepository.cs
 
 ```csharp
-public class CatalogRepository
+using System.Data.SQLite;
+using MediaBrowser.Model.Logging;
+
+namespace EmbyStreams.Data.Repositories
 {
-    private readonly ILogger<CatalogRepository> _logger;
-    private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
-    private readonly string _dbPath;
-
-    public CatalogRepository(string dbPath, ILogger<CatalogRepository> logger)
+    public class CatalogRepository
     {
-        _dbPath = dbPath;
-        _logger = logger;
-    }
+        private readonly ILogger _logger;
+        private readonly SemaphoreSlim _writeLock = new SemaphoreSlim(1, 1);
+        private readonly string _dbPath;
 
-    private async Task<SQLiteConnection> OpenConnectionAsync(CancellationToken ct)
-    {
-        var conn = new SQLiteConnection($"Data Source={_dbPath}");
-        await conn.OpenAsync(ct);
-        return conn;
-    }
+        public CatalogRepository(string dbPath, ILogger logger)
+        {
+            _dbPath = dbPath;
+            _logger = logger;
+        }
 
-    // Move these ~35 methods from DatabaseManager:
-    // - GetActiveCatalogItemsAsync
-    // - GetCatalogItemByIdAsync
-    // - GetCatalogItemsByStateAsync
-    // - GetCatalogItemsWithExpiringTokensAsync
-    // - GetCatalogItemByStrmPathAsync
-    // - UpsertCatalogItemAsync
-    // - UpsertCatalogItemsAsync (NEW - batched)
-    // - DeleteCatalogItemAsync
-    // - GetItemsMissingStrmAsync
-    // - GetItemsByNfoStatusAsync
-    // - GetBlockedItemsAsync
-    // - UnblockItemAsync
-    // - UpdateItemRetryInfoAsync
-    // - SetNfoStatusAsync
-    // ... etc
+        private async Task<SQLiteConnection> OpenConnectionAsync(CancellationToken ct)
+        {
+            var conn = new SQLiteConnection($"Data Source={_dbPath}");
+            await conn.OpenAsync(ct);
+
+            // Enable WAL mode on this connection
+            await using var cmd = new SQLiteCommand("PRAGMA journal_mode=WAL;", conn);
+            await cmd.ExecuteNonQueryAsync(ct);
+
+            return conn;
+        }
+
+        // Move these ~35 methods from DatabaseManager:
+        // - GetActiveCatalogItemsAsync (with blocked_at IS NULL filter!)
+        // - GetCatalogItemByIdAsync
+        // - GetCatalogItemsByStateAsync
+        // - GetCatalogItemsWithExpiringTokensAsync
+        // - GetCatalogItemByStrmPathAsync
+        // - UpsertCatalogItemAsync
+        // - UpsertCatalogItemsAsync (NEW - batched version)
+        // - DeleteCatalogItemAsync
+        // - GetItemsMissingStrmAsync
+        // - GetItemsByNfoStatusAsync (with blocked_at IS NULL filter!)
+        // - GetBlockedItemsAsync
+        // - UnblockItemAsync
+        // - UpdateItemRetryInfoAsync
+        // - SetNfoStatusAsync
+        // - GetCatalogItemsByIdsAsync (NEW - for My Picks join)
+        // ... etc
+    }
 }
 ```
+
+**Critical:** Each method that queries "active" items MUST include `AND blocked_at IS NULL` filter (Sprint 149 C-5 requirement).
 
 ### Part 2: Update DatabaseManager
 
@@ -74,6 +92,7 @@ public class DatabaseManager
     public CatalogRepository Catalog => _catalogRepo ??= new CatalogRepository(_dbPath, _loggerFactory.CreateLogger<CatalogRepository>());
 
     // Remove all extracted catalog methods
+    // Keep: schema migrations, metadata KV store, discover_catalog, stream candidates, etc.
 }
 ```
 
@@ -94,6 +113,8 @@ Update in:
 - Tasks/DeepCleanTask.cs
 - Tasks/CatalogSyncTask.cs
 - Services/DiscoverService.cs
+- Services/AdminService.cs
+- Services/UserService.cs
 
 **Priority:** P1 | **Effort:** 1-2 days
 
@@ -102,6 +123,8 @@ Update in:
 ## Task H-1: Unify CatalogItem / MediaItem Models
 
 **File:** Data/DatabaseManager.cs:4504-4650
+
+**MAINTENANCE.md Reference:** Data correctness (single source of truth for catalog_items table)
 
 **Problem:** Two models targeting same table. MediaItem has Blocked boolean, CatalogItem has BlockedAt/BlockedBy.
 
@@ -119,8 +142,10 @@ Remove methods:
 
 **Check for callers first:**
 ```bash
-grep -r "MediaItem" --include="*.cs" | grep -v "CatalogItem"
+grep -r "MediaItem[^s]" --include="*.cs" | grep -v "CatalogItem" | grep -v "// " | grep -v "using"
 ```
+
+If any live callers found, convert them to use CatalogItem first.
 
 ### Part 3: Add computed property to CatalogItem
 
@@ -131,7 +156,8 @@ public class CatalogItem
     public string? BlockedAt { get; set; }
     public string? BlockedBy { get; set; }
 
-    // Computed property for backward compat if needed
+    // Computed — blocked_at IS NOT NULL is the canonical predicate
+    [JsonIgnore]
     public bool Blocked => !string.IsNullOrEmpty(BlockedAt);
 }
 ```
@@ -144,15 +170,17 @@ public class CatalogItem
 
 **File:** Tasks/CatalogSyncTask.cs:1215-1993
 
+**MAINTENANCE.md Reference:** Sprint 147 — CatalogSyncTask no longer writes .strm files
+
 **Problem:** ~600 lines of unreachable STRM/NFO writers remain after Sprint 147.
 
 ### Verify no external callers:
 
 ```bash
-grep -r "WriteStrmFileForItemPublicAsync\|WriteStrmFilesAsync\|WriteSeriesStrmAsync" --include="*.cs"
+grep -r "WriteStrmFileForItemPublicAsync\|WriteStrmFilesAsync\|WriteSeriesStrmAsync\|WriteEpisodesFromSeasonsJsonAsync\|WriteNfoFileAsync" --include="*.cs"
 ```
 
-If none found, delete:
+If none found, delete methods:
 - WriteStrmFilesAsync (private)
 - WriteStrmFileForItemAsync (private)
 - WriteSeriesStrmAsync (private)
@@ -160,13 +188,16 @@ If none found, delete:
 - WriteNfoFileAsync (private)
 - WriteStrmFileForItemPublicAsync (public)
 
-### Optionally rename task:
+### Optionally rename task for clarity:
 
 ```csharp
 // Before
 public class CatalogSyncTask : IScheduledTask
+{
+    public string Name => "EmbyStreams Catalog Sync";
+}
 
-// After
+// After (more accurate)
 public class CatalogFetchTask : IScheduledTask
 {
     public string Name => "EmbyStreams Catalog Fetch";
@@ -174,6 +205,8 @@ public class CatalogFetchTask : IScheduledTask
     public string Description => "Fetches catalog from AIOStreams (does not write files)";
 }
 ```
+
+**Note:** If renaming, update Plugin.cs registration and any TaskManager references.
 
 **Priority:** P1 | **Effort:** 1 hour
 
@@ -183,26 +216,73 @@ public class CatalogFetchTask : IScheduledTask
 
 **File:** Tasks/RefreshTask.cs:739-747, 914-931
 
-**Problem:** N+1 writes (42 individual UpsertCatalogItemAsync calls)
+**MAINTENANCE.md Reference:** Performance rule #10 (batch writes over N+1). Also mitigates Sprint 149 C-4 unbounded scan risk.
+
+**Problem:** N+1 writes (42 individual UpsertCatalogItemAsync calls).
 
 ### Part 1: Add batched method to CatalogRepository
 
 ```csharp
+/// <summary>
+/// Batch upsert multiple catalog items in a single transaction.
+/// 40x fewer round-trips than individual upserts.
+/// </summary>
 public async Task UpsertCatalogItemsAsync(IEnumerable<CatalogItem> items, CancellationToken ct)
 {
+    var itemsList = items.ToList();
+    if (!itemsList.Any())
+        return;
+
     await _writeLock.WaitAsync(ct);
     try
     {
         await using var conn = await OpenConnectionAsync(ct);
         await using var tx = conn.BeginTransaction();
 
-        foreach (var item in items)
+        var sql = @"
+            INSERT INTO catalog_items (
+                id, imdb_id, tmdb_id, title, year, media_type,
+                item_state, nfo_status, strm_path, retry_count,
+                next_retry_at, blocked_at, blocked_by, created_at, updated_at
+            ) VALUES (
+                @id, @imdb_id, @tmdb_id, @title, @year, @media_type,
+                @item_state, @nfo_status, @strm_path, @retry_count,
+                @next_retry_at, @blocked_at, @blocked_by, @created_at, @updated_at
+            )
+            ON CONFLICT(id) DO UPDATE SET
+                item_state = excluded.item_state,
+                nfo_status = excluded.nfo_status,
+                retry_count = excluded.retry_count,
+                next_retry_at = excluded.next_retry_at,
+                blocked_at = excluded.blocked_at,
+                blocked_by = excluded.blocked_by,
+                updated_at = excluded.updated_at;";
+
+        foreach (var item in itemsList)
         {
-            // Use existing UpsertCatalogItemAsync logic but within shared transaction
-            await UpsertSingleItemAsync(conn, item, ct);
+            await using var cmd = new SQLiteCommand(sql, conn, tx);
+            cmd.Parameters.AddWithValue("@id", item.Id);
+            cmd.Parameters.AddWithValue("@imdb_id", item.ImdbId ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@tmdb_id", item.TmdbId ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@title", item.Title);
+            cmd.Parameters.AddWithValue("@year", item.Year ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@media_type", item.MediaType ?? "other");
+            cmd.Parameters.AddWithValue("@item_state", item.ItemState.ToString());
+            cmd.Parameters.AddWithValue("@nfo_status", item.NfoStatus ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@strm_path", item.StrmPath ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@retry_count", item.RetryCount);
+            cmd.Parameters.AddWithValue("@next_retry_at", item.NextRetryAt ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@blocked_at", item.BlockedAt ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@blocked_by", item.BlockedBy ?? (object)DBNull.Value);
+            cmd.Parameters.AddWithValue("@created_at", item.CreatedAt ?? DateTime.UtcNow.ToString("o"));
+            cmd.Parameters.AddWithValue("@updated_at", DateTime.UtcNow.ToString("o"));
+
+            await cmd.ExecuteNonQueryAsync(ct);
         }
 
         await tx.CommitAsync(ct);
+
+        _logger.LogDebug("[CatalogRepository] Batch upserted {Count} items", itemsList.Count);
     }
     finally
     {
@@ -213,11 +293,14 @@ public async Task UpsertCatalogItemsAsync(IEnumerable<CatalogItem> items, Cancel
 
 ### Part 2: Update RefreshTask call sites
 
-**Before:**
+**Before (NotifyStepAsync ~line 739):**
 ```csharp
 foreach (var item in writtenItems)
 {
+    cancellationToken.ThrowIfCancellationRequested();
+
     item.ItemState = ItemState.Notified;
+    item.UpdatedAt = DateTime.UtcNow.ToString("o");
     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 }
 ```
@@ -225,14 +308,18 @@ foreach (var item in writtenItems)
 **After:**
 ```csharp
 foreach (var item in writtenItems)
+{
+    cancellationToken.ThrowIfCancellationRequested();
     item.ItemState = ItemState.Notified;
+    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+}
 
+// Single batched write
 await Plugin.Instance!.DatabaseManager.Catalog.UpsertCatalogItemsAsync(writtenItems, cancellationToken);
 ```
 
-Apply to:
-- NotifyStepAsync (line ~739)
-- PromoteStalledItemsAsync (line ~914)
+Apply same pattern to:
+- PromoteStalledItemsAsync (~line 914)
 
 **Priority:** P2 | **Effort:** 2 hours
 
@@ -242,7 +329,9 @@ Apply to:
 
 **File:** Services/AioMetadataClient.cs:26-33
 
-**Problem:** New HttpClient() instantiated per Refresh run
+**MAINTENANCE.md Reference:** Performance rule #11 (singleton HttpClient)
+
+**Problem:** `new HttpClient()` instantiated per Refresh run can exhaust sockets under load.
 
 ### Fix:
 
@@ -264,15 +353,17 @@ public class AioMetadataClient
         // Remove: _httpClient = new HttpClient() { Timeout = ... };
     }
 
-    public async Task<EnrichedMetadata?> FetchAsync(...)
+    public async Task<EnrichedMetadata?> FetchAsync(string titleOrId, int? year, CancellationToken ct = default)
     {
-        // Use static _httpClient
+        // Use static _httpClient instead of instance field
+        var response = await _httpClient.GetAsync(url, ct);
+        // ... rest of method
     }
 }
 ```
 
 Apply same pattern to:
-- Services/AioStreamsClient.cs (if exists)
+- **Services/AioStreamsClient.cs** (if it has same anti-pattern)
 
 **Priority:** P2 | **Effort:** 30 minutes
 
@@ -282,34 +373,69 @@ Apply same pattern to:
 
 **File:** Tasks/RefreshTask.cs:638-641
 
-**Problem:** Generic `catch (Exception)` treats all failures identically
+**MAINTENANCE.md Reference:** Data integrity rule #7 (distinguish transient from permanent failures)
+
+**Problem:** Generic `catch (Exception)` treats all failures identically. Spec requires continuing on transient errors, failing fast on permanent ones.
 
 ### Fix:
 
 ```csharp
-catch (OperationCanceledException)
+// In EnrichStepAsync enrichment loop
+foreach (var item in needsEnrichItems)
 {
-    throw; // Don't suppress cancellation
-}
-catch (IOException ioEx)
-{
-    _logger.LogError(ioEx, "[EmbyStreams] Disk I/O error during enrichment for {Title}", item.Title);
-    throw; // Disk issues are fatal
-}
-catch (HttpRequestException httpEx)
-{
-    _logger.LogWarning(httpEx, "[EmbyStreams] AIOMetadata fetch failed for {Title} - will retry", item.Title);
-    // Continue loop - transient network error
-}
-catch (JsonException jsonEx)
-{
-    _logger.LogWarning(jsonEx, "[EmbyStreams] Invalid JSON from AIOMetadata for {Title}", item.Title);
-    // Continue loop - bad data but not fatal
-}
-catch (Exception ex)
-{
-    _logger.LogError(ex, "[EmbyStreams] Unexpected error enriching {Title}", item.Title);
-    // Log but continue - don't poison the whole batch
+    cancellationToken.ThrowIfCancellationRequested();
+
+    try
+    {
+        var metadata = await aioClient.FetchAsync(item.Title, item.Year, cancellationToken);
+
+        if (metadata != null)
+        {
+            await WriteEnrichedNfoAsync(item, metadata, cancellationToken);
+            // ... update status
+        }
+        else
+        {
+            // Failure path - increment retry
+            // ... existing logic
+        }
+
+        await Task.Delay(2000, cancellationToken);
+    }
+    catch (OperationCanceledException)
+    {
+        throw; // Never suppress cancellation
+    }
+    catch (IOException ioEx)
+    {
+        // Disk full, permissions issue — fatal for the run
+        _logger.LogError(ioEx, "[EmbyStreams] Disk I/O error during enrichment for {Title}", item.Title);
+        throw;
+    }
+    catch (HttpRequestException httpEx) when (httpEx.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+    {
+        // Rate limited — back off and skip rest of batch
+        _logger.LogWarning("[EmbyStreams] Rate limited by AIOMetadata, pausing enrichment");
+        break;
+    }
+    catch (HttpRequestException httpEx)
+    {
+        // Transient network error — continue to next item
+        _logger.LogWarning(httpEx, "[EmbyStreams] AIOMetadata fetch failed for {Title} - will retry", item.Title);
+        continue;
+    }
+    catch (JsonException jsonEx)
+    {
+        // Bad data from API — continue
+        _logger.LogWarning(jsonEx, "[EmbyStreams] Invalid JSON from AIOMetadata for {Title}", item.Title);
+        continue;
+    }
+    catch (Exception ex)
+    {
+        // Unexpected — log but don't poison the whole batch
+        _logger.LogError(ex, "[EmbyStreams] Unexpected error enriching {Title}", item.Title);
+        continue;
+    }
 }
 ```
 
@@ -321,9 +447,11 @@ catch (Exception ex)
 
 **Files:** Data/Repositories/{CandidateRepository, SnapshotRepository, MaterializedVersionRepository}.cs
 
-**Problem:** These "repositories" take DatabaseManager as constructor param and delegate back - circular coupling.
+**MAINTENANCE.md Reference:** Refactoring opportunity from 2026-04-10 review
 
-### Option A: Let them own connections directly
+**Problem:** These "repositories" take DatabaseManager as constructor param and call back into it — circular coupling, not actual separation.
+
+### Option A: Let them own connections directly (recommended for larger repos)
 
 ```csharp
 public class CandidateRepository
@@ -342,18 +470,37 @@ public class CandidateRepository
     {
         var conn = new SQLiteConnection($"Data Source={_dbPath}");
         await conn.OpenAsync(ct);
+        await using var cmd = new SQLiteCommand("PRAGMA journal_mode=WAL;", conn);
+        await cmd.ExecuteNonQueryAsync(ct);
         return conn;
     }
 
     // Direct SQL calls, no DatabaseManager dependency
+    public async Task<StreamCandidate?> GetCandidateAsync(string id, CancellationToken ct)
+    {
+        await using var conn = await OpenConnectionAsync(ct);
+        // ... direct query
+    }
 }
 ```
 
-### Option B: Roll them back into DatabaseManager
+### Option B: Roll back into DatabaseManager (for tiny repos)
 
-If the methods are small and cohesive, just put them back in DatabaseManager under a `#region Candidates` section.
+If the repo is <100 lines and doesn't justify separate file, move methods back into DatabaseManager under a `#region` section.
 
-**Recommendation:** Option A for larger repos (Candidate, Snapshot), Option B for tiny ones.
+**Recommendation:**
+- **CandidateRepository** — Option A (already substantial)
+- **SnapshotRepository** — Option A
+- **MaterializedVersionRepository** — Option B (roll back, it's small)
+
+**Update Plugin.cs constructor:**
+```csharp
+// Before
+CandidateRepository = new CandidateRepository(DatabaseManager);
+
+// After
+CandidateRepository = new CandidateRepository(dbPath, loggerFactory.CreateLogger<CandidateRepository>());
+```
 
 **Priority:** P2 | **Effort:** 2-3 hours
 
@@ -367,11 +514,21 @@ If the methods are small and cohesive, just put them back in DatabaseManager und
 
 ### Fix:
 
+**PluginConfiguration.cs:**
 ```csharp
-// PluginConfiguration.cs
+/// <summary>
+/// Token expiry in days. Default: 365.
+/// Renewal starts 90 days before expiry.
+/// </summary>
 public int TokenExpiryDays { get; set; } = 365;
+```
 
-// RefreshTask.cs:441
+**RefreshTask.cs:441:**
+```csharp
+// Before
+var expiresAt = DateTimeOffset.UtcNow.AddDays(365);
+
+// After
 var expiresAt = DateTimeOffset.UtcNow.AddDays(Plugin.Instance!.Configuration.TokenExpiryDays);
 ```
 
@@ -388,10 +545,16 @@ var expiresAt = DateTimeOffset.UtcNow.AddDays(Plugin.Instance!.Configuration.Tok
 ### Fix:
 
 ```csharp
-private static readonly long NeverRetryUnixSeconds = new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
+// At class level in RefreshTask
+private static readonly long NeverRetryUnixSeconds =
+    new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
 
 // Line 624
-item.NextRetryAt = NeverRetryUnixSeconds;
+if (item.RetryCount >= 3)
+{
+    item.NfoStatus = "Blocked";
+    item.NextRetryAt = NeverRetryUnixSeconds;
+}
 ```
 
 **Priority:** P3 | **Effort:** 2 minutes
@@ -400,37 +563,67 @@ item.NextRetryAt = NeverRetryUnixSeconds;
 
 ## Task L-4: Document the "42" Magic Number
 
-**File:** Tasks/DeepCleanTask.cs (and RefreshTask.cs)
+**File:** Tasks/DeepCleanTask.cs, Tasks/RefreshTask.cs
 
-**Problem:** Why 42? Hitchhiker's reference or tuned value?
+**Problem:** Why 42? Hitchhiker's reference or empirically tuned?
 
 ### Fix:
 
-Add comment:
+Add comment at each usage:
 
 ```csharp
-// 42-item limit per run (Hitchhiker's Guide reference, also empirically proven to be
-// the answer to bounded-work-per-cycle-that-doesn't-overrun-the-scheduler)
+// Process up to 42 items per run. This limit serves two purposes:
+// 1. Bounds execution time to stay within the 6-minute cycle window
+// 2. Prevents overwhelming Emby's metadata refresh queue
+// (Also a nod to The Hitchhiker's Guide to the Galaxy)
 const int ItemsPerPass = 42;
-
-var items = await db.GetCatalogItemsByStateAsync(ItemState.Written, ItemsPerPass, ct);
 ```
 
-**Priority:** P3 | **Effort:** 1 minute
+Apply to:
+- RefreshTask.NotifyStepAsync
+- RefreshTask.VerifyStepAsync
+- DeepCleanTask.EnrichmentTrickleAsync
+
+**Priority:** P3 | **Effort:** 5 minutes
+
+---
+
+## Task POST-SPRINT: Update MAINTENANCE.md
+
+**File:** .ai/MAINTENANCE.md
+
+After Sprint 151 completion, add to Decisions Log:
+
+```markdown
+| Decision | Resolved | Notes |
+|---|---|---|
+| Database access pattern | Sprint 151 | CatalogRepository owns catalog_items CRUD. CandidateRepository and SnapshotRepository own their tables. Remaining concerns (metadata KV, discover_catalog, schema migrations) stay in DatabaseManager. |
+| Batch writes | Sprint 151 | UpsertCatalogItemsAsync(IEnumerable<>) for multi-item updates. Reduces N+1 anti-pattern. |
+| HttpClient lifecycle | Sprint 151 | Static singleton in AioMetadataClient and AioStreamsClient. Never per-request instantiation. |
+| Repository ownership | Sprint 151 | Repositories own connections directly. No circular DatabaseManager dependency. |
+```
 
 ---
 
 ## Testing Checklist
 
 ```
-[ ] H-3: Verify all catalog queries work through new CatalogRepository
-[ ] H-1: Grep codebase for MediaItem references, verify none remain
+[ ] Run full Refresh + DeepClean cycle after changes (no regression)
+[ ] Verify inline Enrich still works for no-ID items
+[ ] Verify token renewal still functions
+[ ] H-3: All catalog queries work through new CatalogRepository
+[ ] H-3: Verify blocked_at IS NULL filter present in all active item queries
+[ ] H-1: Grep codebase for "MediaItem[^s]" references, verify none remain
 [ ] M-1: Build succeeds after deleting 600 lines from CatalogSyncTask
-[ ] M-2: Verify batched writes reduce transaction count in logs
-[ ] M-3: Verify no socket exhaustion after 100 consecutive Refresh runs
-[ ] M-4: Trigger IOException, verify task fails fast
-[ ] M-4: Trigger HttpRequestException, verify task continues
-[ ] R-1: Verify candidate/snapshot repos work without DatabaseManager dependency
+[ ] M-1: Verify CatalogFetchTask (renamed) still appears in Scheduled Tasks
+[ ] M-2: Check logs for "Batch upserted N items" messages
+[ ] M-2: Verify NotifyStep completes faster (fewer DB round-trips)
+[ ] M-3: Run 100 consecutive Refresh cycles, verify no socket exhaustion
+[ ] M-4: Simulate IOException in enrichment, verify task fails fast
+[ ] M-4: Simulate HttpRequestException, verify task continues to next item
+[ ] R-1: Verify CandidateRepository/SnapshotRepository work without DatabaseManager dependency
+[ ] L-1: Change TokenExpiryDays to 180, verify new tokens expire in 180 days
+[ ] L-4: Code review — verify all "42" usages have explanatory comments
 ```
 
 ---
@@ -444,31 +637,62 @@ GOD CLASS REDUCTION:
 - Extract CatalogRepository from DatabaseManager (H-3) — ~1,000 lines moved
 - Unify CatalogItem/MediaItem models (H-1) — delete duplicate MediaItem branch
 - Delete 600 lines of dead STRM/NFO writers from CatalogSyncTask (M-1)
+- Optionally rename CatalogSyncTask → CatalogFetchTask for clarity
 
 PERFORMANCE:
 - Batch writes in Notify/PromoteStalled (M-2) — 40x fewer transactions
-- Singleton HttpClient in AioMetadataClient (M-3)
+- Singleton HttpClient in AioMetadataClient/AioStreamsClient (M-3)
+- Add bounded limit to PromoteStalledItems (fixes Sprint 149 C-4)
 
 CODE QUALITY:
 - Improve exception handling in enrichment loop (M-4)
 - Stop threading DatabaseManager into other repos (R-1)
-- Move hardcoded 365-day expiry to config (L-1)
-- Document "42" magic number (L-4)
+- Move hardcoded 365-day expiry to PluginConfiguration (L-1)
+- Document "42" magic number with inline comments (L-4)
+- Extract NeverRetryUnixSeconds sentinel constant (L-2)
+
+CRITICAL FIXES PRESERVED:
+- blocked_at IS NULL filter enforced in all active item queries (Sprint 149 C-5)
+- Per-user pin checks before deletion maintained (Sprint 149 C-6)
 
 DatabaseManager reduced from 5,624 to ~2,200 lines.
+
+Fulfills: MAINTENANCE.md performance rules #10, #11 and code quality standards
+Updates: MAINTENANCE.md Decisions Log with database access patterns
 ```
 
 ---
 
-## Files Modified
+## Files Modified/Deleted
 
-- Data/Repositories/CatalogRepository.cs — NEW (~800 lines extracted)
-- Data/DatabaseManager.cs — ~1,200 lines deleted, delegation added
+**New:**
+- Data/Repositories/CatalogRepository.cs — ~800 lines extracted
+
+**Modified:**
+- Data/DatabaseManager.cs — ~1,200 lines deleted, delegation property added
 - Data/Models/CatalogItem.cs — Add Blocked computed property
-- Data/Models/MediaItem.cs — DELETED
+- Data/Repositories/CandidateRepository.cs — Remove DatabaseManager dependency
+- Data/Repositories/SnapshotRepository.cs — Remove DatabaseManager dependency
+- Tasks/RefreshTask.cs — Use Catalog repo, batch writes, improve exception handling
+- Tasks/DeepCleanTask.cs — Use Catalog repo, add "42" comment
 - Tasks/CatalogSyncTask.cs — Delete 600 lines, optionally rename to CatalogFetchTask
-- Tasks/RefreshTask.cs — Update to use Catalog repo, batch writes, improve exception handling
 - Services/AioMetadataClient.cs — Static HttpClient
+- Services/AioStreamsClient.cs — Static HttpClient (if same pattern exists)
 - PluginConfiguration.cs — Add TokenExpiryDays property
+- Plugin.cs — Update repository instantiation (pass dbPath instead of DatabaseManager)
 
-**Total changes:** ~1,800 lines deleted, ~900 lines added (net -900)
+**Deleted:**
+- Data/Models/MediaItem.cs — Unified into CatalogItem
+- Data/Repositories/MaterializedVersionRepository.cs — Rolled back into DatabaseManager (Option B)
+
+**Total changes:** ~1,900 lines deleted, ~900 lines added (net -1,000)
+
+---
+
+## Next Steps After Sprint 151
+
+1. Update .ai/MAINTENANCE.md Decisions Log with new patterns
+2. Run full E2E test suite
+3. Performance benchmark: measure Refresh cycle time before/after batch writes
+4. Grep for any remaining `DatabaseManager.Get/Upsert` calls that should use `.Catalog`
+5. Update developer docs with new CatalogRepository usage patterns
