@@ -8,6 +8,7 @@ using EmbyStreams.Data;
 using EmbyStreams.Logging;
 using EmbyStreams.Models;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
@@ -266,20 +267,25 @@ namespace EmbyStreams.Services
     /// Handles Discover browsing and search requests.
     /// Provides REST API for the Discover channel UI.
     /// </summary>
-    public class DiscoverService : IService
+    public class DiscoverService : IService, IRequiresRequest
     {
         private readonly ILogger<DiscoverService> _logger;
         private readonly DatabaseManager _db;
         private readonly ILibraryManager _libraryManager;
+        private readonly IAuthorizationContext _authCtx;
+
+        /// <inheritdoc/>
+        public IRequest Request { get; set; } = null!;
 
         /// <summary>
         /// Emby injects dependencies automatically.
         /// </summary>
-        public DiscoverService(ILogManager logManager, ILibraryManager libraryManager)
+        public DiscoverService(ILogManager logManager, ILibraryManager libraryManager, IAuthorizationContext authCtx)
         {
             _logger = new EmbyLoggerAdapter<DiscoverService>(logManager.GetLogger("EmbyStreams"));
             _db = Plugin.Instance.DatabaseManager;
             _libraryManager = libraryManager;
+            _authCtx = authCtx;
         }
 
         // ── Handlers ──────────────────────────────────────────────────────────────
@@ -290,6 +296,9 @@ namespace EmbyStreams.Services
         /// </summary>
         public async Task<object> Get(DiscoverBrowseRequest req)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             try
             {
                 var limit = Math.Min(Math.Max(req.Limit, 1), 200);
@@ -319,6 +328,9 @@ namespace EmbyStreams.Services
         /// </summary>
         public async Task<object> Get(DiscoverSearchRequest req)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             try
             {
                 if (string.IsNullOrWhiteSpace(req.Query))
@@ -556,7 +568,7 @@ namespace EmbyStreams.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in TestCatalog");
-                return new { error = ex.Message };
+                return new { error = "An internal error occurred. Check server logs." };
             }
         }
 
@@ -600,7 +612,7 @@ namespace EmbyStreams.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in TestChannel");
-                return new { error = ex.Message };
+                return new { error = "An internal error occurred. Check server logs." };
             }
         }
 
@@ -610,6 +622,9 @@ namespace EmbyStreams.Services
         /// </summary>
         public async Task<object> Get(DiscoverDetailRequest req)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             try
             {
                 if (string.IsNullOrWhiteSpace(req.ImdbId))
@@ -635,6 +650,9 @@ namespace EmbyStreams.Services
         /// </summary>
         public async Task<object> Post(DiscoverAddToLibraryRequest req)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             // Ensure PluginSecret is initialized before accessing Configuration
             Plugin.Instance?.EnsureInitialization();
 
@@ -794,7 +812,7 @@ namespace EmbyStreams.Services
                 return new DiscoverAddToLibraryResponse
                 {
                     Ok = false,
-                    Error = ex.Message
+                    Error = "An internal error occurred. Check server logs."
                 };
             }
         }
@@ -920,6 +938,9 @@ namespace EmbyStreams.Services
         [Route("/EmbyStreams/Discover/TestStreamResolution", "GET")]
         public async Task<object> Get(DiscoverTestStreamResolutionRequest req)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             try
             {
                 if (string.IsNullOrWhiteSpace(req.ImdbId))
@@ -1005,7 +1026,7 @@ namespace EmbyStreams.Services
                 return new DiscoverTestStreamResolutionResponse
                 {
                     Success = false,
-                    Error = ex.Message,
+                    Error = "An internal error occurred. Check server logs.",
                     ProxyToken = null,
                     StreamUrl = null
                 };
@@ -1018,6 +1039,9 @@ namespace EmbyStreams.Services
         /// </summary>
         public async Task<object> Get(DiscoverDirectStreamRequest req)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             try
             {
                 if (string.IsNullOrWhiteSpace(req.ImdbId))
@@ -1085,7 +1109,7 @@ namespace EmbyStreams.Services
                 return new DiscoverDirectStreamResponse
                 {
                     Success = false,
-                    Error = ex.Message,
+                    Error = "An internal error occurred. Check server logs.",
                     StreamUrl = null,
                     QualityTier = null
                 };
