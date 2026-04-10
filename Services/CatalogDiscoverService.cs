@@ -65,6 +65,14 @@ namespace EmbyStreams.Services
 
                     _logger.LogInformation("[Discover] Found {Count} catalogs in manifest", manifest.Catalogs.Count);
 
+                    // Compute addon base URL for IdResolverService /meta calls (Sprint 160C).
+                    // Strip /manifest.json from the client's manifest URL.
+                    var addonBaseUrl = client.ManifestUrl;
+                    if (addonBaseUrl.EndsWith("/manifest.json", StringComparison.OrdinalIgnoreCase))
+                        addonBaseUrl = addonBaseUrl.Substring(0, addonBaseUrl.Length - "/manifest.json".Length);
+
+                    var idResolver = Plugin.Instance?.IdResolverService;
+
                     // Process each catalog
                     var totalItems = 0;
                     foreach (var catalogDef in manifest.Catalogs)
@@ -80,7 +88,8 @@ namespace EmbyStreams.Services
 
                         try
                         {
-                            var itemsAdded = await SyncCatalogAsync(client, catalogDef, cancellationToken);
+                            var itemsAdded = await SyncCatalogAsync(
+                                client, catalogDef, addonBaseUrl, idResolver, cancellationToken);
                             totalItems += itemsAdded;
                             _logger.LogInformation("[Discover] Synced catalog {Id} ({Type}): {Count} items",
                                 catalogDef.Id, catalogDef.Type, itemsAdded);
@@ -112,6 +121,8 @@ namespace EmbyStreams.Services
         private async Task<int> SyncCatalogAsync(
             AioStreamsClient client,
             AioStreamsCatalogDef catalogDef,
+            string addonBaseUrl,
+            IdResolverService? idResolver,
             CancellationToken cancellationToken)
         {
             // Clear previous items from this catalog source (scoped by type to avoid movie/series conflicts)
@@ -152,9 +163,38 @@ namespace EmbyStreams.Services
                     if (string.IsNullOrWhiteSpace(meta.Id) && string.IsNullOrWhiteSpace(meta.ImdbId))
                         continue;
 
-                    var imdbId = meta.ImdbId ?? meta.Id ?? "";
-                    if (string.IsNullOrWhiteSpace(imdbId))
-                        continue;
+                    // ── Sprint 160C: ID resolution ─────────────────────────────────
+                    // Prefer meta.Id (the item's canonical manifest ID) over meta.ImdbId
+                    // because AIOStreams may set both to the same value, or set ImdbId only
+                    // for tt-prefixed items. Use whichever is available.
+                    var manifestId = meta.Id ?? meta.ImdbId ?? "";
+                    if (string.IsNullOrWhiteSpace(manifestId)) continue;
+
+                    string imdbId;
+                    string? resolvedTmdbId = null;
+                    string? resolvedTvdbId = null;
+                    string? resolvedRawMeta = null;
+
+                    if (manifestId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Fast path: already canonical, no network call
+                        imdbId = manifestId;
+                    }
+                    else if (idResolver != null)
+                    {
+                        var resolved = await idResolver.ResolveAsync(
+                            manifestId, addonBaseUrl, catalogDef.Type ?? "movie", cancellationToken);
+                        imdbId = resolved.CanonicalId;
+                        resolvedTmdbId  = resolved.TmdbId;
+                        resolvedTvdbId  = resolved.TvdbId;
+                        resolvedRawMeta = resolved.RawMetaJson;
+                    }
+                    else
+                    {
+                        imdbId = manifestId;
+                    }
+
+                    if (string.IsNullOrWhiteSpace(imdbId)) continue;
 
                     // Parse year from ReleaseInfo (format: "2022" or "2022–" for ongoing)
                     int? year = null;

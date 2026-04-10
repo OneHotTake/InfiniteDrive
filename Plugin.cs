@@ -213,6 +213,12 @@ namespace EmbyStreams
         public Services.StreamProbeService StreamProbeService { get; private set; } = null!;
 
         /// <summary>
+        /// ID resolver service for normalising manifest IDs to canonical provider IDs (Sprint 160).
+        /// Calls source addon /meta endpoint, then AIOMetadata as fallback.
+        /// </summary>
+        public Services.IdResolverService IdResolverService { get; private set; } = null!;
+
+        /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.
         /// Heavy initialization (database, repositories, PluginSecret) is deferred to
         /// EmbyStreamsInitializationService.Run() via IServerEntryPoint.
@@ -447,6 +453,10 @@ namespace EmbyStreams
                 StreamProbeService = new Services.StreamProbeService(
                     new EmbyLoggerAdapter<Services.StreamProbeService>(_logManager.GetLogger("StreamProbeService")));
                 _logger.LogInformation("[EmbyStreams] StreamProbeService initialised");
+
+                // Initialise IdResolverService (Sprint 160: Robust ID Normalisation)
+                IdResolverService = new Services.IdResolverService(_logManager);
+                _logger.LogInformation("[EmbyStreams] IdResolverService initialised");
             }
             catch (Exception ex)
             {
