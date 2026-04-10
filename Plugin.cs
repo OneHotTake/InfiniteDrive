@@ -196,9 +196,9 @@ namespace EmbyStreams
         public IResolutionCacheRepository ResolutionCacheRepository => DatabaseManager;
 
         /// <summary>
-        /// Initialises the EmbyStreams plugin.
-        /// Emby injects <paramref name="appPaths"/>, <paramref name="xmlSerializer"/>
-        /// and <paramref name="loggerFactory"/> automatically when loading the plugin.
+        /// Plugin constructor — lightweight only per Emby conventions.
+        /// Heavy initialization (database, repositories, PluginSecret) is deferred to
+        /// EmbyStreamsInitializationService.Run() via IServerEntryPoint.
         /// </summary>
         public Plugin(
             IApplicationPaths appPaths,
@@ -210,9 +210,12 @@ namespace EmbyStreams
             _appPaths = appPaths;
             _logManager = logManager;
             _logger = new EmbyLoggerAdapter<Plugin>(logManager.GetLogger("EmbyStreams"));
-
-            InitialiseDatabaseManager(appPaths);
-            // Defer EnsurePluginSecret to first config access - ApplicationPaths may not be ready yet
+            //
+            // NOTE (Sprint 152): DatabaseManager.Initialise() and PluginSecret generation
+            // are now called from EmbyStreamsInitializationService.Run() (IServerEntryPoint),
+            // not from this constructor. IServerEntryPoint.Run() is called before any
+            // scheduled tasks fire, so this is safe.
+            //
         }
 
         /// <inheritdoc/>
@@ -383,11 +386,11 @@ namespace EmbyStreams
 
         // ── Private helpers ─────────────────────────────────────────────────────
 
-        private void InitialiseDatabaseManager(IApplicationPaths appPaths)
+        public void InitialiseDatabaseManager()
         {
             try
             {
-                var dbDirectory = Path.Combine(appPaths.DataPath, "EmbyStreams");
+                var dbDirectory = Path.Combine(_appPaths.DataPath, "EmbyStreams");
                 DatabaseManager = new DatabaseManager(dbDirectory, _logger);
                 DatabaseManager.Initialise();
                 _logger.LogInformation("[EmbyStreams] Database initialised at {DbDir}", dbDirectory);
@@ -430,7 +433,7 @@ namespace EmbyStreams
         /// Called lazily on first config access to ensure ApplicationPaths is ready.
         /// Safe to call multiple times - will only execute once.
         /// </summary>
-        private void EnsurePluginSecret()
+        public void EnsurePluginSecret()
         {
             if (_secretEnsured)
                 return;

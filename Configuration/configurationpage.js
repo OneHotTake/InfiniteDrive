@@ -271,6 +271,7 @@ function (loading) {
         if (name === 'discover') { discoverInit(view); }
         if (name === 'mypicks') { loadMyPicks(view); }
         if (name === 'blocked') { loadBlockedItems(view); }
+        if (name === 'content-mgmt') { loadContentMgmtSources(view); }
     }
 
     // ── Sources tab ───────────────────────────────────────────────────────────
@@ -792,7 +793,6 @@ function (loading) {
         set('cfg-item-cap',               cfg.CatalogItemCap);
         set('cfg-sync-interval',          cfg.CatalogSyncIntervalHours);
         set('cfg-sync-hour',              cfg.SyncScheduleHour != null ? cfg.SyncScheduleHour : 3);
-        set('cfg-max-fallbacks',          cfg.MaxFallbacksToStore);
         set('cfg-candidates-per-provider', cfg.CandidatesPerProvider != null ? cfg.CandidatesPerProvider : 3);
         set('cfg-sync-resolve-timeout',   cfg.SyncResolveTimeoutSeconds);
         set('cfg-provider-priority',      cfg.ProviderPriorityOrder);
@@ -1027,7 +1027,6 @@ function (loading) {
             CatalogItemCap:             esInt(view, 'cfg-item-cap', 500),
             CatalogSyncIntervalHours:   esInt(view, 'cfg-sync-interval', 24),
             SyncScheduleHour:           esInt(view, 'cfg-sync-hour', 3),
-            MaxFallbacksToStore:        esInt(view, 'cfg-max-fallbacks', 5),
             CandidatesPerProvider:      esInt(view, 'cfg-candidates-per-provider', 3),
             SyncResolveTimeoutSeconds:  esInt(view, 'cfg-sync-resolve-timeout', 30),
             ProviderPriorityOrder:      esVal(view, 'cfg-provider-priority'),
@@ -2740,24 +2739,58 @@ function (loading) {
     function summonMarvin(view) {
         var btn = q(view, 'es-summon-marvin-btn');
         var statusEl = q(view, 'es-marvin-status');
-
         if (!btn || !statusEl) return;
 
-        // Change button state to "grumbling"
         btn.textContent = 'Marvin is grumbling…';
         btn.disabled = true;
-        statusEl.textContent = '';
+        statusEl.textContent = 'Starting deep clean…';
 
-        // Trigger diagnostic actions
-        // For now, just refresh the status
-        // In future, this would trigger Doctor + health check
-        setTimeout(function() {
-            // Reset button state
+        ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
+            var task = (tasks || []).find(function(t) { return t.Key === 'EmbyStreamsDeepClean'; });
+            if (!task) {
+                btn.textContent = 'Summon Marvin';
+                btn.disabled = false;
+                statusEl.textContent = 'Task not found.';
+                return;
+            }
+            ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) });
+            statusEl.textContent = 'Deep clean running…';
+
+            // Safety reset after 5 minutes
+            setTimeout(function() {
+                btn.textContent = 'Summon Marvin';
+                btn.disabled = false;
+                statusEl.textContent = '';
+                loadImprobabilityStatus(view);
+            }, 300000);
+        }).catch(function() {
             btn.textContent = 'Summon Marvin';
             btn.disabled = false;
-            statusEl.textContent = 'Diagnostics complete';
-            loadImprobabilityStatus(view);
-        }, 3000);
+            statusEl.textContent = 'Failed to start.';
+        });
+    }
+
+    function loadContentMgmtSources(view) {
+        var el = view.querySelector('#es-sync-sources-list');
+        if (!el) return;
+
+        esFetch('/EmbyStreams/Status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.CatalogSources || !data.CatalogSources.length) {
+                    el.innerHTML = '<span style="opacity:.5">No sources configured yet.</span>';
+                    return;
+                }
+                el.innerHTML = data.CatalogSources.map(function(src) {
+                    var ok = src.LastReachableAt ? '🟢' : '🔴';
+                    var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'never';
+                    return '<div style="padding:.3em 0">' + ok + ' <strong>' + esc(src.SourceKey || '?') + '</strong>'
+                        + ' &mdash; ' + (src.ItemCount || 0) + ' items, synced ' + lastSync + '</div>';
+                }).join('');
+            })
+            .catch(function() {
+                el.innerHTML = '<span style="color:#dc3545">Failed to load. Check server logs.</span>';
+            });
     }
 
     // ── Cleanup on view hide ──────────────────────────────────────────────────

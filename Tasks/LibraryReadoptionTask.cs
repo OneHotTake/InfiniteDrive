@@ -88,9 +88,15 @@ namespace EmbyStreams.Tasks
                 new TaskTriggerInfo
                 {
                     Type          = TaskTriggerInfo.TriggerInterval,
-                    IntervalTicks = TimeSpan.FromHours(6).Ticks,
+                    IntervalTicks = TimeSpan.FromHours(24).Ticks,
                 }
             };
+        //
+        // NOTE (Sprint 152): Primary re-adoption mechanism is LibraryPostScanReadoptionService
+        // (ILibraryPostScanTask), which fires immediately after every Emby library scan.
+        // This scheduled task is the safety net for environments where scans are infrequent
+        // or where file system notifications are unreliable (NFS, remote mounts, etc.).
+        //
 
         /// <inheritdoc/>
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)

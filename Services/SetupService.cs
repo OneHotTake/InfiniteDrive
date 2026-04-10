@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using EmbyStreams.Logging;
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
@@ -72,17 +73,24 @@ namespace EmbyStreams.Services
     /// Service for setup operations (creating directories, rotating API keys, etc.).
     /// Called by the wizard during initial configuration and user maintenance.
     /// </summary>
-    public class SetupService : IService
+    public class SetupService : IService, IRequiresRequest
     {
         private readonly ILogger<SetupService> _logger;
+        private readonly IAuthorizationContext _authCtx;
 
-        public SetupService(ILogManager logManager)
+        public IRequest Request { get; set; } = null!;
+
+        public SetupService(ILogManager logManager, IAuthorizationContext authCtx)
         {
             _logger = new EmbyLoggerAdapter<SetupService>(logManager.GetLogger("EmbyStreams"));
+            _authCtx = authCtx;
         }
 
-        public CreateDirectoriesResponse Post(CreateDirectoriesRequest request)
+        public object Post(CreateDirectoriesRequest request)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             try
             {
                 // Create movies directory
@@ -128,8 +136,11 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Rotates the playback API key and rewrites all .strm files with the new key.
         /// </summary>
-        public async Task<RotateApiKeyResponse> Post(RotateApiKeyRequest _)
+        public async Task<object> Post(RotateApiKeyRequest _)
         {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
