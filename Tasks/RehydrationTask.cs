@@ -15,7 +15,7 @@ namespace EmbyStreams.Tasks
 {
     /// <summary>
     /// Scheduled task that materializes versioned stream files for configured quality slots.
-    /// Admin-initiated only (no automatic triggers).
+    /// Runs daily; also triggerable on-demand via Content Mgmt tab or POST /EmbyStreams/Trigger.
     /// <para>
     /// Reads <see cref="PluginConfiguration.PendingRehydrationOperations"/> from config,
     /// parses each JSON entry, and delegates to <see cref="RehydrationService"/>.
@@ -66,7 +66,17 @@ namespace EmbyStreams.Tasks
 
         /// <inheritdoc/>
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-            => Array.Empty<TaskTriggerInfo>(); // Admin-initiated only
+        {
+            return new[]
+            {
+                new TaskTriggerInfo
+                {
+                    Type = TaskTriggerInfo.TriggerInterval,
+                    IntervalTicks = TimeSpan.FromHours(24).Ticks,
+                    MaxRuntimeTicks = TimeSpan.FromHours(2).Ticks
+                }
+            };
+        }
 
         /// <inheritdoc/>
         public async Task Execute(CancellationToken ct, IProgress<double> progress)

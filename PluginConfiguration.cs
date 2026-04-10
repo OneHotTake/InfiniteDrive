@@ -409,14 +409,6 @@ namespace EmbyStreams
         public int CandidatesPerProvider { get; set; } = 3;
 
         /// <summary>
-        /// Legacy total candidate cap, kept for backwards compatibility.
-        /// New installs use <see cref="CandidatesPerProvider"/> instead.
-        /// This value is ignored when <c>CandidatesPerProvider &gt; 0</c>.
-        /// </summary>
-        [DataMember]
-        public int MaxFallbacksToStore { get; set; } = 5;
-
-        /// <summary>
         /// Timeout in seconds for on-demand (synchronous) AIOStreams resolution
         /// triggered by a cache miss during playback.
         ///
@@ -628,7 +620,6 @@ namespace EmbyStreams
             // -1 is the "disabled" sentinel; any other out-of-range value clamps to 0–23
             SyncScheduleHour          = SyncScheduleHour == -1 ? -1 : Clamp(SyncScheduleHour, 0, 23);
             CandidatesPerProvider     = Clamp(CandidatesPerProvider,     1,     10);
-            MaxFallbacksToStore       = Clamp(MaxFallbacksToStore,       1,     50);
             CandidateTtlHours         = Clamp(CandidateTtlHours,         1,     168);    // 1 h – 7 days
             SignatureValidityDays    = Clamp(SignatureValidityDays,    1,     3650);
             SkipFutureEpisodes          = SkipFutureEpisodes;

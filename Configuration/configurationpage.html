@@ -1143,11 +1143,6 @@
           <div class="es-hint">Stream candidates stored per debrid provider per item. Default: 3.</div>
         </div>
         <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-max-fallbacks">Max fallback candidates (legacy)</label>
-          <input id="cfg-max-fallbacks" type="number" is="emby-input" min="1" max="20" placeholder="5" />
-          <div class="es-hint">Legacy total cap — ignored when Candidates per provider is set. Default: 5.</div>
-        </div>
-        <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="cfg-sync-resolve-timeout">Sync resolve timeout (seconds)</label>
           <input id="cfg-sync-resolve-timeout" type="number" is="emby-input" min="5" max="300" placeholder="30" />
           <div class="es-hint">Max seconds to wait for a stream URL. Default: 30.</div>
@@ -1566,7 +1561,13 @@
     <div style="margin-bottom:1.5em">
       <h3 style="margin-bottom:.5em">Catalog Sync</h3>
       <p class="es-hint">Manually trigger catalog sync (normally runs every 6 hours).</p>
-      <button id="es-force-catalog-sync-btn" class="es-btn">Force Catalog Sync Now</button>
+      <button id="es-force-catalog-sync-btn" class="es-btn" data-es-task="catalog_sync">Force Catalog Sync Now</button>
+    </div>
+
+    <div style="margin-bottom:1.5em">
+      <h3 style="margin-bottom:.5em">Version Slots</h3>
+      <p class="es-hint">Apply pending slot changes (add/remove quality tiers) across all catalog items.</p>
+      <button class="es-btn" data-es-task="embystreams_rehydration">Run Pending Rehydration</button>
     </div>
 
     <div style="margin-bottom:1.5em">
