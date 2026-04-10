@@ -1,6 +1,6 @@
 # EmbyStreams Repository Map
 
-_Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
+_Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
 
 ---
 
@@ -14,6 +14,7 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 ### Key Types / Constants
 - `Plugin.Instance` — singleton accessor used by all services and tasks
 - `Plugin.DatabaseManager` — shared SQLite manager, ready before any task runs
+- `Plugin.CooldownGate` — HTTP throttling gate (Sprint 155)
 
 ---
 
@@ -31,6 +32,7 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 - `SyncPathAnime` — filesystem path for anime content (default: /media/embystreams/anime)
 - `IsFirstRunComplete` — flag indicating completion of setup wizard
 - `EmbyBaseUrl` — auto-detected from window.location.origin; defaults to localhost but warns on remote clients
+- `ResolvedInstanceType` — auto-detected InstanceType (Shared/Private) from manifest URL (Sprint 155)
 
 ---
 
@@ -138,6 +140,22 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 - `UnblockItemAsync(itemId)` — clear tombstone, reset to NeedsEnrich (Sprint 150)
 - `GetUserPinnedImdbIdsAsync(userId)` — HashSet of IMDB IDs pinned by user (Sprint 150 H-4)
 - `GetCatalogItemsByIdsAsync(ids)` — batch fetch by primary key list (Sprint 150)
+
+---
+
+## Services/CooldownGate.cs
+> HTTP throttling gate for AIOStreams/Cinemeta calls. Replaces scattered Task.Delay(ApiCallDelayMs).
+
+### Key Types
+- `InstanceType` enum — Shared / Private
+- `CooldownKind` enum — CatalogFetch / StreamResolve / Enrichment / Cinemeta
+- `CooldownProfile` — compiled-in throttle constants per instance type
+- `CooldownGate` — singleton gate: WaitAsync (pre-call throttle), Tripped (429 backoff), three-strikes tracking
+
+### Public Methods
+- `WaitAsync(CooldownKind, CancellationToken)` — sleeps base+jitter, respects global cooldown
+- `Tripped(TimeSpan?)` — sets global cooldown on 429, emits progress event, tracks strikes
+- `ParseRetryAfter(string?)` — static helper to parse Retry-After header
 
 ---
 
@@ -373,14 +391,17 @@ _Generated 2026-04-06. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ---
 
-## Services/WebhookService.cs
-> `POST /EmbyStreams/Webhook/Sync` — accepts item-addition or re-sync triggers from external tools.
+## Services/StrmWriterService.cs (Sprint 156)
+> Unified service for writing .strm files to disk with consistent attribution.
 
 ### Public Methods
-- `Post(WebhookSyncRequest req)` — auto-detects payload format (direct/Jellyseerr/Radarr/Sonarr), writes .strm, queues Tier 0 resolution
+- `WriteAsync(item, originSourceType, ownerUserId, ct)` — writes .strm file with NFO, persists first_added_by_user_id
+- `BuildSignedStrmUrl(config, imdbId, mediaType, season, episode, quality)` — generates signed URL for /EmbyStreams/resolve
+- `SanitisePathPublic(input)` — public wrapper for filesystem path sanitisation
 
 ### Key Types / Constants
-- Accepted formats: `{"imdb":"tt..."}`, `{"source":"trakt"}`, Jellyseerr, Radarr, Sonarr payloads
+- Uses resolve tokens with 365-day validity for .strm files
+- First-writer-wins attribution via `first_added_by_user_id` column
 
 ---
 

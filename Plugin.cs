@@ -190,10 +190,22 @@ namespace EmbyStreams
         public Repositories.UserPinRepository UserPinRepository { get; private set; } = null!;
 
         /// <summary>
+        /// StrmWriterService — unified .strm file writer.
+        /// All .strm writes go through this singleton (Sprint 156).
+        /// </summary>
+        public Services.StrmWriterService StrmWriterService { get; private set; } = null!;
+
+        /// <summary>
         /// Resolution cache repository interface for stream URL caching.
         /// Delegates to DatabaseManager (Sprint 104A-04).
         /// </summary>
         public IResolutionCacheRepository ResolutionCacheRepository => DatabaseManager;
+
+        /// <summary>
+        /// Cooldown gate for HTTP throttling. Replaces scattered Task.Delay(ApiCallDelayMs).
+        /// Initialised during <see cref="EmbyStreamsInitializationService.Run"/>.
+        /// </summary>
+        public Services.CooldownGate CooldownGate { get; internal set; } = null!;
 
         /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.
@@ -421,6 +433,10 @@ namespace EmbyStreams
                 // Initialise user pin repository (Sprint 142: User Pins)
                 UserPinRepository = new Repositories.UserPinRepository(DatabaseManager, _logger);
                 _logger.LogInformation("[EmbyStreams] User pin repository initialised");
+
+                // Initialise StrmWriterService (Sprint 156: Unified Write Path)
+                StrmWriterService = new Services.StrmWriterService(_logManager, DatabaseManager);
+                _logger.LogInformation("[EmbyStreams] StrmWriterService initialised");
             }
             catch (Exception ex)
             {

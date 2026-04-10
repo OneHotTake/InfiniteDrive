@@ -789,7 +789,6 @@ function (loading) {
         set('cfg-cache-lifetime',         cfg.CacheLifetimeMinutes);
         set('cfg-api-budget',             cfg.ApiDailyBudget);
         set('cfg-max-concurrent',         cfg.MaxConcurrentResolutions);
-        set('cfg-api-delay',              cfg.ApiCallDelayMs);
         set('cfg-item-cap',               cfg.CatalogItemCap);
         set('cfg-sync-interval',          cfg.CatalogSyncIntervalHours);
         set('cfg-sync-hour',              cfg.SyncScheduleHour != null ? cfg.SyncScheduleHour : 3);
@@ -800,7 +799,6 @@ function (loading) {
         set('cfg-proxy-mode',             cfg.ProxyMode);
         set('cfg-max-proxy',              cfg.MaxConcurrentProxyStreams);
         set('cfg-delete-strm-on-readoption', cfg.DeleteStrmOnReadoption);
-        set('cfg-webhook-secret',         cfg.WebhookSecret);
         set('cfg-dont-panic',             cfg.DontPanic);
         set('cfg-plugin-secret',          cfg.PluginSecret);
 
@@ -1023,7 +1021,6 @@ function (loading) {
             CacheLifetimeMinutes:       esInt(view, 'cfg-cache-lifetime', 360),
             ApiDailyBudget:             esInt(view, 'cfg-api-budget', 2000),
             MaxConcurrentResolutions:   esInt(view, 'cfg-max-concurrent', 3),
-            ApiCallDelayMs:             esInt(view, 'cfg-api-delay', 500),
             CatalogItemCap:             esInt(view, 'cfg-item-cap', 500),
             CatalogSyncIntervalHours:   esInt(view, 'cfg-sync-interval', 24),
             SyncScheduleHour:           esInt(view, 'cfg-sync-hour', 3),
@@ -1034,7 +1031,6 @@ function (loading) {
             ProxyMode:                  esVal(view, 'cfg-proxy-mode'),
             MaxConcurrentProxyStreams:  esInt(view, 'cfg-max-proxy', 5),
             DeleteStrmOnReadoption:     esChk(view, 'cfg-delete-strm-on-readoption'),
-            WebhookSecret:              esVal(view, 'cfg-webhook-secret'),
             DontPanic:                  esChk(view, 'cfg-dont-panic'),
             PluginSecret:               esVal(view, 'cfg-plugin-secret'),
             CatalogItemLimitsJson:      getCatalogLimitsJson(),
@@ -2659,6 +2655,31 @@ function (loading) {
             var blockedEl = q(view, 'es-blocked-count');
             if (needsEnrichEl) needsEnrichEl.textContent = status.NeedsEnrichCount || 0;
             if (blockedEl) blockedEl.textContent = status.BlockedCount || 0;
+
+            // Sprint 155: Cooldown badge
+            var cooldownBadge = q(view, 'es-cooldown-badge');
+            var cooldownMsg = q(view, 'es-cooldown-msg');
+            var suggestPrivate = q(view, 'es-suggest-private');
+            if (status.CooldownActive && cooldownBadge && cooldownMsg) {
+                cooldownBadge.style.display = '';
+                cooldownMsg.textContent = 'Upstream busy — pausing briefly to stay a good neighbour.';
+                // Auto-clear badge when cooldown expires
+                if (status.CooldownUntil) {
+                    var remaining = new Date(status.CooldownUntil) - new Date();
+                    if (remaining > 0) {
+                        setTimeout(function() {
+                            if (cooldownBadge) cooldownBadge.style.display = 'none';
+                        }, remaining);
+                    }
+                }
+            } else if (cooldownBadge) {
+                cooldownBadge.style.display = 'none';
+            }
+            if (status.SuggestPrivateInstance && suggestPrivate) {
+                suggestPrivate.style.display = '';
+            } else if (suggestPrivate) {
+                suggestPrivate.style.display = 'none';
+            }
         }).catch(function(err) {
             console.error('Failed to load Improbability Drive status:', err);
         });

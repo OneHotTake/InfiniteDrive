@@ -115,15 +115,15 @@ namespace EmbyStreams.Data
                      source, source_list_id, seasons_json, strm_path,
                      added_at, updated_at, removed_at,
                      local_path, local_source, item_state, pin_source, pinned_at,
-                     nfo_status, retry_count, next_retry_at, strm_token_expires_at,
-                     blocked_at, blocked_by)
+                     nfo_status, retry_count, next_retry_at,
+                     blocked_at, blocked_by, first_added_by_user_id)
                 VALUES
                     (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                      @source, @source_list_id, @seasons_json, @strm_path,
                      @added_at, @updated_at, @removed_at,
                      @local_path, @local_source, @item_state, @pin_source, @pinned_at,
-                     @nfo_status, @retry_count, @next_retry_at, @strm_token_expires_at,
-                     @blocked_at, @blocked_by)
+                     @nfo_status, @retry_count, @next_retry_at,
+                     @blocked_at, @blocked_by, @first_added_by_user_id)
                 ON CONFLICT(imdb_id, source) DO UPDATE SET
                     tmdb_id       = excluded.tmdb_id,
                     unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -139,7 +139,6 @@ namespace EmbyStreams.Data
                     nfo_status    = COALESCE(excluded.nfo_status, catalog_items.nfo_status),
                     retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
                     next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
-                    strm_token_expires_at = COALESCE(excluded.strm_token_expires_at, catalog_items.strm_token_expires_at),
                     blocked_at    = COALESCE(catalog_items.blocked_at, excluded.blocked_at),
                     blocked_by    = COALESCE(catalog_items.blocked_by, excluded.blocked_by),
                     updated_at    = excluded.updated_at,
@@ -172,13 +171,32 @@ namespace EmbyStreams.Data
                     cmd.BindParameters["@next_retry_at"].Bind(item.NextRetryAt.Value);
                 else
                     cmd.BindParameters["@next_retry_at"].BindNull();
-                if (item.StrmTokenExpiresAt.HasValue)
-                    cmd.BindParameters["@strm_token_expires_at"].Bind(item.StrmTokenExpiresAt.Value);
-                else
-                    cmd.BindParameters["@strm_token_expires_at"].BindNull();
                 BindNullableText(cmd, "@blocked_at", item.BlockedAt);
                 BindNullableText(cmd, "@blocked_by", item.BlockedBy);
+                BindNullableText(cmd, "@first_added_by_user_id", item.FirstAddedByUserId);
             });
+        }
+
+        /// <summary>
+        /// Sets first_added_by_user_id only if not already set (first-writer-wins).
+        /// Called by StrmWriterService when writing .strm files for user-added items.
+        /// </summary>
+        public async Task SetFirstAddedByUserIdIfNotSetAsync(
+            string mediaItemId,
+            string userId,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET first_added_by_user_id = @user_id
+                WHERE id = @media_id
+                  AND first_added_by_user_id IS NULL;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@media_id", mediaItemId);
+                BindText(cmd, "@user_id", userId);
+            }, cancellationToken);
         }
 
         /// <summary>
@@ -191,7 +209,9 @@ namespace EmbyStreams.Data
                        source, source_list_id, seasons_json, strm_path,
                        added_at, updated_at, removed_at,
                        local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at
+                       item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
+                       retry_count, next_retry_at,
+                       blocked_at, blocked_by, first_added_by_user_id
                 FROM catalog_items
                 WHERE removed_at IS NULL
                   AND blocked_at IS NULL;";
@@ -208,7 +228,10 @@ namespace EmbyStreams.Data
                 SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
                        source, source_list_id, seasons_json, strm_path,
                        added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
+                       retry_count, next_retry_at,
+                       blocked_at, blocked_by, first_added_by_user_id
                 FROM catalog_items
                 WHERE imdb_id = @imdb_id AND removed_at IS NULL
                 LIMIT 1;";
@@ -233,7 +256,7 @@ namespace EmbyStreams.Data
                        added_at, updated_at, removed_at,
                        local_path, local_source, resurrection_count,
                        item_state, pin_source, pinned_at,
-                       nfo_status, retry_count, next_retry_at, strm_token_expires_at,
+                       nfo_status, retry_count, next_retry_at,
                        blocked_at, blocked_by
                 FROM catalog_items
                 WHERE item_state = @state AND removed_at IS NULL
@@ -254,27 +277,24 @@ namespace EmbyStreams.Data
             int limit,
             CancellationToken cancellationToken = default)
         {
-            const int ninetyDaysSeconds = 90 * 24 * 60 * 60;
-            long currentUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-            long expiryThreshold = currentUnixTime + ninetyDaysSeconds;
-
+            // TODO: Refactor to query materialized_versions table instead of catalog_items
+            // The strm_token_expires_at column belongs in materialized_versions, not catalog_items
+            // For now, return all written items without token expiry filtering
             const string sql = @"
                 SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
                        source, source_list_id, seasons_json, strm_path,
                        added_at, updated_at, removed_at,
                        local_path, local_source, resurrection_count,
                        item_state, pin_source, pinned_at,
-                       nfo_status, retry_count, next_retry_at, strm_token_expires_at,
+                       nfo_status, retry_count, next_retry_at,
                        blocked_at, blocked_by
                 FROM catalog_items
-                WHERE (strm_token_expires_at < @expiry_threshold OR strm_token_expires_at IS NULL)
-                AND removed_at IS NULL
-                ORDER BY strm_token_expires_at ASC
+                WHERE item_state = 1 AND removed_at IS NULL
+                ORDER BY updated_at DESC
                 LIMIT @limit;";
 
             return await QueryListAsync(sql, cmd =>
             {
-                BindInt(cmd, "@expiry_threshold", (int)expiryThreshold);
                 BindInt(cmd, "@limit", limit);
             }, ReadCatalogItem);
         }
@@ -291,7 +311,7 @@ namespace EmbyStreams.Data
                        added_at, updated_at, removed_at,
                        local_path, local_source, resurrection_count,
                        item_state, pin_source, pinned_at,
-                       nfo_status, retry_count, next_retry_at, strm_token_expires_at,
+                       nfo_status, retry_count, next_retry_at,
                        blocked_at, blocked_by
                 FROM catalog_items
                 WHERE strm_path = @strm_path AND removed_at IS NULL
@@ -2601,6 +2621,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     next_retry_at   INTEGER,
     blocked_at      TEXT,
     blocked_by      TEXT,
+    first_added_by_user_id TEXT NULL,
     UNIQUE(imdb_id, source)
 );
 
@@ -3024,7 +3045,20 @@ CREATE INDEX IF NOT EXISTS idx_collection_item
                 version = 18;
             }
 
-            // ── V18 → V19 ────────────────────────────────────────────────────────
+            // ── V22 → V23 ────────────────────────────────────────────────
+            // Adds first_added_by_user_id column to catalog_items for attribution.
+            // Sprint 156: Tracks which user first added an item to the library.
+            if (version < 23)
+            {
+                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V23", version);
+                if (!ColumnExists(conn, "catalog_items", "first_added_by_user_id"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN first_added_by_user_id TEXT NULL;");
+                ExecuteInline(conn,
+                    "INSERT OR IGNORE INTO schema_version (version) VALUES (23);");
+                version = 23;
+            }
+
+            // ── V23 → V24 ────────────────────────────────────────────────────────
             // Adds absolute_episode_number column to stream_candidates table.
             // Sprint 101A-05: Absolute episode number storage and NFO.
             if (version < 19)
@@ -3306,6 +3340,7 @@ CREATE TABLE catalog_items_v24 (
     next_retry_at   INTEGER,
     blocked_at      TEXT,
     blocked_by      TEXT,
+    first_added_by_user_id TEXT NULL,
     UNIQUE(imdb_id, source)
 );");
 
@@ -3315,7 +3350,7 @@ INSERT INTO catalog_items_v24
 SELECT id, imdb_id, tmdb_id, title, year, media_type, source, source_list_id,
        seasons_json, strm_path, added_at, updated_at, removed_at, local_path,
        local_source, resurrection_count, item_state, pin_source, pinned_at,
-       unique_ids_json, nfo_status, retry_count, next_retry_at, strm_token_expires_at, blocked_at, blocked_by
+       unique_ids_json, nfo_status, retry_count, next_retry_at, blocked_at, blocked_by, first_added_by_user_id
 FROM catalog_items;");
 
                     // Drop old table
@@ -4144,6 +4179,7 @@ LIMIT 1";
             StrmTokenExpiresAt = r.IsDBNull(23) ? (long?)null : r.GetInt64(23),
             BlockedAt         = r.IsDBNull(24) ? null : r.GetString(24),
             BlockedBy         = r.IsDBNull(25) ? null : r.GetString(25),
+            FirstAddedByUserId = r.IsDBNull(26) ? null : r.GetString(26),
         };
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry

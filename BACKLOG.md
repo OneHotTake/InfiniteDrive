@@ -2,7 +2,8 @@
 
 Versioning: `v0.{SPRINT}.{TASK}`
 
-**Current Status**: Sprint 104 Complete (Beta Software Migration) |
+**Current Status**: Sprint 156 Complete (Webhook Retirement & Unified Write Path) |
+                    Sprint 104 Complete (Beta Software Migration) |
                     Sprints 105-108 Superseded (v3.3 Breaking Change) |
                     Sprints 109-121 Planned (Full v3.3 Implementation) |
                     Sprint 80 Complete |
@@ -17,6 +18,78 @@ Versioning: `v0.{SPRINT}.{TASK}`
                     Sprint 69 Complete |
                     Sprint 68 Complete |
                     Sprint 67 Complete |
+
+---
+
+## Sprint 156 — Webhook Retirement & Unified Write Path
+
+**Status:** Complete — StrmWriterService created, WebhookService removed, attribution column added
+
+### Goals
+- Create unified StrmWriterService for all .strm file writes
+- Retire WebhookService (unused, security risk)
+- Add `first_added_by_user_id` column for user attribution (first-writer-wins)
+
+| Task | Status | Result |
+|------|--------|--------|
+| Create StrmWriterService | ✅ COMPLETE | Services/StrmWriterService.cs (242 lines) |
+| Register StrmWriterService | ✅ COMPLETE | Plugin.Instance.StrmWriterService singleton |
+| Migrate CatalogSyncTask | ✅ COMPLETE | Uses StrmWriterService.WriteAsync |
+| Migrate FileResurrectionTask | ✅ COMPLETE | Uses StrmWriterService.WriteAsync |
+| Migrate DiscoverService | ✅ COMPLETE | Uses StrmWriterService.WriteAsync |
+| Delete WriteStrmFileForItemPublicAsync | ✅ COMPLETE | Removed from CatalogSyncTask |
+| Add first_added_by_user_id column | ✅ COMPLETE | Schema V23, DatabaseManager migration |
+| Remove WebhookSecret | ✅ COMPLETE | Deleted from PluginConfiguration |
+| Delete WebhookService.cs | ✅ COMPLETE | Security risk removed |
+| Clean up bypass TODOs | ✅ COMPLETE | Made explicit in comments |
+| Build verification | ✅ COMPLETE | 0 errors, 1 warning (harmless) |
+| Smoke test | ✅ COMPLETE | Sync successful, 50 AIOStreams catalogs discovered |
+
+### Changes Made
+
+**Created:** Services/StrmWriterService.cs (242 lines)
+- Unified write path for .strm files with consistent NFO generation
+- First-writer-wins attribution via `first_added_by_user_id` column
+- Public `SanitisePathPublic` method for external callers
+
+**Modified:** Data/DatabaseManager.cs
+- Added `first_added_by_user_id` column (V22→V23 migration)
+- Added `SetFirstAddedByUserIdIfNotSetAsync` method
+- Updated UpsertCatalogItemAsync to include column
+- Fixed V23→V24 migration INSERT/SELECT to include column
+- Removed stray `strm_token_expires_at` from catalog_items queries (belongs in materialized_versions)
+
+**Modified:** PluginConfiguration.cs
+- Removed `WebhookSecret` field
+
+**Modified:** Configuration/configurationpage.js
+- Removed WebhookSecret UI field
+
+**Deleted:** Services/WebhookService.cs
+
+**Modified:** Tasks/CatalogSyncTask.cs
+- Migrated to StrmWriterService.WriteAsync
+- Deleted WriteStrmFileForItemPublicAsync
+
+**Modified:** Tasks/FileResurrectionTask.cs
+- Migrated to StrmWriterService.WriteAsync
+
+**Modified:** Services/DiscoverService.cs
+- Migrated AddToLibrary to StrmWriterService.WriteAsync
+
+**Modified:** Services/ItemPipelineService.cs
+- Updated bypass TODO to be explicit about user-added items
+
+### Bugs Fixed During Testing
+1. UpsertCatalogItemAsync: Removed `strm_token_expires_at` column (belongs in materialized_versions)
+2. Multiple SELECT statements: Removed `strm_token_expires_at` from catalog_items queries
+3. GetItemsWithExpiringTokensAsync: Stubbed to use materialized_versions (TODO for future refactor)
+4. V22→V23 migration: Added ColumnExists check to avoid duplicate column error
+5. V23→V24 migration: Fixed INSERT/SELECT to include `first_added_by_user_id`
+
+### Commits
+
+`[pending]` — Sprint 156 commit
 
 ---
 
@@ -1232,3 +1305,83 @@ Implements comprehensive E2E testing.
 ### Skipped
 - H-3: CatalogRepository extraction — Emby SQLite API (SQLite3.Open) incompatibility risk
 - R-1: Repository decoupling from DatabaseManager — risky; deferred to Sprint 155+
+
+---
+
+## Sprint 159 — Stream Availability Probe & Fallback (2026-04-10)
+**Status:** [ ] Under Review — not yet approved for implementation
+
+### Goal
+Before serving the top-ranked stream, do a lightweight HTTP probe to confirm the URL actually responds. Fall back through ranked candidates until one works, or serve the best available and log it.
+
+### Rules
+- Probe using `HEAD` (fallback to `GET Range: bytes=0-1023` if HEAD returns 405)
+- Probe sequentially in ranked order — stop as soon as one responds with 2xx/206
+- Hard cap: probe at most 3 candidates
+- Hard cap: 1.5s total timeout across all probes (not per-probe)
+- If none of the top 3 pass → serve candidate #1 anyway ("best effort") and log at Warn
+- Never block playback longer than 1.5s for probing
+- No ffprobe, no codec inspection, no quality settings changes
+
+### Tasks
+- [ ] Add `StreamProbeService` — HEAD → GET-range fallback, returns `ProbeResult` (OK / Timeout / Error + status code)
+- [ ] In `StreamResolutionService`, after ranking: probe candidates 0–2 in order, short-circuit on first OK
+- [ ] If best-effort fallback used, log at Warn with candidate URL and failure reason
+- [ ] Register `StreamProbeService` as singleton in `Plugin.cs`
+
+### Acceptance Criteria
+- A dead CDN URL no longer silently fails the user — we skip to next candidate
+- Total added latency on happy path (first candidate healthy): ≤ 300ms
+- Worst-case latency (all 3 fail): ≤ 1.5s, then best effort served
+- No codec/quality inspection — availability only
+
+### Out of Scope
+- Minimum quality settings
+- Per-provider failure counters / Status tab surfacing
+- Sync-time pre-probing (future sprint)
+
+---
+
+## Sprint 160 — Robust Manifest ID Normalization (2026-04-10)
+**Status:** [ ] Under Review — not yet approved for implementation
+
+### Goal
+When a catalog item arrives without a `tt`-style IMDb ID, aggressively attempt to resolve one before falling back to the native provider ID. `tt` IDs are the lingua franca for both Emby's metadata engine and Cinemeta — without one, cross-catalog dedup and metadata enrichment are unreliable.
+
+### Resolution Chain (in order, at ingest time in CatalogDiscoverService)
+1. `meta.ImdbId` starts with `tt` → ✅ use it, done
+2. `meta.Id` starts with `tt` → treat as ImdbId, done
+3. `meta.Id` starts with `tmdb:` → call AIOStreams manifest meta endpoint to resolve → get `tt`
+4. Still no `tt` → call AIOMetadata to resolve by provider ID → get `tt`
+5. Still no `tt` → call Cinemeta v3 title+year search → get `tt`
+6. Still no `tt` → store with native ID, log as unresolved (not dedupable cross-catalog)
+
+### Open Questions (blocking approval)
+- **TMDB resolution path**: Need to confirm whether AIOStreams manifest meta endpoint reliably returns `imdb_id` for `tmdb:`-prefixed items. Test case: "DC Heroes United" (tmdb:260192) in "Batman Animations" catalog from user's AIOStreams manifest. *(Web fetch was attempted but not completed before session restart — resume next session.)*
+- **AIOMetadata fallback**: Confirm `AioMetadataClient` already has a method that takes a `tmdb:` ID and returns `tt`. If not, scope that method as a task.
+- **Cinemeta search reliability**: Known-buggy per Stremio issue #1909 — treat as last resort only, not primary path.
+
+### Rules
+- `tt` ID is always canonical key — never use `tmdb:`, `tvdb:`, or other prefix as `imdb_id`
+- Dedup is by `imdb_id` (existing `GetCatalogItemByImdbIdAsync`) — this doesn't change
+- If unresolved, store native ID in a separate `provider_id` column (or log and skip — TBD)
+- Resolution attempts are fire-and-forget during sync — failure to resolve ≠ drop the item
+- Clear comments in code explaining why `tt` is preferred
+
+### Tasks (draft — pending open questions)
+- [ ] Add resolution chain logic to `CatalogDiscoverService` (or extract to `IdResolverService`)
+- [ ] Add AIOStreams meta endpoint call for `tmdb:` IDs
+- [ ] Add AIOMetadata fallback call
+- [ ] Add Cinemeta title+year search fallback
+- [ ] Log unresolved items at Warn with provider ID and catalog source
+- [ ] Add `provider_id` column to `catalog_items` if we want to store native ID alongside `tt`
+
+### Acceptance Criteria
+- Same movie/show from multiple catalogs now correctly deduped when any source has a `tt` ID
+- Non-`tt` items that resolve successfully → stored with canonical `tt` key
+- Non-`tt` items that fail all resolution attempts → stored with native ID, logged, not dropped
+- No titles silently dropped during sync due to ID format issues
+
+### Out of Scope
+- Title+year fuzzy matching across catalogs with no ID overlap (future sprint)
+- TMDB API key management (use AIOStreams/AIOMetadata as proxies instead)
