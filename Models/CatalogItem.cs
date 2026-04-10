@@ -113,6 +113,13 @@ namespace EmbyStreams.Models
         /// </summary>
         public string? PinnedAt { get; set; }
 
+        /// <summary>
+            /// Emby user ID of user who first added this item.
+            /// Set when writing .strm via StrmWriterService (Sprint 156).
+            /// Null for system-synced items.
+            /// </summary>
+            public string? FirstAddedByUserId { get; set; }
+
         // ── Sprint 142: Refresh Lifecycle Properties ─────────────────────────────
 
         /// <summary>NFO enrichment status for Refresh lifecycle.</summary>

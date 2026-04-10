@@ -67,7 +67,7 @@ namespace EmbyStreams.Services
                 // Create series folder structure
                 var seriesPath = Path.Combine(
                     config.SyncPathShows,
-                    CatalogSyncTask.SanitisePathPublic(BuildFolderName(fullMeta.GetName(), fullMeta.GetYear(), item.ImdbId)));
+                    StrmWriterService.SanitisePathPublic(BuildFolderName(fullMeta.GetName(), fullMeta.GetYear(), item.ImdbId)));
 
                 Directory.CreateDirectory(seriesPath);
                 _logger.LogDebug("[EmbyStreams] SeriesPreExpansion: Series folder: {Path}", seriesPath);
@@ -121,7 +121,7 @@ namespace EmbyStreams.Services
                         var stremioEpisodeId = $"{item.ImdbId}:{seasonNum}:{epNum}";
                         var strmContent = BuildStrmContent(stremioEpisodeId, config);
 
-                        var sanitisedName = CatalogSyncTask.SanitisePathPublic(fullMeta.GetName());
+                        var sanitisedName = StrmWriterService.SanitisePathPublic(fullMeta.GetName());
                         var fileName = $"{sanitisedName} S{seasonNum:D2}E{epNum:D2}.strm";
                         var filePath = Path.Combine(seasonPath, fileName);
                         var nfoPath = Path.ChangeExtension(filePath, ".nfo");
@@ -180,7 +180,7 @@ namespace EmbyStreams.Services
             // Create series folder
             var seriesPath = Path.Combine(
                 config.SyncPathShows,
-                CatalogSyncTask.SanitisePathPublic(BuildFolderName(item.Title, item.Year, item.ImdbId)));
+                StrmWriterService.SanitisePathPublic(BuildFolderName(item.Title, item.Year, item.ImdbId)));
 
             Directory.CreateDirectory(seriesPath);
 
@@ -201,7 +201,7 @@ namespace EmbyStreams.Services
                     var stremioEpisodeId = $"{item.ImdbId}:{season}:{episode}";
                     var strmContent = BuildStrmContent(stremioEpisodeId, config);
 
-                    var sanitisedName = CatalogSyncTask.SanitisePathPublic(item.Title);
+                    var sanitisedName = StrmWriterService.SanitisePathPublic(item.Title);
                     var fileName = $"{sanitisedName} S{season:D2}E{episode:D2}.strm";
                     var filePath = Path.Combine(seasonPath, fileName);
 

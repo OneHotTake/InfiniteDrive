@@ -58,7 +58,7 @@ namespace EmbyStreams.Services
         ///   <item>Get active catalog items from DatabaseManager</item>
         ///   <item>For each item: build URL, write .strm/.nfo via VersionMaterializer</item>
         ///   <item>Record in materialized_versions</item>
-        ///   <item>Respect ApiCallDelayMs between items</item>
+        ///   <item>Respect CooldownGate between items</item>
         ///   <item>Trigger library scan on completion</item>
         /// </list>
         /// </summary>
@@ -94,6 +94,15 @@ namespace EmbyStreams.Services
             if (items == null || items.Count == 0)
                 return Ok("No active catalog items to process", 0, 0);
 
+            // Cap items per run from CooldownProfile (Sprint 155)
+            var rehyCap = Plugin.Instance?.CooldownGate?.Profile.RehydrationPerRun ?? 500;
+            if (items.Count > rehyCap)
+            {
+                _logger.LogInformation("[Rehydration] Capping to {Cap} of {Total} items (profile limit)",
+                    rehyCap, items.Count);
+                items = items.Take(rehyCap).ToList();
+            }
+
             int processed = 0;
             int skipped = 0;
             int total = items.Count;
@@ -122,14 +131,14 @@ namespace EmbyStreams.Services
                     }
 
                     // Build base path: {syncPath}/{FolderName}
-                    var folderName = Tasks.CatalogSyncTask.SanitisePathPublic(
+                    var folderName = Services.StrmWriterService.SanitisePathPublic(
                         $"{item.Title ?? "Unknown"} ({item.Year})");
 
                     if (!string.IsNullOrEmpty(item.ImdbId) && item.ImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
                         folderName += $" [imdbid-{item.ImdbId}]";
 
                     var basePath = Path.Combine(syncPath, folderName);
-                    var baseName = Tasks.CatalogSyncTask.SanitisePathPublic(
+                    var baseName = Services.StrmWriterService.SanitisePathPublic(
                         item.Title ?? "Unknown");
 
                     // Build .strm URL with resolve token
@@ -177,9 +186,10 @@ namespace EmbyStreams.Services
 
                 progress?.Report((double)(i + 1) / total * 100);
 
-                // Respect API call delay
-                if (config.ApiCallDelayMs > 0 && i < items.Count - 1)
-                    await Task.Delay(config.ApiCallDelayMs, ct);
+                // Respect cooldown gate between items (Sprint 155)
+                var gate = Plugin.Instance?.CooldownGate;
+                if (gate != null && i < items.Count - 1)
+                    await gate.WaitAsync(CooldownKind.StreamResolve, ct);
             }
 
             _logger.LogInformation(

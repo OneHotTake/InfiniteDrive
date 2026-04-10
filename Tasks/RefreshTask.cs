@@ -32,7 +32,8 @@ namespace EmbyStreams.Tasks
         private const string TaskName     = "EmbyStreams Refresh Worker";
         private const string TaskKey      = "EmbyStreamsRefresh";
         private const string TaskCategory = "EmbyStreams";
-        private const int    NotifyLimit = 42;  // Non-negotiable bound — max Emby library items notified per refresh cycle
+        // Batch cap read from CooldownProfile.EnrichmentPerRun (Sprint 155)
+        private int NotifyLimit => Plugin.Instance?.CooldownGate?.Profile.EnrichmentPerRun ?? 42;
 
         // Sentinel unix timestamp used when an item should never be retried automatically.
         // Year 2100 is effectively "never" — reviewed only if an admin manually unblocks.
@@ -241,6 +242,7 @@ namespace EmbyStreams.Tasks
             }
 
             using var client = new AioStreamsClient(config, _logger);
+            client.Cooldown = Plugin.Instance?.CooldownGate;
             if (!client.IsConfigured)
             {
                 _logger.LogWarning("[EmbyStreams] AIOStreams client could not be configured");
@@ -594,6 +596,7 @@ namespace EmbyStreams.Tasks
             }
 
             var aioClient = new AioMetadataClient(Plugin.Instance!.Configuration, _logger);
+            aioClient.Cooldown = Plugin.Instance?.CooldownGate;
 
             // Process each item
             foreach (var item in noIdItems)

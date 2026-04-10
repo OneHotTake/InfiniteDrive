@@ -212,6 +212,17 @@ namespace EmbyStreams.Services
         public string? DeepCleanHealth { get; set; }
 
         // ── End Sprint 146 ───────────────────────────────────────────────────────
+
+        // ── Sprint 155: CooldownGate observability ────────────────────────────
+
+        /// <summary>True when a global 429 cooldown is currently active.</summary>
+        public bool CooldownActive { get; set; }
+
+        /// <summary>ISO-8601 UTC timestamp when the current cooldown expires.</summary>
+        public string? CooldownUntil { get; set; }
+
+        /// <summary>True when 3+ 429s in the last hour on a shared instance.</summary>
+        public bool SuggestPrivateInstance { get; set; }
     }
 
     /// <summary>Connection status for an upstream service.</summary>
@@ -635,6 +646,16 @@ namespace EmbyStreams.Services
 
             // ── End Sprint 146 ─────────────────────────────────────────────────────
 
+            // ── Sprint 155: CooldownGate state ────────────────────────────────
+            var gate = Plugin.Instance?.CooldownGate;
+            if (gate != null)
+            {
+                response.CooldownActive = DateTimeOffset.UtcNow < gate.GlobalCooldownUntil;
+                response.CooldownUntil = gate.GlobalCooldownUntil > DateTimeOffset.MinValue
+                    ? gate.GlobalCooldownUntil.ToString("o") : null;
+                response.SuggestPrivateInstance = gate.SuggestPrivateInstance;
+            }
+
             return response;
         }
 
@@ -659,6 +680,7 @@ namespace EmbyStreams.Services
             try
             {
                 using var client = new AioStreamsClient(config, _logger);
+                client.Cooldown = Plugin.Instance?.CooldownGate;
                 using var cts    = new CancellationTokenSource(5_000);
                 var (connOk, connErr) = await client.TestConnectionAsync(cts.Token);
                 sw.Stop();
@@ -1583,6 +1605,7 @@ namespace EmbyStreams.Services
             try
             {
                 var client = new AioStreamsClient(config, _logger);
+                client.Cooldown = Plugin.Instance?.CooldownGate;
                 var manifest = await client.GetManifestAsync(System.Threading.CancellationToken.None);
 
                 if (manifest == null)
@@ -2184,6 +2207,7 @@ body{{
             try
             {
                 using var client = new AioStreamsClient(config, logger);
+                client.Cooldown = Plugin.Instance?.CooldownGate;
                 AioStreamsStreamResponse? response;
 
                 if (req.Season.HasValue && req.Episode.HasValue)

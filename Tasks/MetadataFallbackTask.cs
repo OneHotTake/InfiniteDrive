@@ -45,8 +45,7 @@ namespace EmbyStreams.Tasks
         private const string TaskKey       = "EmbyStreamsMetadataFallback";
         private const string TaskCategory  = "EmbyStreams";
         private const string CinemetaBase  = "https://v3-cinemeta.strem.io";
-        private const int    ItemCap       = 50;
-        private const int    DelayMs       = 500;
+        private const int    DelayMs       = 500; // Legacy — no longer used, kept for reference
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -124,9 +123,10 @@ namespace EmbyStreams.Tasks
             // Filter to items that need metadata enrichment:
             //   - Have a strm_path referencing a file that exists
             //   - Their .nfo either does not exist or lacks a <thumb> element
+            var enrichmentCap = Plugin.Instance?.CooldownGate?.Profile.EnrichmentPerRun ?? 50;
             var needsEnrichment = allItems
                 .Where(item => NeedsMetadataEnrichment(item, config))
-                .Take(ItemCap)
+                .Take(enrichmentCap)
                 .ToList();
 
             if (needsEnrichment.Count == 0)
@@ -138,9 +138,11 @@ namespace EmbyStreams.Tasks
 
             _logger.LogInformation(
                 "[EmbyStreams] MetadataFallbackTask: {Count} item(s) need metadata enrichment (cap={Cap})",
-                needsEnrichment.Count, ItemCap);
+                needsEnrichment.Count, enrichmentCap);
 
             using var client = new AioStreamsClient(CinemetaBase, string.Empty, string.Empty, _logger);
+            client.Cooldown = Plugin.Instance?.CooldownGate;
+            client.ActiveCooldownKind = CooldownKind.Cinemeta;
 
             int processed = 0;
             int enriched  = 0;
@@ -191,10 +193,6 @@ namespace EmbyStreams.Tasks
                 }
 
                 progress.Report(processed * 100.0 / needsEnrichment.Count);
-
-                // Rate-limit Cinemeta calls
-                if (processed < needsEnrichment.Count)
-                    await Task.Delay(DelayMs, cancellationToken);
             }
 
             _logger.LogInformation(

@@ -587,6 +587,19 @@ namespace EmbyStreams.Services
         private readonly string   _stremioBase;
         private readonly string?  _rawToken;     // stored for log sanitization only
 
+        /// <summary>
+        /// Optional cooldown gate for pre-call throttling and 429 backoff.
+        /// Set by tasks/services that want automatic rate-limit handling.
+        /// When null, no throttling or 429 detection is applied.
+        /// </summary>
+        public CooldownGate? Cooldown { get; set; }
+
+        /// <summary>
+        /// The cooldown kind to use for WaitAsync calls. Default: StreamResolve.
+        /// Callers can set this to CatalogFetch or Enrichment for different delay profiles.
+        /// </summary>
+        public CooldownKind ActiveCooldownKind { get; set; } = CooldownKind.StreamResolve;
+
         // ── Constructor ─────────────────────────────────────────────────────────
 
         /// <summary>
@@ -1070,6 +1083,10 @@ namespace EmbyStreams.Services
                     _logger.LogDebug("[EmbyStreams] GET {Url} (attempt {Attempt}/{Max})",
                         safeUrl, attempt, maxAttempts);
 
+                    // Pre-call throttle via CooldownGate (Sprint 155)
+                    if (Cooldown != null)
+                        await Cooldown.WaitAsync(ActiveCooldownKind, cancellationToken);
+
                     var response = await _sharedHttp.GetAsync(url, cancellationToken);
 
                     if (!response.IsSuccessStatusCode)
@@ -1085,7 +1102,13 @@ namespace EmbyStreams.Services
                         }
 
                         if (code == 429)
+                        {
+                            Cooldown?.Tripped(CooldownGate.ParseRetryAfter(
+                                response.Headers.Contains("Retry-After")
+                                    ? response.Headers.RetryAfter?.ToString()
+                                    : null));
                             throw new AioStreamsRateLimitException(safeUrl);
+                        }
                         if (code == 404)
                             _logger.LogDebug("[EmbyStreams] 404 from AIOStreams: {Url}", safeUrl);
                         else

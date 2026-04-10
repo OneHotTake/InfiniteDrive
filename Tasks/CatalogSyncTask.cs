@@ -140,6 +140,8 @@ namespace EmbyStreams.Tasks
             }
 
             using var client = new AioStreamsClient(config, logger);
+            client.Cooldown = Plugin.Instance?.CooldownGate;
+            client.ActiveCooldownKind = CooldownKind.CatalogFetch;
             if (!client.IsConfigured)
             {
                 result.ProviderReachable = false;
@@ -177,6 +179,15 @@ namespace EmbyStreams.Tasks
             }
 
             logger.LogInformation("[EmbyStreams] Discovered {Count} AIOStreams catalog(s) to sync", catalogs.Count);
+
+            // Cap sources per run from CooldownProfile (Sprint 155)
+            var sourcesCap = Plugin.Instance?.CooldownGate?.Profile.CatalogSourcesPerRun ?? catalogs.Count;
+            if (catalogs.Count > sourcesCap)
+            {
+                logger.LogInformation("[EmbyStreams] Capping catalog sync to {Cap} of {Total} sources (profile limit)",
+                    sourcesCap, catalogs.Count);
+                catalogs = catalogs.Take(sourcesCap).ToList();
+            }
 
             // 2. Fetch each catalog — failures are per-catalog, not provider-level.
             foreach (var catalog in catalogs)
@@ -1215,43 +1226,6 @@ namespace EmbyStreams.Tasks
         private static void WriteStrmFile(string path, string url)
             => File.WriteAllText(path, url, new System.Text.UTF8Encoding(false));
 
-        // ── Public static helpers (used by WebhookService) ───────────────────────
-
-        /// <summary>
-        /// Writes a single .strm file for the given catalog item and returns
-        /// the path that was written, or <c>null</c> if config paths are missing.
-        /// </summary>
-        public static async Task<string?> WriteStrmFileForItemPublicAsync(
-            CatalogItem item, PluginConfiguration config)
-        {
-            if (item.MediaType == "movie")
-            {
-                if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return null;
-                var folder = Path.Combine(
-                    config.SyncPathMovies,
-                    SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId)));
-                Directory.CreateDirectory(folder);
-                var fileName = $"{SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
-                var path     = Path.Combine(folder, fileName);
-                WriteStrmFile(path, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
-                return path;
-            }
-
-            // Series — seed S01E01
-            if (string.IsNullOrWhiteSpace(config.SyncPathShows)) return null;
-            var showDir    = Path.Combine(config.SyncPathShows,
-                SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId)));
-            var seasonDir  = Path.Combine(showDir, "Season 01");
-            Directory.CreateDirectory(seasonDir);
-            var strmPath   = Path.Combine(seasonDir, $"{SanitisePath(item.Title)} S01E01.strm");
-            WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
-            await Task.CompletedTask;
-            return strmPath;
-        }
-
-        /// <summary>Removes filesystem-unsafe characters from a path segment.</summary>
-        public static string SanitisePathPublic(string input) => SanitisePath(input);
-
         /// <summary>
         /// Builds a dictionary mapping IMDB ID → item path for all Movie and
         /// Series items in the Emby library that live <em>outside</em> the
@@ -1376,84 +1350,6 @@ namespace EmbyStreams.Tasks
                 Directory.CreateDirectory(config.SyncPathAnime);
         }
 
-        /// <summary>
-        /// Builds a folder name using the Emby IMDB auto-match convention:
-        /// <c>{Title} ({Year}) [imdbid-{imdbId}]</c>
-        ///
-        /// The <c>[imdbid-ttXXXXXXX]</c> suffix causes Emby's built-in scrapers
-        /// (TMDb, OMDb) to automatically fetch poster, backdrop, cast, and ratings
-        /// without requiring a separate .nfo file for ID hinting.
-        /// </summary>
-        private static string BuildFolderName(string title, int? year, string? imdbId)
-        {
-            var sb = new StringBuilder(title);
-            if (year.HasValue) sb.Append($" ({year})");
-            // Only add [imdbid-X] for tt-prefixed IDs that Emby's scanner recognizes
-            if (!string.IsNullOrEmpty(imdbId) &&
-                imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
-                sb.Append($" [imdbid-{imdbId}]");
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// Generates a signed URL for /EmbyStreams/resolve endpoint using resolve tokens.
-        /// Falls back to the legacy /EmbyStreams/Play URL if PluginSecret is not configured,
-        /// so that the plugin continues to function during upgrades.
-        /// </summary>
-        internal static string BuildSignedStrmUrl(
-            PluginConfiguration config,
-            string imdbId,
-            string mediaType,
-            int? season,
-            int? episode,
-            string quality = "hd_broad")
-        {
-            // Ensure PluginSecret is initialized before accessing Configuration
-            Plugin.Instance?.EnsureInitialization();
-
-            var secret = Plugin.Instance?.Configuration?.PluginSecret;
-            if (!string.IsNullOrEmpty(secret))
-            {
-                var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
-
-                // Generate resolve token (365-day validity for .strm files)
-                var token = Services.PlaybackTokenService.GenerateResolveToken(quality, imdbId, secret, 365 * 24);
-
-                var sb = new System.Text.StringBuilder();
-                sb.Append(baseUrl);
-                sb.Append("/EmbyStreams/resolve?");
-                sb.Append("token=").Append(Uri.EscapeDataString(token));
-                sb.Append("&quality=").Append(Uri.EscapeDataString(quality));
-                sb.Append("&id=").Append(Uri.EscapeDataString(imdbId));
-                sb.Append("&idType=").Append(Uri.EscapeDataString(mediaType));
-
-                if (season.HasValue)
-                {
-                    sb.Append("&season=").Append(season.Value);
-                }
-                if (episode.HasValue)
-                {
-                    sb.Append("&episode=").Append(episode.Value);
-                }
-
-                return sb.ToString();
-            }
-
-            // Fallback: legacy authenticated endpoint (requires X-Emby-Token)
-            var fallbackUrl = config.EmbyBaseUrl.TrimEnd('/');
-            if (season.HasValue && episode.HasValue)
-                return $"{fallbackUrl}/EmbyStreams/Play?imdb={imdbId}&season={season}&episode={episode}";
-            return $"{fallbackUrl}/EmbyStreams/Play?imdb={imdbId}";
-        }
-
-        private static string SanitisePath(string input)
-        {
-            var invalid = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
-            var sb      = new StringBuilder(input.Length);
-            foreach (var ch in input)
-                sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
-            return sb.ToString().Trim();
-        }
 
         private static List<List<T>> SplitIntoBatches<T>(List<T> source, int size)
         {

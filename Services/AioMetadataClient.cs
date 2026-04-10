@@ -26,6 +26,12 @@ namespace EmbyStreams.Services
         };
         private Uri? _baseUrl;
 
+        /// <summary>
+        /// Optional cooldown gate for pre-call throttling and 429 detection.
+        /// Set by tasks that call enrichment endpoints.
+        /// </summary>
+        public CooldownGate? Cooldown { get; set; }
+
         public AioMetadataClient(PluginConfiguration config, ILogger logger)
         {
             _config = config;
@@ -93,7 +99,23 @@ namespace EmbyStreams.Services
                     cancellationToken,
                     timeoutCts.Token);
 
+                // Pre-call throttle via CooldownGate (Sprint 155)
+                if (Cooldown != null)
+                    await Cooldown.WaitAsync(CooldownKind.Enrichment, linkedCts.Token);
+
                 var response = await _httpClient.GetAsync(url, linkedCts.Token);
+
+                // 429 detection (Sprint 155)
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+                {
+                    Cooldown?.Tripped(CooldownGate.ParseRetryAfter(
+                        response.Headers.Contains("Retry-After")
+                            ? response.Headers.RetryAfter?.ToString()
+                            : null));
+                    _logger.LogWarning("[AioMetadata] 429 rate limited for {ImdbId}", imdbId);
+                    return null;
+                }
+
                 response.EnsureSuccessStatusCode();
 
                 var json = await response.Content.ReadAsStringAsync();
