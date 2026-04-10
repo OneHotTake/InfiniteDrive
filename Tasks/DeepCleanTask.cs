@@ -272,12 +272,20 @@ namespace EmbyStreams.Tasks
         {
             var db = Plugin.Instance!.DatabaseManager;
 
-            // Query items with nfo_status = 'NeedsEnrich'
+            // Query items with nfo_status = 'NeedsEnrich', prioritizing no-ID items first
             var needsEnrichQuery = @"
                 SELECT * FROM catalog_items
                 WHERE nfo_status = 'NeedsEnrich'
                 AND (next_retry_at IS NULL OR next_retry_at <= unixepoch('now'))
-                AND removed_at IS NULL;";
+                AND removed_at IS NULL
+                ORDER BY
+                    CASE
+                        WHEN (imdb_id IS NULL OR imdb_id = '')
+                         AND (tmdb_id IS NULL OR tmdb_id = '') THEN 0
+                        ELSE 1
+                    END ASC,
+                    created_at ASC
+                LIMIT 42;";
 
             var needsEnrichItems = await db.QueryListAsync<EnrichedItem>(
                 needsEnrichQuery,

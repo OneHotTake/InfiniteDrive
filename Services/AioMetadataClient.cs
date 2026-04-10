@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading;
@@ -121,6 +122,100 @@ namespace EmbyStreams.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[AioMetadata] Error fetching metadata for {ImdbId}", imdbId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Fetches metadata by title search (no-ID fallback for no-ID items).
+        /// Returns null on failure (caller handles retry).
+        /// 10-second hard timeout, rate-limited by caller to 1 call per 2 seconds.
+        /// </summary>
+        public async Task<EnrichedMetadata?> FetchByTitleAsync(string title, int? year, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(_config?.AioMetadataBaseUrl))
+            {
+                _logger.LogWarning("[AioMetadata] AioMetadataBaseUrl not configured");
+                return null;
+            }
+
+            if (string.IsNullOrEmpty(title))
+            {
+                _logger.LogWarning("[AioMetadata] Title is required for search");
+                return null;
+            }
+
+            var baseUrl = _baseUrl ?? new Uri(_config.AioMetadataBaseUrl);
+
+            // Build search URL: /search?query={title}&year={year}
+            var url = $"{baseUrl?.Scheme ?? "https"}://{baseUrl?.Host}/search?query={Uri.EscapeDataString(title)}";
+            if (year.HasValue)
+                url += $"&year={year.Value}";
+
+            try
+            {
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(TimeoutSeconds));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken,
+                    timeoutCts.Token);
+
+                var response = await _httpClient.GetAsync(url, linkedCts.Token);
+                response.EnsureSuccessStatusCode();
+
+                var json = await response.Content.ReadAsStringAsync();
+
+                // Parse JSON search response - AIOMetadata search returns array:
+                // [ { "meta": { ... } }, ... ]
+                var results = ParseAioMetadataSearchResponse(json);
+                return results?.FirstOrDefault();
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode != null)
+            {
+                _logger.LogWarning(ex, "[AioMetadata] HTTP error searching metadata for '{Title}'", title);
+                return null;
+            }
+            catch (HttpRequestException ex)
+            {
+                _logger.LogWarning(ex, "[AioMetadata] HTTP {Status} error searching metadata for '{Title}'",
+                    ex.StatusCode, title);
+                return null;
+            }
+            catch (TaskCanceledException)
+            {
+                _logger.LogWarning("[AioMetadata] Timeout searching metadata for '{Title}'", title);
+                return null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AioMetadata] Error searching metadata for '{Title}'", title);
+                return null;
+            }
+        }
+
+        private List<EnrichedMetadata>? ParseAioMetadataSearchResponse(string json)
+        {
+            try
+            {
+                // Search returns an array of meta objects: [ { "meta": { ... } }, ... ]
+                var results = new List<EnrichedMetadata>();
+
+                // Find all "meta" objects in the array
+                var pos = json.IndexOf("\"meta\":");
+                while (pos >= 0)
+                {
+                    var meta = ParseAioMetadataResponse(json.Substring(pos), string.Empty);
+                    if (meta != null)
+                        results.Add(meta);
+
+                    // Move to next meta object
+                    pos = json.IndexOf("\"meta\":", pos + 1);
+                }
+
+                return results.Count > 0 ? results : null;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AioMetadata] Failed to parse search response");
                 return null;
             }
         }
