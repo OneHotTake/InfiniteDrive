@@ -304,6 +304,7 @@ namespace EmbyStreams.Tasks
                 return;
 
             var aioClient = new AioMetadataClient(Plugin.Instance!.Configuration, _logger);
+            aioClient.Cooldown = Plugin.Instance?.CooldownGate;
             var enrichedCount = 0;
             var blockedCount = 0;
 

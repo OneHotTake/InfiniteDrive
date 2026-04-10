@@ -166,7 +166,7 @@ namespace EmbyStreams.Services
 
 #pragma warning disable CS0618 // Type is obsolete (kept for backward compatibility)
                 case TaskFileResurrection:
-                    FireAndForget(ct => new FileResurrectionTask(_libraryManager, _logManager)
+                    FireAndForget(ct => new FileResurrectionTask(_libraryManager, _logManager, EmbyStreams.Plugin.Instance.StrmWriterService)
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
@@ -894,6 +894,7 @@ namespace EmbyStreams.Services
             try
             {
                 using var client = new AioStreamsClient(config, _logger);
+                client.Cooldown = Plugin.Instance?.CooldownGate;
                 using var cts    = new CancellationTokenSource(5_000);
                 var (ok, err) = await client.TestConnectionAsync(cts.Token);
                 sw.Stop();

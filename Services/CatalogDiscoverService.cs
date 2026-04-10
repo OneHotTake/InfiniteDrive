@@ -54,6 +54,7 @@ namespace EmbyStreams.Services
                 // Create a client for the configured AIOStreams
                 using (var client = new AioStreamsClient(config, _logger))
                 {
+                    client.Cooldown = Plugin.Instance?.CooldownGate;
                     // Fetch manifest to get available catalogs
                     var manifest = await client.GetManifestAsync(cancellationToken);
                     if (manifest?.Catalogs == null || manifest.Catalogs.Count == 0)

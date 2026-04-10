@@ -44,6 +44,7 @@ namespace EmbyStreams.Tasks
 
         private readonly ILogger<FileResurrectionTask> _logger;
         private readonly ILibraryManager               _libraryManager;
+        private readonly Services.StrmWriterService _strmWriter;
 
         // ── Constructor ─────────────────────────────────────────────────────────
 
@@ -52,11 +53,13 @@ namespace EmbyStreams.Tasks
         /// <paramref name="loggerFactory"/> automatically.
         /// </summary>
         public FileResurrectionTask(
-            ILibraryManager  libraryManager,
-            ILogManager      logManager)
+            ILibraryManager                 libraryManager,
+            ILogManager                     logManager,
+            Services.StrmWriterService     strmWriter)
         {
             _libraryManager = libraryManager;
             _logger         = new EmbyLoggerAdapter<FileResurrectionTask>(logManager.GetLogger("EmbyStreams"));
+            _strmWriter    = strmWriter;
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
@@ -158,7 +161,17 @@ namespace EmbyStreams.Tasks
 
                 try
                 {
-                    var strmPath = await CatalogSyncTask.WriteStrmFileForItemPublicAsync(item, config);
+                    // Convert string source to SourceType enum for StrmWriterService
+                    var originSourceType = item.Source?.ToLowerInvariant() switch
+                    {
+                        "aiostreams" or "aio"   => Models.SourceType.Aio,
+                        "trakt"               => Models.SourceType.Trakt,
+                        "mdblist"             => Models.SourceType.MdbList,
+                        "builtin" or "library" => Models.SourceType.BuiltIn,
+                        _                      => Models.SourceType.Aio // Default fallback
+                    };
+
+                    var strmPath = await _strmWriter.WriteAsync(item, originSourceType, ownerUserId: null, cancellationToken);
 
                     if (strmPath == null)
                     {

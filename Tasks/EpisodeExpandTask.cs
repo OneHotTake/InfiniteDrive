@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using EmbyStreams.Logging;
 using EmbyStreams.Models;
+using EmbyStreams.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
@@ -219,7 +220,7 @@ namespace EmbyStreams.Tasks
             // Compute expected show directory path (matches CatalogSyncTask naming)
             var showDir = Path.Combine(
                 config.SyncPathShows,
-                CatalogSyncTask.SanitisePathPublic(BuildFolderName(item.Title, item.Year, item.ImdbId)));
+                StrmWriterService.SanitisePathPublic(BuildFolderName(item.Title, item.Year, item.ImdbId)));
 
             if (!Directory.Exists(showDir))
             {
@@ -282,12 +283,12 @@ namespace EmbyStreams.Tasks
 
                 foreach (int epNum in episodeNums)
                 {
-                    var fileName = $"{CatalogSyncTask.SanitisePathPublic(item.Title)} " +
+                    var fileName = $"{StrmWriterService.SanitisePathPublic(item.Title)} " +
                                    $"S{seasonNum:D2}E{epNum:D2}.strm";
                     var path     = Path.Combine(seasonDir, fileName);
                     if (File.Exists(path)) continue;
 
-                    var url = CatalogSyncTask.BuildSignedStrmUrl(config, item.ImdbId, "series", seasonNum, epNum);
+                    var url = StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId, "series", seasonNum, epNum);
                     File.WriteAllText(path, url, Encoding.UTF8);
 
                     // Write episode NFO file with basic info
@@ -344,6 +345,8 @@ namespace EmbyStreams.Tasks
 
         // ── Private: helpers ─────────────────────────────────────────────────────
 
+        // NOTE: This task is DEPRECATED (Sprint 66). BuildFolderName is kept local
+        // since StrmWriterService.BuildFolderName is private.
         private static string BuildFolderName(string title, int? year, string? imdbId)
         {
             var sb = new StringBuilder(title);

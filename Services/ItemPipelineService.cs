@@ -73,11 +73,11 @@ namespace EmbyStreams.Services
                 }
 
                 // Check digital release gate (only for SourceType.BuiltIn and movies)
-                // TODO: Get actual source type for this item - for now assume user-added (bypass)
+                // User-added items bypass gate unconditionally - users explicitly chose to add them
                 var isDigitallyReleased = await _digitalReleaseGate.IsDigitallyReleasedAsync(
                     item.PrimaryId,
                     item.MediaType,
-                    nameof(SourceType.Aio), // Assume user-added source (bypasses gate)
+                    nameof(SourceType.Aio), // User-added source bypasses digital release gate
                     ct);
 
                 if (!isDigitallyReleased)

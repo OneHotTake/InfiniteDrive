@@ -49,6 +49,12 @@ namespace EmbyStreams.Services
                 // Auto-generate PluginSecret if absent
                 instance.EnsurePluginSecret();
 
+                // Initialize CooldownGate (Sprint 155: CooldownGate throttling)
+                instance.CooldownGate = new CooldownGate(
+                    () => instance.Configuration,
+                    _logger);
+                instance.CooldownGate.ProgressStreamer = Plugin.ProgressStreamer;
+
                 _logger.LogInformation("[EmbyStreams] Core initialization complete");
             }
             catch (Exception ex)

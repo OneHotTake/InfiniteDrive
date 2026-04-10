@@ -273,6 +273,7 @@ namespace EmbyStreams.Services
         private readonly DatabaseManager _db;
         private readonly ILibraryManager _libraryManager;
         private readonly IAuthorizationContext _authCtx;
+        private readonly StrmWriterService _strmWriter;
 
         /// <inheritdoc/>
         public IRequest Request { get; set; } = null!;
@@ -286,6 +287,7 @@ namespace EmbyStreams.Services
             _db = Plugin.Instance.DatabaseManager;
             _libraryManager = libraryManager;
             _authCtx = authCtx;
+            _strmWriter = Plugin.Instance.StrmWriterService;
         }
 
         // ── Handlers ──────────────────────────────────────────────────────────────
@@ -411,6 +413,7 @@ namespace EmbyStreams.Services
 
             using (var client = new AioStreamsClient(config, _logger))
             {
+                client.Cooldown = Plugin.Instance?.CooldownGate;
                 try
                 {
                     // Fetch manifest to identify search-capable catalogs
@@ -669,7 +672,7 @@ namespace EmbyStreams.Services
         /// Handles <c>POST /EmbyStreams/Discover/AddToLibrary</c>.
         /// Creates a .strm file in the appropriate library folder and creates a catalog_item entry.
         /// </summary>
-        public async Task<object> Post(DiscoverAddToLibraryRequest req)
+        public async Task<object> Post(DiscoverAddToLibraryRequest req, CancellationToken ct)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
@@ -731,85 +734,44 @@ namespace EmbyStreams.Services
                     };
                 }
 
-                // Create folder-per-movie structure: {Title} ({Year}) [imdbid-ttXXX]/
-                // The [imdbid-ttXXX] suffix triggers Emby's IMDB metadata auto-match.
-                var folderName = req.Year.HasValue
-                    ? $"{SanitizeFilename(req.Title)} ({req.Year}) [imdbid-{req.ImdbId}]"
-                    : $"{SanitizeFilename(req.Title)} [imdbid-{req.ImdbId}]";
-
-                var movieFolder = Path.Combine(targetDir, folderName);
-                Directory.CreateDirectory(movieFolder);
-
-                var strmFilename = req.Year.HasValue
-                    ? $"{SanitizeFilename(req.Title)} ({req.Year}).strm"
-                    : $"{SanitizeFilename(req.Title)}.strm";
-
-                var strmPath = Path.Combine(movieFolder, strmFilename);
-
-                // Generate resolve token URL for public playback (works with all HTTP clients)
-                var secret = Plugin.Instance?.Configuration?.PluginSecret;
-                var defaultSlot = Plugin.Instance?.Configuration?.DefaultSlotKey ?? "hd_broad";
-                string strmContent;
-
-                if (!string.IsNullOrEmpty(secret))
-                {
-                    // New resolve token format: /EmbyStreams/resolve?token={quality}:{imdbId}:{exp}:{sig}&quality={quality}&id={id}&idType=imdb
-                    var resolveToken = PlaybackTokenService.GenerateResolveToken(
-                        defaultSlot, req.ImdbId, secret, validityHours: 8760); // 365 days
-                    strmContent = $"{config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/resolve" +
-                        $"?token={Uri.EscapeDataString(resolveToken)}" +
-                        $"&quality={Uri.EscapeDataString(defaultSlot)}" +
-                        $"&id={Uri.EscapeDataString(req.ImdbId)}" +
-                        $"&idType=imdb";
-                }
-                else
-                {
-                    // Fallback: direct stream URL (requires Emby authentication)
-                    strmContent = $"{config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/resolve" +
-                        $"?quality={Uri.EscapeDataString(defaultSlot)}" +
-                        $"&id={Uri.EscapeDataString(req.ImdbId)}" +
-                        $"&idType=imdb";
-                }
-
-                await File.WriteAllTextAsync(strmPath, strmContent, new System.Text.UTF8Encoding(false));
-
-                _logger.LogInformation("Created .strm file at {Path} for {ImdbId}", strmPath, req.ImdbId);
-
-                // Write minimal .nfo file for Emby metadata matching
-                var nfoPath = Path.ChangeExtension(strmPath, ".nfo");
-                var nfoSb = new System.Text.StringBuilder();
-                nfoSb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-                var rootElement = req.Type.ToLowerInvariant() == "series" ? "tvshow" : "movie";
-                nfoSb.AppendLine($"<{rootElement} lockdata=\"false\">");
-                if (!string.IsNullOrEmpty(req.Title))
-                    nfoSb.AppendLine($"  <title>{System.Security.SecurityElement.Escape(req.Title)}</title>");
-                if (req.Year.HasValue)
-                    nfoSb.AppendLine($"  <year>{req.Year}</year>");
-                nfoSb.AppendLine("  <uniqueid type=\"imdb\" default=\"true\">");
-                nfoSb.AppendLine($"    {req.ImdbId}");
-                nfoSb.AppendLine("  </uniqueid>");
-                nfoSb.AppendLine($"</{rootElement}>");
-                await File.WriteAllTextAsync(nfoPath, nfoSb.ToString(), new System.Text.UTF8Encoding(false));
-
-                _logger.LogDebug("Created .nfo file at {Path}", nfoPath);
+                // Get current user ID for attribution
+                var callerUserId = TryGetCurrentUserId();
 
                 // Create catalog_item entry with PINNED state
                 var now = DateTime.UtcNow.ToString("o");
                 var catalogItem = new CatalogItem
                 {
+                    Id = Guid.NewGuid().ToString(),
                     ImdbId = req.ImdbId,
                     Title = req.Title,
                     Year = req.Year,
                     MediaType = req.Type.ToLowerInvariant(),
                     Source = "discover",
-                    StrmPath = strmPath,
-                    LocalPath = strmPath,
-                    LocalSource = "strm",
                     ItemState = ItemState.Pinned,
                     PinSource = $"user:discover:{now}",
                     PinnedAt = now
                 };
 
+                // Write .strm and .nfo files via StrmWriterService (Sprint 156)
+                var strmPath = await _strmWriter.WriteAsync(
+                    catalogItem,
+                    SourceType.Aio,
+                    callerUserId,
+                    ct);
+
+                if (strmPath == null)
+                {
+                    return new DiscoverAddToLibraryResponse
+                    {
+                        Ok = false,
+                        Error = "Failed to write .strm file - check sync paths in configuration"
+                    };
+                }
+
+                // Update catalog_item with strmPath and local source
+                catalogItem.StrmPath = strmPath;
+                catalogItem.LocalPath = strmPath;
+                catalogItem.LocalSource = "strm";
                 await _db.UpsertCatalogItemAsync(catalogItem);
 
                 // Update discover_catalog to mark as in library
@@ -818,7 +780,7 @@ namespace EmbyStreams.Services
                 _logger.LogInformation("Added {ImdbId} to library", req.ImdbId);
 
                 // Auto-trigger library refresh in background (fire-and-forget)
-                // This ensures the new .strm file is indexed automatically without user action
+                // This ensures that new .strm file is indexed automatically without user action
                 TriggerLibraryRefreshAsync(targetDir);
 
                 return new DiscoverAddToLibraryResponse

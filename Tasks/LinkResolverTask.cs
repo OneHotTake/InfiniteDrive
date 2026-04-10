@@ -26,8 +26,8 @@ namespace EmbyStreams.Tasks
     /// </list>
     ///
     /// Rate limiting: max <see cref="PluginConfiguration.MaxConcurrentResolutions"/>
-    /// concurrent calls, <see cref="PluginConfiguration.ApiCallDelayMs"/> between
-    /// calls, exponential back-off on HTTP 429.
+    /// concurrent calls, <see cref="CooldownGate"/> between calls,
+    /// exponential back-off on HTTP 429.
     ///
     /// Default schedule: every 15 minutes.
     /// </summary>
@@ -109,6 +109,7 @@ namespace EmbyStreams.Tasks
             }
 
             using var client    = new AioStreamsClient(config, _logger);
+            client.Cooldown    = Plugin.Instance?.CooldownGate;
             var       semaphore = new SemaphoreSlim(config.MaxConcurrentResolutions, config.MaxConcurrentResolutions);
             var       stats     = new ResolverStats();
 
@@ -190,7 +191,6 @@ namespace EmbyStreams.Tasks
                     try
                     {
                         await ResolveOneAsync(db, config, client, work, tier, stats, cancellationToken);
-                        await Task.Delay(config.ApiCallDelayMs, cancellationToken);
                     }
                     finally
                     {

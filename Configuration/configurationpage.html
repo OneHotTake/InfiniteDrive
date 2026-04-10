@@ -663,6 +663,19 @@
     <div id="es-marvin-status" style="margin-top: 1em; font-size: 0.85em; opacity: 0.6;"></div>
   </div>
 
+  <!-- Sprint 155: Upstream cooldown badge -->
+  <div id="es-cooldown-badge" class="es-card" style="display:none; border-color:rgba(255,193,7,0.3); background:rgba(255,193,7,0.05); margin-top:1em;">
+    <div style="display:flex;align-items:center;gap:.5em">
+      <span style="font-size:1.1em">⏳</span>
+      <span id="es-cooldown-msg" style="font-size:.85em;opacity:.7"></span>
+    </div>
+  </div>
+  <div id="es-suggest-private" class="es-card" style="display:none; border-color:rgba(0,164,220,0.3); background:rgba(0,164,220,0.05); margin-top:.5em;">
+    <div style="font-size:.85em;opacity:.7">
+      Want faster syncs? Consider a <a href="https://github.com/OneHotTake/embyStreams/blob/main/docs/COOLDOWN.md" target="_blank" style="text-decoration:underline">private AIOStreams instance</a>.
+    </div>
+  </div>
+
 </div>
 
 <!-- ════════════════════════════ TAB 5 — Settings ════════════════════════════ -->
@@ -1131,11 +1144,6 @@
           <label class="inputLabel inputLabelUnfocused" for="cfg-max-concurrent">Max concurrent resolutions</label>
           <input id="cfg-max-concurrent" type="number" is="emby-input" min="1" max="10" placeholder="4" />
           <div class="es-hint">Parallel stream pre-resolves. Lower values reduce server load. Default: 4.</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-api-delay">API call delay (ms)</label>
-          <input id="cfg-api-delay" type="number" is="emby-input" min="100" max="5000" placeholder="500" />
-          <div class="es-hint">Pause between requests. Increase to reduce rate-limit risk. Default: 500 ms.</div>
         </div>
         <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="cfg-candidates-per-provider">Candidates per provider</label>
