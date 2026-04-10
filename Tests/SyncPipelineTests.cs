@@ -59,7 +59,7 @@ namespace EmbyStreams.Tests
             {
                 Name = "Test Source",
                 Url = "https://example.com/test.json",
-                Type = SourceType.Trakt,
+                Type = SourceType.UserRss,
                 Enabled = true,
                 MaxItems = 100,
                 SyncIntervalHours = 6,
@@ -112,7 +112,7 @@ namespace EmbyStreams.Tests
             {
                 Name = "Test Source",
                 Url = "https://example.com/test.json",
-                Type = SourceType.Trakt,
+                Type = SourceType.UserRss,
                 Enabled = true,
                 MaxItems = 100,
                 SyncIntervalHours = 6,

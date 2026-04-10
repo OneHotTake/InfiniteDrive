@@ -14,11 +14,12 @@ namespace EmbyStreams.Models
         /// <summary>AIOStreams manifest source.</summary>
         Aio,
 
-        /// <summary>Trakt list or watchlist source.</summary>
-        Trakt,
-
-        /// <summary>MDBList list source.</summary>
-        MdbList
+        /// <summary>
+        /// User-supplied public RSS feed (Trakt or MDBList).
+        /// Replaces the phantom Trakt and MdbList enum values removed in Sprint 158.
+        /// The service field on user_catalogs distinguishes trakt vs mdblist.
+        /// </summary>
+        UserRss
     }
 
     /// <summary>
@@ -35,8 +36,7 @@ namespace EmbyStreams.Models
             {
                 SourceType.BuiltIn => "Built-in",
                 SourceType.Aio     => "AIOStreams",
-                SourceType.Trakt   => "Trakt",
-                SourceType.MdbList => "MDBList",
+                SourceType.UserRss => "User RSS",
                 _                 => "Unknown"
             };
         }
@@ -50,8 +50,9 @@ namespace EmbyStreams.Models
             {
                 "builtin" or "built-in" => SourceType.BuiltIn,
                 "aio" or "aiostreams"   => SourceType.Aio,
-                "trakt"                => SourceType.Trakt,
-                "mdblist"              => SourceType.MdbList,
+                "user_rss" or "userrss" => SourceType.UserRss,
+                // Legacy values migrated in Sprint 158 — map to UserRss
+                "trakt" or "mdblist"    => SourceType.UserRss,
                 _                      => throw new ArgumentException($"Unknown SourceType: {value}", nameof(value))
             };
         }
@@ -65,8 +66,7 @@ namespace EmbyStreams.Models
             {
                 SourceType.BuiltIn => "builtin",
                 SourceType.Aio     => "aio",
-                SourceType.Trakt   => "trakt",
-                SourceType.MdbList => "mdblist",
+                SourceType.UserRss => "user_rss",
                 _                 => "unknown"
             };
         }

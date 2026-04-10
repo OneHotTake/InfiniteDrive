@@ -164,11 +164,10 @@ namespace EmbyStreams.Tasks
                     // Convert string source to SourceType enum for StrmWriterService
                     var originSourceType = item.Source?.ToLowerInvariant() switch
                     {
-                        "aiostreams" or "aio"   => Models.SourceType.Aio,
-                        "trakt"               => Models.SourceType.Trakt,
-                        "mdblist"             => Models.SourceType.MdbList,
-                        "builtin" or "library" => Models.SourceType.BuiltIn,
-                        _                      => Models.SourceType.Aio // Default fallback
+                        "aiostreams" or "aio"         => Models.SourceType.Aio,
+                        "trakt" or "mdblist" or "user_rss" => Models.SourceType.UserRss,
+                        "builtin" or "library"        => Models.SourceType.BuiltIn,
+                        _                             => Models.SourceType.Aio // Default fallback
                     };
 
                     var strmPath = await _strmWriter.WriteAsync(item, originSourceType, ownerUserId: null, cancellationToken);

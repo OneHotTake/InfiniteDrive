@@ -49,6 +49,15 @@ function (loading) {
         return fetch(url, opts);
     }
 
+    // ── Notification helper ───────────────────────────────────────────────────
+    function esAlert(msg) {
+        if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
+            Dashboard.alert({ message: msg });
+        } else {
+            alert(msg);
+        }
+    }
+
     // ── DOM helpers ───────────────────────────────────────────────────────────
     function q(view, id)        { return view.querySelector('#' + id); }
     function esVal(view, id)    { var el = q(view, id); return el ? el.value : ''; }
@@ -238,7 +247,7 @@ function (loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        ['setup','health','discover','mypicks','improbability','blocked','content-mgmt','settings'].forEach(function(t) {
+        ['setup','health','discover','mypicks','mylists','improbability','blocked','content-mgmt','settings'].forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
             if (c) c.classList.toggle('active', t === name);
         });
@@ -270,6 +279,7 @@ function (loading) {
         if (name === 'health') { refreshSourcesTab(view); }
         if (name === 'discover') { discoverInit(view); }
         if (name === 'mypicks') { loadMyPicks(view); }
+        if (name === 'mylists') { loadMyLists(view); }
         if (name === 'blocked') { loadBlockedItems(view); }
         if (name === 'content-mgmt') { loadContentMgmtSources(view); }
     }
@@ -2892,6 +2902,149 @@ function (loading) {
             })
             .catch(function() { Dashboard.alert('Failed to remove pins. Check server logs.'); });
         });
+    }
+
+    // ── My Lists tab ──────────────────────────────────────────────────────────
+
+    function loadMyLists(view) {
+        var listEl = view.querySelector('#es-user-catalogs-list');
+        if (listEl) listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
+
+        esFetch('/EmbyStreams/User/Catalogs')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                renderMyLists(view, data);
+                wireMyListsButtons(view);
+            })
+            .catch(function() {
+                if (listEl) listEl.innerHTML = '<p style="color:#d00">Failed to load lists.</p>';
+            });
+    }
+
+    function renderMyLists(view, data) {
+        var listEl = view.querySelector('#es-user-catalogs-list');
+        if (!listEl) return;
+        var catalogs = (data && data.Catalogs) || [];
+        if (catalogs.length === 0) {
+            listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">No lists yet. Paste a Trakt or MDBList RSS URL above to add one.</p>';
+            return;
+        }
+        var html = '<table style="width:100%;border-collapse:collapse">';
+        html += '<thead><tr style="border-bottom:1px solid var(--es-border,#ddd)">';
+        html += '<th style="text-align:left;padding:.5em .25em">Name</th>';
+        html += '<th style="text-align:left;padding:.5em .25em">Service</th>';
+        html += '<th style="text-align:left;padding:.5em .25em">Last sync</th>';
+        html += '<th style="padding:.5em .25em"></th>';
+        html += '</tr></thead><tbody>';
+        catalogs.forEach(function(c) {
+            var syncInfo = c.LastSyncedAt
+                ? (new Date(c.LastSyncedAt).toLocaleString() + ' (' + (c.LastSyncStatus || '?') + ')')
+                : 'Never';
+            html += '<tr data-catalog-id="' + esc(c.Id) + '" style="border-bottom:1px solid var(--es-border,#eee)">';
+            html += '<td style="padding:.5em .25em">' + esc(c.DisplayName) + '</td>';
+            html += '<td style="padding:.5em .25em">' + esc(c.Service) + '</td>';
+            html += '<td style="padding:.5em .25em;font-size:.8em;opacity:.7">' + esc(syncInfo) + '</td>';
+            html += '<td style="padding:.5em .25em;white-space:nowrap">';
+            html += '<button class="es-btn es-refresh-one-btn" data-catalog-id="' + esc(c.Id) + '" style="margin-right:.5em">Refresh now</button>';
+            html += '<button class="es-btn es-btn-danger es-remove-list-btn" data-catalog-id="' + esc(c.Id) + '">Remove</button>';
+            html += '</td></tr>';
+        });
+        html += '</tbody></table>';
+        listEl.innerHTML = html;
+    }
+
+    function wireMyListsButtons(view) {
+        // "Refresh all my lists"
+        var refreshAllBtn = view.querySelector('#es-refresh-all-lists-btn');
+        if (refreshAllBtn) {
+            refreshAllBtn.onclick = function() {
+                var statusEl = view.querySelector('#es-refresh-all-status');
+                if (statusEl) statusEl.textContent = 'Refreshing…';
+                refreshAllBtn.disabled = true;
+                esFetch('/EmbyStreams/User/Catalogs/Refresh', { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(r) {
+                        if (statusEl) statusEl.textContent = 'Added ' + (r.Added||0) + ', updated ' + (r.Updated||0) + '.';
+                        loadMyLists(view);
+                    })
+                    .catch(function() {
+                        if (statusEl) statusEl.textContent = 'Refresh failed.';
+                    })
+                    .finally(function() { refreshAllBtn.disabled = false; });
+            };
+        }
+
+        // "Add" button
+        var addBtn = view.querySelector('#es-add-list-btn');
+        var errEl = view.querySelector('#es-add-list-error');
+        if (addBtn) {
+            addBtn.onclick = function() {
+                var urlInput = view.querySelector('#es-new-list-url');
+                var url = (urlInput && urlInput.value) ? urlInput.value.trim() : '';
+                if (!url) return;
+                if (errEl) errEl.style.display = 'none';
+                addBtn.disabled = true;
+                esFetch('/EmbyStreams/User/Catalogs/Add?rssUrl=' + encodeURIComponent(url), { method: 'POST' })
+                    .then(function(r) { return r.json(); })
+                    .then(function(r) {
+                        if (r && r.Ok) {
+                            esAlert('Added. Fetched ' + (r.Fetched||0) + ', ' + (r.Added||0) + ' new items.');
+                            if (urlInput) urlInput.value = '';
+                            loadMyLists(view);
+                        } else {
+                            var msg = (r && r.Error) ? r.Error : 'Add failed.';
+                            // 409-like: catalog limit
+                            if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
+                            else esAlert(msg);
+                        }
+                    })
+                    .catch(function(e) {
+                        var msg = (e && e.message) ? e.message : 'Add failed.';
+                        if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
+                    })
+                    .finally(function() { addBtn.disabled = false; });
+            };
+        }
+
+        // Per-list "Refresh now" and "Remove" — delegated to list container
+        var listEl = view.querySelector('#es-user-catalogs-list');
+        if (listEl) {
+            listEl.onclick = function(e) {
+                var btn = e.target.closest('button');
+                if (!btn) return;
+                var cid = btn.getAttribute('data-catalog-id');
+                if (!cid) return;
+
+                if (btn.classList.contains('es-refresh-one-btn')) {
+                    btn.disabled = true;
+                    esFetch('/EmbyStreams/User/Catalogs/Refresh?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
+                        .then(function(r) { return r.json(); })
+                        .then(function(r) {
+                            esAlert('Added ' + (r.Added||0) + ', updated ' + (r.Updated||0) + '.');
+                            loadMyLists(view);
+                        })
+                        .catch(function() { esAlert('Refresh failed.'); btn.disabled = false; });
+                }
+
+                if (btn.classList.contains('es-remove-list-btn')) {
+                    btn.disabled = true;
+                    esFetch('/EmbyStreams/User/Catalogs/Remove?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
+                        .then(function(r) { return r.json(); })
+                        .then(function() {
+                            esAlert('List removed. Items will be cleaned up on next DoctorTask pass.');
+                            loadMyLists(view);
+                        })
+                        .catch(function() { esAlert('Remove failed.'); btn.disabled = false; });
+                }
+            };
+        }
+    }
+
+    function esc(str) {
+        if (!str) return '';
+        return String(str)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/"/g,'&quot;');
     }
 
     // ── Blocked Items tab (admin) ─────────────────────────────────────────────
