@@ -184,6 +184,12 @@ namespace EmbyStreams
         public IPinRepository PinRepository => DatabaseManager;
 
         /// <summary>
+        /// User pin repository for per-user pin operations (Sprint 142).
+        /// Tracks user_item_pins table for playback, discover, and admin pins.
+        /// </summary>
+        public Repositories.UserPinRepository UserPinRepository { get; private set; } = null!;
+
+        /// <summary>
         /// Resolution cache repository interface for stream URL caching.
         /// Delegates to DatabaseManager (Sprint 104A-04).
         /// </summary>
@@ -408,6 +414,10 @@ namespace EmbyStreams
                 // Initialise home section tracker (Sprint 118: Home Screen Rails)
                 HomeSectionTracker = new HomeSectionTracker(DatabaseManager, new EmbyLoggerAdapter<HomeSectionTracker>(_logManager.GetLogger("HomeSectionTracker")));
                 _logger.LogInformation("[EmbyStreams] Home section tracker initialised");
+
+                // Initialise user pin repository (Sprint 142: User Pins)
+                UserPinRepository = new Repositories.UserPinRepository(DatabaseManager, _logger);
+                _logger.LogInformation("[EmbyStreams] User pin repository initialised");
             }
             catch (Exception ex)
             {

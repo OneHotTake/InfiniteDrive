@@ -9,6 +9,7 @@ using EmbyStreams.Data;
 using EmbyStreams.Logging;
 using EmbyStreams.Models;
 using EmbyStreams.Services;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
@@ -30,20 +31,25 @@ namespace EmbyStreams.Tasks
         private const string TaskName     = "EmbyStreams Refresh Worker";
         private const string TaskKey      = "EmbyStreamsRefresh";
         private const string TaskCategory = "EmbyStreams";
+        private const int    NotifyLimit = 42;  // Non-negotiable bound
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
         private readonly ILogger<RefreshTask>           _logger;
-        private VersionMaterializer? _materializer;
+        private readonly ILibraryManager               _libraryManager;
+        private readonly VersionMaterializer?           _materializer;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
 
         // ── Constructor ──────────────────────────────────────────────────────────
 
-        public RefreshTask(ILogManager logManager)
+        public RefreshTask(
+            ILogManager logManager,
+            ILibraryManager libraryManager)
         {
             _logger         = new EmbyLoggerAdapter<RefreshTask>(logManager.GetLogger("EmbyStreams"));
-            _materializer    = new VersionMaterializer(_logger);
+            _libraryManager = libraryManager;
+            _materializer   = new VersionMaterializer(_logger);
         }
 
         // ── IScheduledTask ───────────────────────────────────────────────────────
@@ -112,34 +118,70 @@ namespace EmbyStreams.Tasks
 
             try
             {
-                var itemsAffected = 0;
+                var totalItemsAffected = 0;
 
                 // Step 1: Collect
-                progress?.Report(0.1);
+                progress?.Report(0.08);
                 var collected = await CollectStepAsync(cancellationToken);
                 if (!collected.Any())
                 {
-                    _logger.LogInformation("[EmbyStreams] RefreshTask: No new/changed items found");
-                    await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "collect", 0, null, cancellationToken);
-                    return;
+                    _logger.LogDebug("[EmbyStreams] RefreshTask: No new/changed items found in Collect step");
                 }
-                _logger.LogInformation("[EmbyStreams] RefreshTask: Collected {Count} new/changed items", collected.Count);
-                itemsAffected = collected.Count;
+                else
+                {
+                    _logger.LogInformation("[EmbyStreams] RefreshTask: Collected {Count} new/changed items", collected.Count);
+                    totalItemsAffected += collected.Count;
+                }
 
-                // Step 2: Write
-                progress?.Report(0.5);
-                var written = await WriteStepAsync(collected, cancellationToken);
-                _logger.LogInformation("[EmbyStreams] RefreshTask: Wrote {Count} .strm files", written);
+                // Step 2: Write (only if we have collected items)
+                var writtenItems = new List<CatalogItem>();
+                if (collected.Any())
+                {
+                    progress?.Report(0.25);
+                    var written = await WriteStepAsync(collected, cancellationToken);
+                    _logger.LogInformation("[EmbyStreams] RefreshTask: Wrote {Count} .strm files", written);
+                    writtenItems.AddRange(collected);
+                    totalItemsAffected += written;
+                }
 
-                // Step 3: Hint
-                progress?.Report(0.9);
-                var hinted = await HintStepAsync(collected, cancellationToken);
-                _logger.LogInformation("[EmbyStreams] RefreshTask: Created {Count} Identity Hint NFOs", hinted);
+                // Step 3: Hint (only for written items)
+                if (writtenItems.Any())
+                {
+                    progress?.Report(0.42);
+                    var hinted = await HintStepAsync(writtenItems, cancellationToken);
+                    _logger.LogInformation("[EmbyStreams] RefreshTask: Created {Count} Identity Hint NFOs", hinted);
+                }
+
+                // Step 4: Notify (42-item bound)
+                progress?.Report(0.58);
+                var notified = await NotifyStepAsync(cancellationToken);
+                if (notified > 0)
+                {
+                    _logger.LogInformation("[EmbyStreams] RefreshTask: Notified {Count} items to Emby", notified);
+                    totalItemsAffected += notified;
+                }
+
+                // Step 5: Verify (42-item bound + token renewal)
+                progress?.Report(0.75);
+                var verified = await VerifyStepAsync(cancellationToken);
+                if (verified > 0)
+                {
+                    _logger.LogInformation("[EmbyStreams] RefreshTask: Verified {Count} items", verified);
+                    totalItemsAffected += verified;
+                }
+
+                // Step 6: Stalled-item promotion (>24h Notified -> NeedsEnrich)
+                progress?.Report(0.92);
+                var promoted = await PromoteStalledItemsAsync(cancellationToken);
+                if (promoted > 0)
+                {
+                    _logger.LogInformation("[EmbyStreams] RefreshTask: Promoted {Count} stalled items to NeedsEnrich", promoted);
+                }
 
                 progress?.Report(1.0);
-                _logger.LogInformation("[EmbyStreams] RefreshTask completed successfully");
+                _logger.LogInformation("[EmbyStreams] RefreshTask completed successfully. Total affected: {Count}", totalItemsAffected);
 
-                await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "complete", itemsAffected, "All steps completed", cancellationToken);
+                await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "complete", totalItemsAffected, "All steps completed", cancellationToken);
             }
             catch (Exception ex)
             {
@@ -465,6 +507,221 @@ namespace EmbyStreams.Tasks
             }
 
             return hinted;
+        }
+
+        // ── Step 4: Notify ────────────────────────────────────────────────────────
+
+        private async Task<int> NotifyStepAsync(CancellationToken cancellationToken)
+        {
+            var notified = 0;
+
+            // Query Written items (bounded at 42)
+            var writtenItems = await Plugin.Instance!.DatabaseManager.GetCatalogItemsByStateAsync(
+                ItemState.Written,
+                NotifyLimit,
+                cancellationToken);
+
+            if (!writtenItems.Any())
+                return 0;
+
+            if (writtenItems.Any())
+            {
+                // Queue a single library scan for all items at once
+                // This is the fallback approach since surgical API may not be available
+                try
+                {
+                    _libraryManager.QueueLibraryScan();
+                    _logger.LogDebug("[EmbyStreams] Notify: Queued library scan for {Count} items", writtenItems.Count);
+
+                    // Transition all Written items to Notified state
+                    foreach (var item in writtenItems)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        item.ItemState = ItemState.Notified;
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                        notified++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EmbyStreams] Notify: Failed to queue library scan");
+                }
+            }
+
+            return notified;
+        }
+
+        // ── Step 5: Verify ────────────────────────────────────────────────────────
+
+        private async Task<int> VerifyStepAsync(CancellationToken cancellationToken)
+        {
+            var verified = 0;
+
+            // Query Notified items (bounded at 42)
+            var notifiedItems = await Plugin.Instance!.DatabaseManager.GetCatalogItemsByStateAsync(
+                ItemState.Notified,
+                NotifyLimit,
+                cancellationToken);
+
+            if (!notifiedItems.Any())
+            {
+                // No Notified items, check for token renewal
+                return await RenewTokensAsync(NotifyLimit, cancellationToken);
+            }
+
+            foreach (var item in notifiedItems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (string.IsNullOrEmpty(item.StrmPath))
+                    continue;
+
+                // Verify that .strm files exist on disk and were written recently
+                // If files exist and item has been Notified for at least one cycle,
+                // assume Emby has indexed them (simplified verification)
+                try
+                {
+                    var folderPath = item.StrmPath;
+                    if (Directory.Exists(folderPath))
+                    {
+                        // Check for .strm files in the folder
+                        var strmFiles = Directory.GetFiles(folderPath, "*.strm");
+                        if (strmFiles.Length > 0)
+                        {
+                            // .strm files exist - transition to Ready
+                            item.ItemState = ItemState.Ready;
+                            item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                            await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                            verified++;
+                            _logger.LogDebug("[EmbyStreams] Verify: Confirmed .strm files for {Imdb}", item.ImdbId);
+                        }
+                        else
+                        {
+                            // No .strm files found - leave as Notified
+                            // Stalled-item promotion will handle items >24h
+                            _logger.LogDebug("[EmbyStreams] Verify: No .strm files for {Imdb}, remains Notified", item.ImdbId);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EmbyStreams] Verify: Failed to verify {Imdb}", item.ImdbId);
+                }
+            }
+
+            return verified;
+        }
+
+        /// <summary>
+        /// Renews tokens for items expiring within 90 days.
+        /// Shares the 42-item budget with Verify step.
+        /// </summary>
+        private async Task<int> RenewTokensAsync(int budget, CancellationToken cancellationToken)
+        {
+            var renewed = 0;
+
+            var expiringItems = await Plugin.Instance!.DatabaseManager.GetCatalogItemsWithExpiringTokensAsync(
+                budget,
+                cancellationToken);
+
+            if (!expiringItems.Any())
+                return 0;
+
+            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
+            if (!slots.Any())
+                return 0;
+
+            var defaultSlot = slots.FirstOrDefault(s => s.IsDefault) ?? slots.First();
+            var config = Plugin.Instance!.Configuration;
+            var embyBaseUrl = GetEmbyBaseUrl(config);
+
+            foreach (var item in expiringItems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (string.IsNullOrEmpty(item.StrmPath) || string.IsNullOrEmpty(item.LocalPath))
+                    continue;
+
+                // Rewrite .strm files with fresh tokens
+                var folderPath = item.LocalPath;
+                var baseName = Path.GetFileNameWithoutExtension(folderPath);
+
+                try
+                {
+                    foreach (var slot in slots)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var (strmUrl, expiresAtUnix) = (_materializer ?? throw new InvalidOperationException("Materializer not initialized")).BuildStrmUrlWithExpiry(
+                            embyBaseUrl,
+                            item.ImdbId,
+                            slot.SlotKey,
+                            "imdb",
+                            null,
+                            null);
+
+                        var fileName = _materializer.GetFileName(baseName, slot, defaultSlot, ".strm");
+                        var fullPath = Path.Combine(folderPath, fileName);
+                        var tmpPath = fullPath + ".tmp";
+
+                        await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
+                        File.Move(tmpPath, fullPath, overwrite: true);
+                    }
+
+                    // Update token expiry timestamp
+                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
+                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+
+                    renewed++;
+                    _logger.LogDebug("[EmbyStreams] Renew: Refreshed token for {Imdb}", item.ImdbId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EmbyStreams] Renew: Failed to refresh token for {Imdb}", item.ImdbId);
+                }
+            }
+
+            return renewed;
+        }
+
+        // ── Stalled-Item Promotion ──────────────────────────────────────────────
+
+        private async Task<int> PromoteStalledItemsAsync(CancellationToken cancellationToken)
+        {
+            var promoted = 0;
+
+            // Query all Notified items to check for stalled ones
+            var notifiedItems = await Plugin.Instance!.DatabaseManager.GetCatalogItemsByStateAsync(
+                ItemState.Notified,
+                int.MaxValue,  // No limit for stalled check
+                cancellationToken);
+
+            var stalledThreshold = DateTime.UtcNow.AddHours(-24);
+
+            foreach (var item in notifiedItems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Check if item has been Notified for >24 hours
+                if (DateTime.TryParse(item.UpdatedAt, out var updatedAt) && updatedAt < stalledThreshold)
+                {
+                    // Promote to NeedsEnrich
+                    item.ItemState = ItemState.NeedsEnrich;
+                    item.NfoStatus = "NeedsEnrich";
+                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+
+                    promoted++;
+                    _logger.LogInformation(
+                        "[EmbyStreams] Stalled: Promoted {Imdb} to NeedsEnrich (Notified >24h)",
+                        item.ImdbId);
+                }
+            }
+
+            return promoted;
         }
 
         // ── Helper methods ───────────────────────────────────────────────────────

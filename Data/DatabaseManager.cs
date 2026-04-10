@@ -217,6 +217,90 @@ namespace EmbyStreams.Data
                 ReadCatalogItem);
         }
 
+        /// <summary>
+        /// Returns catalog items in the specified state, bounded by limit.
+        /// Used by RefreshTask Notify and Verify steps.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetCatalogItemsByStateAsync(
+            ItemState state,
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at,
+                       nfo_status, retry_count, next_retry_at, strm_token_expires_at,
+                       blocked_at, blocked_by
+                FROM catalog_items
+                WHERE item_state = @state AND removed_at IS NULL
+                LIMIT @limit;";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@state", (int)state);
+                BindInt(cmd, "@limit", limit);
+            }, ReadCatalogItem);
+        }
+
+        /// <summary>
+        /// Returns catalog items with expiring tokens (within 90 days), bounded by limit.
+        /// Used by RefreshTask Verify step for token renewal.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetCatalogItemsWithExpiringTokensAsync(
+            int limit,
+            CancellationToken cancellationToken = default)
+        {
+            const int ninetyDaysSeconds = 90 * 24 * 60 * 60;
+            long currentUnixTime = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            long expiryThreshold = currentUnixTime + ninetyDaysSeconds;
+
+            const string sql = @"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at,
+                       nfo_status, retry_count, next_retry_at, strm_token_expires_at,
+                       blocked_at, blocked_by
+                FROM catalog_items
+                WHERE (strm_token_expires_at < @expiry_threshold OR strm_token_expires_at IS NULL)
+                AND removed_at IS NULL
+                ORDER BY strm_token_expires_at ASC
+                LIMIT @limit;";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@expiry_threshold", (int)expiryThreshold);
+                BindInt(cmd, "@limit", limit);
+            }, ReadCatalogItem);
+        }
+
+        /// <summary>
+        /// Returns catalog item by its .strm file path, or null.
+        /// Used by auto-pin on playback to find the item being played.
+        /// </summary>
+        public async Task<CatalogItem?> GetCatalogItemByStrmPathAsync(string strmPath)
+        {
+            const string sql = @"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at,
+                       nfo_status, retry_count, next_retry_at, strm_token_expires_at,
+                       blocked_at, blocked_by
+                FROM catalog_items
+                WHERE strm_path = @strm_path AND removed_at IS NULL
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@strm_path", strmPath),
+                ReadCatalogItem);
+        }
+
 
         /// <summary>
         /// Synchronous version of GetCatalogItemByImdbIdAsync for use in

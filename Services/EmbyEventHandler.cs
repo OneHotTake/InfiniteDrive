@@ -158,10 +158,10 @@ namespace EmbyStreams.Services
             if (item?.Path == null) return;
             if (!item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)) return;
 
-            _ = Task.Run(() => HandlePlaybackStartedAsync(item.Path));
+            _ = Task.Run(() => HandlePlaybackStartedAsync(item.Path, e));
         }
 
-        private async Task HandlePlaybackStartedAsync(string strmPath)
+        private async Task HandlePlaybackStartedAsync(string strmPath, PlaybackProgressEventArgs e)
         {
             try
             {
@@ -172,11 +172,32 @@ namespace EmbyStreams.Services
 
                 if (string.IsNullOrEmpty(imdb)) return;
                 if (strmUrl.IndexOf("/EmbyStreams/Play", StringComparison.OrdinalIgnoreCase) < 0) return;
-                // Only pre-warm for series episodes
-                if (!season.HasValue || !episode.HasValue) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
+
+                // ── Auto-pin on playback (Sprint 144) ─────────────────────────────
+
+                // Auto-pin for all EmbyStreams .strm files
+                var userId = e.Users?.FirstOrDefault()?.Id.ToString();
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    var catalogItem = await db.GetCatalogItemByStrmPathAsync(strmPath);
+                    if (catalogItem != null)
+                    {
+                        var userPinRepo = Plugin.Instance?.UserPinRepository;
+                        if (userPinRepo != null)
+                        {
+                            await userPinRepo.AddPinAsync(userId, catalogItem.Id, "playback");
+                            _logger.LogDebug(
+                                "[EmbyStreams] Auto-pinned {Title} for user {UserId} via playback",
+                                catalogItem.Title, userId);
+                        }
+                    }
+                }
+
+                // Only pre-warm for series episodes
+                if (!season.HasValue || !episode.HasValue) return;
 
                 _logger.LogInformation(
                     "[EmbyStreams] Binge pre-warm triggered: {Imdb} S{S}E{E} — queuing next episodes",
