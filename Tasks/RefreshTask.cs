@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -113,6 +114,8 @@ namespace EmbyStreams.Tasks
         {
             _logger.LogInformation("[EmbyStreams] RefreshTask started");
 
+            var runStartedAt = DateTime.UtcNow;
+
             // Create run log entry
             var runLogId = await Plugin.Instance!.DatabaseManager.InsertRunLogAsync("RefreshTask", "start", cancellationToken);
 
@@ -123,7 +126,7 @@ namespace EmbyStreams.Tasks
                 // Step 1: Collect
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "collect", cancellationToken);
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", "0", cancellationToken);
-                progress?.Report(0.08);
+                progress?.Report(0.16);
                 var collected = await CollectStepAsync(cancellationToken);
                 if (!collected.Any())
                 {
@@ -141,7 +144,7 @@ namespace EmbyStreams.Tasks
                 if (collected.Any())
                 {
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "write", cancellationToken);
-                    progress?.Report(0.25);
+                    progress?.Report(0.33);
                     var written = await WriteStepAsync(collected, cancellationToken);
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Wrote {Count} .strm files", written);
                     writtenItems.AddRange(collected);
@@ -153,15 +156,29 @@ namespace EmbyStreams.Tasks
                 if (writtenItems.Any())
                 {
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "hint", cancellationToken);
-                    progress?.Report(0.42);
+                    progress?.Report(0.50);
                     var hinted = await HintStepAsync(writtenItems, cancellationToken);
                     _logger.LogInformation("[EmbyStreams] RefreshTask: Created {Count} Identity Hint NFOs", hinted);
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
-                // Step 4: Notify (42-item bound)
+                // Step 4: Enrich (inline, no-ID items from this run only)
+                if (writtenItems.Any())
+                {
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "enrich", cancellationToken);
+                    progress?.Report(0.67);
+                    var enriched = await EnrichStepAsync(runStartedAt, cancellationToken);
+                    if (enriched > 0)
+                    {
+                        _logger.LogInformation("[EmbyStreams] RefreshTask: Enriched {Count} no-ID items", enriched);
+                        totalItemsAffected += enriched;
+                        await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
+                    }
+                }
+
+                // Step 5: Notify (42-item bound)
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "notify", cancellationToken);
-                progress?.Report(0.58);
+                progress?.Report(0.83);
                 var notified = await NotifyStepAsync(cancellationToken);
                 if (notified > 0)
                 {
@@ -170,9 +187,9 @@ namespace EmbyStreams.Tasks
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
-                // Step 5: Verify (42-item bound + token renewal)
+                // Step 6: Verify (42-item bound + token renewal)
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "verify", cancellationToken);
-                progress?.Report(0.75);
+                progress?.Report(1.0);
                 var verified = await VerifyStepAsync(cancellationToken);
                 if (verified > 0)
                 {
@@ -181,17 +198,6 @@ namespace EmbyStreams.Tasks
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
-                // Step 6: Stalled-item promotion (>24h Notified -> NeedsEnrich)
-                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "promote", cancellationToken);
-                progress?.Report(0.92);
-                var promoted = await PromoteStalledItemsAsync(cancellationToken);
-                if (promoted > 0)
-                {
-                    _logger.LogInformation("[EmbyStreams] RefreshTask: Promoted {Count} stalled items to NeedsEnrich", promoted);
-                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
-                }
-
-                progress?.Report(1.0);
                 _logger.LogInformation("[EmbyStreams] RefreshTask completed successfully. Total affected: {Count}", totalItemsAffected);
 
                 // Clear active step and persist last run time
@@ -526,7 +532,186 @@ namespace EmbyStreams.Tasks
             return hinted;
         }
 
-        // ── Step 4: Notify ────────────────────────────────────────────────────────
+        // ── Step 4: Enrich ───────────────────────────────────────────
+
+        /// <summary>
+        /// Enriches no-ID items from AIOMetadata inline within current Refresh cycle.
+        /// Cap: 10 items per run, throttled at 2s per AIOMetadata call.
+        /// </summary>
+        private async Task<int> EnrichStepAsync(DateTime runStartedAt, CancellationToken cancellationToken)
+        {
+            var enriched = 0;
+
+            // Query no-ID items from this run only (created_at >= runStartedAt AND nfo_status = 'NeedsEnrich')
+            var noIdItemsQuery = @"
+                SELECT * FROM catalog_items
+                WHERE nfo_status = 'NeedsEnrich'
+                AND created_at >= @runStartedAt
+                AND (imdb_id IS NULL OR imdb_id = '')
+                AND (tmdb_id IS NULL OR tmdb_id = '')
+                AND removed_at IS NULL
+                ORDER BY created_at ASC
+                LIMIT 10;";
+
+            var noIdItems = await Plugin.Instance!.DatabaseManager.QueryListAsync<CatalogItem>(
+                noIdItemsQuery,
+                cmd => cmd.BindParameters["@runStartedAt"].Bind(runStartedAt.ToString("o")),
+                row => new CatalogItem
+                {
+                    Id = row.GetString(0),
+                    ImdbId = row.IsDBNull(1) ? null : row.GetString(1),
+                    TmdbId = row.IsDBNull(2) ? null : row.GetString(2),
+                    Title = row.GetString(3),
+                    Year = row.IsDBNull(4) ? (int?)null : row.GetInt(4),
+                    MediaType = row.GetString(5),
+                    Source = row.GetString(6),
+                    SourceListId = row.IsDBNull(7) ? null : row.GetString(7),
+                    SeasonsJson = row.IsDBNull(8) ? null : row.GetString(8),
+                    StrmPath = row.IsDBNull(9) ? null : row.GetString(9),
+                    AddedAt = row.GetString(10),
+                    UpdatedAt = row.GetString(11),
+                    RemovedAt = row.IsDBNull(12) ? null : row.GetString(12),
+                    LocalPath = row.IsDBNull(13) ? null : row.GetString(13),
+                    LocalSource = row.IsDBNull(14) ? null : row.GetString(14),
+                    ItemState = (ItemState)row.GetInt(16),
+                    PinSource = row.IsDBNull(17) ? null : row.GetString(17),
+                    PinnedAt = row.IsDBNull(18) ? null : row.GetString(18),
+                    UniqueIdsJson = row.IsDBNull(19) ? null : row.GetString(19),
+                    NfoStatus = row.IsDBNull(20) ? null : row.GetString(20),
+                    RetryCount = row.GetInt(21),
+                    NextRetryAt = row.IsDBNull(22) ? (long?)null : row.GetInt64(22),
+                });
+
+            if (!noIdItems.Any())
+            {
+                _logger.LogDebug("[EmbyStreams] RefreshTask: Enrich: No no-ID items from this run");
+                return 0;
+            }
+
+            var aioClient = new AioMetadataClient(Plugin.Instance!.Configuration, _logger);
+
+            // Process each item
+            foreach (var item in noIdItems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    // Fetch metadata from AIOMetadata (title-based search for no-ID items)
+                    var metadata = await aioClient.FetchByTitleAsync(item.Title, item.Year, cancellationToken);
+                    if (metadata != null)
+                    {
+                        // Success: write enriched NFO
+                        await WriteEnrichedNfoAsync(item, metadata, cancellationToken);
+
+                        // Update status
+                        item.NfoStatus = "Enriched";
+                        item.RetryCount = 0;
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+
+                        enriched++;
+                        _logger.LogDebug("[EmbyStreams] RefreshTask: Enriched {Title} ({Year})", item.Title, item.Year);
+                    }
+                    else
+                    {
+                        // Failure: increment retry_count, set backoff
+                        item.RetryCount++;
+                        var nextRetrySeconds = item.RetryCount switch
+                        {
+                            1 => DateTimeOffset.UtcNow.AddHours(4).ToUnixTimeSeconds(),
+                            2 => DateTimeOffset.UtcNow.AddHours(24).ToUnixTimeSeconds(),
+                            _ => new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds() // Blocked (effectively never retry)
+                        };
+
+                        item.NextRetryAt = nextRetrySeconds;
+                        item.NfoStatus = item.RetryCount >= 3 ? "Blocked" : "NeedsEnrich";
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+
+                        _logger.LogDebug("[EmbyStreams] RefreshTask: Enrich failed for {Title} ({Year}), retry {Count}", item.Title, item.Year, item.RetryCount);
+                    }
+
+                    // Throttle: 2 seconds between calls
+                    await Task.Delay(2000, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EmbyStreams] RefreshTask: Enrich failed for {Title} ({Year})", item.Title, item.Year);
+                }
+            }
+
+            _logger.LogInformation("[EmbyStreams] RefreshTask: Enriched {Count} no-ID items", enriched);
+            return enriched;
+        }
+
+        private async Task<int> WriteEnrichedNfoAsync(CatalogItem item, AioMetadataClient.EnrichedMetadata meta, CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(item.StrmPath))
+                return 0;
+
+            var folderPath = item.StrmPath!;
+            var isSeries = item.MediaType == "series" || item.MediaType == "anime";
+            var rootElement = isSeries ? "tvshow" : "movie";
+
+            var nfoSb = new StringBuilder();
+            nfoSb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
+            nfoSb.AppendLine($"<{rootElement}>");
+
+            nfoSb.AppendLine($"  <title>{SecurityElement.Escape(meta.Name)}</title>");
+
+            if (meta.Year.HasValue)
+                nfoSb.AppendLine($"  <year>{meta.Year.Value}</year>");
+
+            if (!string.IsNullOrEmpty(meta.Description))
+                nfoSb.AppendLine($"  <plot>{SecurityElement.Escape(meta.Description)}</plot>");
+
+            // Write uniqueid - prefer IMDB, fall back to TMDB
+            if (!string.IsNullOrEmpty(meta.ImdbId))
+                nfoSb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{meta.ImdbId}</uniqueid>");
+            else if (!string.IsNullOrEmpty(meta.TmdbId))
+                nfoSb.AppendLine($"  <uniqueid type=\"tmdb\" default=\"true\">{meta.TmdbId}</uniqueid>");
+
+            // Write genres
+            if (meta.Genres != null && meta.Genres.Count > 0)
+            {
+                foreach (var genre in meta.Genres)
+                nfoSb.AppendLine($"  <genre>{SecurityElement.Escape(genre)}</genre>");
+            }
+
+            nfoSb.AppendLine($"</{rootElement}>");
+
+            // Write .nfo for each version slot
+            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
+            if (!slots.Any())
+                return 0;
+
+            var baseName = item.Title;
+
+            foreach (var slot in slots)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var fileName = $"{baseName}{(slot.IsDefault ? "" : $"_{slot.SlotKey}")}.nfo";
+                var fullPath = Path.Combine(folderPath, fileName);
+                var tmpPath = fullPath + ".tmp";
+
+                try
+                {
+                    await File.WriteAllTextAsync(tmpPath, nfoSb.ToString(), new UTF8Encoding(false));
+                    File.Move(tmpPath, fullPath, overwrite: true);
+                    _logger.LogDebug("[EmbyStreams] Wrote enriched .nfo: {Path}", fullPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[EmbyStreams] Failed to write enriched .nfo: {Path}", fullPath);
+                    if (File.Exists(tmpPath))
+                        File.Delete(tmpPath);
+                }
+            }
+
+            return slots.Count;
+        }
 
         private async Task<int> NotifyStepAsync(CancellationToken cancellationToken)
         {
@@ -626,6 +811,14 @@ namespace EmbyStreams.Tasks
                 {
                     _logger.LogWarning(ex, "[EmbyStreams] Verify: Failed to verify {Imdb}", item.ImdbId);
                 }
+            }
+
+            // Sub-step: Promote stalled items (>24h Notified -> NeedsEnrich)
+            var promoted = await PromoteStalledItemsAsync(cancellationToken);
+            if (promoted > 0)
+            {
+                _logger.LogInformation("[EmbyStreams] Verify: Promoted {Count} stalled items to NeedsEnrich", promoted);
+                verified += promoted;
             }
 
             return verified;
