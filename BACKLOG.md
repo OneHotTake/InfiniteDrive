@@ -7,6 +7,8 @@ Versioning: `v0.{SPRINT}.{TASK}` — current version 0.40.0.0
                     Sprints 140-154 Complete (Security, UX, Refactoring, Emby Alignment) |
                     Sprint 161+ — Next sprint. Start here.
 
+**Sprint Planning Template:** Use `.ai/SPRINT_TEMPLATE.md` when defining new sprints. |
+
 **Rename**: Project renamed from EmbyStreams to InfiniteDrive at version 0.40.0.0 (2026-04-11). Breaking change — fresh install required.
 
 ---
