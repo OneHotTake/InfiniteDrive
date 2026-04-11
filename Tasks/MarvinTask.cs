@@ -122,6 +122,10 @@ namespace InfiniteDrive.Tasks
                 progress?.Report(0.8);
                 await TokenRenewalAsync(cancellationToken);
 
+                // Phase 4: Save maintenance
+                progress?.Report(0.85);
+                await SaveMaintenancePassAsync(cancellationToken);
+
                 // Persist last run time
                 progress?.Report(0.95);
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync(
@@ -575,6 +579,46 @@ namespace InfiniteDrive.Tasks
             if (renewedCount > 0)
             {
                 _logger.LogInformation("[InfiniteDrive] Token renewal: Renewed {Count} items", renewedCount);
+            }
+        }
+
+        // ── Phase 4: Save Maintenance ─────────────────────────────────────
+
+        private async Task SaveMaintenancePassAsync(CancellationToken cancellationToken)
+        {
+            var db = Plugin.Instance!.DatabaseManager;
+
+            // Clean up orphaned saves (media_item no longer exists)
+            var orphans = await db.GetOrphanedUserSavesAsync(cancellationToken);
+            var orphanCount = 0;
+            foreach (var (saveId, userId, mediaItemId) in orphans)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                await db.DeleteUserSaveByIdAsync(saveId, cancellationToken);
+                orphanCount++;
+            }
+
+            if (orphanCount > 0)
+            {
+                _logger.LogInformation("[InfiniteDrive] Save maintenance: Removed {Count} orphaned saves", orphanCount);
+            }
+
+            // Re-sync global saved flags for items marked as saved but with no user saves
+            var savedItems = await db.GetItemsBySavedAsync(true, cancellationToken);
+            var reSyncedCount = 0;
+            foreach (var item in savedItems)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var hasSave = await db.HasUserSaveAsync("", item.Id, cancellationToken);
+                // If checking with empty user returns false, do a full re-sync
+                // Actually, SyncGlobalSavedFlagAsync handles this atomically
+                await db.SyncGlobalSavedFlagAsync(item.Id, cancellationToken);
+                reSyncedCount++;
+            }
+
+            if (reSyncedCount > 0)
+            {
+                _logger.LogDebug("[InfiniteDrive] Save maintenance: Re-synced {Count} global saved flags", reSyncedCount);
             }
         }
 

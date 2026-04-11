@@ -2,11 +2,11 @@
 
 Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 
-**Current Status**: Sprint 203 Complete (Admin Page Restructure + Catalogs→Sources Rename) |
+**Current Status**: Sprint 207 Complete (Per-User Saves + InfiniteDriveChannel) |
+                     Sprint 205 Complete (User Tabs Removed from Config Page) |
+                     Sprint 204 Complete (Discover Endpoint Un-gating) |
+                     Sprint 203 Complete (Admin Page Restructure + Catalogs→Sources Rename) |
                      Sprint 200+201 Complete (Wizard UX Overhaul + Backend Wiring) |
-                     Sprint 160 Complete (ID Normalization + NFO Fixes) |
-                     Sprints 155-159 Complete (CooldownGate, Webhooks, User Catalogs, Stream Probe) |
-                     Sprints 140-154 Complete (Security, UX, Refactoring, Emby Alignment) |
 
 **Sprint Planning Template:** Use `.ai/SPRINT_TEMPLATE.md` when defining new sprints. |
 
@@ -14,6 +14,32 @@ Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 
 **Version 0.41**: Sprints 200+201 — Wizard UX redesign + library provisioning + anime routing fix.
 **Version 0.43**: Sprint 203 — Admin Page Restructure + Catalogs→Sources Rename.
+**Version 0.47**: Sprint 207 — Per-user saves via user_item_saves table, InfiniteDriveChannel (IChannel), build fix, unsave endpoint.
+
+---
+
+## Sprint 207 — Per-User Saves + InfiniteDriveChannel
+
+**Status:** Complete — Build fixed, per-user saves, InfiniteDriveChannel, unsave endpoint, Marvin save maintenance
+
+### Goals
+- Fix 14 build errors from Sprint 204's un-gating (StatusService→AdminGuard, RatingLabel, type mismatch)
+- Implement per-user saves via `user_item_saves` junction table (V26 schema)
+- Remove global `saved_by`, `save_reason`, `saved_season` columns from `media_items`
+- Create `InfiniteDriveChannel` implementing Emby's `IChannel` interface
+- Add `POST /InfiniteDrive/Discover/RemoveFromLibrary` endpoint
+- Add Marvin Phase 4 save maintenance (orphan cleanup, global flag re-sync)
+
+### Findings
+- `InternalChannelItemQuery.UserId` is `long` (Emby internal numeric ID), not GUID string
+- `DynamicImageResponse` is in `MediaBrowser.Controller.Providers` namespace
+- `ApplyParentalFilter` is dead code (never called) — stubbed rather than fixing RatingLabel
+- `AuthorizationInfo.UserId` is `long?` in this Emby version; `TryGetCurrentUserId()` pattern is correct
+
+### Guidance
+- Clean DB required (`./emby-reset.sh`) — schema V26 is breaking
+- IChannel is auto-discovered by Emby — no Plugin.cs registration needed
+- `SavedService.SaveItemAsync` now requires `userId` parameter (no external callers existed)
 
 ---
 

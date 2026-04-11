@@ -1,6 +1,6 @@
 # InfiniteDrive Repository Map
 
-_Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
+_Updated 2026-04-11 (Sprint 207: Per-User Saves + InfiniteDriveChannel). Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
 
 ---
 
@@ -87,16 +87,16 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 
 ---
 
-## Data/Schema.cs (Sprint 109)
-> v3.3 database schema definitions for 9 tables (media_items, media_item_ids, sources, source_memberships, collections, stream_resolution_log, item_pipeline_log, schema_version, home_section_tracking).
+## Data/Schema.cs (Sprint 109, updated Sprint 207)
+> V26 database schema definitions. media_items now stores denormalized saved flag only; per-user saves in user_item_saves.
 
 ### Key Types / Constants
-- `Schema.CurrentSchemaVersion` = 1
+- `Schema.CurrentSchemaVersion` = 26
 - `Schema.Tables` - IReadOnlyList<TableDefinition> with all table CREATE SQL
 - `TableDefinition` - Table name and CREATE SQL statement
 
 ### Tables
-- media_items - Core item table with ItemStatus, SaveReason, FailureReason
+- media_items - Core item table with ItemStatus, FailureReason, denormalized `saved` flag
 - media_item_ids - Multi-provider ID matching (imdb, tmdb, tvdb, anilist, anidb, kitsu)
 - sources - Enabled/Disabled sources with ShowAsCollection flag
 - source_memberships - Which items belong to which sources
@@ -171,6 +171,15 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 - `Id`, `OwnerUserId`, `Service` (trakt/mdblist), `RssUrl`, `DisplayName`
 - `Active` — soft-delete flag; false means excluded from sync and deprecation pending
 - `LastSyncedAt`, `LastSyncStatus`
+
+---
+
+## Models/UserItemSave.cs (Sprint 207)
+> POCO for user_item_saves junction table. Per-user save record linking user to media item.
+
+### Key Properties
+- `Id`, `UserId`, `MediaItemId`, `SaveReason` (explicit/watched_episode/admin_override)
+- `SavedSeason`, `SavedAt`
 
 ---
 
@@ -373,13 +382,22 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 ---
 
 ## Services/InfiniteDriveChannel.cs
-> Native Emby IChannel implementation providing user-facing browse surface for Lists and Saved items. Auto-discovered by Emby via DI.
+> Native Emby IChannel implementation providing user-facing browse surface for Lists and Saved items. Auto-discovered by Emby via DI. Constructor takes (ILogManager, IUserManager). Sprint 207.
 
 ### Public Methods
-- `GetChannelItems(InternalChannelItemQuery query)` — returns root folders (Lists, Saved) or list contents
-- `GetChannelItems(object searchQuery)` — searches discover catalog and returns filtered results
-- `GetChannelFeatures(CancellationToken)` — returns channel capabilities (CanSearch, CanGetMediaInfo)
-- `GetSupportedChannelMediaTypes()` — returns ["Movie", "Series"]
+- `GetChannelItems(InternalChannelItemQuery, CancellationToken)` — routes by FolderId: root→Lists+Saved folders, "lists"→user catalogs/admin sources, "saved"→per-user saves, "list:<id>"→catalog items
+- `GetChannelImage(ImageType, CancellationToken)` — throws NotSupportedException (no custom images)
+- `GetSupportedChannelImages()` — returns empty
+
+### Key Properties
+- `Name` → "InfiniteDrive"
+- `Description` → "Browse your lists and saved items."
+- `ParentalRating` → GeneralAudience
+
+### Per-User Behavior
+- `query.UserId` is `long` (Emby internal ID) — converted via `IUserManager.GetUserById(long)` to GUID string
+- Admin users see all enabled sources; non-admin sees only their own user catalogs
+- Saved folder shows `user_item_saves` for the calling user only
 
 ---
 
@@ -1027,7 +1045,7 @@ Originally planned as extension of v20 architecture. Superseded after v3.3 desig
 - YourFilesReconciler — Your Files detection
 - SourcesService — Source management
 - CollectionsService — BoxSet management
-- SavedService — Save/Block actions
+- SavedService — Per-user Save/Unsave (via user_item_saves), global Block/Unblock
 
 ### Sprint 111 — Sync Pipeline (v3.3)
 **File:** `.ai/SPRINT_111.md`

@@ -9,7 +9,7 @@ namespace InfiniteDrive.Data
     /// </summary>
     public static class Schema
     {
-        public const int CurrentSchemaVersion = 23;
+        public const int CurrentSchemaVersion = 26;
 
         /// <summary>
         /// All v3.3 database tables with their CREATE SQL statements.
@@ -57,12 +57,9 @@ CREATE TABLE media_items (
     status              TEXT NOT NULL CHECK (status IN ('known','resolved','hydrated','created','indexed','active','failed','deleted')),
     failure_reason       TEXT CHECK (failure_reason IN ('none','no_streams_found','metadata_fetch_failed','file_write_error','emby_index_timeout','digital_release_gate','blocked')),
 
-    -- Saved state (boolean, not status value)
+    -- Saved state (denormalized flag — per-user saves live in user_item_saves)
     saved               INTEGER NOT NULL DEFAULT 0,
     saved_at            TEXT,
-    saved_by            TEXT,
-    save_reason         TEXT CHECK (save_reason IN ('explicit','watched_episode','admin_override')),
-    saved_season        INTEGER,
 
     -- Blocked state (boolean, not status value)
     blocked             INTEGER NOT NULL DEFAULT 0,
@@ -185,6 +182,21 @@ CREATE TABLE home_section_tracking (
     UNIQUE (user_id, rail_type)
 );
 CREATE INDEX idx_home_section_user ON home_section_tracking(user_id);"),
+
+            // Per-user saves (Sprint 207)
+            new TableDefinition("user_item_saves", @"
+CREATE TABLE user_item_saves (
+    id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id       TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    save_reason   TEXT CHECK (save_reason IN ('explicit','watched_episode','admin_override')),
+    saved_season  INTEGER,
+    saved_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (user_id, media_item_id)
+);
+CREATE INDEX idx_user_saves_user ON user_item_saves(user_id);
+CREATE INDEX idx_user_saves_item ON user_item_saves(media_item_id);"),
 
             // Stream cache for signed URLs (Sprint 112B)
             new TableDefinition("stream_cache", @"

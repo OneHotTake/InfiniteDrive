@@ -1,5 +1,34 @@
 # Session Summary
 
+## 2026-04-11 — Sprint 207 Implementation
+
+### Task
+Implemented Sprint 207: Per-User Saves + InfiniteDriveChannel. Fixed broken build (14 errors), added per-user save system, created Emby IChannel implementation.
+
+### Delegation
+Direct implementation — no delegation. 6 phases, 15 tasks. All done in one session.
+
+### Key Decisions
+- Used `FindMediaItemByProviderIdAsync("imdb", imdbId)` for IMDB→media_item resolution in AddToLibrary
+- InfiniteDriveChannel constructor takes `(ILogManager, IUserManager)` via Emby DI
+- `InternalChannelItemQuery.UserId` is `long` — converted via `IUserManager.GetUserById(long)`
+- `DynamicImageResponse` is in `MediaBrowser.Controller.Providers` namespace
+- Stubbed `ApplyParentalFilter` (dead code) instead of adding `RatingLabel` property
+- `GetUserId()` delegates to `TryGetCurrentUserId()` to fix `long?` → `string?` mismatch
+
+### Files Changed
+| File | Action |
+|------|--------|
+| `Services/InfiniteDriveChannel.cs` | Created |
+| `Models/UserItemSave.cs` | Created |
+| `Data/Schema.cs` | Modified (V26, user_item_saves, removed 3 columns) |
+| `Data/DatabaseManager.cs` | Modified (7 new methods, removed column refs) |
+| `Services/DiscoverService.cs` | Modified (build fixes, per-user save, unsave endpoint) |
+| `Services/SavedService.cs` | Modified (rewritten for per-user saves) |
+| `Models/MediaItem.cs` | Modified (removed 3 properties + MarkSaved) |
+| `Tasks/MarvinTask.cs` | Modified (Phase 4 save maintenance) |
+| `Tests/UserActionTests.cs` | Modified (removed SaveReason references) |
+
 ## 2026-04-11 — Sprint 200 + 201 Implementation
 
 ### Task

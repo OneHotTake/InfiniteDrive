@@ -52,29 +52,14 @@ namespace InfiniteDrive.Models
         // ── Saved State ────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Whether this item is saved by a user (boolean column, not status value).
+        /// Whether this item is saved by any user (denormalized flag from user_item_saves).
         /// </summary>
         public bool Saved { get; set; }
 
         /// <summary>
-        /// When the item was saved.
+        /// When the item was most recently saved.
         /// </summary>
         public DateTimeOffset? SavedAt { get; set; }
-
-        /// <summary>
-        /// Who saved the item: "system:watch", "user", or "admin".
-        /// </summary>
-        public string? SavedBy { get; set; }
-
-        /// <summary>
-        /// Reason for saving.
-        /// </summary>
-        public SaveReason? SaveReason { get; set; }
-
-        /// <summary>
-        /// For series: the season number that was saved.
-        /// </summary>
-        public int? SavedSeason { get; set; }
 
         // ── Blocked State ───────────────────────────────────────────────────────
 
@@ -194,30 +179,12 @@ namespace InfiniteDrive.Models
         // ── Methods ───────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Marks this item as saved with the specified reason.
-        /// </summary>
-        public void MarkSaved(string savedBy, SaveReason reason, int? season = null)
-        {
-            Saved = true;
-            SavedAt = DateTimeOffset.UtcNow;
-            SavedBy = savedBy;
-            SaveReason = reason;
-            SavedSeason = season;
-            Blocked = false;
-            BlockedAt = null;
-        }
-
-        /// <summary>
         /// Marks this item as blocked.
         /// </summary>
         public void MarkBlocked()
         {
             Blocked = true;
             BlockedAt = DateTimeOffset.UtcNow;
-            Saved = false;
-            SavedAt = null;
-            SavedBy = null;
-            SaveReason = null;
         }
 
         /// <summary>
