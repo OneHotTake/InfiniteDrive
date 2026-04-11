@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 
-namespace EmbyStreams.Repositories.Interfaces
+namespace InfiniteDrive.Repositories.Interfaces
 {
     /// <summary>
     /// Repository interface for catalog item persistence.

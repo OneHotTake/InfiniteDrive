@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Builds HLS variant playlists for stream resolution.

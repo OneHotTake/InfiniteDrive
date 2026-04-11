@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// A value type representing a media identifier with provider type and value.

@@ -1,6 +1,6 @@
 using System;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Tracks the selected top candidate per title per slot,

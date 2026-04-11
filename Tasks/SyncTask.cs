@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Model.Tasks;
 using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Orchestrates the full sync pipeline: fetch → filter → diff → process items.
@@ -39,13 +39,13 @@ namespace EmbyStreams.Tasks
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
 
-        public string Name => "EmbyStreams Sync";
+        public string Name => "InfiniteDrive Sync";
 
         public string Key => "embystreams_sync";
 
         public string Description => "Syncs manifest entries to library";
 
-        public string Category => "EmbyStreams";
+        public string Category => "InfiniteDrive";
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {

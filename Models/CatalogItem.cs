@@ -1,9 +1,9 @@
 using System;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
-    /// Represents a single media item in the EmbyStreams catalog.
+    /// Represents a single media item in the InfiniteDrive catalog.
     /// Maps to the <c>catalog_items</c> SQLite table.
     /// </summary>
     public class CatalogItem

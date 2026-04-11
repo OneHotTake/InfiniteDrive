@@ -3,16 +3,16 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Manages home screen rails using Emby's ContentSection API + IUserManager.
@@ -122,7 +122,7 @@ namespace EmbyStreams.Services
                 HomeSectionTracker.RailType.TrendingSeries => "Trending Series",
                 HomeSectionTracker.RailType.NewThisWeek => "New This Week",
                 HomeSectionTracker.RailType.AdminChosen => "Admin Chosen",
-                _ => "EmbyStreams"
+                _ => "InfiniteDrive"
             };
 
             return new StubContentSection

@@ -3,20 +3,20 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
+using InfiniteDrive;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
-    [Route("/EmbyStreams/Admin/BlockedItems", "GET",
+    [Route("/InfiniteDrive/Admin/BlockedItems", "GET",
         Summary = "Returns all admin-blocked catalog items")]
     public class GetBlockedItemsRequest : IReturn<GetBlockedItemsResponse> { }
 
@@ -37,7 +37,7 @@ namespace EmbyStreams.Services
         public List<BlockedItemDto> Items { get; set; } = new();
     }
 
-    [Route("/EmbyStreams/Admin/UnblockItems", "POST",
+    [Route("/InfiniteDrive/Admin/UnblockItems", "POST",
         Summary = "Unblocks selected items and re-queues them for enrichment")]
     public class UnblockItemsRequest : IReturn<UnblockItemsResponse>
     {
@@ -66,13 +66,13 @@ namespace EmbyStreams.Services
 
         public AdminService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<AdminService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<AdminService>(logManager.GetLogger("InfiniteDrive"));
             _db      = Plugin.Instance.DatabaseManager;
             _authCtx = authCtx;
         }
 
         /// <summary>
-        /// Handles <c>GET /EmbyStreams/Admin/BlockedItems</c>.
+        /// Handles <c>GET /InfiniteDrive/Admin/BlockedItems</c>.
         /// Returns all items with blocked_at IS NOT NULL.
         /// </summary>
         public async Task<object> Get(GetBlockedItemsRequest _)
@@ -107,7 +107,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>POST /EmbyStreams/Admin/UnblockItems</c>.
+        /// Handles <c>POST /InfiniteDrive/Admin/UnblockItems</c>.
         /// Clears blocked_at/blocked_by and resets nfo_status to NeedsEnrich.
         /// </summary>
         public async Task<object> Post(UnblockItemsRequest req)

@@ -1,6 +1,6 @@
 using System;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Validates stream URLs before caching or serving.

@@ -1,4 +1,4 @@
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Logs structured run information for Health Panel visibility.

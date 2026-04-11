@@ -4,8 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Models;
-using EmbyStreams.Repositories.Interfaces;
+using InfiniteDrive.Models;
+using InfiniteDrive.Repositories.Interfaces;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Channels;
@@ -13,11 +13,11 @@ using MediaBrowser.Model.Dto;
 using SQLitePCL.pretty;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Data
+namespace InfiniteDrive.Data
 {
     /// <summary>
-    /// Manages the EmbyStreams SQLite database at
-    /// <c>{DataPath}/EmbyStreams/embystreams.db</c>.
+    /// Manages the InfiniteDrive SQLite database at
+    /// <c>{DataPath}/InfiniteDrive/embystreams.db</c>.
     ///
     /// Responsibilities:
     /// <list type="bullet">
@@ -90,7 +90,7 @@ namespace EmbyStreams.Data
             if (!TryIntegrityCheck())
             {
                 _logger.LogWarning(
-                    "[EmbyStreams] Database integrity check failed — deleting and recreating {DbPath}",
+                    "[InfiniteDrive] Database integrity check failed — deleting and recreating {DbPath}",
                     _dbPath);
                 File.Delete(_dbPath);
             }
@@ -2581,18 +2581,18 @@ namespace EmbyStreams.Data
                 if (string.Equals(journalMode, "wal", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogInformation(
-                        "[EmbyStreams] Database PRAGMA configured: journal_mode=WAL, foreign_keys=ON, synchronous=NORMAL, busy_timeout=30000");
+                        "[InfiniteDrive] Database PRAGMA configured: journal_mode=WAL, foreign_keys=ON, synchronous=NORMAL, busy_timeout=30000");
                 }
                 else
                 {
                     _logger.LogWarning(
-                        "[EmbyStreams] Database journal_mode is '{JournalMode}' (expected 'wal'). WAL may not be enabled correctly.",
+                        "[InfiniteDrive] Database journal_mode is '{JournalMode}' (expected 'wal'). WAL may not be enabled correctly.",
                         journalMode);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] Failed to verify journal_mode after applying PRAGMAs");
+                _logger.LogWarning(ex, "[InfiniteDrive] Failed to verify journal_mode after applying PRAGMAs");
             }
         }
 
@@ -2754,7 +2754,7 @@ INSERT OR IGNORE INTO schema_version (version) VALUES (3);
             // File Resurrection task (Sprint 3).
             if (version < 4)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V4", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V4", version);
                 if (!ColumnExists(conn, "catalog_items", "local_path"))
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN local_path TEXT;");
                 if (!ColumnExists(conn, "catalog_items", "local_source"))
@@ -2770,7 +2770,7 @@ INSERT OR IGNORE INTO schema_version (version) VALUES (3);
             // temporarily unreachable.
             if (version < 5)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V5", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V5", version);
                 if (!ColumnExists(conn, "sync_state", "consecutive_failures"))
                     ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN consecutive_failures INT DEFAULT 0;");
                 if (!ColumnExists(conn, "sync_state", "last_error"))
@@ -2788,7 +2788,7 @@ INSERT OR IGNORE INTO schema_version (version) VALUES (3);
             // original library file went missing.
             if (version < 6)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V6", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V6", version);
                 if (!ColumnExists(conn, "catalog_items", "resurrection_count"))
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN resurrection_count INTEGER DEFAULT 0;");
                 ExecuteInline(conn,
@@ -2803,7 +2803,7 @@ INSERT OR IGNORE INTO schema_version (version) VALUES (3);
             // on next LinkResolverTask run or first cache miss (sync resolve).
             if (version < 7)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V7", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V7", version);
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS stream_candidates (
     id           TEXT PRIMARY KEY,
@@ -2841,7 +2841,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_item
             // running count updated in real time during each sync run).
             if (version < 8)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V8", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V8", version);
                 if (!ColumnExists(conn, "sync_state", "catalog_name"))
                     ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN catalog_name TEXT;");
                 if (!ColumnExists(conn, "sync_state", "catalog_type"))
@@ -2865,7 +2865,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_item
             // confirmed dead, all candidates sharing that hash can be marked stale.
             if (version < 9)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V9", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V9", version);
                 if (!ColumnExists(conn, "stream_candidates", "info_hash"))
                     ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN info_hash TEXT;");
                 if (!ColumnExists(conn, "stream_candidates", "file_idx"))
@@ -2884,7 +2884,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_hash
             // tooling can detect stale records without scanning the whole table.
             if (version < 10)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V10", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V10", version);
                 if (!ColumnExists(conn, "resolution_cache", "updated_at"))
                     ExecuteInline(conn, "ALTER TABLE resolution_cache ADD COLUMN updated_at TEXT;");
                 if (!ColumnExists(conn, "client_compat", "updated_at"))
@@ -2901,7 +2901,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_hash
             // discover_items (items user has added to library) use catalog_items table.
             if (version < 13)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V13", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V13", version);
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS discover_catalog (
     id                  TEXT PRIMARY KEY,
@@ -2937,7 +2937,7 @@ CREATE INDEX IF NOT EXISTS idx_discover_in_library
             // Adds INSERT/UPDATE/DELETE triggers to keep FTS index in sync.
             if (version < 14)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V14", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V14", version);
                 if (!ColumnExists(conn, "discover_catalog", "genres"))
                     ExecuteInline(conn, "ALTER TABLE discover_catalog ADD COLUMN genres TEXT;");
                 if (!ColumnExists(conn, "discover_catalog", "imdb_rating"))
@@ -2982,7 +2982,7 @@ END;");
             // binge_group (AIOStreams binge-group identifier) to stream_candidates.
             if (version < 15)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V15", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V15", version);
                 if (!ColumnExists(conn, "stream_candidates", "stream_key"))
                     ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN stream_key TEXT;");
                 if (!ColumnExists(conn, "stream_candidates", "binge_group"))
@@ -3003,7 +3003,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_stream_key
             // All existing items default to CATALOGUED (0).
             if (version < 16)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V16", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V16", version);
                 if (!ColumnExists(conn, "catalog_items", "item_state"))
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN item_state INTEGER NOT NULL DEFAULT 0;");
                 if (!ColumnExists(conn, "catalog_items", "pin_source"))
@@ -3020,7 +3020,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_stream_key
             // Format: JSON array of {provider,id} objects.
             if (version < 17)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V17", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V17", version);
                 if (!ColumnExists(conn, "catalog_items", "unique_ids_json"))
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN unique_ids_json TEXT;");
                 ExecuteInline(conn,
@@ -3034,7 +3034,7 @@ CREATE INDEX IF NOT EXISTS idx_candidates_stream_key
             // Schema: id, collection_name, emby_item_id, source, last_seen
             if (version < 18)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V18", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V18", version);
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS collection_membership (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3060,7 +3060,7 @@ CREATE INDEX IF NOT EXISTS idx_collection_item
             // Sprint 156: Tracks which user first added an item to the library.
             if (version < 23)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V23", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V23", version);
                 if (!ColumnExists(conn, "catalog_items", "first_added_by_user_id"))
                     ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN first_added_by_user_id TEXT NULL;");
                 ExecuteInline(conn,
@@ -3073,7 +3073,7 @@ CREATE INDEX IF NOT EXISTS idx_collection_item
             // Sprint 101A-05: Absolute episode number storage and NFO.
             if (version < 19)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V19", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V19", version);
                 ExecuteInline(conn, @"
 ALTER TABLE stream_candidates ADD COLUMN absolute_episode_number INTEGER;");
                 ExecuteInline(conn,
@@ -3086,7 +3086,7 @@ ALTER TABLE stream_candidates ADD COLUMN absolute_episode_number INTEGER;");
             // Sprint 102A-02: Plugin metadata table and persistence.
             if (version < 20)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V20", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V20", version);
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS plugin_metadata (
     key   TEXT PRIMARY KEY NOT NULL,
@@ -3103,7 +3103,7 @@ CREATE TABLE IF NOT EXISTS plugin_metadata (
             // Sprint 118: Home Screen Rails.
             if (version < 21)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V21", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V21", version);
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS home_section_tracking (
     id              TEXT PRIMARY KEY,
@@ -3133,7 +3133,7 @@ CREATE INDEX IF NOT EXISTS idx_home_section_marker
             // existing tables or columns are modified.
             if (version < 22)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V22", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V22", version);
 
                 // version_slots — global slot configuration (7 predefined quality profiles)
                 ExecuteInline(conn, @"
@@ -3256,7 +3256,7 @@ CREATE INDEX IF NOT EXISTS idx_materialized_base
             // can be scheduled efficiently. (Sprint 141)
             if (version < 23)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V23", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V23", version);
                 if (!ColumnExists(conn, "materialized_versions", "strm_token_expires_at"))
                     ExecuteInline(conn, "ALTER TABLE materialized_versions ADD COLUMN strm_token_expires_at INTEGER;");
                 ExecuteInline(conn,
@@ -3268,7 +3268,7 @@ CREATE INDEX IF NOT EXISTS idx_materialized_base
             // Adds Library Worker tables and expands catalog_items schema (Sprint 142).
             if (version < 24)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V24", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V24", version);
 
                 // Create ingestion_state table for per-source watermark tracking
                 ExecuteInline(conn, @"
@@ -3383,7 +3383,7 @@ FROM catalog_items;");
             // ── Sprint 160 + 158: IdResolverService columns + user_catalogs (V24 → V25) ────
             if (version < 25)
             {
-                _logger.LogInformation("[EmbyStreams] Migrating schema V{From} → V25", version);
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V25", version);
 
                 // Sprint 160: ID resolver columns on catalog_items
                 if (!ColumnExists(conn, "catalog_items", "tvdb_id"))
@@ -3432,7 +3432,7 @@ CREATE TABLE IF NOT EXISTS user_catalogs (
                     "CREATE INDEX IF NOT EXISTS idx_source_memberships_user_catalog ON source_memberships(user_catalog_id);");
 
                 ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (25);");
-                _logger.LogInformation("[EmbyStreams] Schema V25 migration complete");
+                _logger.LogInformation("[InfiniteDrive] Schema V25 migration complete");
                 version = 25;
             }
             }
@@ -3442,7 +3442,7 @@ CREATE TABLE IF NOT EXISTS user_catalogs (
             // This ensures discover_catalog exists regardless of schema version.
             if (!TableExists(conn, "discover_catalog"))
             {
-                _logger.LogInformation("[EmbyStreams] discover_catalog missing — creating safeguard copy");
+                _logger.LogInformation("[InfiniteDrive] discover_catalog missing — creating safeguard copy");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS discover_catalog (
     id                  TEXT PRIMARY KEY,
@@ -3497,7 +3497,7 @@ END;");
             // ── Safeguard: Ensure sources and collections tables exist (Sprint 116+) ──
             if (!TableExists(conn, "sources"))
             {
-                _logger.LogInformation("[EmbyStreams] sources table missing — creating");
+                _logger.LogInformation("[InfiniteDrive] sources table missing — creating");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS sources (
     id                  TEXT PRIMARY KEY,
@@ -3524,7 +3524,7 @@ CREATE INDEX IF NOT EXISTS idx_sources_show_as_collection
 
             if (!TableExists(conn, "collections"))
             {
-                _logger.LogInformation("[EmbyStreams] collections table missing — creating");
+                _logger.LogInformation("[InfiniteDrive] collections table missing — creating");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS collections (
     id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -3545,7 +3545,7 @@ CREATE INDEX IF NOT EXISTS idx_collections_source_id
             // ── Safeguard: Ensure log tables exist (Sprint 120+) ──
             if (!TableExists(conn, "item_pipeline_log"))
             {
-                _logger.LogInformation("[EmbyStreams] item_pipeline_log table missing — creating");
+                _logger.LogInformation("[InfiniteDrive] item_pipeline_log table missing — creating");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS item_pipeline_log (
     primary_id       TEXT NOT NULL,
@@ -3567,7 +3567,7 @@ CREATE INDEX IF NOT EXISTS idx_pipeline_primary_id
 
             if (!TableExists(conn, "stream_resolution_log"))
             {
-                _logger.LogInformation("[EmbyStreams] stream_resolution_log table missing — creating");
+                _logger.LogInformation("[InfiniteDrive] stream_resolution_log table missing — creating");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS stream_resolution_log (
     primary_id       TEXT NOT NULL,
@@ -3590,7 +3590,7 @@ CREATE INDEX IF NOT EXISTS idx_resolution_primary_id
             // ── Safeguard: Ensure versioned playback tables exist (Sprint 122+) ──
             if (!TableExists(conn, "version_slots"))
             {
-                _logger.LogInformation("[EmbyStreams] version_slots table missing — creating and seeding");
+                _logger.LogInformation("[InfiniteDrive] version_slots table missing — creating and seeding");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS version_slots (
     slot_key        TEXT PRIMARY KEY,
@@ -3639,7 +3639,7 @@ VALUES
 
             if (!TableExists(conn, "candidates"))
             {
-                _logger.LogInformation("[EmbyStreams] candidates table missing — creating");
+                _logger.LogInformation("[InfiniteDrive] candidates table missing — creating");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS candidates (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -3684,7 +3684,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_unique
 
             if (!TableExists(conn, "version_snapshots"))
             {
-                _logger.LogInformation("[EmbyStreams] version_snapshots table missing — creating");
+                _logger.LogInformation("[InfiniteDrive] version_snapshots table missing — creating");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS version_snapshots (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -3705,7 +3705,7 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_item
 
             if (!TableExists(conn, "materialized_versions"))
             {
-                _logger.LogInformation("[EmbyStreams] materialized_versions table missing — creating");
+                _logger.LogInformation("[InfiniteDrive] materialized_versions table missing — creating");
                 ExecuteInline(conn, @"
 CREATE TABLE IF NOT EXISTS materialized_versions (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
@@ -3732,7 +3732,7 @@ CREATE INDEX IF NOT EXISTS idx_materialized_base
     ON materialized_versions(is_base) WHERE is_base = 1;");
             }
 
-_logger.LogDebug("[EmbyStreams] Schema at version {Version}", version);
+_logger.LogDebug("[InfiniteDrive] Schema at version {Version}", version);
         }
 
         /// <summary>
@@ -3801,7 +3801,7 @@ _logger.LogDebug("[EmbyStreams] Schema at version {Version}", version);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] integrity_check threw — treating as corrupt");
+                _logger.LogWarning(ex, "[InfiniteDrive] integrity_check threw — treating as corrupt");
                 return false;
             }
         }
@@ -4207,7 +4207,7 @@ LIMIT 1";
                 ProductionYear = entry.Year ?? 0,
                 PremiereDate = entry.Year.HasValue ? new DateTime(entry.Year.Value, 1, 1) : (DateTime?)null,
                 GenreList = entry.Genres?.Split(',').Where(g => !string.IsNullOrWhiteSpace(g)).ToList() ?? new List<string>(),
-                Tags = new List<string> { "EmbyStreams" },
+                Tags = new List<string> { "InfiniteDrive" },
                 ProviderIds = new Dictionary<string, string>
                 {
                     ["imdb"] = entry.ImdbId
@@ -5876,7 +5876,7 @@ LIMIT 1";
         /// Sprint 118: Home Screen Rails.
         /// </summary>
         public async Task InsertHomeSectionTrackingAsync(
-            EmbyStreams.Models.HomeSectionTracking tracking,
+            InfiniteDrive.Models.HomeSectionTracking tracking,
             CancellationToken cancellationToken = default)
         {
             const string sql = @"
@@ -5900,7 +5900,7 @@ LIMIT 1";
         /// Gets a home section tracking record by user ID and rail type.
         /// Sprint 118: Home Screen Rails.
         /// </summary>
-        public async Task<EmbyStreams.Models.HomeSectionTracking?> GetHomeSectionTrackingAsync(
+        public async Task<InfiniteDrive.Models.HomeSectionTracking?> GetHomeSectionTrackingAsync(
             string userId,
             string railType,
             CancellationToken cancellationToken = default)
@@ -5915,7 +5915,7 @@ LIMIT 1";
             {
                 BindText(cmd, "@user_id", userId);
                 BindText(cmd, "@rail_type", railType);
-            }, row => new EmbyStreams.Models.HomeSectionTracking
+            }, row => new InfiniteDrive.Models.HomeSectionTracking
             {
                 Id = row.GetString(0),
                 UserId = row.GetString(1),
@@ -5934,7 +5934,7 @@ LIMIT 1";
         /// Sprint 118: Home Screen Rails.
         /// </summary>
         public async Task UpdateHomeSectionTrackingAsync(
-            EmbyStreams.Models.HomeSectionTracking tracking,
+            InfiniteDrive.Models.HomeSectionTracking tracking,
             CancellationToken cancellationToken = default)
         {
             const string sql = @"
@@ -5955,7 +5955,7 @@ LIMIT 1";
         /// Gets all home section tracking records for a user.
         /// Sprint 118: Home Screen Rails.
         /// </summary>
-        public async Task<List<EmbyStreams.Models.HomeSectionTracking>> GetAllHomeSectionTrackingAsync(
+        public async Task<List<InfiniteDrive.Models.HomeSectionTracking>> GetAllHomeSectionTrackingAsync(
             string userId,
             CancellationToken cancellationToken = default)
         {
@@ -5968,7 +5968,7 @@ LIMIT 1";
             return await QueryListAsync(sql, cmd =>
             {
                 BindText(cmd, "@user_id", userId);
-            }, row => new EmbyStreams.Models.HomeSectionTracking
+            }, row => new InfiniteDrive.Models.HomeSectionTracking
             {
                 Id = row.GetString(0),
                 UserId = row.GetString(1),

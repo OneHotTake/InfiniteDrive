@@ -1,202 +1,133 @@
-# 🚀 DON'T PANIC
+# InfiniteDrive
 
-*"The ships hung in the sky in much the same way that bricks don't."*
-— Douglas Adams, The Hitchhiker's Guide to the Galaxy
-
-> ⚠️ **WARNING:** This project is currently under **heavy development**.
-> It does not work. It may never work. It might make your Emby server
-> question its own existence. You have been warned.
-> Bring a towel.
-
----
-
-# EmbyStreams
-
-![Version](https://img.shields.io/badge/version-0.52.0-blue)
-![Framework](https://img.shields.io/badge/framework-net8.0-purple)
-![Emby](https://img.shields.io/badge/Emby-4.8%2B-green)
-![License](https://img.shields.io/badge/license-MIT-lightgrey)
-
-> DON'T PANIC.
-
-EmbyStreams is a single `.dll` Emby Server plugin that wires your [AIOStreams](https://github.com/Viren070/AIOStreams) instance directly into Emby — featuring **Netflix-like Discover browsing**, **intelligent multi-layer failover**, **automatic catalog sync**, and a sprinkle of *The Hitchhiker's Guide to the Galaxy*.
-
----
-
-## 🚧 Status: Pre-Alpha / Work in Progress
-
-This is an early-stage project under active development. Many features are incomplete, undocumented, or may change without notice.
-
-### Roadmap
-
----
-
-> **Design Principle: Simplicity Over Complexity**
+> *"It is known that there are an infinite number of worlds, simply because there is an infinite amount of space for them to be in. However, not every one of them is inhabited. Therefore, there must be a finite number of inhabited worlds. Any finite number divided by infinity is as near to nothing as makes no odds, so the average population of all the planets in the Universe can be said to be zero. From this it follows that the population of the whole Universe is also zero, and that any people you may meet from time to time are merely the products of a deranged imagination."*
 >
-> Users want simplicity, administrators want flexibility, nobody wants complexity. Fortunately for us, the debrid and usenet streaming world is inherently complex.
->
-> When making architectural decisions: prefer the simple approach that works over the sophisticated one that handles every edge case.
+> — Douglas Adams, *The Restaurant at the End of the Universe*
+
+An Emby plugin that discovers streaming catalogs from [AIOStreams](https://github.com/aiostreams), writes `.strm` files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably.
 
 ---
 
-### Roadmap
+## WARNING: Heavy Development
 
-| Phase | Status |
-|-------|--------|
-| Core AIOStreams integration | ✅ Complete |
-| Netflix-style Discover UI | ✅ Complete |
-| Multi-layer failover | ✅ Complete |
-| Configuration wizard | ✅ Complete |
-| Library auto-creation | ✅ Complete |
-| Documentation | 🚧 In Progress |
-| Testing | 🚧 In Progress |
-| Stability polish | 🚜 Planned |
+**This plugin is in heavy development and may or may not work on any given day.**
 
----
+- The API may change without notice
+- Database schemas migrate automatically but may break
+- Features described here may not yet exist
+- Features that exist may not work as described
+- The author makes no promises, express or implied, about the continued existence of any stream
 
-## Overview
-
-EmbyStreams syncs streaming catalogs from AIOStreams into your Emby library as `.strm` files, providing:
-
-- **Netflix-style Discover** — Browse and search available streaming catalog with one-click "Add to Library"
-- **One-click playback** — Stream URLs resolve in under 100 ms from an in-memory/SQLite cache
-- **Four-layer failover resilience** — Primary AIOStreams → Fallback instances → Direct debrid API → Friendly error page
-- **Automatic catalog sync** — Zero-config defaults with daily schedule
-- **Smart background resolution** — Cache pre-warming, binge-watch support, quality tier ranking
-- **Self-contained** — Runs entirely inside the Emby process, no Docker or extra services
+Don't panic. It's mostly harmless.
 
 ---
 
-## Required Environment Variables / Configuration
+## What It Does
 
-The plugin uses Emby's built-in configuration system. No environment variables are required for basic operation.
+InfiniteDrive bridges your AIOStreams manifest to Emby:
 
-**Key configuration settings (configured via Emby Dashboard → Plugins → EmbyStreams):**
-
-| Setting | Description | Required |
-|---------|-------------|----------|
-| `PrimaryManifestUrl` | AIOStreams manifest URL (e.g., `https://your-host/stremio/uuid/token/manifest.json`) | Yes |
-| `SyncPathMovies` | Filesystem path for movies `.strm` files | Yes |
-| `SyncPathShows` | Filesystem path for TV shows `.strm` files | Yes |
-| `EmbyBaseUrl` | Auto-detected from browser; default `http://localhost:8096` | Auto |
-| `ProxyMode` | Stream serving mode: `auto` / `redirect` / `proxy` | Optional |
-| `PluginSecret` | Auto-generated HMAC-SHA256 key for signing .strm URLs | Auto |
-| `FallbackManifestUrls` | Secondary AIOStreams instances for failover | Optional |
-| `DebridApiKey` | Direct debrid API key (Real-Debrid, TorBox, Premiumize, AllDebrid) | Optional |
+1. **Catalog Sync** — pulls movie/series/anime catalogs from your AIOStreams manifest and writes `.strm` files into Emby libraries
+2. **Stream Resolution** — resolves `.strm` playback requests against AIOStreams in real time, selecting the best debrid link
+3. **Stream Probing** — quickly checks if candidate streams actually respond before serving them to your player
+4. **ID Normalization** — resolves IMDb/TMDB/TVDB IDs from source addons so Emby can identify your content
+5. **NFO Decoration** — writes Emby-native NFO files with proper scanner hints so Emby does its own metadata job
 
 ---
 
-## Prerequisites
+## Requirements
 
-| Requirement | Notes |
-|---|---|
-| Emby Server 4.8+ | Linux or Windows; tested against 4.10.x |
-| AIOStreams instance | Self-hosted or via DuckKota's hosted wizard |
-| Debrid service | Real-Debrid, TorBox, Premiumize, or AllDebrid — active subscription |
-| .NET 8 runtime | Provided by Emby — no separate install needed |
+- Emby Server 4.10.0.6+
+- An [AIOStreams](https://github.com/aiostreams) manifest URL (self-hosted or configured)
+- A Real-Debrid, AllDebrid, or compatible debrid service account configured in AIOStreams
+- .NET 8.0 runtime (bundled with Emby)
 
 ---
 
-## Installation (For the Brave)
+## Installation
 
-> **Remember:** This is pre-alpha software. Backup your Emby server before installing.
+1. Build the plugin: `dotnet publish -c Release`
+2. Copy `bin/Release/net8.0/publish/InfiniteDrive.dll` to your Emby plugins directory
+3. Copy `plugin.json` alongside the DLL
+4. Restart Emby Server
+5. Navigate to **Plugins → InfiniteDrive** to configure
 
-### Build from source
+Or use the dev scripts:
 
 ```bash
-git clone https://github.com/OneHotTake/embyStreams.git
-cd embyStreams
-dotnet publish --configuration Release
-# Output: bin/Release/net8.0/publish/
+./emby-reset.sh   # full reset (wipes data) — use when something is broken
+./emby-start.sh   # build + deploy + start (no data wipe)
 ```
 
-### Deploy to Emby
+---
 
-```bash
-# Create plugin folder
-mkdir -p /var/lib/emby/plugins/EmbyStreams
+## Configuration
 
-# Copy all publish files (including plugin.json!)
-cp bin/Release/net8.0/publish/* /var/lib/emby/plugins/EmbyStreams/
+After installation, open the InfiniteDrive configuration page in Emby:
 
-# Restart Emby
-systemctl restart emby-server
+```
+http://localhost:8096/web/configurationpage?name=InfiniteDrive
 ```
 
-### First-run setup
+**Required settings:**
+- **AIOStreams Manifest URL** — your full manifest URL (includes your API key)
+- **Emby Base URL** — the URL Emby uses for internal stream signing (usually `http://localhost:8096`)
 
-1. Open **Emby Dashboard → Plugins → EmbyStreams → Settings**
-2. Run the **Setup Wizard**:
-   - Step 1: Paste your AIOStreams manifest URL
-   - Step 2: Configure media folders
-   - Step 3: Review settings and click **Save & Start Sync**
-3. `.strm` files should appear within ~1 minute
+**Optional:**
+- **AIOMetadata Manifest URL** — for additional ID resolution via AIOMetadata
+- Quality tier preferences, sync schedule, stream probe settings
 
 ---
 
 ## Architecture
 
 ```
-┌─ Emby Library ─────────────────────────────────────────────┐
-│  Dune (2021).strm  →  http://localhost:8096/EmbyStreams/Play│
-└─────────────────────────────────────────────────────────────┘
-                          │ Play request
-                          ▼
-┌─ PlaybackService ──────────────────────────────────────────┐
-│  1. SQLite resolution_cache lookup                         │
-│  2. Valid cache hit  → serve in < 100 ms                   │
-│  3. Aging cache (70% TTL) → range-probe → refresh if dead  │
-│  4. Cache miss  → sync AIOStreams call (3 s timeout)       │
-│  4.5. AIOStreams down → Layer 2 fallbacks → Layer 3 debrid │
-│  5. All fail → HTTP 503 + Panic page redirect              │
-└─────────────────────────────────────────────────────────────┘
-                          │ proxy or redirect
-                          ▼
-              Real-Debrid / TorBox / CDN URL
+AIOStreams API
+     │
+     ├── CatalogSyncTask        (scheduled: discovers catalogs, writes .strm files)
+     ├── CatalogDiscoverService (resolves catalog items, normalizes IDs)
+     ├── IdResolverService      (tt/tmdb/tvdb resolution chain)
+     └── StrmWriterService      (writes .strm + NFO files with Emby scanner hints)
+
+Emby Player → ResolverService  (real-time: picks streams, probes URLs, returns M3U8)
+                └── StreamProbeService  (HEAD → GET-range, 500ms/probe, 1.5s budget)
 ```
 
-**Background tasks keep the cache warm:**
+### Key Design Decisions
 
-| Task | Schedule | Purpose |
-|------|----------|---------|
-| `CatalogSyncTask` | Daily @ 3 AM | Discovers new items, writes `.strm` files |
-| `CatalogDiscoverTask` | Daily @ 4 AM | Syncs discover catalog from AIOStreams |
-| `LinkResolverTask` | Every 15 min | Pre-resolves stream URLs |
-| `DoctorTask` | Every 4h | Unified catalog reconciliation (write/adopt/retire) |
-| `EpisodeExpandTask` | On playback start | Queues next N episodes for pre-resolution |
-| `MetadataFallbackTask` | Daily | Writes rich `.nfo` for items without poster art |
+- **No cross-service ID translation at browse time** — IDs are passed as-is to the source addon's own `/meta` endpoint (same approach as Nuvio). Cross-resolution happens lazily at sync time.
+- **Dead streams sink, not drop** — stream probing reorders the M3U8 playlist so working streams come first, but dead URLs remain as last-resort fallback for the player
+- **Emby does its own metadata job** — we write scanner hints (`[imdbid-tt...]`, `[tmdbid-xxx]`) and NFO files; we don't try to replicate Emby's metadata logic
+- **Fresh install required** — this is a breaking change from EmbyStreams. No migration path. Start clean.
 
 ---
 
-## Documentation
+## Development
 
-For detailed guides, see the [Documentation Index](./docs/README.md):
+```bash
+# Build
+dotnet build -c Release
 
-- **[Configuration Guide](./docs/configuration.md)** — Setup, wizard, and settings reference
-- **[Troubleshooting Guide](./docs/troubleshooting.md)** — Common issues and debug steps
-- **[Discover Feature](./docs/features/discover.md)** — Netflix-style catalog browsing
-- **[Security Model](./SECURITY.md)** — Authentication, threat model, best practices
-- **[Developer Guide](./CLAUDE.md)** — Architecture, development, and contributing
+# Watch server logs
+tail -f ~/emby-dev-data/logs/embyserver.txt
+
+# Full dev reset (wipes state)
+./emby-reset.sh
+```
+
+The `.ai/` directory contains sprint planning documents and the repository map. `CLAUDE.md` has instructions for AI-assisted development sessions.
 
 ---
 
-## Easter Eggs 🌌
+## Version
 
-EmbyStreams is built by fans of *The Hitchhiker's Guide to the Galaxy*. The answer is, of course, **42**.
+**0.40.0.0** — "almost 0.42"
 
-| Where | What |
-|---|---|
-| High Availability tab | **DON'T PANIC** in large, friendly letters |
-| `GET /EmbyStreams/Panic` | HHGTTG-styled error page for playback failures |
-| `GET /EmbyStreams/Answer` | `{"answer": 42, "question": "unknown", "note": "Don't Panic."}` |
-| `GET /EmbyStreams/Marvin` | *"I have a brain the size of a planet..."* |
+*(The answer is 42. We're still working on what the question is.)*
 
 ---
 
 ## License
 
-MIT
+MIT. See LICENSE file.
 
----
-
-**Remember: DON'T PANIC. Bring a towel. 🧣**
+*"Would it save you a lot of time if I just gave up and went mad now?"*

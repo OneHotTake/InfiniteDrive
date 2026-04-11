@@ -1,10 +1,10 @@
 using System;
 using System.Security.Cryptography;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
-    /// Generates and validates HMAC-SHA256 signed URLs for the /EmbyStreams/Stream endpoint.
+    /// Generates and validates HMAC-SHA256 signed URLs for the /InfiniteDrive/Stream endpoint.
     ///
     /// Signed URLs embed an expiry timestamp and a signature derived from the
     /// PluginSecret stored in plugin configuration.  This allows bare HTTP clients
@@ -78,7 +78,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Generates a complete signed URL for the /EmbyStreams/Stream endpoint.
+        /// Generates a complete signed URL for the /InfiniteDrive/Stream endpoint.
         /// </summary>
         /// <param name="embyBaseUrl">Public Emby base URL (e.g. http://192.168.1.50:8096). Trailing slash stripped.</param>
         /// <param name="imdbId">IMDB ID (e.g. tt0133093).</param>
@@ -102,7 +102,7 @@ namespace EmbyStreams.Services
 
             var sb = new System.Text.StringBuilder();
             sb.Append(embyBaseUrl.TrimEnd('/'));
-            sb.Append("/EmbyStreams/Stream?id=");
+            sb.Append("/InfiniteDrive/Stream?id=");
             sb.Append(System.Uri.EscapeDataString(imdbId));
             sb.Append("&type=");
             sb.Append(System.Uri.EscapeDataString(mediaType));
@@ -161,7 +161,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Generates a short-lived resolve token for /EmbyStreams/Resolve endpoint.
+        /// Generates a short-lived resolve token for /InfiniteDrive/Resolve endpoint.
         /// Format: {quality}:{imdbId}:{exp}:{signature}
         /// </summary>
         /// <param name="quality">Quality label (e.g. "4k", "1080p", "720p").</param>

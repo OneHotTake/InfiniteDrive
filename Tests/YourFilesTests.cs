@@ -2,11 +2,11 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace EmbyStreams.Tests
+namespace InfiniteDrive.Tests
 {
     /// <summary>
     /// Tests for Your Files detection.

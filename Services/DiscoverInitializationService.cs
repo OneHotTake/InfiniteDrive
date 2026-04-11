@@ -1,13 +1,13 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
+using InfiniteDrive.Logging;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Initializes the Discover feature on server startup.
@@ -29,7 +29,7 @@ namespace EmbyStreams.Services
         {
             _libraryManager = libraryManager;
             _logManager = logManager;
-            _logger = new EmbyLoggerAdapter<DiscoverInitializationService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<DiscoverInitializationService>(logManager.GetLogger("InfiniteDrive"));
         }
 
         /// <summary>

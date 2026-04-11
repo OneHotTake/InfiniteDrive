@@ -5,10 +5,10 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
+using InfiniteDrive.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Fetches full series metadata from AIOStreams or Cinemeta using the Stremio protocol.
@@ -51,14 +51,14 @@ namespace EmbyStreams.Services
         {
             try
             {
-                _logger.LogDebug("[EmbyStreams] Fetching series meta for {Id}", id);
+                _logger.LogDebug("[InfiniteDrive] Fetching series meta for {Id}", id);
                 var url = $"{_baseUrl}/meta/series/{id}.json";
 
                 using var resp = await _sharedHttp.GetAsync(url, ct);
                 if (!resp.IsSuccessStatusCode)
                 {
                     _logger.LogWarning(
-                        "[EmbyStreams] Series meta fetch failed for {Id}: {Code} {Reason}",
+                        "[InfiniteDrive] Series meta fetch failed for {Id}: {Code} {Reason}",
                         id, (int)resp.StatusCode, resp.ReasonPhrase);
                     return null;
                 }
@@ -70,7 +70,7 @@ namespace EmbyStreams.Services
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Error fetching series meta for {Id}", id);
+                _logger.LogError(ex, "[InfiniteDrive] Error fetching series meta for {Id}", id);
                 return null;
             }
         }

@@ -2,12 +2,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Entities;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Matches "Your Files" items against media_item_ids table.

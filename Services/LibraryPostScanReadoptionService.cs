@@ -4,18 +4,18 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
-    /// Detects when real media files supersede EmbyStreams .strm files and retires the .strm.
+    /// Detects when real media files supersede InfiniteDrive .strm files and retires the .strm.
     /// Fires after every Emby library scan for immediate re-adoption detection.
     /// Complements the scheduled LibraryReadoptionTask (24h safety net).
     /// </summary>
@@ -30,12 +30,12 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Display name for this post-scan task.
         /// </summary>
-        public string Name => "EmbyStreams Re-adoption Check";
+        public string Name => "InfiniteDrive Re-adoption Check";
 
         /// <summary>
         /// Unique identifier for this task.
         /// </summary>
-        public string Key => "EmbyStreamsPostScanReadoption";
+        public string Key => "InfiniteDrivePostScanReadoption";
 
         public LibraryPostScanReadoptionService(
             ILibraryManager libraryManager,
@@ -44,7 +44,7 @@ namespace EmbyStreams.Services
             _libraryManager = libraryManager;
             _logManager = logManager;
             _logger = new EmbyLoggerAdapter<LibraryPostScanReadoptionService>(
-                logManager.GetLogger("EmbyStreams"));
+                logManager.GetLogger("InfiniteDrive"));
         }
 
         /// <summary>
@@ -61,7 +61,7 @@ namespace EmbyStreams.Services
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null)
                 {
-                    _logger.LogWarning("[EmbyStreams] DatabaseManager not available — skipping re-adoption");
+                    _logger.LogWarning("[InfiniteDrive] DatabaseManager not available — skipping re-adoption");
                     return;
                 }
                 var strmItems = await db.GetItemsByLocalSourceAsync("strm");
@@ -77,7 +77,7 @@ namespace EmbyStreams.Services
                 if (strmItems.Count > MaxItemsPerPostScanRun)
                 {
                     _logger.LogWarning(
-                        "[EmbyStreams] Large catalog ({Count} strm items) — post-scan re-adoption " +
+                        "[InfiniteDrive] Large catalog ({Count} strm items) — post-scan re-adoption " +
                         "limited to {Max} items. Remainder handled by scheduled task.",
                         strmItems.Count, MaxItemsPerPostScanRun);
                     strmItems = strmItems.Take(MaxItemsPerPostScanRun).ToList();
@@ -96,7 +96,7 @@ namespace EmbyStreams.Services
                         await ReadoptItemAsync(db, item, cancellationToken);
                         readopted++;
                         _logger.LogInformation(
-                            "[EmbyStreams] Re-adopted {Title} — real file detected post-scan",
+                            "[InfiniteDrive] Re-adopted {Title} — real file detected post-scan",
                             item.Title);
                     }
 
@@ -106,21 +106,21 @@ namespace EmbyStreams.Services
 
                 if (readopted > 0)
                     _logger.LogInformation(
-                        "[EmbyStreams] Post-scan re-adoption complete: {Count} items retired",
+                        "[InfiniteDrive] Post-scan re-adoption complete: {Count} items retired",
                         readopted);
                 else if (!capped)
                     _logger.LogDebug(
-                        "[EmbyStreams] Post-scan re-adoption: {Count} items checked, no real files found",
+                        "[InfiniteDrive] Post-scan re-adoption: {Count} items checked, no real files found",
                         processedCount);
             }
             catch (OperationCanceledException)
             {
-                _logger.LogInformation("[EmbyStreams] Post-scan re-adoption cancelled");
+                _logger.LogInformation("[InfiniteDrive] Post-scan re-adoption cancelled");
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Error in post-scan re-adoption");
+                _logger.LogError(ex, "[InfiniteDrive] Error in post-scan re-adoption");
                 throw;
             }
         }
@@ -166,7 +166,7 @@ namespace EmbyStreams.Services
                 if (!string.IsNullOrEmpty(item.StrmPath) && File.Exists(item.StrmPath))
                 {
                     File.Delete(item.StrmPath);
-                    _logger.LogDebug("[EmbyStreams] Deleted .strm for re-adopted item: {Path}",
+                    _logger.LogDebug("[InfiniteDrive] Deleted .strm for re-adopted item: {Path}",
                         item.StrmPath);
                 }
             }

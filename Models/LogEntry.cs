@@ -1,6 +1,6 @@
 using System;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Pipeline log entry.

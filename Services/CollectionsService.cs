@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Collections;
 using MediaBrowser.Controller.Entities;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Manages Emby BoxSet collections for sources.

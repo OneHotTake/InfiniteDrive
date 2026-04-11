@@ -6,19 +6,19 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
-    /// Daily scheduled task that back-fills metadata for EmbyStreams catalog items
+    /// Daily scheduled task that back-fills metadata for InfiniteDrive catalog items
     /// whose .nfo files contain only minimal ID hints (no poster, plot, or title).
     ///
     /// For each qualifying item the task:
@@ -41,9 +41,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ────────────────────────────────────────────────────────────
 
-        private const string TaskName      = "EmbyStreams Metadata Fallback";
-        private const string TaskKey       = "EmbyStreamsMetadataFallback";
-        private const string TaskCategory  = "EmbyStreams";
+        private const string TaskName      = "InfiniteDrive Metadata Fallback";
+        private const string TaskKey       = "InfiniteDriveMetadataFallback";
+        private const string TaskCategory  = "InfiniteDrive";
         private const string CinemetaBase  = "https://v3-cinemeta.strem.io";
         private const int    DelayMs       = 500; // Legacy — no longer used, kept for reference
 
@@ -60,7 +60,7 @@ namespace EmbyStreams.Tasks
             ILogManager     logManager)
         {
             _libraryManager = libraryManager;
-            _logger         = new EmbyLoggerAdapter<MetadataFallbackTask>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<MetadataFallbackTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IScheduledTask ───────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ namespace EmbyStreams.Tasks
             // Sprint 100A-12: Startup jitter to prevent thundering herd on Emby restart
             await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
 
-            _logger.LogInformation("[EmbyStreams] MetadataFallbackTask started");
+            _logger.LogInformation("[InfiniteDrive] MetadataFallbackTask started");
             progress.Report(0);
 
             var config = Plugin.Instance?.Configuration;
@@ -104,7 +104,7 @@ namespace EmbyStreams.Tasks
 
             if (config == null || db == null)
             {
-                _logger.LogWarning("[EmbyStreams] MetadataFallbackTask: plugin not initialised — skipping");
+                _logger.LogWarning("[InfiniteDrive] MetadataFallbackTask: plugin not initialised — skipping");
                 return;
             }
 
@@ -116,7 +116,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] MetadataFallbackTask: could not load catalog items");
+                _logger.LogError(ex, "[InfiniteDrive] MetadataFallbackTask: could not load catalog items");
                 return;
             }
 
@@ -131,13 +131,13 @@ namespace EmbyStreams.Tasks
 
             if (needsEnrichment.Count == 0)
             {
-                _logger.LogInformation("[EmbyStreams] MetadataFallbackTask: all items have full metadata — nothing to do");
+                _logger.LogInformation("[InfiniteDrive] MetadataFallbackTask: all items have full metadata — nothing to do");
                 progress.Report(100);
                 return;
             }
 
             _logger.LogInformation(
-                "[EmbyStreams] MetadataFallbackTask: {Count} item(s) need metadata enrichment (cap={Cap})",
+                "[InfiniteDrive] MetadataFallbackTask: {Count} item(s) need metadata enrichment (cap={Cap})",
                 needsEnrichment.Count, enrichmentCap);
 
             using var client = new AioStreamsClient(CinemetaBase, string.Empty, string.Empty, _logger);
@@ -160,7 +160,7 @@ namespace EmbyStreams.Tasks
                     if (meta == null)
                     {
                         _logger.LogDebug(
-                            "[EmbyStreams] MetadataFallback: Cinemeta returned null for {ImdbId}", item.ImdbId);
+                            "[InfiniteDrive] MetadataFallback: Cinemeta returned null for {ImdbId}", item.ImdbId);
                         continue;
                     }
 
@@ -177,7 +177,7 @@ namespace EmbyStreams.Tasks
                     {
                         enriched++;
                         _logger.LogInformation(
-                            "[EmbyStreams] MetadataFallback: enriched {Title} ({ImdbId})", item.Title, item.ImdbId);
+                            "[InfiniteDrive] MetadataFallback: enriched {Title} ({ImdbId})", item.Title, item.ImdbId);
 
                         // Trigger a targeted folder refresh so Emby picks up the new .nfo.
                         TriggerFolderRefresh(nfoPath);
@@ -189,14 +189,14 @@ namespace EmbyStreams.Tasks
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[EmbyStreams] MetadataFallback: error processing {ImdbId}", item.ImdbId);
+                    _logger.LogDebug(ex, "[InfiniteDrive] MetadataFallback: error processing {ImdbId}", item.ImdbId);
                 }
 
                 progress.Report(processed * 100.0 / needsEnrichment.Count);
             }
 
             _logger.LogInformation(
-                "[EmbyStreams] MetadataFallbackTask complete — {Enriched}/{Total} item(s) enriched",
+                "[InfiniteDrive] MetadataFallbackTask complete — {Enriched}/{Total} item(s) enriched",
                 enriched, needsEnrichment.Count);
             progress.Report(100);
         }
@@ -441,7 +441,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] MetadataFallback: could not trigger folder refresh for {Path}", nfoPath);
+                _logger.LogDebug(ex, "[InfiniteDrive] MetadataFallback: could not trigger folder refresh for {Path}", nfoPath);
             }
         }
 

@@ -3,19 +3,19 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Services;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Scheduled task that materializes versioned stream files for configured quality slots.
-    /// Runs daily; also triggerable on-demand via Content Mgmt tab or POST /EmbyStreams/Trigger.
+    /// Runs daily; also triggerable on-demand via Content Mgmt tab or POST /InfiniteDrive/Trigger.
     /// <para>
     /// Reads <see cref="PluginConfiguration.PendingRehydrationOperations"/> from config,
     /// parses each JSON entry, and delegates to <see cref="RehydrationService"/>.
@@ -26,9 +26,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string TaskName = "EmbyStreams Rehydration";
+        private const string TaskName = "InfiniteDrive Rehydration";
         private const string TaskKey = "embystreams_rehydration";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskCategory = "InfiniteDrive";
 
         // ── Fields ──────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ namespace EmbyStreams.Tasks
             ILogManager logManager)
         {
             _libraryManager = libraryManager;
-            _logger = new EmbyLoggerAdapter<RehydrationTask>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<RehydrationTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────

@@ -6,17 +6,17 @@ using System.Security;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Library Worker scheduled task implementing the first three steps of the 5-step pipeline:
@@ -29,9 +29,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ────────────────────────────────────────────────────────────
 
-        private const string TaskName     = "EmbyStreams Refresh Worker";
-        private const string TaskKey      = "EmbyStreamsRefresh";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskName     = "InfiniteDrive Refresh Worker";
+        private const string TaskKey      = "InfiniteDriveRefresh";
+        private const string TaskCategory = "InfiniteDrive";
         // Batch cap read from CooldownProfile.EnrichmentPerRun (Sprint 155)
         private int NotifyLimit => Plugin.Instance?.CooldownGate?.Profile.EnrichmentPerRun ?? 42;
 
@@ -54,7 +54,7 @@ namespace EmbyStreams.Tasks
             ILogManager logManager,
             ILibraryManager libraryManager)
         {
-            _logger         = new EmbyLoggerAdapter<RefreshTask>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<RefreshTask>(logManager.GetLogger("InfiniteDrive"));
             _libraryManager = libraryManager;
             _materializer   = new VersionMaterializer(_logger);
         }
@@ -91,7 +91,7 @@ namespace EmbyStreams.Tasks
             // Concurrency guard — skip if another instance is already running
             if (!_runningGate.Wait(0))
             {
-                _logger.LogInformation("[EmbyStreams] RefreshTask already running, skipping");
+                _logger.LogInformation("[InfiniteDrive] RefreshTask already running, skipping");
                 return;
             }
 
@@ -118,7 +118,7 @@ namespace EmbyStreams.Tasks
 
         private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[EmbyStreams] RefreshTask started");
+            _logger.LogInformation("[InfiniteDrive] RefreshTask started");
 
             var runStartedAt = DateTime.UtcNow;
 
@@ -136,11 +136,11 @@ namespace EmbyStreams.Tasks
                 var collected = await CollectStepAsync(cancellationToken);
                 if (!collected.Any())
                 {
-                    _logger.LogDebug("[EmbyStreams] RefreshTask: No new/changed items found in Collect step");
+                    _logger.LogDebug("[InfiniteDrive] RefreshTask: No new/changed items found in Collect step");
                 }
                 else
                 {
-                    _logger.LogInformation("[EmbyStreams] RefreshTask: Collected {Count} new/changed items", collected.Count);
+                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Collected {Count} new/changed items", collected.Count);
                     totalItemsAffected += collected.Count;
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
@@ -152,7 +152,7 @@ namespace EmbyStreams.Tasks
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "write", cancellationToken);
                     progress?.Report(0.33);
                     var written = await WriteStepAsync(collected, cancellationToken);
-                    _logger.LogInformation("[EmbyStreams] RefreshTask: Wrote {Count} .strm files", written);
+                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Wrote {Count} .strm files", written);
                     writtenItems.AddRange(collected);
                     totalItemsAffected += written;
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
@@ -164,7 +164,7 @@ namespace EmbyStreams.Tasks
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "hint", cancellationToken);
                     progress?.Report(0.50);
                     var hinted = await HintStepAsync(writtenItems, cancellationToken);
-                    _logger.LogInformation("[EmbyStreams] RefreshTask: Created {Count} Identity Hint NFOs", hinted);
+                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Created {Count} Identity Hint NFOs", hinted);
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
@@ -176,7 +176,7 @@ namespace EmbyStreams.Tasks
                     var enriched = await EnrichStepAsync(runStartedAt, cancellationToken);
                     if (enriched > 0)
                     {
-                        _logger.LogInformation("[EmbyStreams] RefreshTask: Enriched {Count} no-ID items", enriched);
+                        _logger.LogInformation("[InfiniteDrive] RefreshTask: Enriched {Count} no-ID items", enriched);
                         totalItemsAffected += enriched;
                         await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                     }
@@ -188,7 +188,7 @@ namespace EmbyStreams.Tasks
                 var notified = await NotifyStepAsync(cancellationToken);
                 if (notified > 0)
                 {
-                    _logger.LogInformation("[EmbyStreams] RefreshTask: Notified {Count} items to Emby", notified);
+                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Notified {Count} items to Emby", notified);
                     totalItemsAffected += notified;
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
@@ -199,12 +199,12 @@ namespace EmbyStreams.Tasks
                 var verified = await VerifyStepAsync(cancellationToken);
                 if (verified > 0)
                 {
-                    _logger.LogInformation("[EmbyStreams] RefreshTask: Verified {Count} items", verified);
+                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Verified {Count} items", verified);
                     totalItemsAffected += verified;
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
-                _logger.LogInformation("[EmbyStreams] RefreshTask completed successfully. Total affected: {Count}", totalItemsAffected);
+                _logger.LogInformation("[InfiniteDrive] RefreshTask completed successfully. Total affected: {Count}", totalItemsAffected);
 
                 // Clear active step and persist last run time
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "", cancellationToken);
@@ -214,7 +214,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] RefreshTask failed");
+                _logger.LogError(ex, "[InfiniteDrive] RefreshTask failed");
                 await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "error", 0, ex.Message, cancellationToken);
                 throw;
             }
@@ -237,7 +237,7 @@ namespace EmbyStreams.Tasks
             var config = Plugin.Instance!.Configuration;
             if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
             {
-                _logger.LogWarning("[EmbyStreams] AIOStreams URL is not configured");
+                _logger.LogWarning("[InfiniteDrive] AIOStreams URL is not configured");
                 return newItems;
             }
 
@@ -245,7 +245,7 @@ namespace EmbyStreams.Tasks
             client.Cooldown = Plugin.Instance?.CooldownGate;
             if (!client.IsConfigured)
             {
-                _logger.LogWarning("[EmbyStreams] AIOStreams client could not be configured");
+                _logger.LogWarning("[InfiniteDrive] AIOStreams client could not be configured");
                 return newItems;
             }
 
@@ -274,7 +274,7 @@ namespace EmbyStreams.Tasks
                         existing.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(existing, cancellationToken);
                         newItems.Add(existing);
-                        _logger.LogDebug("[EmbyStreams] Changed item: {ImdbId}", catalogItem.ImdbId);
+                        _logger.LogDebug("[InfiniteDrive] Changed item: {ImdbId}", catalogItem.ImdbId);
                     }
                 }
                 else
@@ -283,7 +283,7 @@ namespace EmbyStreams.Tasks
                     catalogItem.ItemState = ItemState.Queued;
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(catalogItem, cancellationToken);
                     newItems.Add(catalogItem);
-                    _logger.LogDebug("[EmbyStreams] New item: {ImdbId}", catalogItem.ImdbId);
+                    _logger.LogDebug("[InfiniteDrive] New item: {ImdbId}", catalogItem.ImdbId);
                 }
             }
 
@@ -362,14 +362,14 @@ namespace EmbyStreams.Tasks
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[EmbyStreams] Failed to fetch catalog {CatalogId}", catalogId);
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to fetch catalog {CatalogId}", catalogId);
                         // Continue with other catalogs
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Failed to fetch AIOStreams catalog");
+                _logger.LogError(ex, "[InfiniteDrive] Failed to fetch AIOStreams catalog");
             }
 
             return items;
@@ -385,7 +385,7 @@ namespace EmbyStreams.Tasks
             var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
             if (!slots.Any())
             {
-                _logger.LogWarning("[EmbyStreams] No enabled version slots configured");
+                _logger.LogWarning("[InfiniteDrive] No enabled version slots configured");
                 return 0;
             }
 
@@ -428,11 +428,11 @@ namespace EmbyStreams.Tasks
                     {
                         await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
                         File.Move(tmpPath, fullPath, overwrite: true);
-                        _logger.LogDebug("[EmbyStreams] Wrote .strm: {Path}", fullPath);
+                        _logger.LogDebug("[InfiniteDrive] Wrote .strm: {Path}", fullPath);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[EmbyStreams] Failed to write .strm: {Path}", fullPath);
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .strm: {Path}", fullPath);
                         // Clean up tmp file if it exists
                         if (File.Exists(tmpPath))
                             File.Delete(tmpPath);
@@ -493,7 +493,7 @@ namespace EmbyStreams.Tasks
                     // No known IDs — mark as NeedsEnrich
                     item.NfoStatus = "NeedsEnrich";
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-                    _logger.LogDebug("[EmbyStreams] No IDs for item {Title}, marked as NeedsEnrich", item.Title);
+                    _logger.LogDebug("[InfiniteDrive] No IDs for item {Title}, marked as NeedsEnrich", item.Title);
                     continue;
                 }
 
@@ -519,11 +519,11 @@ namespace EmbyStreams.Tasks
 
                         await File.WriteAllTextAsync(tmpPath, nfoSb.ToString(), new UTF8Encoding(false));
                         File.Move(tmpPath, fullPath, overwrite: true);
-                        _logger.LogDebug("[EmbyStreams] Wrote Identity Hint .nfo: {Path}", fullPath);
+                        _logger.LogDebug("[InfiniteDrive] Wrote Identity Hint .nfo: {Path}", fullPath);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[EmbyStreams] Failed to write .nfo: {Path}", fullPath);
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .nfo: {Path}", fullPath);
                         if (File.Exists(tmpPath))
                             File.Delete(tmpPath);
                         continue;
@@ -591,7 +591,7 @@ namespace EmbyStreams.Tasks
 
             if (!noIdItems.Any())
             {
-                _logger.LogDebug("[EmbyStreams] RefreshTask: Enrich: No no-ID items from this run");
+                _logger.LogDebug("[InfiniteDrive] RefreshTask: Enrich: No no-ID items from this run");
                 return 0;
             }
 
@@ -619,7 +619,7 @@ namespace EmbyStreams.Tasks
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 
                         enriched++;
-                        _logger.LogDebug("[EmbyStreams] RefreshTask: Enriched {Title} ({Year})", item.Title, item.Year);
+                        _logger.LogDebug("[InfiniteDrive] RefreshTask: Enriched {Title} ({Year})", item.Title, item.Year);
                     }
                     else
                     {
@@ -637,7 +637,7 @@ namespace EmbyStreams.Tasks
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 
-                        _logger.LogDebug("[EmbyStreams] RefreshTask: Enrich failed for {Title} ({Year}), retry {Count}", item.Title, item.Year, item.RetryCount);
+                        _logger.LogDebug("[InfiniteDrive] RefreshTask: Enrich failed for {Title} ({Year}), retry {Count}", item.Title, item.Year, item.RetryCount);
                     }
 
                     // Throttle: 2 seconds between calls
@@ -651,28 +651,28 @@ namespace EmbyStreams.Tasks
                 catch (System.Net.Http.HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
                 {
                     // Rate-limited — stop enrichment loop for this run, retry next cycle
-                    _logger.LogWarning("[EmbyStreams] RefreshTask: Enrich rate-limited (429). Stopping enrichment for this cycle.");
+                    _logger.LogWarning("[InfiniteDrive] RefreshTask: Enrich rate-limited (429). Stopping enrichment for this cycle.");
                     break;
                 }
                 catch (IOException ex)
                 {
                     // Disk I/O failure writing NFO — stop enrichment, likely a persistent problem
-                    _logger.LogError(ex, "[EmbyStreams] RefreshTask: Enrich I/O failure for {Title} ({Year}). Stopping enrichment.", item.Title, item.Year);
+                    _logger.LogError(ex, "[InfiniteDrive] RefreshTask: Enrich I/O failure for {Title} ({Year}). Stopping enrichment.", item.Title, item.Year);
                     break;
                 }
                 catch (System.Text.Json.JsonException ex)
                 {
                     // Bad metadata response — skip this item and continue
-                    _logger.LogWarning(ex, "[EmbyStreams] RefreshTask: Enrich bad metadata for {Title} ({Year}), skipping.", item.Title, item.Year);
+                    _logger.LogWarning(ex, "[InfiniteDrive] RefreshTask: Enrich bad metadata for {Title} ({Year}), skipping.", item.Title, item.Year);
                 }
                 catch (Exception ex)
                 {
                     // Unknown transient error — log and continue to next item
-                    _logger.LogWarning(ex, "[EmbyStreams] RefreshTask: Enrich failed for {Title} ({Year})", item.Title, item.Year);
+                    _logger.LogWarning(ex, "[InfiniteDrive] RefreshTask: Enrich failed for {Title} ({Year})", item.Title, item.Year);
                 }
             }
 
-            _logger.LogInformation("[EmbyStreams] RefreshTask: Enriched {Count} no-ID items", enriched);
+            _logger.LogInformation("[InfiniteDrive] RefreshTask: Enriched {Count} no-ID items", enriched);
             return enriched;
         }
 
@@ -731,11 +731,11 @@ namespace EmbyStreams.Tasks
                 {
                     await File.WriteAllTextAsync(tmpPath, nfoSb.ToString(), new UTF8Encoding(false));
                     File.Move(tmpPath, fullPath, overwrite: true);
-                    _logger.LogDebug("[EmbyStreams] Wrote enriched .nfo: {Path}", fullPath);
+                    _logger.LogDebug("[InfiniteDrive] Wrote enriched .nfo: {Path}", fullPath);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Failed to write enriched .nfo: {Path}", fullPath);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to write enriched .nfo: {Path}", fullPath);
                     if (File.Exists(tmpPath))
                         File.Delete(tmpPath);
                 }
@@ -764,7 +764,7 @@ namespace EmbyStreams.Tasks
                 try
                 {
                     _libraryManager.QueueLibraryScan();
-                    _logger.LogDebug("[EmbyStreams] Notify: Queued library scan for {Count} items", writtenItems.Count);
+                    _logger.LogDebug("[InfiniteDrive] Notify: Queued library scan for {Count} items", writtenItems.Count);
 
                     // Transition all Written items to Notified state
                     foreach (var item in writtenItems)
@@ -779,7 +779,7 @@ namespace EmbyStreams.Tasks
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Notify: Failed to queue library scan");
+                    _logger.LogWarning(ex, "[InfiniteDrive] Notify: Failed to queue library scan");
                 }
             }
 
@@ -828,19 +828,19 @@ namespace EmbyStreams.Tasks
                             item.UpdatedAt = DateTime.UtcNow.ToString("o");
                             await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                             verified++;
-                            _logger.LogDebug("[EmbyStreams] Verify: Confirmed .strm files for {Imdb}", item.ImdbId);
+                            _logger.LogDebug("[InfiniteDrive] Verify: Confirmed .strm files for {Imdb}", item.ImdbId);
                         }
                         else
                         {
                             // No .strm files found - leave as Notified
                             // Stalled-item promotion will handle items >24h
-                            _logger.LogDebug("[EmbyStreams] Verify: No .strm files for {Imdb}, remains Notified", item.ImdbId);
+                            _logger.LogDebug("[InfiniteDrive] Verify: No .strm files for {Imdb}, remains Notified", item.ImdbId);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Verify: Failed to verify {Imdb}", item.ImdbId);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Verify: Failed to verify {Imdb}", item.ImdbId);
                 }
             }
 
@@ -848,7 +848,7 @@ namespace EmbyStreams.Tasks
             var promoted = await PromoteStalledItemsAsync(cancellationToken);
             if (promoted > 0)
             {
-                _logger.LogInformation("[EmbyStreams] Verify: Promoted {Count} stalled items to NeedsEnrich", promoted);
+                _logger.LogInformation("[InfiniteDrive] Verify: Promoted {Count} stalled items to NeedsEnrich", promoted);
                 verified += promoted;
             }
 
@@ -917,11 +917,11 @@ namespace EmbyStreams.Tasks
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 
                     renewed++;
-                    _logger.LogDebug("[EmbyStreams] Renew: Refreshed token for {Imdb}", item.ImdbId);
+                    _logger.LogDebug("[InfiniteDrive] Renew: Refreshed token for {Imdb}", item.ImdbId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Renew: Failed to refresh token for {Imdb}", item.ImdbId);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Renew: Failed to refresh token for {Imdb}", item.ImdbId);
                 }
             }
 
@@ -957,7 +957,7 @@ namespace EmbyStreams.Tasks
 
                     promoted++;
                     _logger.LogInformation(
-                        "[EmbyStreams] Stalled: Promoted {Imdb} to NeedsEnrich (Notified >24h)",
+                        "[InfiniteDrive] Stalled: Promoted {Imdb} to NeedsEnrich (Notified >24h)",
                         item.ImdbId);
                 }
             }

@@ -1,6 +1,6 @@
-<div id="EmbyStreamsConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+<div id="InfiniteDriveConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
      data-require="emby-input,emby-button,emby-checkbox,emby-textarea"
-     data-controller="__plugin/EmbyStreamsConfigJS">
+     data-controller="__plugin/InfiniteDriveConfigJS">
   <div class="content-primary">
 
 <style>
@@ -222,7 +222,7 @@
 
   <!-- Hero header -->
   <div class="es-hero">
-    <h1 class="es-hero-title">EmbyStreams Configuration</h1>
+    <h1 class="es-hero-title">InfiniteDrive Configuration</h1>
     <p class="es-hero-body">Let's get your streaming library set up in a few simple steps.</p>
   </div>
 
@@ -287,7 +287,7 @@
 
       <div class="inputContainer" style="margin-bottom:.8em">
         <label class="inputLabel inputLabelUnfocused" for="wiz-base-path">Base sync path</label>
-        <input id="wiz-base-path" type="text" is="emby-input" placeholder="/media/embystreams" />
+        <input id="wiz-base-path" type="text" is="emby-input" placeholder="/media/infinitedrive" />
         <div class="es-hint">Subfolders: <code>catalog/movies</code>, <code>catalog/shows</code>, <code>discover/movies</code>, <code>discover/shows</code></div>
       </div>
       <div id="wiz-derived-paths" style="font-size:.85em;opacity:.6;margin:.2em 0 .6em">
@@ -441,9 +441,9 @@
 
       <div style="font-size:.85em;opacity:.7;margin-bottom:.5em">
         <strong>Sync paths:</strong><br/>
-        Movies: <code id="wiz-summary-movies">/media/embystreams/catalog/movies</code><br/>
-        Series: <code id="wiz-summary-series">/media/embystreams/catalog/shows</code><br/>
-        <span id="wiz-summary-anime-row" style="display:none">Anime: <code id="wiz-summary-anime">/media/embystreams/anime</code><br/></span>
+        Movies: <code id="wiz-summary-movies">/media/infinitedrive/catalog/movies</code><br/>
+        Series: <code id="wiz-summary-series">/media/infinitedrive/catalog/shows</code><br/>
+        <span id="wiz-summary-anime-row" style="display:none">Anime: <code id="wiz-summary-anime">/media/infinitedrive/anime</code><br/></span>
       </div>
 
       <div class="es-hint">Make sure you've created Emby libraries pointing to these paths before syncing.</div>
@@ -1065,7 +1065,7 @@
             <div>
               <strong>Content Filtering</strong>
               <p style="margin: 0.5em 0 0 0; opacity: 0.9; font-size: 0.9em;">
-                EmbyStreams syncs <em>all content</em> from your AIOStreams manifest.
+                InfiniteDrive syncs <em>all content</em> from your AIOStreams manifest.
                 To filter content (genres, ratings, catalogs), edit your manifest settings.
               </p>
             </div>
@@ -1086,8 +1086,8 @@
         <div class="inputContainer" id="es-anime-path-wrapper" style="display:none">
           <label class="inputLabel inputLabelUnfocused" for="cfg-anime-path">Anime content path</label>
           <input id="cfg-anime-path" type="text" is="emby-input"
-                 value="/media/embystreams/anime" />
-          <div class="es-hint">EmbyStreams creates a Series library at this path for anime content. Default: /media/embystreams/anime</div>
+                 value="/media/infinitedrive/anime" />
+          <div class="es-hint">InfiniteDrive creates a Series library at this path for anime content. Default: /media/infinitedrive/anime</div>
         </div>
       </div>
 
@@ -1213,9 +1213,9 @@
         <div style="background:rgba(128,128,128,0.08);border-radius:6px;padding:.6em .8em;margin-bottom:.8em">
           <div style="font-size:.8em;opacity:.6;margin-bottom:.4em">Current sync paths:</div>
           <div style="display:flex;flex-direction:column;gap:.3em;font-size:.85em">
-            <div>Movies: <code id="cfg-readonly-movies">/media/embystreams/catalog/movies</code></div>
-            <div>Series: <code id="cfg-readonly-series">/media/embystreams/catalog/shows</code></div>
-            <div id="cfg-readonly-anime-row" style="display:none">Anime: <code id="cfg-readonly-anime">/media/embystreams/anime</code></div>
+            <div>Movies: <code id="cfg-readonly-movies">/media/infinitedrive/catalog/movies</code></div>
+            <div>Series: <code id="cfg-readonly-series">/media/infinitedrive/catalog/shows</code></div>
+            <div id="cfg-readonly-anime-row" style="display:none">Anime: <code id="cfg-readonly-anime">/media/infinitedrive/anime</code></div>
           </div>
           <div style="margin-top:.5em;font-size:.78em;opacity:.7">
             <a data-es-tab="setup" style="cursor:pointer;color:var(--theme-button-background,#00a4dc)">Edit paths in Setup Wizard →</a>
@@ -1224,7 +1224,7 @@
 
         <div class="inputContainer">
           <label class="inputLabel inputLabelUnfocused" for="cfg-base-path">Base sync path</label>
-          <input id="cfg-base-path" type="text" is="emby-input" placeholder="/media/embystreams" />
+          <input id="cfg-base-path" type="text" is="emby-input" placeholder="/media/infinitedrive" />
           <div class="es-hint">Subfolders: <code>catalog/movies</code>, <code>catalog/shows</code>, <code>discover/movies</code>, <code>discover/shows</code></div>
         </div>
         <div id="cfg-derived-paths" style="font-size:.85em;opacity:.6;margin:.2em 0 .6em">
@@ -1325,7 +1325,7 @@
       <div class="es-card" id="cfg-section-security" style="border-color:rgba(0,164,220,0.35);background:rgba(0,164,220,0.04)">
         <h3 style="color:var(--theme-button-background,#00a4dc)">🔐 Playback Authentication</h3>
         <p style="font-size:.9em;line-height:1.6;margin:.4em 0 .8em">
-          EmbyStreams uses a unique <strong>API key</strong> to authenticate playback requests. The key is automatically
+          InfiniteDrive uses a unique <strong>API key</strong> to authenticate playback requests. The key is automatically
           embedded in all <code style="background:rgba(0,0,0,0.15);padding:.1em .35em;border-radius:2px">.strm</code> files.
         </p>
         <div class="es-alert es-alert-info" style="font-size:.88em;margin-bottom:.8em">
@@ -1344,7 +1344,7 @@
       </div>
 
       <p class="es-hint" style="margin-bottom:.5em">
-        ⚠ Config is stored in plaintext (<code>config/plugins/EmbyStreams.xml</code>).
+        ⚠ Config is stored in plaintext (<code>config/plugins/InfiniteDrive.xml</code>).
         Restrict filesystem access to the Emby config directory to trusted users only.
       </p>
 
@@ -1362,7 +1362,7 @@
 
       <div class="es-card" id="cfg-section-reset" style="border-color:rgba(100,150,200,0.35);background:rgba(100,150,200,0.04)">
         <h3 style="color:var(--theme-button-background,#00a4dc)">Recovery</h3>
-        <p style="font-size:.9em;opacity:.8;margin:0 0 .8em">Start fresh by clearing all EmbyStreams settings. Your Emby library and .strm files are preserved — only configuration is reset.</p>
+        <p style="font-size:.9em;opacity:.8;margin:0 0 .8em">Start fresh by clearing all InfiniteDrive settings. Your Emby library and .strm files are preserved — only configuration is reset.</p>
         <button type="button" is="emby-button" class="raised button" data-es-action="reset-settings-confirm">🔄 Reset All Settings</button>
         <div id="es-reset-result" style="margin-top:.6em;display:none"></div>
       </div>
@@ -1411,9 +1411,9 @@
         <div id="es-nuclear-step1" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.3);border-radius:6px;padding:.9em;margin-bottom:.5em">
           <div style="font-size:1.1em;font-weight:900;color:#dc3545;letter-spacing:.05em;margin-bottom:.5em">⚠ STOP. READ THIS.</div>
           <p style="font-size:.88em;line-height:1.6;margin:0 0 .5em">
-            You are about to activate the <strong>Total Perspective Vortex</strong> for EmbyStreams.
+            You are about to activate the <strong>Total Perspective Vortex</strong> for InfiniteDrive.
             Unlike the original, this one will not merely show you your own insignificance in the universe —
-            it will <strong>delete every trace of EmbyStreams from your system</strong>:
+            it will <strong>delete every trace of InfiniteDrive from your system</strong>:
           </p>
           <ul style="font-size:.85em;line-height:1.8;margin:.25em 0 .5em 1.2em;padding:0">
             <li>All catalog items, stream candidates, and resolution cache</li>
@@ -1495,7 +1495,7 @@
     <input id="es-token" type="text" />
     <input id="es-enable-discover" type="checkbox" checked />
     <input id="es-enable-aio" type="checkbox" checked />
-    <input id="es-base-path" type="text" value="/media/embystreams" />
+    <input id="es-base-path" type="text" value="/media/infinitedrive" />
     <input id="es-emby-base" type="url" />
     <input id="es-emby-apikey" type="text" />
     <select id="es-meta-lang-dropdown"><option value="en">English</option></select>
@@ -1603,7 +1603,7 @@
     <div style="margin-bottom:1.5em">
       <h3 style="margin-bottom:.5em">Version Slots</h3>
       <p class="es-hint">Apply pending slot changes (add/remove quality tiers) across all catalog items.</p>
-      <button class="es-btn" data-es-task="embystreams_rehydration">Run Pending Rehydration</button>
+      <button class="es-btn" data-es-task="infinitedrive_rehydration">Run Pending Rehydration</button>
     </div>
 
     <div style="margin-bottom:1.5em">
@@ -1617,4 +1617,4 @@
 </div><!-- #es-page -->
 
   </div><!-- content-primary -->
-</div><!-- EmbyStreamsConfigPage -->
+</div><!-- InfiniteDriveConfigPage -->

@@ -143,7 +143,7 @@ function (loading) {
 
         // Populate wizard fields from config
         set('wiz-aio-url',        cfg.PrimaryManifestUrl || '');
-        set('wiz-base-path',       cfg.SyncPathBase || '/media/embystreams');
+        set('wiz-base-path',       cfg.SyncPathBase || '/media/infinitedrive');
         set('wiz-library-name-movies', cfg.LibraryNameMovies || 'Streamed Movies');
         set('wiz-library-name-series', cfg.LibraryNameSeries || 'Streamed Series');
         set('wiz-library-name-anime', cfg.LibraryNameAnime || 'Streamed Anime');
@@ -182,8 +182,8 @@ function (loading) {
     }
 
     function updateWizardSummary(view) {
-        var basePath = esVal(view, 'wiz-base-path') || '/media/embystreams';
-        if (!basePath) basePath = '/media/embystreams';
+        var basePath = esVal(view, 'wiz-base-path') || '/media/infinitedrive';
+        if (!basePath) basePath = '/media/infinitedrive';
 
         setText(view, 'wiz-summary-movies', basePath + '/catalog/movies');
         setText(view, 'wiz-summary-series', basePath + '/catalog/shows');
@@ -199,7 +199,7 @@ function (loading) {
     }
 
     function loadCompletionStats(view) {
-        esFetch('/EmbyStreams/Status')
+        esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.CatalogItemCount) setText(view, 'es-complete-catalog', data.CatalogItemCount);
@@ -218,7 +218,7 @@ function (loading) {
 
         tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">Loading sources…</td></tr>';
 
-        esFetch('/EmbyStreams/Status')
+        esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.CatalogSources || !data.CatalogSources.length) {
@@ -337,9 +337,9 @@ function (loading) {
 
                 // Auto-create directories and libraries
                 var cfg = {
-                    SyncPathMovies: base.SyncPathMovies || (base.BaseSyncPath || '/media/embystreams') + '/movies',
-                    SyncPathShows:  base.SyncPathShows  || (base.BaseSyncPath || '/media/embystreams') + '/shows',
-                    BaseSyncPath:   base.BaseSyncPath || '/media/embystreams'
+                    SyncPathMovies: base.SyncPathMovies || (base.BaseSyncPath || '/media/infinitedrive') + '/movies',
+                    SyncPathShows:  base.SyncPathShows  || (base.BaseSyncPath || '/media/infinitedrive') + '/shows',
+                    BaseSyncPath:   base.BaseSyncPath || '/media/infinitedrive'
                 };
                 createEmbyLibraries(cfg);
 
@@ -349,7 +349,7 @@ function (loading) {
                 animateSyncProgress(view);
 
                 // Trigger catalog sync
-                esFetch('/EmbyStreams/Trigger?task=catalog_sync', {method:'POST'}).catch(function(){});
+                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'}).catch(function(){});
 
                 // Start catalog progress polling
                 startCatalogPoll(view, 'cfg');
@@ -402,7 +402,7 @@ function (loading) {
         statusEl.style.color = '';
 
         // Try to test via server-side TestUrl endpoint
-        esFetch('/EmbyStreams/TestUrl', {
+        esFetch('/InfiniteDrive/TestUrl', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ManifestUrl: url })
@@ -614,7 +614,7 @@ function (loading) {
 
         // POST body avoids URL-encoding issues with base64 tokens containing '/', '+', '='
         // and keeps credentials out of server logs.
-        esFetch('/EmbyStreams/TestUrl', {
+        esFetch('/InfiniteDrive/TestUrl', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ Url: baseUrl, Uuid: uuid, Token: token, ManifestUrl: manifestUrl })
@@ -639,11 +639,11 @@ function (loading) {
             });
     }
 
-    // ── Version badge: fetch from /EmbyStreams/Status and populate ────────────
+    // ── Version badge: fetch from /InfiniteDrive/Status and populate ────────────
     function loadVersionBadge(view) {
         var els = view.querySelectorAll('#es-plugin-version');
         if (!els.length) return;
-        esFetch('/EmbyStreams/Status')
+        esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.ok ? r.json() : null; })
             .then(function(data) {
                 if (data && data.Version) {
@@ -735,7 +735,7 @@ function (loading) {
         // Sprint 14: Discover channel toggle
         chk('es-enable-discover',      cfg.EnableDiscoverChannel != null ? cfg.EnableDiscoverChannel : true);
         // Sprint 11: Single BaseSyncPath — derive subpaths
-        var base = cfg.BaseSyncPath || '/media/embystreams';
+        var base = cfg.BaseSyncPath || '/media/infinitedrive';
         set('es-base-path', base);
         var movies = base + '/movies';
         var shows  = base + '/shows';
@@ -761,7 +761,7 @@ function (loading) {
         }
         set('cfg-manifest-url',           cfg.PrimaryManifestUrl);
         // Sprint 11: BaseSyncPath with derived subpaths
-        var base = cfg.BaseSyncPath || '/media/embystreams';
+        var base = cfg.BaseSyncPath || '/media/infinitedrive';
         set('cfg-base-path', base);
         var elM = q(view, 'cfg-derived-movies');
         var elS = q(view, 'cfg-derived-shows');
@@ -815,7 +815,7 @@ function (loading) {
         // Sprint 64: Anime library config
         checkAnimePluginStatus(view);
         set('cfg-enable-anime',           cfg.EnableAnimeLibrary);
-        set('cfg-anime-path',             cfg.SyncPathAnime || '/media/embystreams/anime');
+        set('cfg-anime-path',             cfg.SyncPathAnime || '/media/infinitedrive/anime');
         toggleAnimePathVisibility(view, cfg.EnableAnimeLibrary);
 
         // v0.60.3: PluginSecret warning — show banner if empty or too short
@@ -832,7 +832,7 @@ function (loading) {
             secretWarn.style.display = (isEmpty || isAuto) ? '' : 'none';
         }        var baseUrl = (cfg.EmbyBaseUrl || window.location.origin).replace(/\/$/, '');
         var wuEl = q(view, 'cfg-webhook-url-display');
-        if (wuEl) wuEl.value = baseUrl + '/EmbyStreams/Webhook/Sync';
+        if (wuEl) wuEl.value = baseUrl + '/InfiniteDrive/Webhook/Sync';
         loadCatalogLimits(cfg);
         if (cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl) loadCatalogs(view, 'cfg');
     }
@@ -849,7 +849,7 @@ function (loading) {
 
     // ── Sprint 64: Anime library helpers ────────────────────────────────────
     function checkAnimePluginStatus(view) {
-        esFetch('/EmbyStreams/AnimePluginStatus')
+        esFetch('/InfiniteDrive/AnimePluginStatus')
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 var toggle = q(view, 'cfg-enable-anime');
@@ -906,7 +906,7 @@ function (loading) {
                 animateSyncProgress(view);
                 // Create Emby libraries automatically
                 createEmbyLibraries(cfg);
-                esFetch('/EmbyStreams/Trigger?task=catalog_sync', {method:'POST'}).catch(function(){});
+                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'}).catch(function(){});
             })
             .then(function() {
                 // After wizard save, re-fetch full config so Settings tab shows all fields
@@ -916,7 +916,7 @@ function (loading) {
                     })
                     .catch(function() {
                         // If re-fetch fails, keep wizard config but warn
-                        console.warn('[EmbyStreams] Failed to re-fetch full config after wizard save');
+                        console.warn('[InfiniteDrive] Failed to re-fetch full config after wizard save');
                     });
             })
             .catch(function() { if (btn) btn.disabled = false; });
@@ -953,7 +953,7 @@ function (loading) {
         if (!cfg || !cfg.SyncPathMovies || !cfg.SyncPathShows) return;
 
         // STEP 1: Create directories on disk first (Emby won't create libraries if paths don't exist)
-        esFetch('/EmbyStreams/Setup/CreateDirectories', {
+        esFetch('/InfiniteDrive/Setup/CreateDirectories', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -963,7 +963,7 @@ function (loading) {
         })
         .then(function(res) { return res.json(); })
         .then(function(dirRes) {
-            console.log('[EmbyStreams] Directories created:', dirRes);
+            console.log('[InfiniteDrive] Directories created:', dirRes);
 
             // STEP 2: Only create libraries after directories exist
             // Create Movies library
@@ -977,9 +977,9 @@ function (loading) {
                 }),
                 contentType: 'application/json'
             }).then(function() {
-                console.log('[EmbyStreams] Movies library created successfully');
+                console.log('[InfiniteDrive] Movies library created successfully');
             }).catch(function(err) {
-                console.log('[EmbyStreams] Movies library creation failed or already exists:', err);
+                console.log('[InfiniteDrive] Movies library creation failed or already exists:', err);
             });
 
             // Create Shows library
@@ -993,13 +993,13 @@ function (loading) {
                 }),
                 contentType: 'application/json'
             }).then(function() {
-                console.log('[EmbyStreams] Shows library created successfully');
+                console.log('[InfiniteDrive] Shows library created successfully');
             }).catch(function(err) {
-                console.log('[EmbyStreams] Shows library creation failed or already exists:', err);
+                console.log('[InfiniteDrive] Shows library creation failed or already exists:', err);
             });
         })
         .catch(function(err) {
-            console.error('[EmbyStreams] Failed to create directories:', err);
+            console.error('[InfiniteDrive] Failed to create directories:', err);
         });
     }
 
@@ -1045,7 +1045,7 @@ function (loading) {
             PluginSecret:               esVal(view, 'cfg-plugin-secret'),
             CatalogItemLimitsJson:      getCatalogLimitsJson(),
             EnableAnimeLibrary:         esChk(view, 'cfg-enable-anime'),
-            SyncPathAnime:              esVal(view, 'cfg-anime-path') || '/media/embystreams/anime',
+            SyncPathAnime:              esVal(view, 'cfg-anime-path') || '/media/infinitedrive/anime',
             IsFirstRunComplete:         _loadedConfig ? !!_loadedConfig.IsFirstRunComplete : false
         };
         // CONF-JSON: validate CatalogItemLimitsJson before saving
@@ -1067,16 +1067,16 @@ function (loading) {
     function refreshDashboard(view) {
         if (_authExpired) return;
 
-        esFetch('/EmbyStreams/Status')
+        esFetch('/InfiniteDrive/Status')
             .then(function(r) {
                 if (r.status === 401) { showAuthExpiredBanner(view); return; }
                 return r.json();
             })
             .then(function(d) { if (d) renderDashboard(view, d); })
-            .catch(function(err) { console.warn('[EmbyStreams] Status fetch failed:', err); });
+            .catch(function(err) { console.warn('[InfiniteDrive] Status fetch failed:', err); });
 
         // U1: Fetch unhealthy items separately (admin-only, may return 403 for non-admins)
-        esFetch('/EmbyStreams/UnhealthyItems')
+        esFetch('/InfiniteDrive/UnhealthyItems')
             .then(function(r) {
                 if (r.status === 401) { showAuthExpiredBanner(view); return; }
                 return r.json();
@@ -1085,7 +1085,7 @@ function (loading) {
             .catch(function() { /* non-admin or offline — silently skip */ });
 
         // A1-UI: Fetch recent playback errors
-        esFetch('/EmbyStreams/RecentErrors')
+        esFetch('/InfiniteDrive/RecentErrors')
             .then(function(r) {
                 if (r.status === 401) { showAuthExpiredBanner(view); return; }
                 return r.json();
@@ -1343,7 +1343,7 @@ function (loading) {
     function runTask(view, taskKey, btnEl) {
         var origText = btnEl ? btnEl.innerHTML : null;
         if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '⏳ Running…'; }
-        esFetch('/EmbyStreams/Trigger?task=' + encodeURIComponent(taskKey), {method:'POST'})
+        esFetch('/InfiniteDrive/Trigger?task=' + encodeURIComponent(taskKey), {method:'POST'})
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = origText; }
@@ -1398,7 +1398,7 @@ function (loading) {
         // Pass the live manifest URL so the panel works before the first save.
         var manifestFieldId = prefix === 'wiz' ? 'es-manifest-url' : 'cfg-manifest-url';
         var liveManifestUrl = esVal(view, manifestFieldId);
-        var catalogsUrl = '/EmbyStreams/Catalogs' +
+        var catalogsUrl = '/InfiniteDrive/Catalogs' +
             (liveManifestUrl ? '?manifestUrl=' + encodeURIComponent(liveManifestUrl) : '');
 
         esFetch(catalogsUrl)
@@ -1528,7 +1528,7 @@ function (loading) {
     }
 
     function pollCatalogProgress(view) {
-        esFetch('/EmbyStreams/CatalogProgress')
+        esFetch('/InfiniteDrive/CatalogProgress')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var items = data.Items || [];
@@ -1570,7 +1570,7 @@ function (loading) {
         var season  = esVal(view, 'es-inspect-season');
         var episode = esVal(view, 'es-inspect-ep');
         if (!imdb) { Dashboard.alert('Enter an IMDB ID first'); return; }
-        var url = '/EmbyStreams/Inspect?imdb=' + encodeURIComponent(imdb);
+        var url = '/InfiniteDrive/Inspect?imdb=' + encodeURIComponent(imdb);
         if (season)  url += '&season='  + encodeURIComponent(season);
         if (episode) url += '&episode=' + encodeURIComponent(episode);
         esFetch(url).then(function(r) { return r.json(); }).then(function(d) {
@@ -1629,7 +1629,7 @@ function (loading) {
         var resultsBody = q(view, 'es-search-body');
         if (!resultsDiv || !resultsBody) return;
         if (searchQ.length < 2) { resultsDiv.style.display = 'none'; return; }
-        esFetch('/EmbyStreams/Search?q=' + encodeURIComponent(searchQ) + '&limit=15')
+        esFetch('/InfiniteDrive/Search?q=' + encodeURIComponent(searchQ) + '&limit=15')
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (!d.Results || !d.Results.length) {
@@ -1693,7 +1693,7 @@ function (loading) {
     function discoverBrowse(view) {
         discoverSetStatus(view, 'Loading popular content…');
         discoverSetLoading(view, true);
-        esFetch('/EmbyStreams/Discover/Browse?limit=24')
+        esFetch('/InfiniteDrive/Discover/Browse?limit=24')
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 discoverSetLoading(view, false);
@@ -1716,7 +1716,7 @@ function (loading) {
         var typeParam = _discoverCurrentType ? '&type=' + encodeURIComponent(_discoverCurrentType) : '';
         discoverSetStatus(view, 'Searching AIOStreams for "' + query + '"…');
         discoverSetLoading(view, true);
-        esFetch('/EmbyStreams/Discover/Search?q=' + encodeURIComponent(query) + typeParam + '&live=true')
+        esFetch('/InfiniteDrive/Discover/Search?q=' + encodeURIComponent(query) + typeParam + '&live=true')
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 discoverSetLoading(view, false);
@@ -1813,7 +1813,7 @@ function (loading) {
         var btn  = card ? card.querySelector('.es-discover-add-btn') : null;
         if (btn) { btn.textContent = 'Adding…'; btn.disabled = true; }
 
-        var url = '/EmbyStreams/Discover/AddToLibrary'
+        var url = '/InfiniteDrive/Discover/AddToLibrary'
             + '?imdbId=' + encodeURIComponent(imdbId)
             + '&type='   + encodeURIComponent(type)
             + '&title='  + encodeURIComponent(title)
@@ -1860,7 +1860,7 @@ function (loading) {
     function validateSetup(view, resultDivId) {
         var resultDiv = q(view, resultDivId);
         if (resultDiv) { resultDiv.style.display=''; resultDiv.innerHTML='<span style="opacity:.55">Checking…</span>'; }
-        esFetch('/EmbyStreams/Validate', {method:'POST'})
+        esFetch('/InfiniteDrive/Validate', {method:'POST'})
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (!resultDiv) return;
@@ -1880,7 +1880,7 @@ function (loading) {
     function invalidateItem(view) {
         var imdb = (esVal(view,'es-inspect-imdb')||'').trim();
         if (!imdb) { Dashboard.alert('Run Inspect first'); return; }
-        var url = '/EmbyStreams/Invalidate?imdb='+encodeURIComponent(imdb);
+        var url = '/InfiniteDrive/Invalidate?imdb='+encodeURIComponent(imdb);
         var s=esVal(view,'es-inspect-season'), e=esVal(view,'es-inspect-ep');
         if (s) url += '&season='+encodeURIComponent(s);
         if (e) url += '&episode='+encodeURIComponent(e);
@@ -1892,7 +1892,7 @@ function (loading) {
     function queueItem(view) {
         var imdb = (esVal(view,'es-inspect-imdb')||'').trim();
         if (!imdb) { Dashboard.alert('Run Inspect first'); return; }
-        var url = '/EmbyStreams/Queue?imdb='+encodeURIComponent(imdb);
+        var url = '/InfiniteDrive/Queue?imdb='+encodeURIComponent(imdb);
         var s=esVal(view,'es-inspect-season'), e=esVal(view,'es-inspect-ep');
         if (s) url += '&season='+encodeURIComponent(s);
         if (e) url += '&episode='+encodeURIComponent(e);
@@ -1916,7 +1916,7 @@ function (loading) {
         if (pre) pre.textContent = '';
         if (result) result.style.display = 'block';
 
-        var url = '/EmbyStreams/RawStreams?imdb=' + encodeURIComponent(imdb);
+        var url = '/InfiniteDrive/RawStreams?imdb=' + encodeURIComponent(imdb);
         if (season) url += '&season=' + encodeURIComponent(season);
         if (episode) url += '&episode=' + encodeURIComponent(episode);
 
@@ -1937,7 +1937,7 @@ function (loading) {
 
     function clearClientProfiles(view) {
         if (!confirm('Reset all learned client profiles?')) return;
-        esFetch('/EmbyStreams/Trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({Task:'clear_client_profiles'})})
+        esFetch('/InfiniteDrive/Trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({Task:'clear_client_profiles'})})
             .then(function(r){return r.json();})
             .then(function(d){Dashboard.alert(d.Status==='ok'?'Profiles cleared.':d.Message); if(d.Status==='ok') refreshDashboard(view);})
             .catch(function(err){Dashboard.alert('Error: '+err.message);});
@@ -1973,7 +1973,7 @@ function (loading) {
                 var exampleText = q(view, 'es-url-example-text');
                 if (exampleDiv && exampleText) {
                     if (baseUrl && baseUrl !== 'http://' && baseUrl !== 'https://') {
-                        var example = baseUrl.replace(/\/$/, '') + '/play.html?file=/media/embystreams/catalog/movies/example.mkv';
+                        var example = baseUrl.replace(/\/$/, '') + '/play.html?file=/media/infinitedrive/catalog/movies/example.mkv';
                         exampleText.textContent = example;
                         exampleDiv.style.display = 'block';
                     } else {
@@ -2208,8 +2208,8 @@ function (loading) {
         if (statusEl) { statusEl.textContent = 'Testing…'; statusEl.style.color = ''; }
         if (resultEl) resultEl.style.display = 'none';
 
-        // POST /EmbyStreams/TestUrl with JSON body (not GET /TestConnection)
-        esFetch('/EmbyStreams/TestUrl', {
+        // POST /InfiniteDrive/TestUrl with JSON body (not GET /TestConnection)
+        esFetch('/InfiniteDrive/TestUrl', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ManifestUrl: url })
@@ -2286,7 +2286,7 @@ function (loading) {
 
         panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em">Loading catalogs…</span>';
 
-        esFetch('/EmbyStreams/Status')
+        esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.CatalogSources || !data.CatalogSources.length) {
@@ -2322,7 +2322,7 @@ function (loading) {
         // Collect wizard data
         var config = {
             PrimaryManifestUrl: url,
-            SyncPathBase: esVal(view, 'wiz-base-path') || '/media/embystreams',
+            SyncPathBase: esVal(view, 'wiz-base-path') || '/media/infinitedrive',
             LibraryNameMovies: esVal(view, 'wiz-library-name-movies') || 'Streamed Movies',
             LibraryNameSeries: esVal(view, 'wiz-library-name-series') || 'Streamed Series',
             LibraryNameAnime: esVal(view, 'wiz-library-name-anime') || 'Streamed Anime',
@@ -2367,7 +2367,7 @@ function (loading) {
                 if (barEl) barEl.style.width = '30%';
 
                 // Trigger catalog sync
-                return esFetch('/EmbyStreams/Trigger?task=catalog_sync', {method:'POST'});
+                return esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'});
             })
             .then(function() {
                 if (barEl) barEl.style.width = '50%';
@@ -2408,7 +2408,7 @@ function (loading) {
 
     // ── Settings reset (Sprint 14: UX-SETTINGS-RESET) ───────────────────────────
     function resetSettingsConfirm(view) {
-        if (confirm('Reset all EmbyStreams settings to defaults? Your Emby library and .strm files will not be deleted.\n\nThis cannot be undone.')) {
+        if (confirm('Reset all InfiniteDrive settings to defaults? Your Emby library and .strm files will not be deleted.\n\nThis cannot be undone.')) {
             resetSettings(view);
         }
     }
@@ -2416,9 +2416,9 @@ function (loading) {
         var cfg = {
             PrimaryManifestUrl: '',
             SecondaryManifestUrl: '',
-            BaseSyncPath: '/media/embystreams',
-            SyncPathMovies: '/media/embystreams/catalog/movies',
-            SyncPathShows: '/media/embystreams/catalog/shows',
+            BaseSyncPath: '/media/infinitedrive',
+            SyncPathMovies: '/media/infinitedrive/catalog/movies',
+            SyncPathShows: '/media/infinitedrive/catalog/shows',
             EmbyBaseUrl: window.location.origin,
             MetadataLanguage: 'en',
             MetadataCertificationCountry: 'US',
@@ -2495,7 +2495,7 @@ function (loading) {
 
     function resetWizardConfirm(view) {
         if (!confirm('Reset the Setup Wizard?\n\nYour settings and library will not be changed — this only re-shows the wizard on next page load.\n\n"Mostly Harmless."')) return;
-        esFetch('/EmbyStreams/Trigger?task=reset_wizard', {method:'POST'})
+        esFetch('/InfiniteDrive/Trigger?task=reset_wizard', {method:'POST'})
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (d.Status === 'ok') {
@@ -2524,7 +2524,7 @@ function (loading) {
     function purgeCatalogExecute(view) {
         var el = q(view, 'es-purge-confirm');
         if (el) el.style.display = 'none';
-        esFetch('/EmbyStreams/Trigger?task=purge_catalog', {method:'POST'})
+        esFetch('/InfiniteDrive/Trigger?task=purge_catalog', {method:'POST'})
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (d.Status === 'ok') {
@@ -2579,7 +2579,7 @@ function (loading) {
             doneEl.innerHTML = '<div class="es-alert es-alert-info" style="margin:0">⏳ The Vogon Constructor Fleet is at work… deleting everything… please wait…</div>';
         }
 
-        esFetch('/EmbyStreams/Trigger?task=nuclear_reset', {method:'POST'})
+        esFetch('/InfiniteDrive/Trigger?task=nuclear_reset', {method:'POST'})
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (d.Status === 'ok') {
@@ -2608,8 +2608,8 @@ function (loading) {
 
     // ── Improbability Drive functions ───────────────────────────────────────────
     function loadImprobabilityStatus(view) {
-        // Fetch status from /EmbyStreams/Status
-        ApiClient.getJSON(ApiClient.getUrl('EmbyStreams/Status')).then(function(status) {
+        // Fetch status from /InfiniteDrive/Status
+        ApiClient.getJSON(ApiClient.getUrl('InfiniteDrive/Status')).then(function(status) {
             // Refresh Worker
             var refreshDot = q(view, 'es-refresh-dot');
             var refreshStatus = q(view, 'es-refresh-status');
@@ -2704,14 +2704,14 @@ function (loading) {
 
         // Find RefreshTask and trigger it
         ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
-            var refresh = (tasks || []).find(function(t) { return t.Key === 'EmbyStreamsRefresh'; });
+            var refresh = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveRefresh'; });
             if (refresh) {
                 ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + refresh.Id) });
 
                 // Poll until active step appears (task started) then until it clears (task done)
                 var pollInterval = setInterval(function() {
                     loadImprobabilityStatus(view);
-                    ApiClient.getJSON(ApiClient.getUrl('EmbyStreams/Status')).then(function(status) {
+                    ApiClient.getJSON(ApiClient.getUrl('InfiniteDrive/Status')).then(function(status) {
                         if (!status.RefreshActiveStep && btn) {
                             clearInterval(pollInterval);
                             btn.textContent = 'Refresh Now';
@@ -2777,7 +2777,7 @@ function (loading) {
         statusEl.textContent = 'Starting deep clean…';
 
         ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
-            var task = (tasks || []).find(function(t) { return t.Key === 'EmbyStreamsDeepClean'; });
+            var task = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveDeepClean'; });
             if (!task) {
                 btn.textContent = 'Summon Marvin';
                 btn.disabled = false;
@@ -2805,7 +2805,7 @@ function (loading) {
         var el = view.querySelector('#es-sync-sources-list');
         if (!el) return;
 
-        esFetch('/EmbyStreams/Status')
+        esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!data.CatalogSources || !data.CatalogSources.length) {
@@ -2836,7 +2836,7 @@ function (loading) {
         var basePathInput = q(view, 'wiz-base-path');
         if (basePathInput) {
             basePathInput.addEventListener('input', function() {
-                var base = basePathInput.value || '/media/embystreams';
+                var base = basePathInput.value || '/media/infinitedrive';
                 var elM = q(view, 'wiz-derived-movies');
                 var elS = q(view, 'wiz-derived-shows');
                 if (elM) elM.textContent = base + '/catalog/movies';
@@ -2870,7 +2870,7 @@ function (loading) {
         if (playbackEl) playbackEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
         if (discoverEl) discoverEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
 
-        esFetch('/EmbyStreams/User/MyPins')
+        esFetch('/InfiniteDrive/User/MyPins')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 renderPinsList(playbackEl, data.PlaybackPins);
@@ -2891,7 +2891,7 @@ function (loading) {
             if (!checked.length) { Dashboard.alert('No items selected.'); return; }
             var ids = Array.from(checked).map(function(cb) { return cb.getAttribute('data-catalog-id'); });
 
-            esFetch('/EmbyStreams/User/RemovePins', {
+            esFetch('/InfiniteDrive/User/RemovePins', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ CatalogItemIds: ids })
@@ -2910,7 +2910,7 @@ function (loading) {
         var listEl = view.querySelector('#es-user-catalogs-list');
         if (listEl) listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
 
-        esFetch('/EmbyStreams/User/Catalogs')
+        esFetch('/InfiniteDrive/User/Catalogs')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 renderMyLists(view, data);
@@ -2961,7 +2961,7 @@ function (loading) {
                 var statusEl = view.querySelector('#es-refresh-all-status');
                 if (statusEl) statusEl.textContent = 'Refreshing…';
                 refreshAllBtn.disabled = true;
-                esFetch('/EmbyStreams/User/Catalogs/Refresh', { method: 'POST' })
+                esFetch('/InfiniteDrive/User/Catalogs/Refresh', { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(r) {
                         if (statusEl) statusEl.textContent = 'Added ' + (r.Added||0) + ', updated ' + (r.Updated||0) + '.';
@@ -2984,7 +2984,7 @@ function (loading) {
                 if (!url) return;
                 if (errEl) errEl.style.display = 'none';
                 addBtn.disabled = true;
-                esFetch('/EmbyStreams/User/Catalogs/Add?rssUrl=' + encodeURIComponent(url), { method: 'POST' })
+                esFetch('/InfiniteDrive/User/Catalogs/Add?rssUrl=' + encodeURIComponent(url), { method: 'POST' })
                     .then(function(r) { return r.json(); })
                     .then(function(r) {
                         if (r && r.Ok) {
@@ -3017,7 +3017,7 @@ function (loading) {
 
                 if (btn.classList.contains('es-refresh-one-btn')) {
                     btn.disabled = true;
-                    esFetch('/EmbyStreams/User/Catalogs/Refresh?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
+                    esFetch('/InfiniteDrive/User/Catalogs/Refresh?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
                         .then(function(r) { return r.json(); })
                         .then(function(r) {
                             esAlert('Added ' + (r.Added||0) + ', updated ' + (r.Updated||0) + '.');
@@ -3028,7 +3028,7 @@ function (loading) {
 
                 if (btn.classList.contains('es-remove-list-btn')) {
                     btn.disabled = true;
-                    esFetch('/EmbyStreams/User/Catalogs/Remove?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
+                    esFetch('/InfiniteDrive/User/Catalogs/Remove?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
                         .then(function(r) { return r.json(); })
                         .then(function() {
                             esAlert('List removed. Items will be cleaned up on next DoctorTask pass.');
@@ -3053,7 +3053,7 @@ function (loading) {
         var listEl = view.querySelector('#es-blocked-items-list');
         if (listEl) listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
 
-        esFetch('/EmbyStreams/Admin/BlockedItems')
+        esFetch('/InfiniteDrive/Admin/BlockedItems')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (!listEl) return;
@@ -3078,7 +3078,7 @@ function (loading) {
 
     function initBlockedTab(view) {
         function unblockIds(ids) {
-            esFetch('/EmbyStreams/Admin/UnblockItems', {
+            esFetch('/InfiniteDrive/Admin/UnblockItems', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ ItemIds: ids })

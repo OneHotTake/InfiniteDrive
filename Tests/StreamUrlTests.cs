@@ -1,9 +1,9 @@
 using System;
-using EmbyStreams.Services;
+using InfiniteDrive.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace EmbyStreams.Tests
+namespace InfiniteDrive.Tests
 {
     /// <summary>
     /// Integration tests for stream URL construction.

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace EmbyStreams.Data
+namespace InfiniteDrive.Data
 {
     /// <summary>
     /// v3.3 database schema definitions.

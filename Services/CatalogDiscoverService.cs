@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Helper service that syncs the Discover catalog from AIOStreams.
@@ -23,7 +23,7 @@ namespace EmbyStreams.Services
 
         public CatalogDiscoverService(ILogManager logManager, DatabaseManager db)
         {
-            _logger = new EmbyLoggerAdapter<CatalogDiscoverService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<CatalogDiscoverService>(logManager.GetLogger("InfiniteDrive"));
             _db = db;
         }
 

@@ -1,6 +1,6 @@
 using System;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Type of source for catalog content.

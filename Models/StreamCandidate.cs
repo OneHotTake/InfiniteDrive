@@ -1,6 +1,6 @@
 using System;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// One ranked, playable stream URL for a given (imdb_id, season, episode).

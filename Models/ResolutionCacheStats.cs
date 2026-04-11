@@ -1,4 +1,4 @@
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Snapshot of <c>resolution_cache</c> row counts returned by

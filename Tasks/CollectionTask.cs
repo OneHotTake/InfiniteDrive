@@ -1,11 +1,11 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Services;
+using InfiniteDrive.Services;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Scheduled task for syncing collections.
@@ -23,10 +23,10 @@ namespace EmbyStreams.Tasks
             _logger = logger;
         }
 
-        public string Name => "EmbyStreams Collection Sync";
+        public string Name => "InfiniteDrive Collection Sync";
         public string Key => "embystreams_collections";
         public string Description => "Syncs sources with ShowAsCollection to Emby BoxSets";
-        public string Category => "EmbyStreams";
+        public string Category => "InfiniteDrive";
 
         /// <summary>
         /// Returns default triggers for this task (runs every 1 hour).

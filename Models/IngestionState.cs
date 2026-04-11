@@ -1,4 +1,4 @@
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Tracks per-source watermark and timing for incremental polling.

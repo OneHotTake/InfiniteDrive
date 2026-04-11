@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Scheduled task that detects catalog items previously recorded as real
@@ -36,9 +36,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string TaskName     = "EmbyStreams File Resurrection";
-        private const string TaskKey      = "EmbyStreamsFileResurrection";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskName     = "InfiniteDrive File Resurrection";
+        private const string TaskKey      = "InfiniteDriveFileResurrection";
+        private const string TaskCategory = "InfiniteDrive";
 
         // ── Fields ──────────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@ namespace EmbyStreams.Tasks
             Services.StrmWriterService     strmWriter)
         {
             _libraryManager = libraryManager;
-            _logger         = new EmbyLoggerAdapter<FileResurrectionTask>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<FileResurrectionTask>(logManager.GetLogger("InfiniteDrive"));
             _strmWriter    = strmWriter;
         }
 
@@ -92,20 +92,20 @@ namespace EmbyStreams.Tasks
         /// <inheritdoc/>
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[EmbyStreams] FileResurrectionTask started");
+            _logger.LogInformation("[InfiniteDrive] FileResurrectionTask started");
             progress.Report(0);
 
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
-                _logger.LogWarning("[EmbyStreams] Plugin configuration not available — aborting resurrection check");
+                _logger.LogWarning("[InfiniteDrive] Plugin configuration not available — aborting resurrection check");
                 return;
             }
 
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null)
             {
-                _logger.LogWarning("[EmbyStreams] DatabaseManager not available — aborting resurrection check");
+                _logger.LogWarning("[InfiniteDrive] DatabaseManager not available — aborting resurrection check");
                 return;
             }
 
@@ -117,19 +117,19 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Failed to query library-tracked items");
+                _logger.LogError(ex, "[InfiniteDrive] Failed to query library-tracked items");
                 return;
             }
 
             if (candidates.Count == 0)
             {
-                _logger.LogInformation("[EmbyStreams] No library-tracked items to check — resurrection pass skipped");
+                _logger.LogInformation("[InfiniteDrive] No library-tracked items to check — resurrection pass skipped");
                 progress.Report(100);
                 return;
             }
 
             _logger.LogInformation(
-                "[EmbyStreams] Resurrection check: {Count} library-tracked item(s) to verify", candidates.Count);
+                "[InfiniteDrive] Resurrection check: {Count} library-tracked item(s) to verify", candidates.Count);
 
             var checkedCount     = 0;
             var missingCount     = 0;
@@ -156,7 +156,7 @@ namespace EmbyStreams.Tasks
 
                 missingCount++;
                 _logger.LogInformation(
-                    "[EmbyStreams] '{Title}' ({ImdbId}): library file gone at '{Path}' — writing .strm fallback",
+                    "[InfiniteDrive] '{Title}' ({ImdbId}): library file gone at '{Path}' — writing .strm fallback",
                     item.Title, item.ImdbId, item.LocalPath);
 
                 try
@@ -175,7 +175,7 @@ namespace EmbyStreams.Tasks
                     if (strmPath == null)
                     {
                         _logger.LogWarning(
-                            "[EmbyStreams] '{Title}' ({ImdbId}): .strm write returned null — " +
+                            "[InfiniteDrive] '{Title}' ({ImdbId}): .strm write returned null — " +
                             "SyncPath may not be configured",
                             item.Title, item.ImdbId);
                         failedCount++;
@@ -188,7 +188,7 @@ namespace EmbyStreams.Tasks
 
                     resurrectedCount++;
                     _logger.LogInformation(
-                        "[EmbyStreams] '{Title}' ({ImdbId}): resurrected → '{StrmPath}'",
+                        "[InfiniteDrive] '{Title}' ({ImdbId}): resurrected → '{StrmPath}'",
                         item.Title, item.ImdbId, strmPath);
                 }
                 catch (OperationCanceledException)
@@ -198,7 +198,7 @@ namespace EmbyStreams.Tasks
                 catch (Exception ex)
                 {
                     _logger.LogError(ex,
-                        "[EmbyStreams] '{Title}' ({ImdbId}): resurrection failed",
+                        "[InfiniteDrive] '{Title}' ({ImdbId}): resurrection failed",
                         item.Title, item.ImdbId);
                     failedCount++;
                 }
@@ -207,7 +207,7 @@ namespace EmbyStreams.Tasks
             progress.Report(100);
 
             _logger.LogInformation(
-                "[EmbyStreams] FileResurrectionTask complete — " +
+                "[InfiniteDrive] FileResurrectionTask complete — " +
                 "checked: {Checked}, missing: {Missing}, resurrected: {Resurrected}, failed: {Failed}",
                 checkedCount, missingCount, resurrectedCount, failedCount);
 
@@ -223,11 +223,11 @@ namespace EmbyStreams.Tasks
             try
             {
                 _libraryManager.QueueLibraryScan();
-                _logger.LogInformation("[EmbyStreams] FileResurrectionTask: triggered Emby library scan");
+                _logger.LogInformation("[InfiniteDrive] FileResurrectionTask: triggered Emby library scan");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] FileResurrectionTask: failed to queue library scan");
+                _logger.LogWarning(ex, "[InfiniteDrive] FileResurrectionTask: failed to queue library scan");
             }
         }
     }

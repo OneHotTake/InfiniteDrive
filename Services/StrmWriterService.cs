@@ -3,13 +3,13 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Data;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Unified service for writing .strm files to disk.
@@ -30,7 +30,7 @@ namespace EmbyStreams.Services
         {
             _logManager = logManager;
             _db = db;
-            _logger = new EmbyLoggerAdapter<StrmWriterService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<StrmWriterService>(logManager.GetLogger("InfiniteDrive"));
         }
 
         /// <summary>
@@ -51,7 +51,7 @@ namespace EmbyStreams.Services
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
-                _logger.LogWarning("[EmbyStreams] StrmWriterService: Plugin configuration not available");
+                _logger.LogWarning("[InfiniteDrive] StrmWriterService: Plugin configuration not available");
                 return null;
             }
 
@@ -135,7 +135,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] StrmWriterService: failed to write NFO for {ImdbId}", item.ImdbId);
+                _logger.LogWarning(ex, "[InfiniteDrive] StrmWriterService: failed to write NFO for {ImdbId}", item.ImdbId);
             }
         }
 
@@ -195,8 +195,8 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Generates a signed URL for /EmbyStreams/resolve endpoint using resolve tokens.
-        /// Falls back to legacy /EmbyStreams/Play URL if PluginSecret is not configured.
+        /// Generates a signed URL for /InfiniteDrive/resolve endpoint using resolve tokens.
+        /// Falls back to legacy /InfiniteDrive/Play URL if PluginSecret is not configured.
         /// </summary>
         public static string BuildSignedStrmUrl(
             PluginConfiguration config,
@@ -219,7 +219,7 @@ namespace EmbyStreams.Services
 
                 var sb = new System.Text.StringBuilder();
                 sb.Append(baseUrl);
-                sb.Append("/EmbyStreams/resolve?");
+                sb.Append("/InfiniteDrive/resolve?");
                 sb.Append("token=").Append(Uri.EscapeDataString(token));
                 sb.Append("&quality=").Append(Uri.EscapeDataString(quality));
                 sb.Append("&id=").Append(Uri.EscapeDataString(imdbId));
@@ -240,8 +240,8 @@ namespace EmbyStreams.Services
             // Fallback: legacy authenticated endpoint (requires X-Emby-Token)
             var fallbackUrl = config.EmbyBaseUrl.TrimEnd('/');
             if (season.HasValue && episode.HasValue)
-                return $"{fallbackUrl}/EmbyStreams/Play?imdb={imdbId}&season={season}&episode={episode}";
-            return $"{fallbackUrl}/EmbyStreams/Play?imdb={imdbId}";
+                return $"{fallbackUrl}/InfiniteDrive/Play?imdb={imdbId}&season={season}&episode={episode}";
+            return $"{fallbackUrl}/InfiniteDrive/Play?imdb={imdbId}";
         }
 
         /// <summary>Removes filesystem-unsafe characters from a path segment.</summary>

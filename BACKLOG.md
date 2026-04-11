@@ -1,23 +1,13 @@
-# EmbyStreams Development Backlog
+# InfiniteDrive Development Backlog
 
-Versioning: `v0.{SPRINT}.{TASK}`
+Versioning: `v0.{SPRINT}.{TASK}` — current version 0.40.0.0
 
-**Current Status**: Sprint 156 Complete (Webhook Retirement & Unified Write Path) |
-                    Sprint 104 Complete (Beta Software Migration) |
-                    Sprints 105-108 Superseded (v3.3 Breaking Change) |
-                    Sprints 109-121 Planned (Full v3.3 Implementation) |
-                    Sprint 80 Complete |
-                    Sprint 79 Complete |
-                    Sprint 76 Complete |
-                    Sprint 75 Complete |
-                    Sprint 74 Complete |
-                    Sprint 73 Complete |
-                    Sprint 72 Complete |
-                    Sprint 71 Build Fix Complete |
-                    Sprint 70 Complete |
-                    Sprint 69 Complete |
-                    Sprint 68 Complete |
-                    Sprint 67 Complete |
+**Current Status**: Sprint 160 Complete (ID Normalization + NFO Fixes) |
+                    Sprints 155-159 Complete (CooldownGate, Webhooks, User Catalogs, Stream Probe) |
+                    Sprints 140-154 Complete (Security, UX, Refactoring, Emby Alignment) |
+                    Sprint 161+ — Next sprint. Start here.
+
+**Rename**: Project renamed from EmbyStreams to InfiniteDrive at version 0.40.0.0 (2026-04-11). Breaking change — fresh install required.
 
 ---
 

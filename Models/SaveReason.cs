@@ -1,4 +1,4 @@
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Reason why an item was saved by the user.

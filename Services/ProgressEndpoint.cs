@@ -4,14 +4,14 @@ using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Model.Services;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Endpoint for progress updates.
     /// Note: Full SSE streaming requires custom HTTP handling.
     /// Current implementation provides basic subscription management.
     /// </summary>
-    [Route("/EmbyStreams/Progress", "GET", Summary = "Progress updates endpoint")]
+    [Route("/InfiniteDrive/Progress", "GET", Summary = "Progress updates endpoint")]
     public class ProgressEndpoint : IReturn<object>
     {
         /// <summary>Unique session identifier for this subscription.</summary>
@@ -32,7 +32,7 @@ namespace EmbyStreams.Services
         public IRequest Request { get; set; } = null!;
 
         /// <summary>
-        /// Handles GET /EmbyStreams/Progress?sessionId=xxx&action=xxx
+        /// Handles GET /InfiniteDrive/Progress?sessionId=xxx&action=xxx
         /// </summary>
         public Task<object> Any(ProgressEndpoint request)
         {

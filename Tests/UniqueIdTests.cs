@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
-namespace EmbyStreams.Tests
+namespace InfiniteDrive.Tests
 {
     /// <summary>
     /// Unit tests for uniqueid type attribute correctness.

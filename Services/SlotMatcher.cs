@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Filters and ranks normalized <see cref="Candidate"/> objects against each

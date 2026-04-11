@@ -3,11 +3,11 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
+using InfiniteDrive.Logging;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Structured provider IDs resolved from a raw manifest item ID.
@@ -42,7 +42,7 @@ namespace EmbyStreams.Services
 
         public IdResolverService(ILogManager logManager)
         {
-            _logger = new EmbyLoggerAdapter<IdResolverService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<IdResolverService>(logManager.GetLogger("InfiniteDrive"));
             // AioMetadataClient is configured lazily from Plugin.Instance — we
             // create it on demand so IdResolverService can be a singleton.
         }

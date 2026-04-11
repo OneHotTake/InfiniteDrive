@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 using Microsoft.Extensions.Logging;
 using SQLitePCL.pretty;
 
-namespace EmbyStreams.Data
+namespace InfiniteDrive.Data
 {
     /// <summary>
     /// Repository for the <c>version_slots</c> table.

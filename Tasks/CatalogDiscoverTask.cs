@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Services;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Services;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Scheduled task that syncs the Discover catalog from AIOStreams.
@@ -20,9 +20,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string TaskName = "EmbyStreams Discover Sync";
-        private const string TaskKey = "EmbyStreamsCatalogDiscover";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskName = "InfiniteDrive Discover Sync";
+        private const string TaskKey = "InfiniteDriveCatalogDiscover";
+        private const string TaskCategory = "InfiniteDrive";
 
         // ── Fields ──────────────────────────────────────────────────────────────
 
@@ -36,7 +36,7 @@ namespace EmbyStreams.Tasks
         /// </summary>
         public CatalogDiscoverTask(ILogManager logManager)
         {
-            _logger = new EmbyLoggerAdapter<CatalogDiscoverTask>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<CatalogDiscoverTask>(logManager.GetLogger("InfiniteDrive"));
 
             var db = Plugin.Instance.DatabaseManager;
             _discoverService = new CatalogDiscoverService(logManager, db);

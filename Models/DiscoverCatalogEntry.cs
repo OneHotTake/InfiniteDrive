@@ -1,4 +1,4 @@
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Represents an available item in the Discover catalog (cached from AIOStreams).

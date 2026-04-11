@@ -4,13 +4,13 @@ using System.Diagnostics;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Result of a single user catalog sync operation.
@@ -52,7 +52,7 @@ namespace EmbyStreams.Services
             StrmWriterService strmWriter,
             CooldownGate? cooldown = null)
         {
-            _logger    = new EmbyLoggerAdapter<UserCatalogSyncService>(logManager.GetLogger("EmbyStreams"));
+            _logger    = new EmbyLoggerAdapter<UserCatalogSyncService>(logManager.GetLogger("InfiniteDrive"));
             _db        = db;
             _strmWriter = strmWriter;
             _cooldown  = cooldown;
