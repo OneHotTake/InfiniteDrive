@@ -237,259 +237,315 @@
   <div class="es-wizard-progress">
     <div class="es-wizard-step-indicator active" data-es-wizard-step="1">
       <div class="es-wizard-step-dot">1</div>
-      <div class="es-wizard-step-label">Provider</div>
+      <div class="es-wizard-step-label">Providers</div>
     </div>
     <div class="es-wizard-step-indicator" data-es-wizard-step="2">
       <div class="es-wizard-step-dot">2</div>
-      <div class="es-wizard-step-label">Preferences</div>
+      <div class="es-wizard-step-label">Your Setup</div>
     </div>
     <div class="es-wizard-step-indicator" data-es-wizard-step="3">
       <div class="es-wizard-step-dot">3</div>
-      <div class="es-wizard-step-label">Sync</div>
+      <div class="es-wizard-step-label">Catalogs</div>
     </div>
   </div>
 
   <!-- ── Step 1: Provider & Paths ── -->
   <div class="es-wizard-step-content active" data-es-wizard-content="1">
-    <div class="es-card">
-      <div class="es-card-title">AIOStreams Provider</div>
-      <p style="font-size:.88em;opacity:.7;margin:0 0 1em">Paste your AIOStreams manifest URL to connect your streaming source.</p>
 
-      <div class="inputContainer" style="margin-bottom:.4em">
+    <div style="margin-bottom:1.4em">
+      <h2 style="margin:0 0 .35em;font-size:1.25em;font-weight:700">Connect Your Streaming Provider</h2>
+      <p style="margin:0;font-size:.9em;opacity:.65;line-height:1.6">
+        InfiniteDrive bridges your AIOStreams instance to Emby.
+        Paste your manifest URL below and everything else follows.
+      </p>
+    </div>
+
+    <!-- ── AIOStreams Primary (required) ── -->
+    <div class="es-card es-card-accent">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
+        <div class="es-card-title" style="margin:0">AIOStreams</div>
+        <span style="font-size:.75em;font-weight:600;color:var(--theme-button-background,#00a4dc);
+                     background:rgba(0,164,220,.12);padding:.15em .55em;border-radius:99px">REQUIRED</span>
+      </div>
+      <p class="es-card-text">
+        Your AIOStreams manifest URL. This is the only required field.
+        AIOStreams supplies your catalog, your stream links, and optional metadata resolvers — all in one URL.
+      </p>
+      <div class="inputContainer" style="margin-bottom:.5em">
         <label class="inputLabel inputLabelUnfocused" for="wiz-aio-url">Manifest URL</label>
-        <input id="wiz-aio-url" type="url" is="emby-input" placeholder="https://yourdomain.com/stremio/uuid/token/manifest.json" />
-        <div class="es-hint">Don't have one? <a href="https://duckkota.gitlab.io/stremio-tools/quickstart/" target="_blank" rel="noopener" style="color:var(--theme-button-background,#00a4dc)">Create with Stremio Tools →</a></div>
+        <input id="wiz-aio-url" type="url" is="emby-input"
+               placeholder="https://yourdomain.com/stremio/uuid/token/manifest.json" />
+        <div class="es-hint">
+          Don't have one?
+          <a href="https://duckkota.gitlab.io/stremio-tools/quickstart/" target="_blank" rel="noopener"
+             style="color:var(--theme-button-background,#00a4dc)">Create one with Stremio Tools →</a>
+        </div>
       </div>
-
-      <div class="inputContainer" style="margin-bottom:.4em">
-        <label class="inputLabel inputLabelUnfocused" for="wiz-aio-metadata-url">AIOMetadata URL <span style="opacity:.6;font-size:.9em">(optional)</span></label>
-        <input id="wiz-aio-metadata-url" type="url" is="emby-input" placeholder="https://yourdomain.com/aio-metadata" />
-        <div class="es-hint">If you run a separate AIOMetadata service, enter its base URL here.</div>
-      </div>
-
-      <div class="es-src-row">
-        <button type="button" is="emby-button" class="raised button-submit" data-es-wiz-test="aio">Test Connection</button>
+      <div class="es-src-row" style="margin-bottom:.8em">
+        <button type="button" is="emby-button" class="raised button-submit"
+                data-es-wiz-test="aio" style="min-width:140px">Test Connection</button>
         <span class="es-src-status" id="wiz-aio-status"></span>
       </div>
+
+      <!-- Backup toggle -->
+      <div style="border-top:1px solid rgba(128,128,128,.12);padding-top:.85em;margin-top:.2em">
+        <label class="checkboxContainer">
+          <input type="checkbox" is="emby-checkbox" id="wiz-enable-backup-aio" />
+          <span class="checkboxLabel" style="font-size:.9em">
+            Enable a backup AIOStreams instance
+            <span style="font-weight:400;opacity:.6;font-size:.9em;display:block;margin-top:.1em">
+              If your primary is unreachable, InfiniteDrive falls back to this URL.
+            </span>
+          </span>
+        </label>
+        <div id="wiz-backup-aio-fields" style="display:none;margin-top:.75em">
+          <div class="inputContainer" style="margin-bottom:.5em">
+            <label class="inputLabel inputLabelUnfocused" for="wiz-aio-backup-url">Backup Manifest URL</label>
+            <input id="wiz-aio-backup-url" type="url" is="emby-input"
+                   placeholder="https://backup.yourdomain.com/stremio/uuid/token/manifest.json" />
+          </div>
+          <div class="es-src-row">
+            <button type="button" is="emby-button" class="raised button"
+                    data-es-wiz-test="aio-backup">Test Backup</button>
+            <span class="es-src-status" id="wiz-aio-backup-status"></span>
+          </div>
+        </div>
+      </div>
     </div>
 
+    <!-- ── AIOMetadata (optional) ── -->
     <div class="es-card">
-      <div class="es-card-title">Library Configuration</div>
-      <p style="font-size:.88em;opacity:.7;margin:0 0 1em">Configure your library paths and names on the next step.</p>
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
+        <div class="es-card-title" style="margin:0">AIOMetadata</div>
+        <span style="font-size:.75em;font-weight:600;opacity:.55;
+                     background:rgba(128,128,128,.12);padding:.15em .55em;border-radius:99px">OPTIONAL</span>
+      </div>
+      <p class="es-card-text">
+        <strong>InfiniteDrive uses Emby's built-in metadata engine — including any plugins you have
+        installed — as its primary source of truth.</strong>
+        AIOMetadata is a supplementary fallback for titles that Emby cannot identify: obscure releases,
+        certain anime, and content with non-standard IDs. Most setups don't need this.
+      </p>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="wiz-aio-metadata-url">
+          AIOMetadata Base URL
+        </label>
+        <input id="wiz-aio-metadata-url" type="url" is="emby-input"
+               placeholder="https://yourdomain.com/aio-metadata" />
+      </div>
     </div>
 
-    <!-- Connection result (hidden by default) -->
-    <div id="wiz-connection-result" style="display:none" class="es-alert es-alert-success">
-      <strong>✓ Connected!</strong> Your AIOStreams provider is reachable.
+    <!-- ── Cinemeta (optional) ── -->
+    <div class="es-card">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
+        <div class="es-card-title" style="margin:0">Cinemeta</div>
+        <span style="font-size:.75em;font-weight:600;opacity:.55;
+                     background:rgba(128,128,128,.12);padding:.15em .55em;border-radius:99px">OPTIONAL</span>
+      </div>
+      <p class="es-card-text">
+        Cinemeta is Stremio's public catalog. When enabled, InfiniteDrive uses it as a last-resort fallback
+        to fill in titles that neither Emby nor AIOMetadata can identify. Useful for obscure anime
+        and international content.
+      </p>
+      <label class="checkboxContainer">
+        <input type="checkbox" is="emby-checkbox" id="wiz-use-cinemeta" checked />
+        <span class="checkboxLabel">Use Cinemeta as a metadata fallback</span>
+      </label>
     </div>
-  </div>
 
-  <!-- ── Step 2: Preferences (Content + Metadata + Catalogs) ── -->
+    <!-- ── System RSS Feeds (optional) ── -->
+    <div class="es-card">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.3em">
+        <div class="es-card-title" style="margin:0">System RSS Feeds</div>
+        <span style="font-size:.75em;font-weight:600;opacity:.55;
+                     background:rgba(128,128,128,.12);padding:.15em .55em;border-radius:99px">OPTIONAL</span>
+      </div>
+      <p class="es-card-text">
+        RSS feeds added here are available to <strong>every user on this server.</strong>
+        Individual users can add their own private feeds in their account settings.
+        Leave blank if you don't need server-wide RSS sources.
+      </p>
+      <div class="es-alert es-alert-warn" style="font-size:.82em;margin-bottom:.75em;padding:.6em .8em">
+        Content from system RSS feeds is visible to all users regardless of parental controls.
+        Only add feeds appropriate for your entire audience.
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="wiz-rss-feeds">
+          Feed URLs <span style="opacity:.6">(one per line)</span>
+        </label>
+        <textarea id="wiz-rss-feeds" is="emby-textarea" rows="3"
+                  style="font-size:.85em;font-family:monospace;width:100%"
+                  placeholder="https://example.com/feed.rss"></textarea>
+      </div>
+    </div>
+
+  </div><!-- /step 1 -->
+
+  <!-- ── Step 2: Your Setup ── -->
   <div class="es-wizard-step-content" data-es-wizard-content="2">
-    <!-- Content Libraries -->
+
+    <div style="margin-bottom:1.4em">
+      <h2 style="margin:0 0 .35em;font-size:1.25em;font-weight:700">Your Setup</h2>
+      <p style="margin:0;font-size:.9em;opacity:.65;line-height:1.6">
+        Where InfiniteDrive stores files, what your libraries are named,
+        and how to reach your Emby server.
+      </p>
+    </div>
+
+    <!-- ── Library Locations ── -->
     <div class="es-card">
-      <div class="es-card-title">Content Libraries</div>
-      <p style="font-size:.88em;opacity:.7;margin:0 0 1em">Configure paths and library names for your content.</p>
-
-      <div class="inputContainer" style="margin-bottom:.8em">
-        <label class="inputLabel inputLabelUnfocused" for="wiz-base-path">Base sync path</label>
+      <div class="es-card-title">Library Locations</div>
+      <p class="es-card-text">
+        InfiniteDrive creates lightweight <code>.strm</code> files that Emby reads as a virtual library.
+        Choose a base path — movies, shows, and anime folders are created inside it automatically.
+      </p>
+      <div class="inputContainer" style="margin-bottom:.35em">
+        <label class="inputLabel inputLabelUnfocused" for="wiz-base-path">Base path</label>
         <input id="wiz-base-path" type="text" is="emby-input" placeholder="/media/infinitedrive" />
-        <div class="es-hint">Subfolders: <code>catalog/movies</code>, <code>catalog/shows</code>, <code>discover/movies</code>, <code>discover/shows</code></div>
       </div>
-      <div id="wiz-derived-paths" style="font-size:.85em;opacity:.6;margin:.2em 0 .6em">
-        Movies: <code id="wiz-derived-movies"></code> &nbsp;|&nbsp; Shows: <code id="wiz-derived-shows"></code>
+      <div id="wiz-derived-paths"
+           style="font-size:.82em;opacity:.55;margin:.15em 0 .8em;font-family:monospace;line-height:1.8">
+        movies/ &nbsp;→&nbsp; <span id="wiz-derived-movies"></span><br/>
+        shows/ &nbsp;&nbsp;→&nbsp; <span id="wiz-derived-shows"></span>
       </div>
 
-      <div style="display:flex;flex-direction:column;gap:1em;margin-top:.8em">
-        <div>
-          <label class="checkboxContainer">
-            <input type="checkbox" is="emby-checkbox" id="wiz-enable-movies" checked disabled />
-            <span class="checkboxLabel">Movies <span style="opacity:.5;font-size:.9em">(required)</span></span>
-          </label>
-          <div class="inputContainer" style="margin-left:2em;margin-top:.4em">
-            <label class="inputLabel inputLabelUnfocused" for="wiz-library-name-movies">Movies library name</label>
-            <input id="wiz-library-name-movies" type="text" is="emby-input" placeholder="Streamed Movies" />
-            <div class="es-hint">Name for the Emby library</div>
+      <!-- Library toggles -->
+      <div style="display:grid;gap:.6em">
+        <!-- Movies (always on) -->
+        <div style="display:flex;align-items:center;gap:.75em">
+          <input type="checkbox" is="emby-checkbox" id="wiz-enable-movies" checked disabled
+                 style="flex-shrink:0" />
+          <div style="flex:1;min-width:0">
+            <label style="font-size:.88em;font-weight:600;display:block;margin-bottom:.2em">Movies</label>
+            <input id="wiz-library-name-movies" type="text" is="emby-input"
+                   placeholder="Streamed Movies" style="margin:0" />
           </div>
         </div>
-
-        <div>
-          <label class="checkboxContainer">
-            <input type="checkbox" is="emby-checkbox" id="wiz-enable-series" checked disabled />
-            <span class="checkboxLabel">TV Series <span style="opacity:.5;font-size:.9em">(required)</span></span>
-          </label>
-          <div class="inputContainer" style="margin-left:2em;margin-top:.4em">
-            <label class="inputLabel inputLabelUnfocused" for="wiz-library-name-series">Series library name</label>
-            <input id="wiz-library-name-series" type="text" is="emby-input" placeholder="Streamed Series" />
-            <div class="es-hint">Name for the Emby library</div>
+        <!-- Series (always on) -->
+        <div style="display:flex;align-items:center;gap:.75em">
+          <input type="checkbox" is="emby-checkbox" id="wiz-enable-series" checked disabled
+                 style="flex-shrink:0" />
+          <div style="flex:1;min-width:0">
+            <label style="font-size:.88em;font-weight:600;display:block;margin-bottom:.2em">Series</label>
+            <input id="wiz-library-name-series" type="text" is="emby-input"
+                   placeholder="Streamed Series" style="margin:0" />
           </div>
         </div>
-
-        <div>
-          <label class="checkboxContainer">
-            <input type="checkbox" is="emby-checkbox" id="wiz-enable-anime" />
-            <span class="checkboxLabel">Anime Content <span style="opacity:.5;font-size:.9em">(separate library)</span></span>
-          </label>
-          <div class="es-hint" style="margin-left:2em">Creates a separate anime library. Best with the Emby Anime plugin installed.</div>
-          <div class="inputContainer" style="margin-left:2em;margin-top:.4em">
-            <label class="inputLabel inputLabelUnfocused" for="wiz-library-name-anime">Anime library name</label>
-            <input id="wiz-library-name-anime" type="text" is="emby-input" placeholder="Streamed Anime" />
-            <div class="es-hint">Name for the Emby library</div>
+        <!-- Anime (optional) -->
+        <div style="display:flex;align-items:center;gap:.75em">
+          <input type="checkbox" is="emby-checkbox" id="wiz-enable-anime" style="flex-shrink:0" />
+          <div style="flex:1;min-width:0">
+            <label style="font-size:.88em;font-weight:600;display:block;margin-bottom:.2em">
+              Anime
+              <span style="font-weight:400;opacity:.55;font-size:.9em">
+                — separate library for anime titles
+              </span>
+            </label>
+            <input id="wiz-library-name-anime" type="text" is="emby-input"
+                   placeholder="Streamed Anime" style="margin:0" />
           </div>
         </div>
       </div>
     </div>
 
-
-    <!-- Metadata Preferences -->
+    <!-- ── Emby Server URL ── -->
     <div class="es-card">
-      <div class="es-card-title">Metadata Preferences</div>
-      <p style="font-size:.88em;opacity:.7;margin:0 0 1em">Customize the language and region for your library metadata.</p>
+      <div class="es-card-title">Emby Server URL</div>
+      <p class="es-card-text">
+        InfiniteDrive uses this URL when generating playback links.
+        We've pre-filled it from your browser — but if users access Emby from outside your network,
+        use a domain name instead of an IP address so links remain valid everywhere.
+      </p>
+      <div class="inputContainer" style="margin-bottom:.4em">
+        <label class="inputLabel inputLabelUnfocused" for="wiz-emby-base-url">Server URL</label>
+        <input id="wiz-emby-base-url" type="url" is="emby-input"
+               placeholder="https://emby.yourdomain.com" />
+      </div>
+      <div class="es-hint" id="wiz-emby-url-hint" style="font-size:.82em">
+        Inferred from your browser: <strong id="wiz-emby-url-inferred"></strong>.
+        Change this only if Emby is accessible at a different public address.
+      </div>
+    </div>
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:.8em">
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="wiz-meta-lang">Metadata Language</label>
+    <!-- ── Language & Region ── -->
+    <div class="es-card">
+      <div class="es-card-title">Language &amp; Region</div>
+      <p class="es-card-text">
+        Used when fetching metadata, artwork, and episode titles.
+        Pick the language your library should default to.
+      </p>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.75em">
+        <div class="inputContainer" style="margin:0">
+          <label class="inputLabel inputLabelUnfocused" for="wiz-meta-lang">Metadata language</label>
           <select id="wiz-meta-lang" is="emby-select" style="width:100%">
             <option value="en">English</option>
-            <option value="es">Español (Spanish)</option>
-            <option value="fr">Français (French)</option>
-            <option value="de">Deutsch (German)</option>
-            <option value="it">Italiano (Italian)</option>
-            <option value="ja">日本語 (Japanese)</option>
-            <option value="pt">Português (Portuguese)</option>
-            <option value="ru">Русский (Russian)</option>
-            <option value="zh">中文 (Chinese)</option>
-            <option value="ko">한국어 (Korean)</option>
-            <option value="pl">Polski (Polish)</option>
-            <option value="nl">Nederlands (Dutch)</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="it">Italian</option>
+            <option value="pt">Portuguese</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
+            <option value="zh">Chinese</option>
           </select>
         </div>
-
-        <div class="inputContainer">
+        <div class="inputContainer" style="margin:0">
           <label class="inputLabel inputLabelUnfocused" for="wiz-meta-country">Country</label>
           <select id="wiz-meta-country" is="emby-select" style="width:100%">
             <option value="US">United States</option>
             <option value="GB">United Kingdom</option>
-            <option value="AU">Australia</option>
             <option value="CA">Canada</option>
-            <option value="DE">Germany</option>
+            <option value="AU">Australia</option>
             <option value="FR">France</option>
-            <option value="IT">Italy</option>
-            <option value="ES">Spain</option>
+            <option value="DE">Germany</option>
             <option value="JP">Japan</option>
-            <option value="IN">India</option>
-            <option value="BR">Brazil</option>
-            <option value="MX">Mexico</option>
+            <option value="KR">South Korea</option>
           </select>
         </div>
-
-        <div class="inputContainer" style="grid-column:1/-1">
-          <label class="inputLabel inputLabelUnfocused" for="wiz-meta-img-lang">Poster Image Language</label>
+        <div class="inputContainer" style="margin:0">
+          <label class="inputLabel inputLabelUnfocused" for="wiz-meta-img-lang">Artwork language</label>
           <select id="wiz-meta-img-lang" is="emby-select" style="width:100%">
             <option value="en">English</option>
-            <option value="es">Español (Spanish)</option>
-            <option value="fr">Français (French)</option>
-            <option value="de">Deutsch (German)</option>
-            <option value="it">Italiano (Italian)</option>
-            <option value="ja">日本語 (Japanese)</option>
-            <option value="pt">Português (Portuguese)</option>
-            <option value="ru">Русский (Russian)</option>
-            <option value="zh">中文 (Chinese)</option>
-            <option value="ko">한국어 (Korean)</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="ja">Japanese</option>
+            <option value="ko">Korean</option>
           </select>
         </div>
       </div>
     </div>
 
-    <div class="es-card">
-      <div class="es-card-title">Metadata Source</div>
-      <label class="checkboxContainer">
-        <input type="checkbox" is="emby-checkbox" id="wiz-use-cinemeta" checked />
-        <span class="checkboxLabel">Use Cinemeta for rich metadata</span>
-      </label>
-      <div class="es-hint" style="margin-left:2em">Recommended. Cinemeta is used as a fallback catalog to fill in missing titles and metadata when your AIOStreams manifest doesn't include them.</div>
+  </div><!-- /step 2 -->
+
+  <!-- ── Step 3: Catalogs ── -->
+  <div class="es-wizard-step-content" data-es-wizard-content="3">
+
+    <div style="margin-bottom:1.4em">
+      <h2 style="margin:0 0 .35em;font-size:1.25em;font-weight:700">Choose Your Catalogs</h2>
+      <p style="margin:0;font-size:.9em;opacity:.65;line-height:1.6">
+        These are the catalogs your AIOStreams manifest provides.
+        Select which ones you want synced to Emby. You can change this at any time.
+      </p>
     </div>
 
-    <!-- AIOStreams Catalogs -->
+    <!-- Catalog loader panel -->
     <div class="es-card">
-      <div class="es-card-title">AIOStreams Catalogs</div>
-      <p style="font-size:.88em;opacity:.7;margin:0 0 1em">Select which catalogs to sync. You can always change this later.</p>
-
-      <div style="display:flex;gap:.4em;margin-bottom:.5em">
-        <a data-es-select="wiz" data-es-select-val="true" style="cursor:pointer;font-size:.8em;opacity:.7;margin-right:.8em">Select all</a>
-        <a data-es-select="wiz" data-es-select-val="false" style="cursor:pointer;font-size:.8em;opacity:.7;margin-right:.8em">Select none</a>
-        <button type="button" is="emby-button" class="raised button" data-es-load-catalogs="wiz" style="font-size:.8em">↻ Refresh</button>
+      <div id="wiz-catalog-panel">
+        <div style="text-align:center;padding:2em 0;opacity:.5;font-size:.9em">
+          Loading catalogs from your manifest…
+        </div>
       </div>
-
-      <div id="es-catalog-panel-wiz" class="es-catalog-prog-wrap">
-        <span style="display:block;padding:.5em;opacity:.45;font-size:.85em">Click Test Connection on Step 1 to load catalogs.</span>
-      </div>
-
       <input type="hidden" id="wiz-catalog-ids" value="" />
     </div>
-  </div>
 
-  <!-- ── Step 3: Sync (Live Progress with Auto Doctor) ── -->
-  <div class="es-wizard-step-content" data-es-wizard-content="3">
-    <div class="es-card es-card-accent">
-      <div class="es-card-title">Ready to Start</div>
-      <p style="font-size:.95em;opacity:.8;margin:0 0 1em;line-height:1.5">You've completed the setup! Here's what will happen:</p>
-
-      <ul class="es-next-list">
-        <li><span class="es-next-check">✓</span> Your settings will be saved</li>
-        <li><span class="es-next-check">✓</span> Library directories will be created</li>
-        <li><span class="es-next-check">✓</span> First catalog sync will start</li>
-        <li><span class="es-next-check">✓</span> Doctor will run automatically to reconcile your catalog</li>
-        <li><span class="es-next-check">✓</span> .strm files will be generated</li>
-      </ul>
-
-      <div class="es-divider"></div>
-
-      <div style="font-size:.85em;opacity:.7;margin-bottom:.5em">
-        <strong>Sync paths:</strong><br/>
-        Movies: <code id="wiz-summary-movies">/media/infinitedrive/catalog/movies</code><br/>
-        Series: <code id="wiz-summary-series">/media/infinitedrive/catalog/shows</code><br/>
-        <span id="wiz-summary-anime-row" style="display:none">Anime: <code id="wiz-summary-anime">/media/infinitedrive/anime</code><br/></span>
-      </div>
-
-      <div class="es-hint">Make sure you've created Emby libraries pointing to these paths before syncing.</div>
+    <!-- Summary strip (shown after catalogs load) -->
+    <div id="wiz-catalog-summary" style="display:none"
+         class="es-hint" style="margin-top:.5em;text-align:center">
+      <span id="wiz-catalog-summary-text"></span>
     </div>
 
-    <div class="es-cta-row">
-      <button type="button" is="emby-button" class="raised button-submit" data-es-wiz-finish="true">Save & Start First Sync</button>
-    </div>
-
-    <!-- Live Progress Section (shown after clicking Save & Start) -->
-    <div id="es-wizard-progress-section" style="display:none;margin-top:2em">
-      <div class="es-card" style="border-color:rgba(40,167,69,0.3);background:rgba(40,167,69,0.03)">
-        <div style="display:flex;align-items:center;gap:.5em;margin-bottom:.75em">
-          <span style="font-size:1.2em">🔄</span>
-          <h3 style="margin:0">Initial Setup in Progress</h3>
-        </div>
-
-        <div id="es-wizard-progress-steps" style="display:flex;flex-direction:column;gap:.5em;font-size:.9em">
-          <div class="es-progress-step" data-step="save">
-            <span class="es-progress-icon">○</span> Saving settings...
-          </div>
-          <div class="es-progress-step" data-step="sync">
-            <span class="es-progress-icon">○</span> Syncing catalog from AIOStreams...
-          </div>
-          <div class="es-progress-step" data-step="doctor">
-            <span class="es-progress-icon">○</span> Running Doctor to reconcile catalog...
-          </div>
-          <div class="es-progress-step" data-step="strm">
-            <span class="es-progress-icon">○</span> Generating .strm files...
-          </div>
-        </div>
-
-        <div class="es-track" style="margin-top:1.2em">
-          <div class="es-fill" id="es-wizard-progress-bar" style="width:0%"></div>
-        </div>
-
-        <div id="es-wizard-progress-msg" style="font-size:.85em;opacity:.7;margin-top:.5em"></div>
-      </div>
-    </div>
-  </div>
+  </div><!-- /step 3 -->
 
   <!-- ── Completion Screen (shown after first sync) ── -->
   <div id="es-wizard-complete" style="display:none">
@@ -523,7 +579,7 @@
   <div class="es-wizard-nav" id="es-wizard-nav">
     <button type="button" is="emby-button" class="raised button" data-es-wiz-back="" style="display:none">← Back</button>
     <div style="flex:1"></div>
-    <button type="button" is="emby-button" class="raised button-submit" data-es-wiz-next="2">Next →</button>
+    <button type="button" is="emby-button" class="raised button-submit" data-es-wiz-next="2" id="wiz-next-btn">Next →</button>
   </div>
 
   <!-- Sync Progress (shown during first sync) -->
@@ -1039,6 +1095,22 @@
                 Opens configuration on <strong id="manifestHostName"></strong>
             </div>
         </div>
+
+        <!-- Backup AIOStreams toggle -->
+        <div style="margin-top:.75em">
+          <label class="checkboxContainer">
+            <input type="checkbox" is="emby-checkbox" id="cfg-enable-backup-aio" />
+            <span class="checkboxLabel">Enable backup AIOStreams instance</span>
+          </label>
+          <div id="cfg-backup-aio-fields" style="display:none;margin-top:.75em">
+            <div class="inputContainer">
+              <label class="inputLabel inputLabelUnfocused" for="cfg-aio-backup-url">Backup Manifest URL</label>
+              <input id="cfg-aio-backup-url" type="url" is="emby-input"
+                     placeholder="https://backup.yourdomain.com/stremio/uuid/token/manifest.json" />
+            </div>
+          </div>
+        </div>
+
         <div class="inputContainer" style="margin-top:.8em">
           <label class="inputLabel inputLabelUnfocused" for="cfg-aio-metadata-url">AIOMetadata URL <span style="opacity:.6;font-size:.9em">(optional)</span></label>
           <input id="cfg-aio-metadata-url" type="url" is="emby-input" placeholder="https://yourdomain.com/aio-metadata" />
@@ -1047,6 +1119,25 @@
         <div class="inputContainer" style="display:none">
           <label class="inputLabel inputLabelUnfocused" for="cfg-aio-fallback-urls">Fallback AIOStreams URLs (deprecated)</label>
           <textarea id="cfg-aio-fallback-urls" is="emby-textarea" rows="2" style="font-size:.85em;font-family:monospace;width:100%"></textarea>
+        </div>
+      </div>
+
+      <!-- System RSS Feeds -->
+      <div class="es-card" id="cfg-section-rss">
+        <h3>System RSS Feeds</h3>
+        <p class="es-hint" style="margin-bottom:.75em">
+          RSS feeds available to <strong>every user</strong> on this server.
+          Individual users can add private feeds in their account settings.
+        </p>
+        <div class="es-alert es-alert-warn" style="font-size:.82em;margin-bottom:.75em;padding:.6em .8em">
+          Content from system RSS feeds is visible to all users regardless of parental controls.
+          Only add feeds appropriate for your entire audience.
+        </div>
+        <div class="inputContainer">
+          <label class="inputLabel inputLabelUnfocused" for="cfg-rss-feeds">Feed URLs <span style="opacity:.6">(one per line)</span></label>
+          <textarea id="cfg-rss-feeds" is="emby-textarea" rows="3"
+                    style="font-size:.85em;font-family:monospace;width:100%"
+                    placeholder="https://example.com/feed.rss"></textarea>
         </div>
       </div>
 

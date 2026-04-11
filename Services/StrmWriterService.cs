@@ -55,6 +55,35 @@ namespace InfiniteDrive.Services
                 return null;
             }
 
+            var isAnime = string.Equals(item.CatalogType, "anime", StringComparison.OrdinalIgnoreCase);
+            if (isAnime && config.EnableAnimeLibrary && !string.IsNullOrWhiteSpace(config.SyncPathAnime))
+            {
+                var animeFolder = Path.Combine(
+                    config.SyncPathAnime,
+                    SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
+
+                if (item.MediaType == "movie")
+                {
+                    Directory.CreateDirectory(animeFolder);
+                    var animeFileName = $"{SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
+                    var animePath = Path.Combine(animeFolder, animeFileName);
+                    WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
+                    WriteNfoFileIfEnabled(config, item, animePath, originSourceType);
+                    await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
+                    return animePath;
+                }
+                else
+                {
+                    var animeSeasonDir = Path.Combine(animeFolder, "Season 01");
+                    Directory.CreateDirectory(animeSeasonDir);
+                    var animeStrmPath = Path.Combine(animeSeasonDir, $"{SanitisePath(item.Title)} S01E01.strm");
+                    WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
+                    WriteNfoFileIfEnabled(config, item, animeStrmPath, originSourceType);
+                    await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
+                    return animeStrmPath;
+                }
+            }
+
             if (item.MediaType == "movie")
             {
                 if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return null;

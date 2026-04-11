@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using InfiniteDrive.Logging;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
@@ -70,20 +71,60 @@ namespace InfiniteDrive.Services
     }
 
     /// <summary>
+    /// Request to create Emby virtual folder libraries.
+    /// </summary>
+    [Route("/InfiniteDrive/Setup/ProvisionLibraries", "POST",
+        Summary = "Create Emby library entries for InfiniteDrive paths if they do not exist")]
+    public class ProvisionLibrariesRequest : IReturn<ProvisionLibrariesResponse> { }
+
+    /// <summary>Response from library provisioning.</summary>
+    public class ProvisionLibrariesResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = string.Empty;
+    }
+
+    /// <summary>
     /// Service for setup operations (creating directories, rotating API keys, etc.).
     /// Called by the wizard during initial configuration and user maintenance.
     /// </summary>
     public class SetupService : IService, IRequiresRequest
     {
         private readonly ILogger<SetupService> _logger;
+        private readonly ILogManager _logManager;
         private readonly IAuthorizationContext _authCtx;
+        private readonly ILibraryManager _libraryManager;
 
         public IRequest Request { get; set; } = null!;
 
-        public SetupService(ILogManager logManager, IAuthorizationContext authCtx)
+        public SetupService(ILogManager logManager, IAuthorizationContext authCtx, ILibraryManager libraryManager)
         {
+            _logManager = logManager;
             _logger = new EmbyLoggerAdapter<SetupService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
+            _libraryManager = libraryManager;
+        }
+
+        /// <summary>
+        /// Creates Emby library entries for all configured InfiniteDrive paths.
+        /// Idempotent — safe to call on every wizard run.
+        /// </summary>
+        public async Task<object> Post(ProvisionLibrariesRequest _)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            var service = new LibraryProvisioningService(
+                _libraryManager,
+                new EmbyLoggerAdapter<LibraryProvisioningService>(_logManager.GetLogger("InfiniteDrive")));
+
+            await service.EnsureLibrariesProvisionedAsync();
+
+            return new ProvisionLibrariesResponse
+            {
+                Success = true,
+                Message = "Libraries provisioned"
+            };
         }
 
         public object Post(CreateDirectoriesRequest request)

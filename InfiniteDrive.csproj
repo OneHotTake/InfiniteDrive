@@ -17,9 +17,10 @@
   </PropertyGroup>
 
     <!-- Conditional compilation for Emby ContentSection API availability -->
-    <PropertyGroup>
-      <DefineConstants>EMBY_HAS_CONTENTSECTION_API=0</DefineConstants>
-    </PropertyGroup>
+    <!-- Note: Define EMBY_HAS_CONTENTSECTION_API when real 4.10.0.8-beta DLLs are available -->
+    <!-- PropertyGroup>
+      <DefineConstants>EMBY_HAS_CONTENTSECTION_API</DefineConstants>
+    </PropertyGroup-->
 
     <!-- Release: treat all remaining warnings as errors for a clean production build -->
   <PropertyGroup Condition="'$(Configuration)'=='Release'">

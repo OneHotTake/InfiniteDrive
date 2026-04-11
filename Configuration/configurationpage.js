@@ -129,6 +129,16 @@ function (loading) {
                 nextBtn.style.display = 'block';
                 nextBtn.removeAttribute('disabled');
                 nextBtn.setAttribute('data-es-wiz-next', step + 1);
+                // Apple-style nav: step 3 shows "Finish & Sync" instead of "Next →"
+                if (step === 3) {
+                    nextBtn.textContent = 'Finish & Sync';
+                    nextBtn.setAttribute('data-es-wiz-finish', 'true');
+                    nextBtn.removeAttribute('data-es-wiz-next');
+                } else {
+                    nextBtn.textContent = 'Next \u2192';
+                    nextBtn.removeAttribute('data-es-wiz-finish');
+                    nextBtn.setAttribute('data-es-wiz-next', step + 1);
+                }
             }
         }
 
@@ -142,17 +152,33 @@ function (loading) {
         function chk(id, v) { var el = q(view, id); if (el) el.checked = !!v; }
 
         // Populate wizard fields from config
-        set('wiz-aio-url',             cfg.PrimaryManifestUrl || '');
-        set('wiz-aio-metadata-url',    cfg.AioMetadataBaseUrl || '');
-        set('wiz-base-path',       cfg.SyncPathBase || '/media/infinitedrive');
-        set('wiz-library-name-movies', cfg.LibraryNameMovies || 'Streamed Movies');
-        set('wiz-library-name-series', cfg.LibraryNameSeries || 'Streamed Series');
-        set('wiz-library-name-anime', cfg.LibraryNameAnime || 'Streamed Anime');
-        set('wiz-meta-lang',       cfg.MetadataLanguage || 'en');
-        set('wiz-meta-country',    cfg.MetadataCountry || 'US');
-        set('wiz-meta-img-lang',   cfg.ImageLanguage || 'en');
-        chk('wiz-enable-anime',   cfg.EnableAnimeLibrary || false);
-        chk('wiz-use-cinemeta',   cfg.EnableCinemetaCatalog != null ? cfg.EnableCinemetaCatalog : true);
+        set('wiz-aio-url',              cfg.PrimaryManifestUrl || '');
+        set('wiz-aio-backup-url',       cfg.SecondaryManifestUrl || '');
+        set('wiz-aio-metadata-url',     cfg.AioMetadataBaseUrl || '');
+        set('wiz-rss-feeds',            cfg.SystemRssFeedUrls || '');
+        set('wiz-base-path',            cfg.SyncPathBase || '/media/infinitedrive');
+        set('wiz-library-name-movies',   cfg.LibraryNameMovies || 'Streamed Movies');
+        set('wiz-library-name-series',  cfg.LibraryNameSeries || 'Streamed Series');
+        set('wiz-library-name-anime',   cfg.LibraryNameAnime || 'Streamed Anime');
+        set('wiz-meta-lang',            cfg.MetadataLanguage || 'en');
+        set('wiz-meta-country',         cfg.MetadataCountry || 'US');
+        set('wiz-meta-img-lang',        cfg.ImageLanguage || 'en');
+        set('wiz-emby-base-url',        cfg.EmbyBaseUrl || window.location.origin);
+        chk('wiz-enable-anime',         cfg.EnableAnimeLibrary || false);
+        chk('wiz-use-cinemeta',         cfg.EnableCinemetaCatalog != null ? cfg.EnableCinemetaCatalog : true);
+        chk('wiz-enable-backup-aio',    cfg.EnableBackupAioStreams || false);
+
+        // Show inferred Emby URL hint
+        var inferredEl = q(view, 'wiz-emby-url-inferred');
+        if (inferredEl) inferredEl.textContent = window.location.origin;
+
+        // Backup AIOStreams toggle visibility
+        var backupChk = q(view, 'wiz-enable-backup-aio');
+        var backupFields = q(view, 'wiz-backup-aio-fields');
+        function syncBackupVisibility() {
+            if (backupFields) backupFields.style.display = backupChk && backupChk.checked ? 'block' : 'none';
+        }
+        if (backupChk) { backupChk.addEventListener('change', syncBackupVisibility); syncBackupVisibility(); }
 
         // Reset test success when URL changes
         var urlField = q(view, 'wiz-aio-url');
@@ -476,8 +502,8 @@ function (loading) {
         }
 
         if (step === 3) {
-            // Prepare summary
-            updateWizardSummary(view);
+            // Auto-load catalogs when entering step 3 — no button required
+            loadCatalogs(view, 'wiz');
         }
 
         showWizardStep(view, step);
@@ -761,7 +787,18 @@ function (loading) {
             else el.value = v != null ? v : '';
         }
         set('cfg-manifest-url',           cfg.PrimaryManifestUrl);
-        set('cfg-aio-metadata-url',       cfg.AioMetadataBaseUrl);
+        set('cfg-aio-backup-url',        cfg.SecondaryManifestUrl || '');
+        set('cfg-aio-metadata-url',     cfg.AioMetadataBaseUrl);
+        set('cfg-rss-feeds',             cfg.SystemRssFeedUrls || '');
+        chk('cfg-enable-backup-aio',     cfg.EnableBackupAioStreams || false);
+
+        // Sync backup AIOStreams visibility
+        var backupChk = q(view, 'cfg-enable-backup-aio');
+        var backupFields = q(view, 'cfg-backup-aio-fields');
+        function syncCfgBackup() {
+            if (backupFields) backupFields.style.display = backupChk && backupChk.checked ? 'block' : 'none';
+        }
+        if (backupChk) { backupChk.addEventListener('change', syncCfgBackup); syncCfgBackup(); }
         // Sprint 11: BaseSyncPath with derived subpaths
         var base = cfg.BaseSyncPath || '/media/infinitedrive';
         set('cfg-base-path', base);
@@ -1009,7 +1046,11 @@ function (loading) {
         var cfg = {
             PrimaryManifestUrl:         esVal(view, 'cfg-manifest-url'),
             AioMetadataBaseUrl:         esVal(view, 'cfg-aio-metadata-url'),
-            SecondaryManifestUrl:       '',
+            EnableBackupAioStreams:     esChk(view, 'cfg-enable-backup-aio'),
+            SecondaryManifestUrl:      esChk(view, 'cfg-enable-backup-aio')
+                                           ? esVal(view, 'cfg-aio-backup-url') || ''
+                                           : '',
+            SystemRssFeedUrls:          esVal(view, 'cfg-rss-feeds') || '',
             SyncPathMovies:             esVal(view, 'cfg-base-path') + '/movies',
             SyncPathShows:              esVal(view, 'cfg-base-path') + '/shows',
             BaseSyncPath:               esVal(view, 'cfg-base-path'),
@@ -2199,11 +2240,12 @@ function (loading) {
     var _wizardTestRetryCount = 0;
 
     function testWizardConnection(view, type) {
-        var url = esVal(view, 'wiz-aio-url');
-        var statusEl = q(view, 'wiz-aio-status');
+        var isBackup = type === 'aio-backup';
+        var url = isBackup ? esVal(view, 'wiz-aio-backup-url') : esVal(view, 'wiz-aio-url');
+        var statusEl = q(view, isBackup ? 'wiz-aio-backup-status' : 'wiz-aio-status');
         var resultEl = q(view, 'wiz-connection-result');
 
-        if (!url || url === 'https://') {
+        if (!url || url === 'https://' || url === 'http://') {
             if (statusEl) { statusEl.textContent = 'Please enter a URL'; statusEl.style.color = '#dc3545'; }
             return;
         }
@@ -2326,6 +2368,11 @@ function (loading) {
         var config = {
             PrimaryManifestUrl: url,
             AioMetadataBaseUrl: esVal(view, 'wiz-aio-metadata-url') || '',
+            EnableBackupAioStreams: esChk(view, 'wiz-enable-backup-aio'),
+            SecondaryManifestUrl: esChk(view, 'wiz-enable-backup-aio')
+                                       ? esVal(view, 'wiz-aio-backup-url') || ''
+                                       : '',
+            SystemRssFeedUrls: esVal(view, 'wiz-rss-feeds') || '',
             SyncPathBase: esVal(view, 'wiz-base-path') || '/media/infinitedrive',
             LibraryNameMovies: esVal(view, 'wiz-library-name-movies') || 'Streamed Movies',
             LibraryNameSeries: esVal(view, 'wiz-library-name-series') || 'Streamed Series',
@@ -2335,8 +2382,8 @@ function (loading) {
             MetadataCountry: esVal(view, 'wiz-meta-country') || 'US',
             ImageLanguage: esVal(view, 'wiz-meta-img-lang') || 'en',
             EnableCinemetaCatalog: esChk(view, 'wiz-use-cinemeta'),
-            IsFirstRunComplete: true,
-            EmbyBaseUrl: window.location.origin
+            EmbyBaseUrl: esVal(view, 'wiz-emby-base-url') || window.location.origin,
+            IsFirstRunComplete: true
         };
 
         // Collect selected catalogs
@@ -2363,22 +2410,29 @@ function (loading) {
 
         if (progressEl) progressEl.style.display = 'block';
         if (wizardNav) wizardNav.style.display = 'none';
-        if (msgEl) { msgEl.textContent = 'Saving configuration and starting first sync…'; msgEl.className = 'es-alert es-alert-info'; }
+        if (msgEl) { msgEl.textContent = 'Saving configuration…'; msgEl.className = 'es-alert es-alert-info'; }
         if (barEl) barEl.style.width = '10%';
 
         ApiClient.updatePluginConfiguration(pluginId, pluginConfig)
             .then(function() {
                 if (barEl) barEl.style.width = '30%';
+                if (msgEl) msgEl.textContent = 'Creating Emby libraries…';
 
-                // Trigger catalog sync
+                // Create Emby library entries for all configured paths.
+                return esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'});
+            })
+            .then(function() {
+                if (barEl) barEl.style.width = '55%';
+                if (msgEl) msgEl.textContent = 'Starting sync…';
+
+                // Trigger catalog sync.
                 return esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'});
             })
             .then(function() {
-                if (barEl) barEl.style.width = '50%';
+                if (barEl) barEl.style.width = '75%';
 
-                // Animate sync progress
+                // Animate sync progress then show completion screen.
                 animateSyncProgress(view, function() {
-                    // Show completion screen after sync
                     setTimeout(function() {
                         if (progressEl) progressEl.style.display = 'none';
                         var completeDiv = q(view, 'es-wizard-complete');
