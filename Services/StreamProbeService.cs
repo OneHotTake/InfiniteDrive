@@ -17,7 +17,7 @@ namespace EmbyStreams.Services
 
     /// <summary>
     /// Lightweight HTTP probe service for stream availability checking.
-    /// Used by StreamResolutionService to verify that a candidate stream URL
+    /// Used by ResolverService to verify that a candidate stream URL
     /// actually responds before serving it to the user.
     ///
     /// <para>Probes use HEAD requests with a 500ms timeout, falling back to
