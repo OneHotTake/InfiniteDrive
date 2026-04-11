@@ -259,7 +259,7 @@ function (loading) {
                     var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
                     html += '<tr>' +
                         '<td>' + esc(src.SourceKey || 'Unknown') + '</td>' +
-                        '<td>' + esc(src.Type || 'catalog') + '</td>' +
+                        '<td>' + esc(src.Type || 'source') + '</td>' +
                         '<td>' + statusBadge + '</td>' +
                         '<td>' + lastSync + '</td>' +
                         '<td>' + (src.ItemCount || 0) + '</td>' +
@@ -274,15 +274,28 @@ function (loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        ['setup','health','discover','mypicks','mylists','improbability','blocked','content-mgmt','settings'].forEach(function(t) {
+        var tabMap = {
+            'setup': 'setup',
+            'overview': 'overview',
+            'health': 'overview',
+            'settings': 'settings',
+            'content': 'content',
+            'marvin': 'marvin',
+            'improbability': 'marvin',
+            'blocked': 'content',
+            'content-mgmt': 'content'
+        };
+        var mappedName = tabMap[name] || name;
+
+        ['setup','overview','settings','content','marvin','discover','mypicks','mylists'].forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
-            if (c) c.classList.toggle('active', t === name);
+            if (c) c.classList.toggle('active', mappedName === t);
         });
         var btns = view.querySelectorAll('[data-es-tab]');
         for (var i = 0; i < btns.length; i++) {
-            btns[i].classList.toggle('active', btns[i].getAttribute('data-es-tab') === name);
+            btns[i].classList.toggle('active', btns[i].getAttribute('data-es-tab') === mappedName);
         }
-        if (name === 'improbability') {
+        if (name === 'improbability' || name === 'marvin') {
             loadImprobabilityStatus(view);
         } else if (name === 'settings') {
             // v0.65.5: Fix System Status Offline Bug — save config before switching to settings
@@ -303,7 +316,7 @@ function (loading) {
         }
         if (name === 'settings' && _loadedConfig) { populateSettings(view, _loadedConfig); }
         if (name === 'setup' && _loadedConfig) { initWizardTab(view, _loadedConfig); }
-        if (name === 'health') { refreshSourcesTab(view); }
+        if (name === 'overview') { refreshSourcesTab(view); }
         if (name === 'discover') { discoverInit(view); }
         if (name === 'mypicks') { loadMyPicks(view); }
         if (name === 'mylists') { loadMyLists(view); }
@@ -968,7 +981,7 @@ function (loading) {
             [10,'💾 Saving your configuration…'],
             [30,'🔍 Fetching AIOStreams manifest…'],
             [50,'✍️ Writing .strm files to your library…'],
-            [75,'📚 Organizing your catalog…'],
+            [75,'📚 Organizing your sources…'],
             [90,'🔎 Triggering Emby library scan…'],
             [100,'🎉 All set! Your library is being built…']
         ];
@@ -1451,7 +1464,7 @@ function (loading) {
                 if (data.Error) { panel.innerHTML = '<div class="es-alert es-alert-error" style="font-size:.85em;margin:0">' + makeErrorGuidance(data.Error) + '</div>'; return; }
                 var catalogs = data.Catalogs || [];
                 if (!catalogs.length) {
-                    panel.innerHTML = '<div class="es-alert es-alert-warn" style="font-size:.85em;margin:0"><strong>Stream-only addon detected.</strong> No catalog. Enable Trakt or MDBList to populate the library.</div>';
+                    panel.innerHTML = '<div class="es-alert es-alert-warn" style="font-size:.85em;margin:0"><strong>Stream-only addon detected.</strong> No source. Enable Trakt or MDBList to populate the library.</div>';
                     return;
                 }
                 renderCatalogPanel(view, panel, catalogs, prefix, prevSet);
@@ -1461,7 +1474,7 @@ function (loading) {
 
     function renderCatalogPanel(view, panel, catalogs, prefix, prevSet) {
         var html = '<table class="es-cpt"><thead><tr>'+
-            '<th style="width:26px"></th><th>Catalog</th><th style="width:60px">Type</th>'+
+            '<th style="width:26px"></th><th>Source</th><th style="width:60px">Type</th>'+
             '<th style="min-width:110px">Progress</th><th style="width:60px">Limit</th><th style="width:70px">Order</th>'+
             '</tr></thead><tbody>';
         catalogs.forEach(function(c, idx) {
