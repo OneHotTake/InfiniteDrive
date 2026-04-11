@@ -129,14 +129,6 @@
 .es-next-list { list-style: none; padding: 0; margin: 0 0 .6em; }
 .es-next-list li { font-size: .88em; padding: .3em 0; display: flex; gap: .6em; align-items: flex-start; }
 .es-next-check { color: #28a745; flex-shrink: 0; }
-.es-accordion { margin-bottom: .75em; border: 1px solid rgba(128,128,128,0.13); border-radius: 10px; overflow: hidden; }
-.es-accordion-hdr { display: flex; align-items: center; gap: .7em; padding: .9em 1.1em; cursor: pointer; background: rgba(128,128,128,0.05); font-size: .92em; font-weight: 600; user-select: none; }
-.es-accordion-hdr:hover { background: rgba(128,128,128,0.1); }
-.es-accordion-icon { font-size: 1em; }
-.es-accordion-chevron { margin-left: auto; opacity: .5; font-size: .8em; transition: transform .2s; }
-.es-accordion-open .es-accordion-chevron { transform: rotate(180deg); }
-.es-accordion-body { display: none; padding: 1.1em 1.25em; border-top: 1px solid rgba(128,128,128,0.1); }
-.es-accordion-open .es-accordion-body { display: block; }
 
 /* ── Wizard Progress Bar ── */
 .es-wizard-progress { display: flex; align-items: center; justify-content: space-between;
@@ -207,14 +199,13 @@
 <!-- ── Tab bar ── -->
 <div class="es-tabs">
   <button class="es-tab active" data-es-tab="setup">Setup <span class="es-version" id="es-plugin-version">…</span></button>
-  <button class="es-tab"        data-es-tab="discover">Discover</button>
-  <button class="es-tab"        data-es-tab="mypicks">My Picks</button>
-  <button class="es-tab"        data-es-tab="mylists">My Lists</button>
-  <button class="es-tab"        data-es-tab="health">Health</button>
-  <button class="es-tab"        data-es-tab="improbability">Improbability Drive</button>
-  <button class="es-tab es-admin-tab" data-es-tab="blocked" style="display:none">Blocked Items</button>
-  <button class="es-tab es-admin-tab" data-es-tab="content-mgmt" style="display:none">Content Mgmt</button>
+  <button class="es-tab"        data-es-tab="overview">Overview</button>
   <button class="es-tab"        data-es-tab="settings">Settings</button>
+  <button class="es-tab"        data-es-tab="content">Content</button>
+  <button class="es-tab"        data-es-tab="marvin">Marvin</button>
+  <button class="es-tab"        data-es-tab="discover" style="display:none">Discover</button>
+  <button class="es-tab"        data-es-tab="mypicks" style="display:none">My Picks</button>
+  <button class="es-tab"        data-es-tab="mylists" style="display:none">My Lists</button>
 </div>
 
 <!-- ════════════════════════════ TAB 1 — Setup (Wizard) ════════════════════════════ -->
@@ -269,7 +260,7 @@
       </div>
       <p class="es-card-text">
         Your AIOStreams manifest URL. This is the only required field.
-        AIOStreams supplies your catalog, your stream links, and optional metadata resolvers — all in one URL.
+        AIOStreams supplies your source, your stream links, and optional metadata resolvers — all in one URL.
       </p>
       <div class="inputContainer" style="margin-bottom:.5em">
         <label class="inputLabel inputLabelUnfocused" for="wiz-aio-url">Manifest URL</label>
@@ -518,28 +509,28 @@
 
   </div><!-- /step 2 -->
 
-  <!-- ── Step 3: Catalogs ── -->
+  <!-- ── Step 3: Sources ── -->
   <div class="es-wizard-step-content" data-es-wizard-content="3">
 
     <div style="margin-bottom:1.4em">
-      <h2 style="margin:0 0 .35em;font-size:1.25em;font-weight:700">Choose Your Catalogs</h2>
+      <h2 style="margin:0 0 .35em;font-size:1.25em;font-weight:700">Choose Your Sources</h2>
       <p style="margin:0;font-size:.9em;opacity:.65;line-height:1.6">
-        These are the catalogs your AIOStreams manifest provides.
+        These are the sources your AIOStreams manifest provides.
         Select which ones you want synced to Emby. You can change this at any time.
       </p>
     </div>
 
-    <!-- Catalog loader panel -->
+    <!-- Source loader panel -->
     <div class="es-card">
       <div id="wiz-catalog-panel">
         <div style="text-align:center;padding:2em 0;opacity:.5;font-size:.9em">
-          Loading catalogs from your manifest…
+          Loading sources from your manifest…
         </div>
       </div>
       <input type="hidden" id="wiz-catalog-ids" value="" />
     </div>
 
-    <!-- Summary strip (shown after catalogs load) -->
+    <!-- Summary strip (shown after sources load) -->
     <div id="wiz-catalog-summary" style="display:none"
          class="es-hint" style="margin-top:.5em;text-align:center">
       <span id="wiz-catalog-summary-text"></span>
@@ -590,11 +581,12 @@
 
 </div><!-- /setup wizard tab -->
 
-<!-- ════════════════════════════ TAB 2 — Health ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-health">
+<!-- ══════════════════════════ TAB 2 — Overview ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-overview">
 
+  <!-- Hero header -->
   <div class="es-hero">
-    <h1 class="es-hero-title">System Health</h1>
+    <h1 class="es-hero-title">System Overview</h1>
     <p class="es-hero-body">Monitor plugin status, sync progress, and catalog coverage.</p>
   </div>
 
@@ -624,184 +616,71 @@
     </div>
   </div>
 
-</div><!-- /health tab -->
-
-<!-- ════════════════════════════ TAB 3 — Discover ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-discover">
-
-  <!-- Hero search bar -->
-  <div style="margin-bottom:1.5em">
-    <div class="es-discover-search-wrap">
-      <span class="es-discover-search-icon">🔍</span>
-      <input id="es-discover-q" type="text" is="emby-input"
-             placeholder="Search movies, shows, anime…  e.g. Oppenheimer, Breaking Bad"
-             autocomplete="off" />
+  <!-- System Health -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2em">
+    <div class="es-btn-row" style="margin-top:0">
+      <button type="button" is="emby-button" class="raised button" data-es-action="refresh-dashboard">↻ Refresh</button>
+      <span id="es-refresh-ts" style="font-size:.78em;opacity:.5;line-height:2.5em"></span>
     </div>
-    <div class="es-discover-filters" id="es-discover-filters">
-      <button class="es-discover-filter-btn active" data-es-discover-type="">All</button>
-      <button class="es-discover-filter-btn" data-es-discover-type="movie">Movies</button>
-      <button class="es-discover-filter-btn" data-es-discover-type="series">Series</button>
-    </div>
-    <div class="es-discover-status" id="es-discover-status"></div>
-  </div>
-
-  <!-- Results grid -->
-  <div class="es-discover-grid" id="es-discover-grid"></div>
-
-  <!-- Loading state -->
-  <div class="es-discover-loading" id="es-discover-loading" style="display:none">
-    <div style="font-size:1.5em;margin-bottom:.4em">⏳</div>
-    <div>Searching the catalog…</div>
-  </div>
-
-  <!-- Empty state -->
-  <div class="es-discover-empty" id="es-discover-empty" style="display:none">
-    <div class="es-discover-empty-icon">🎬</div>
-    <div style="font-size:.95em;margin-bottom:.25em">No results found</div>
-    <div style="font-size:.82em">Try a different search term or check your AIOStreams connection.</div>
-  </div>
-
-  <!-- Not configured state -->
-  <div id="es-discover-unconfigured" style="display:none">
-    <div class="es-alert es-alert-warn" style="margin-top:1em">
-      <strong>AIOStreams not configured.</strong>
-      Go to the <a data-es-tab="setup" style="cursor:pointer;color:inherit;text-decoration:underline">Setup</a>
-      tab to connect your AIOStreams provider first.
+    <div style="display:flex;gap:.3em;border:1px solid rgba(128,128,128,0.2);border-radius:3px;background:rgba(128,128,128,0.05);padding:.15em">
+      <button type="button" is="emby-button" class="raised button" id="es-view-quick" data-es-dashboard-view="quick" style="font-size:.8em;opacity:1;padding:.25em .6em" title="Quick overview">Quick View</button>
+      <button type="button" is="emby-button" class="raised button" id="es-view-debug" data-es-dashboard-view="debug" style="font-size:.8em;opacity:.6;padding:.25em .6em" title="Detailed stats">Debug Stats</button>
     </div>
   </div>
 
-</div><!-- /discover tab -->
-
-<!-- ════════════════════════════ TAB 4 — Improbability Drive ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-improbability">
-
-  <!-- Hero header -->
-  <div class="es-hero">
-    <h1 class="es-hero-title">DON'T PANIC</h1>
+  <div class="es-card">
+    <h3>System Health</h3>
+    <table class="es-table" style="width:auto">
+      <tr>
+        <td style="padding-right:2em;opacity:.65;font-size:.88em">AIOStreams</td>
+        <td><span id="es-health-aio" class="es-badge">…</span>
+            <span id="es-health-aio-url" style="font-size:.78em;opacity:.45;margin-left:.5em"></span>
+            <span id="es-health-aio-ms"  style="font-size:.78em;opacity:.55;margin-left:.3em"></span></td>
+      </tr>
+      <tr id="es-health-addon-row" style="display:none">
+        <td style="opacity:.65;font-size:.88em">Addon</td>
+        <td><span id="es-health-addon-name" style="font-size:.88em"></span>
+            <span id="es-health-addon-version" style="font-size:.78em;opacity:.45;margin-left:.4em"></span></td>
+      </tr>
+      <tr id="es-health-streamonly-row" style="display:none">
+        <td style="opacity:.65;font-size:.88em">Mode</td>
+        <td><span class="es-badge es-badge-warn">Stream-only</span>
+            <span style="font-size:.78em;opacity:.65;margin-left:.5em">No source — populate library via Trakt or MDBList</span></td>
+      </tr>
+      <tr id="es-health-prefixes-row" style="display:none">
+        <td style="opacity:.65;font-size:.88em">ID prefixes</td>
+        <td><code id="es-health-prefixes" style="font-size:.8em;opacity:.7"></code></td>
+      </tr>
+      <tr>
+        <td style="opacity:.65;font-size:.88em">First-run complete</td>
+        <td><span id="es-health-configured" class="es-badge">…</span></td>
+      </tr>
+    </table>
   </div>
 
-  <!-- Two-worker status -->
-  <div class="es-card" style="padding: 1.5em;">
-    <!-- Refresh Worker -->
-    <div class="es-btn-row" style="align-items: center; justify-content: space-between; margin-bottom: 1em;">
-      <div style="display: flex; align-items: center; gap: 0.75em;">
-        <span id="es-refresh-dot" style="font-size: 1.2em;">🟢</span>
-        <div>
-          <div style="font-weight: 500;">Refresh Worker</div>
-          <div id="es-refresh-status" style="font-size: 0.85em; opacity: 0.7;">Idle</div>
-        </div>
-      </div>
-      <div style="text-align: right;">
-        <div id="es-refresh-last-run" style="font-size: 0.75em; opacity: 0.6;"></div>
-        <button id="es-refresh-now-btn" class="es-btn" style="margin-top: 0.25em; padding: 0.4em 0.8em; font-size: 0.85em;">Refresh Now</button>
-      </div>
+  <div class="es-card" id="es-health-providers-card" style="display:none">
+    <div id="es-health-providers"></div>
+  </div>
+
+  <div class="es-card" data-es-dashboard-debug="true">
+    <h3>Resolution Coverage</h3>
+    <div style="display:flex;align-items:center;gap:.75em;margin-bottom:.4em">
+      <span id="es-cov-pct" style="font-size:1.5em;font-weight:700;color:var(--theme-button-background,#00a4dc)">—</span>
+      <span style="font-size:.85em;opacity:.55">of .strm items have a valid cached stream URL</span>
     </div>
-
-    <!-- Deep Clean -->
-    <div class="es-btn-row" style="align-items: center; justify-content: space-between;">
-      <div style="display: flex; align-items: center; gap: 0.75em;">
-        <span id="es-deepclean-dot" style="font-size: 1.2em;">🟢</span>
-        <div>
-          <div style="font-weight: 500;">Deep Clean</div>
-          <div id="es-deepclean-status" style="font-size: 0.85em; opacity: 0.7;">Idle</div>
-        </div>
-      </div>
-      <div id="es-deepclean-last-run" style="font-size: 0.75em; opacity: 0.6; text-align: right;"></div>
-    </div>
-  </div>
-
-  <!-- Enrichment summary -->
-  <div class="es-card" style="padding: 1.2em;">
-    <div class="es-btn-row" style="font-size: 0.9em; justify-content: center; gap: 2em;">
-      <span>Needs Enrich: <strong id="es-needs-enrich-count">0</strong></span>
-      <span>Blocked: <strong id="es-blocked-count">0</strong></span>
-    </div>
-  </div>
-
-  <!-- Summon Marvin button -->
-  <div class="es-card" style="text-align: center; padding: 2em;">
-    <button id="es-summon-marvin-btn" class="es-btn-row" style="background: var(--theme-button-background, #00a4dc); color: #fff; padding: 1em 2em; font-size: 1em; border: none; border-radius: 4px; cursor: pointer;">
-      Summon Marvin
-    </button>
-    <div id="es-marvin-status" style="margin-top: 1em; font-size: 0.85em; opacity: 0.6;"></div>
-  </div>
-
-  <!-- Sprint 155: Upstream cooldown badge -->
-  <div id="es-cooldown-badge" class="es-card" style="display:none; border-color:rgba(255,193,7,0.3); background:rgba(255,193,7,0.05); margin-top:1em;">
-    <div style="display:flex;align-items:center;gap:.5em">
-      <span style="font-size:1.1em">⏳</span>
-      <span id="es-cooldown-msg" style="font-size:.85em;opacity:.7"></span>
-    </div>
-  </div>
-  <div id="es-suggest-private" class="es-card" style="display:none; border-color:rgba(0,164,220,0.3); background:rgba(0,164,220,0.05); margin-top:.5em;">
-    <div style="font-size:.85em;opacity:.7">
-      Want faster syncs? Consider a <a href="https://github.com/OneHotTake/embyStreams/blob/main/docs/COOLDOWN.md" target="_blank" style="text-decoration:underline">private AIOStreams instance</a>.
+    <div class="es-track"><div class="es-fill" id="es-cov-bar" style="width:0%"></div></div>
+    <div style="display:flex;gap:1.5em;margin-top:.6em;font-size:.82em;opacity:.7">
+      <span><span id="es-cov-valid" style="color:#28a745;font-weight:700">—</span> valid</span>
+      <span><span id="es-cov-stale" style="color:#ffc107;font-weight:700">—</span> stale</span>
+      <span><span id="es-cov-uncached" style="color:#dc3545;font-weight:700">—</span> uncached</span>
+      <span><span id="es-cov-total" style="font-weight:700">—</span> total .strm</span>
     </div>
   </div>
 
-</div>
-
-<!-- ════════════════════════════ TAB 5 — Settings ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-settings">
-
-  <p class="es-hint" style="margin-bottom:1.2em">
-    All existing settings are accessible here. Most changes take effect on the next Catalog Sync.
-  </p>
-
-
-  <!-- ── Accordion: System Status ── -->
-  <div class="es-accordion" id="es-adv-system-status">
-    <div class="es-accordion-hdr" data-es-accordion="system-status">
-      <span class="es-accordion-icon">📊</span>
-      <span>System Status</span>
-      <span class="es-accordion-chevron">▼</span>
-    </div>
-    <div class="es-accordion-body">
-
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.2em">
-        <div class="es-btn-row" style="margin-top:0">
-          <button type="button" is="emby-button" class="raised button" data-es-action="refresh-dashboard">↻ Refresh</button>
-          <span id="es-refresh-ts" style="font-size:.78em;opacity:.5;line-height:2.5em"></span>
-        </div>
-        <div style="display:flex;gap:.3em;border:1px solid rgba(128,128,128,0.2);border-radius:3px;background:rgba(128,128,128,0.05);padding:.15em">
-          <button type="button" is="emby-button" class="raised button" id="es-view-quick" data-es-dashboard-view="quick" style="font-size:.8em;opacity:1;padding:.25em .6em" title="Quick overview">Quick View</button>
-          <button type="button" is="emby-button" class="raised button" id="es-view-debug" data-es-dashboard-view="debug" style="font-size:.8em;opacity:.6;padding:.25em .6em" title="Detailed stats">Debug Stats</button>
-        </div>
-      </div>
-
-      <div class="es-card">
-        <h3>System Health</h3>
-        <table class="es-table" style="width:auto">
-          <tr>
-            <td style="padding-right:2em;opacity:.65;font-size:.88em">AIOStreams</td>
-            <td><span id="es-health-aio" class="es-badge">…</span>
-                <span id="es-health-aio-url" style="font-size:.78em;opacity:.45;margin-left:.5em"></span>
-                <span id="es-health-aio-ms"  style="font-size:.78em;opacity:.55;margin-left:.3em"></span></td>
-          </tr>
-          <tr id="es-health-addon-row" style="display:none">
-            <td style="opacity:.65;font-size:.88em">Addon</td>
-            <td><span id="es-health-addon-name" style="font-size:.88em"></span>
-                <span id="es-health-addon-version" style="font-size:.78em;opacity:.45;margin-left:.4em"></span></td>
-          </tr>
-          <tr id="es-health-streamonly-row" style="display:none">
-            <td style="opacity:.65;font-size:.88em">Mode</td>
-            <td><span class="es-badge es-badge-warn">Stream-only</span>
-                <span style="font-size:.78em;opacity:.65;margin-left:.5em">No catalog — populate library via Trakt or MDBList</span></td>
-          </tr>
-          <tr id="es-health-prefixes-row" style="display:none">
-            <td style="opacity:.65;font-size:.88em">ID prefixes</td>
-            <td><code id="es-health-prefixes" style="font-size:.8em;opacity:.7"></code></td>
-          </tr>
-          <tr>
-            <td style="opacity:.65;font-size:.88em">First-run complete</td>
-            <td><span id="es-health-configured" class="es-badge">…</span></td>
-          </tr>
-        </table>
-      </div>
-
-      <div class="es-card" id="es-health-providers-card" style="display:none">
-        <div id="es-health-providers"></div>
-      </div>
+  <!-- Advanced Debug Tools (collapsible) -->
+  <details>
+    <summary style="cursor:pointer;font-size:.9em;padding:.5em 0;font-weight:600;opacity:.8">⚙ Advanced Debug Tools</summary>
+    <div style="margin-top:.5em">
 
       <div class="es-card" data-es-dashboard-debug="true">
         <h3>Resolution Cache (Debug)</h3>
@@ -847,29 +726,14 @@
       </div>
 
       <div class="es-card">
-        <h3>Resolution Coverage</h3>
-        <div style="display:flex;align-items:center;gap:.75em;margin-bottom:.4em">
-          <span id="es-cov-pct" style="font-size:1.5em;font-weight:700;color:var(--theme-button-background,#00a4dc)">—</span>
-          <span style="font-size:.85em;opacity:.55">of .strm items have a valid cached stream URL</span>
-        </div>
-        <div class="es-track"><div class="es-fill" id="es-cov-bar" style="width:0%"></div></div>
-        <div style="display:flex;gap:1.5em;margin-top:.6em;font-size:.82em;opacity:.7">
-          <span><span id="es-cov-valid" style="color:#28a745;font-weight:700">—</span> valid</span>
-          <span><span id="es-cov-stale" style="color:#ffc107;font-weight:700">—</span> stale</span>
-          <span><span id="es-cov-uncached" style="color:#dc3545;font-weight:700">—</span> uncached</span>
-          <span><span id="es-cov-total" style="font-weight:700">—</span> total .strm</span>
-        </div>
-      </div>
-
-      <div class="es-card">
         <h3>Background Tasks</h3>
         <table class="es-table" style="width:auto">
           <thead><tr><th>Task</th><th>Action</th><th>Description</th><th style="text-align:center">Schedule</th></tr></thead>
           <tbody>
           <tr>
-            <td style="padding-right:1.5em;opacity:.8;font-size:.88em">Catalog Sync</td>
+            <td style="padding-right:1.5em;opacity:.8;font-size:.88em">Source Sync</td>
             <td><button type="button" is="emby-button" class="raised button-submit" data-es-task="catalog_sync">▶ Run Now</button></td>
-            <td style="padding-left:.75em;font-size:.78em;opacity:.45">Fetches catalogs &amp; writes .strm files</td>
+            <td style="padding-left:.75em;font-size:.78em;opacity:.45">Fetches sources &amp; writes .strm files</td>
             <td style="padding-left:.75em;font-size:.78em;opacity:.6;text-align:center" id="es-task-schedule-catalog">Daily</td>
           </tr>
           <tr>
@@ -882,662 +746,664 @@
         </table>
       </div>
 
-      <!-- Debug Tools -->
-      <div style="margin-bottom:.6em">
-        <button type="button" is="emby-button" class="raised button"
-                data-es-action="toggle-debug"
-                id="es-debug-toggle"
-                style="width:100%;text-align:left;padding:.5em .85em;
-                       font-size:.85em;display:flex;justify-content:space-between;align-items:center">
-          <span>⚙ Advanced Debug Tools</span>
-          <span id="es-debug-arrow" style="opacity:.45;font-size:.8em">▼ show</span>
+      <div class="es-card">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75em">
+          <h3 style="margin:0">Client Intelligence</h3>
+          <button type="button" is="emby-button" class="raised button" data-es-action="clear-profiles">Reset Profiles</button>
+        </div>
+        <p style="font-size:.82em;opacity:.55;margin:0 0 .75em">Learned per-device streaming capabilities. Updated automatically during playback.</p>
+        <div style="overflow-x:auto">
+          <table class="es-table">
+            <thead><tr><th>Client</th><th>Mode</th><th>Max Bitrate</th><th>Best Quality</th><th>Plays</th><th>Last Seen</th></tr></thead>
+            <tbody id="es-clients-body"><tr><td colspan="6" style="opacity:.4">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="es-card">
+        <h3>Item Inspector</h3>
+        <p style="font-size:.82em;opacity:.55;margin:0 0 .75em">Search by title or enter an IMDB ID to see cache status and stream candidates.</p>
+        <div style="display:flex;gap:.5em;flex-wrap:wrap;align-items:flex-end;margin-bottom:.6em">
+          <div class="inputContainer" style="flex:2;min-width:180px;margin-bottom:0">
+            <label class="inputLabel inputLabelUnfocused" for="es-search-q">Search by title</label>
+            <input id="es-search-q" type="text" is="emby-input" placeholder="Breaking Bad, Dune…" />
+          </div>
+        </div>
+        <div id="es-search-results" style="display:none;margin-bottom:.75em;overflow-x:auto">
+          <table class="es-table">
+            <thead><tr><th>Title</th><th>Year</th><th>Type</th><th>IMDB</th><th>Source</th><th>Cache</th></tr></thead>
+            <tbody id="es-search-body"></tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:.5em;flex-wrap:wrap;align-items:flex-end;margin-bottom:.75em">
+          <div class="inputContainer" style="flex:1;min-width:160px;margin-bottom:0">
+            <label class="inputLabel inputLabelUnfocused" for="es-inspect-imdb">IMDB ID</label>
+            <input id="es-inspect-imdb" type="text" is="emby-input" placeholder="tt0903747" />
+          </div>
+          <div class="inputContainer" style="width:80px;margin-bottom:0">
+            <label class="inputLabel inputLabelUnfocused" for="es-inspect-season">Season</label>
+            <input id="es-inspect-season" type="number" is="emby-input" placeholder="—" min="1" />
+          </div>
+          <div class="inputContainer" style="width:80px;margin-bottom:0">
+            <label class="inputLabel inputLabelUnfocused" for="es-inspect-ep">Episode</label>
+            <input id="es-inspect-ep" type="number" is="emby-input" placeholder="—" min="1" />
+          </div>
+          <button type="button" is="emby-button" class="raised button-submit" data-es-action="inspect">Inspect</button>
+        </div>
+        <div id="es-inspect-result" style="display:none;overflow-x:auto">
+          <table class="es-table"><tbody id="es-inspect-body"></tbody></table>
+          <div id="es-candidates-section" style="display:none;margin-top:.75em">
+            <div style="font-size:.78em;opacity:.45;margin-bottom:.3em;text-transform:uppercase;letter-spacing:.05em">Stream Candidates (ranked)</div>
+            <table class="es-table" style="font-size:.82em">
+              <thead><tr><th>#</th><th>Provider</th><th>Type</th><th>Quality</th><th>Bitrate</th><th>Cached</th><th>Status</th><th>Expires</th></tr></thead>
+              <tbody id="es-candidates-body"></tbody>
+            </table>
+          </div>
+          <div class="es-btn-row" style="margin-top:.75em">
+            <button type="button" is="emby-button" class="raised button" data-es-action="invalidate-item">Invalidate Cache</button>
+            <button type="button" is="emby-button" class="raised button" data-es-action="queue-item">Queue Tier 0</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="es-card">
+        <h3>Raw AIOStreams Response</h3>
+        <p style="font-size:.82em;opacity:.65;margin:0 0 .75em">Fetch live stream list for any IMDB ID — bypasses cache. Useful for diagnosing missing streams.</p>
+        <div style="display:flex;gap:.5em;flex-wrap:wrap;align-items:flex-end;margin-bottom:.75em">
+          <div class="inputContainer" style="flex:1;min-width:160px;margin-bottom:0">
+            <label class="inputLabel inputLabelUnfocused" for="es-raw-imdb">IMDB ID</label>
+            <input id="es-raw-imdb" type="text" is="emby-input" placeholder="tt0903747" />
+          </div>
+          <div class="inputContainer" style="width:80px;margin-bottom:0">
+            <label class="inputLabel inputLabelUnfocused" for="es-raw-season">Season</label>
+            <input id="es-raw-season" type="number" is="emby-input" placeholder="—" min="1" />
+          </div>
+          <div class="inputContainer" style="width:80px;margin-bottom:0">
+            <label class="inputLabel inputLabelUnfocused" for="es-raw-episode">Episode</label>
+            <input id="es-raw-episode" type="number" is="emby-input" placeholder="—" min="1" />
+          </div>
+          <button type="button" is="emby-button" class="raised button-submit" data-es-action="raw-streams">Fetch Raw</button>
+        </div>
+        <div id="es-raw-result" style="display:none">
+          <div id="es-raw-meta" style="font-size:.82em;opacity:.6;margin-bottom:.5em"></div>
+          <pre id="es-raw-json" style="font-size:.78em;background:rgba(128,128,128,0.08);padding:.75em;border-radius:4px;overflow-x:auto;max-height:400px;white-space:pre-wrap;word-break:break-all"></pre>
+        </div>
+      </div>
+
+      <div class="es-card">
+        <h3>Unavailable Items <span id="es-unhealthy-count" style="font-size:.75em;opacity:.5;font-weight:400"></span></h3>
+        <p style="font-size:.82em;opacity:.65;margin:0 0 .5em">Items stuck in a failed state — retried automatically when their TTL expires.</p>
+        <div style="overflow-x:auto">
+          <table class="es-table">
+            <thead><tr><th>IMDB</th><th>Title</th><th>S/E</th><th>Retry after</th></tr></thead>
+            <tbody id="es-unhealthy-body"><tr><td colspan="4" style="opacity:.4">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="es-card">
+        <h3>Recent Playback Errors <span id="es-errors-count" style="font-size:.75em;opacity:.5;font-weight:400"></span></h3>
+        <div style="overflow-x:auto">
+          <table class="es-table">
+            <thead><tr><th>IMDB</th><th>Title</th><th>Client</th><th>Error</th><th>Time</th></tr></thead>
+            <tbody id="es-errors-body"><tr><td colspan="5" style="opacity:.4">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="es-card">
+        <h3>Recent Playback (last 10)</h3>
+        <div style="overflow-x:auto">
+          <table class="es-table">
+            <thead><tr><th>IMDB</th><th>Title</th><th>Ep</th><th>Mode</th><th>Quality</th><th>Client</th><th>ms</th><th>Time</th></tr></thead>
+            <tbody id="es-plays-body"><tr><td colspan="8" style="opacity:.4">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </details>
+
+
+</div><!-- /overview tab -->
+
+
+<!-- ════════════════════════════ TAB 3 — Discover ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-discover">
+
+  <!-- Hero search bar -->
+  <div style="margin-bottom:1.5em">
+    <div class="es-discover-search-wrap">
+      <span class="es-discover-search-icon">🔍</span>
+      <input id="es-discover-q" type="text" is="emby-input"
+             placeholder="Search movies, shows, anime…  e.g. Oppenheimer, Breaking Bad"
+             autocomplete="off" />
+    </div>
+    <div class="es-discover-filters" id="es-discover-filters">
+      <button class="es-discover-filter-btn active" data-es-discover-type="">All</button>
+      <button class="es-discover-filter-btn" data-es-discover-type="movie">Movies</button>
+      <button class="es-discover-filter-btn" data-es-discover-type="series">Series</button>
+    </div>
+    <div class="es-discover-status" id="es-discover-status"></div>
+  </div>
+
+  <!-- Results grid -->
+  <div class="es-discover-grid" id="es-discover-grid"></div>
+
+  <!-- Loading state -->
+  <div class="es-discover-loading" id="es-discover-loading" style="display:none">
+    <div style="font-size:1.5em;margin-bottom:.4em">⏳</div>
+    <div>Searching the sources…</div>
+  </div>
+
+  <!-- Empty state -->
+  <div class="es-discover-empty" id="es-discover-empty" style="display:none">
+    <div class="es-discover-empty-icon">🎬</div>
+    <div style="font-size:.95em;margin-bottom:.25em">No results found</div>
+    <div style="font-size:.82em">Try a different search term or check your AIOStreams connection.</div>
+  </div>
+
+  <!-- Not configured state -->
+  <div id="es-discover-unconfigured" style="display:none">
+    <div class="es-alert es-alert-warn" style="margin-top:1em">
+      <strong>AIOStreams not configured.</strong>
+      Go to the <a data-es-tab="setup" style="cursor:pointer;color:inherit;text-decoration:underline">Setup</a>
+      tab to connect your AIOStreams provider first.
+    </div>
+  </div>
+
+</div><!-- /discover tab -->
+
+<!-- ════════════════════════════ TAB 4 — Marvin ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-marvin">
+  <!-- Hero header -->
+  <div class="es-hero">
+    <h1 class="es-hero-title">DON'T PANIC</h1>
+  </div>
+
+  <!-- Two-worker status -->
+  <div class="es-card" style="padding: 1.5em;">
+    <!-- Refresh Worker -->
+    <div class="es-btn-row" style="align-items: center; justify-content: space-between; margin-bottom: 1em;">
+      <div style="display: flex; align-items: center; gap: 0.75em;">
+        <span id="es-refresh-dot" style="font-size: 1.2em;">🟢</span>
+        <div>
+          <div style="font-weight: 500;">Refresh Worker</div>
+          <div id="es-refresh-status" style="font-size: 0.85em; opacity: 0.7;">Idle</div>
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div id="es-refresh-last-run" style="font-size: 0.75em; opacity: 0.6;"></div>
+      </div>
+    </div>
+
+    <!-- Deep Clean -->
+    <div class="es-btn-row" style="align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 0.75em;">
+        <span id="es-marvin-dot" style="font-size: 1.2em;">🟢</span>
+        <div>
+          <div style="font-weight: 500;">Marvin</div>
+          <div id="es-marvin-status" style="font-size: 0.85em; opacity: 0.7;">Idle</div>
+        </div>
+      </div>
+      <div style="text-align: right;">
+        <div id="es-marvin-last-run" style="font-size: 0.75em; opacity: 0.6;"></div>
+      </div>
+    </div>
+
+    <!-- Enrichment summary -->
+    <div class="es-card" style="padding: 1.2em;">
+      <div class="es-btn-row" style="font-size: 0.9em; justify-content: center; gap: 2em;">
+        <span>Needs Enrich: <strong id="es-needs-enrich-count">0</strong></span>
+        <span>Blocked: <strong id="es-blocked-count">0</strong></span>
+      </div>
+    </div>
+
+    <!-- Summon Marvin button -->
+    <div class="es-card" style="text-align: center; padding: 2em;">
+      <button id="es-summon-marvin-btn" class="es-btn-row" style="background: var(--theme-button-background, #00a4dc); color: #fff; padding: 1em 2em; font-size: 1em; border: none; border-radius: 4px; cursor: pointer;">
+        Summon Marvin
+      </button>
+      <div id="es-marvin-status" style="margin-top: 1em; font-size: 0.85em; opacity: 0.6;"></div>
+    </div>
+
+    <!-- Sprint 155: Upstream cooldown badge -->
+    <div id="es-cooldown-badge" class="es-card" style="display:none; border-color:rgba(255,193,7,0.3); background:rgba(255,193,7,0.05); margin-top:1em;">
+      <div style="display:flex;align-items:center;gap:.5em">
+        <span style="font-size:1.1em">⏳</span>
+        <span id="es-cooldown-msg" style="font-size:.85em;opacity:.7"></span>
+      </div>
+    </div>
+
+    <!-- Private AIOStreams suggestion -->
+    <div id="es-suggest-private" class="es-card" style="display:none; border-color:rgba(0,164,220,0.3); background:rgba(0,164,220,0.05); margin-top:.5em;">
+      <div style="font-size:.85em;opacity:.7">
+        Want faster syncs? Consider a <a href="https://github.com/OneHotTake/embyStreams/blob/main/docs/COOLDOWN.md" target="_blank" style="text-decoration:underline">private AIOStreams instance</a>.
+      </div>
+    </div>
+</div><!-- /marvin tab -->
+</div>
+
+<!-- ════════════════════════════ TAB 5 — Settings ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-settings">
+
+  <p class="es-hint" style="margin-bottom:1.2em">
+    All existing settings are accessible here. Most changes take effect on the next Source Sync.
+  </p>
+
+
+
+  <!-- Sources Card -->
+
+  <!-- Card 1: Sources -->
+  <div class="es-card">
+    <h3>Sources</h3>
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">AIOStreams Provider</h4>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-manifest-url">Manifest URL</label>
+        <input id="cfg-manifest-url" type="url" is="emby-input" placeholder="http://192.168.1.100:7860/stremio/uuid/token/manifest.json" />
+        <div id="cfg-manifest-parse-result" class="es-parse-ok"></div>
+        <div class="es-hint">Paste your manifest URL to auto-fill connection details. Don't have one? <a href="https://duckkota.gitlab.io/stremio-tools/quickstart/" target="_blank" rel="noopener" style="color:var(--theme-button-background,#00a4dc)">Create one with Stremio Tools →</a></div>
+      </div>
+      <div class="inputContainer" style="margin-top: 0.5em;">
+        <button type="button" id="btnEditManifest" class="raised button-submit" style="display: none; align-items: center; gap: 0.5em;">
+          <span>Edit AIOStreams Manifest</span>
+          <span class="material-icons" style="font-size: 1.1em;">open_in_new</span>
         </button>
-        <div id="es-debug-inner" style="display:none;margin-top:.4em">
-
-          <div class="es-card">
-            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75em">
-              <h3 style="margin:0">Client Intelligence</h3>
-              <button type="button" is="emby-button" class="raised button" data-es-action="clear-profiles">Reset Profiles</button>
-            </div>
-            <p style="font-size:.82em;opacity:.55;margin:0 0 .75em">Learned per-device streaming capabilities. Updated automatically during playback.</p>
-            <div style="overflow-x:auto">
-              <table class="es-table">
-                <thead><tr><th>Client</th><th>Mode</th><th>Max Bitrate</th><th>Best Quality</th><th>Plays</th><th>Last Seen</th></tr></thead>
-                <tbody id="es-clients-body"><tr><td colspan="6" style="opacity:.4">Loading…</td></tr></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="es-card">
-            <h3>Item Inspector</h3>
-            <p style="font-size:.82em;opacity:.55;margin:0 0 .75em">Search by title or enter an IMDB ID to see cache status and stream candidates.</p>
-            <div style="display:flex;gap:.5em;flex-wrap:wrap;align-items:flex-end;margin-bottom:.6em">
-              <div class="inputContainer" style="flex:2;min-width:180px;margin-bottom:0">
-                <label class="inputLabel inputLabelUnfocused" for="es-search-q">Search by title</label>
-                <input id="es-search-q" type="text" is="emby-input" placeholder="Breaking Bad, Dune…" />
-              </div>
-            </div>
-            <div id="es-search-results" style="display:none;margin-bottom:.75em;overflow-x:auto">
-              <table class="es-table">
-                <thead><tr><th>Title</th><th>Year</th><th>Type</th><th>IMDB</th><th>Source</th><th>Cache</th></tr></thead>
-                <tbody id="es-search-body"></tbody>
-              </table>
-            </div>
-            <div style="display:flex;gap:.5em;flex-wrap:wrap;align-items:flex-end;margin-bottom:.75em">
-              <div class="inputContainer" style="flex:1;min-width:160px;margin-bottom:0">
-                <label class="inputLabel inputLabelUnfocused" for="es-inspect-imdb">IMDB ID</label>
-                <input id="es-inspect-imdb" type="text" is="emby-input" placeholder="tt0903747" />
-              </div>
-              <div class="inputContainer" style="width:80px;margin-bottom:0">
-                <label class="inputLabel inputLabelUnfocused" for="es-inspect-season">Season</label>
-                <input id="es-inspect-season" type="number" is="emby-input" placeholder="—" min="1" />
-              </div>
-              <div class="inputContainer" style="width:80px;margin-bottom:0">
-                <label class="inputLabel inputLabelUnfocused" for="es-inspect-ep">Episode</label>
-                <input id="es-inspect-ep" type="number" is="emby-input" placeholder="—" min="1" />
-              </div>
-              <button type="button" is="emby-button" class="raised button-submit" data-es-action="inspect">Inspect</button>
-            </div>
-            <div id="es-inspect-result" style="display:none;overflow-x:auto">
-              <table class="es-table"><tbody id="es-inspect-body"></tbody></table>
-              <div id="es-candidates-section" style="display:none;margin-top:.75em">
-                <div style="font-size:.78em;opacity:.45;margin-bottom:.3em;text-transform:uppercase;letter-spacing:.05em">Stream Candidates (ranked)</div>
-                <table class="es-table" style="font-size:.82em">
-                  <thead><tr><th>#</th><th>Provider</th><th>Type</th><th>Quality</th><th>Bitrate</th><th>Cached</th><th>Status</th><th>Expires</th></tr></thead>
-                  <tbody id="es-candidates-body"></tbody>
-                </table>
-              </div>
-              <div class="es-btn-row" style="margin-top:.75em">
-                <button type="button" is="emby-button" class="raised button" data-es-action="invalidate-item">Invalidate Cache</button>
-                <button type="button" is="emby-button" class="raised button" data-es-action="queue-item">Queue Tier 0</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="es-card">
-            <h3>Raw AIOStreams Response</h3>
-            <p style="font-size:.82em;opacity:.65;margin:0 0 .75em">Fetch the live stream list for any IMDB ID — bypasses cache. Useful for diagnosing missing streams.</p>
-            <div style="display:flex;gap:.5em;flex-wrap:wrap;align-items:flex-end;margin-bottom:.75em">
-              <div class="inputContainer" style="flex:1;min-width:160px;margin-bottom:0">
-                <label class="inputLabel inputLabelUnfocused" for="es-raw-imdb">IMDB ID</label>
-                <input id="es-raw-imdb" type="text" is="emby-input" placeholder="tt0903747" />
-              </div>
-              <div class="inputContainer" style="width:80px;margin-bottom:0">
-                <label class="inputLabel inputLabelUnfocused" for="es-raw-season">Season</label>
-                <input id="es-raw-season" type="number" is="emby-input" placeholder="—" min="1" />
-              </div>
-              <div class="inputContainer" style="width:80px;margin-bottom:0">
-                <label class="inputLabel inputLabelUnfocused" for="es-raw-episode">Episode</label>
-                <input id="es-raw-episode" type="number" is="emby-input" placeholder="—" min="1" />
-              </div>
-              <button type="button" is="emby-button" class="raised button-submit" data-es-action="raw-streams">Fetch Raw</button>
-            </div>
-            <div id="es-raw-result" style="display:none">
-              <div id="es-raw-meta" style="font-size:.82em;opacity:.6;margin-bottom:.5em"></div>
-              <pre id="es-raw-json" style="font-size:.78em;background:rgba(128,128,128,0.08);padding:.75em;border-radius:4px;overflow-x:auto;max-height:400px;white-space:pre-wrap;word-break:break-all"></pre>
-            </div>
-          </div>
-
-          <div class="es-card">
-            <h3>Unavailable Items <span id="es-unhealthy-count" style="font-size:.75em;opacity:.5;font-weight:400"></span></h3>
-            <p style="font-size:.82em;opacity:.65;margin:0 0 .5em">Items stuck in a failed state — retried automatically when their TTL expires.</p>
-            <div style="overflow-x:auto">
-              <table class="es-table">
-                <thead><tr><th>IMDB</th><th>Title</th><th>S/E</th><th>Retry after</th></tr></thead>
-                <tbody id="es-unhealthy-body"><tr><td colspan="4" style="opacity:.4">Loading…</td></tr></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="es-card">
-            <h3>Recent Playback Errors <span id="es-errors-count" style="font-size:.75em;opacity:.5;font-weight:400"></span></h3>
-            <div style="overflow-x:auto">
-              <table class="es-table">
-                <thead><tr><th>IMDB</th><th>Title</th><th>Client</th><th>Error</th><th>Time</th></tr></thead>
-                <tbody id="es-errors-body"><tr><td colspan="5" style="opacity:.4">Loading…</td></tr></tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="es-card">
-            <h3>Recent Playback (last 10)</h3>
-            <div style="overflow-x:auto">
-              <table class="es-table">
-                <thead><tr><th>IMDB</th><th>Title</th><th>Ep</th><th>Mode</th><th>Quality</th><th>Client</th><th>ms</th><th>Time</th></tr></thead>
-                <tbody id="es-plays-body"><tr><td colspan="8" style="opacity:.4">Loading…</td></tr></tbody>
-              </table>
-            </div>
-          </div>
-
-        </div><!-- /es-debug-inner -->
-      </div><!-- /debug wrapper -->
-
-    </div><!-- /accordion-body system-status -->
-  </div><!-- /es-accordion system-status -->
-
-  <!-- ── Accordion: Catalog Sync ── -->
-  <div class="es-accordion" id="es-adv-catalog-sync">
-    <div class="es-accordion-hdr" data-es-accordion="catalog-sync">
-      <span class="es-accordion-icon">🔄</span>
-      <span>Catalog Sync</span>
-      <span class="es-accordion-chevron">▼</span>
-    </div>
-    <div class="es-accordion-body">
-
-      <div class="es-card" id="cfg-section-connection">
-        <h3>AIOStreams Provider</h3>
-        <p class="es-hint" style="margin-bottom:.6em">Your primary/default AIOStreams provider.</p>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-manifest-url">Manifest URL</label>
-          <input id="cfg-manifest-url" type="url" is="emby-input" placeholder="http://192.168.1.100:7860/stremio/uuid/token/manifest.json" />
-          <div id="cfg-manifest-parse-result" class="es-parse-ok"></div>
-          <div class="es-hint">Paste your manifest URL to auto-fill connection details. Don't have one? <a href="https://duckkota.gitlab.io/stremio-tools/quickstart/" target="_blank" rel="noopener" style="color:var(--theme-button-background,#00a4dc)">Create one with Stremio Tools →</a></div>
-        </div>
-        <div class="inputContainer" style="margin-top: 0.5em;">
-            <button type="button"
-                    id="btnEditManifest"
-                    class="raised button-submit"
-                    style="display: none; align-items: center; gap: 0.5em;">
-                <span>Edit AIOStreams Manifest</span>
-                <span class="material-icons" style="font-size: 1.1em;">open_in_new</span>
-            </button>
-            <div id="manifestHostInfo" class="es-hint" style="display: none; margin-top: 0.25em;">
-                Opens configuration on <strong id="manifestHostName"></strong>
-            </div>
-        </div>
-
-        <!-- Backup AIOStreams toggle -->
-        <div style="margin-top:.75em">
-          <label class="checkboxContainer">
-            <input type="checkbox" is="emby-checkbox" id="cfg-enable-backup-aio" />
-            <span class="checkboxLabel">Enable backup AIOStreams instance</span>
-          </label>
-          <div id="cfg-backup-aio-fields" style="display:none;margin-top:.75em">
-            <div class="inputContainer">
-              <label class="inputLabel inputLabelUnfocused" for="cfg-aio-backup-url">Backup Manifest URL</label>
-              <input id="cfg-aio-backup-url" type="url" is="emby-input"
-                     placeholder="https://backup.yourdomain.com/stremio/uuid/token/manifest.json" />
-            </div>
-          </div>
-        </div>
-
-        <div class="inputContainer" style="margin-top:.8em">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-aio-metadata-url">AIOMetadata URL <span style="opacity:.6;font-size:.9em">(optional)</span></label>
-          <input id="cfg-aio-metadata-url" type="url" is="emby-input" placeholder="https://yourdomain.com/aio-metadata" />
-          <div class="es-hint">Base URL for a separate AIOMetadata service. Leave blank if not used.</div>
-        </div>
-        <div class="inputContainer" style="display:none">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-aio-fallback-urls">Fallback AIOStreams URLs (deprecated)</label>
-          <textarea id="cfg-aio-fallback-urls" is="emby-textarea" rows="2" style="font-size:.85em;font-family:monospace;width:100%"></textarea>
+        <div id="manifestHostInfo" class="es-hint" style="display: none; margin-top: 0.25em;">
+          Opens configuration on <strong id="manifestHostName"></strong>
         </div>
       </div>
-
-      <!-- System RSS Feeds -->
-      <div class="es-card" id="cfg-section-rss">
-        <h3>System RSS Feeds</h3>
-        <p class="es-hint" style="margin-bottom:.75em">
-          RSS feeds available to <strong>every user</strong> on this server.
-          Individual users can add private feeds in their account settings.
-        </p>
-        <div class="es-alert es-alert-warn" style="font-size:.82em;margin-bottom:.75em;padding:.6em .8em">
-          Content from system RSS feeds is visible to all users regardless of parental controls.
-          Only add feeds appropriate for your entire audience.
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-rss-feeds">Feed URLs <span style="opacity:.6">(one per line)</span></label>
-          <textarea id="cfg-rss-feeds" is="emby-textarea" rows="3"
-                    style="font-size:.85em;font-family:monospace;width:100%"
-                    placeholder="https://example.com/feed.rss"></textarea>
-        </div>
-      </div>
-
-      <div class="es-card" id="cfg-section-catalog">
-        <h3>Catalog &amp; Sources</h3>
+      <div style="margin-top:.75em">
         <label class="checkboxContainer">
-          <input type="checkbox" is="emby-checkbox" id="cfg-enable-aio" />
-          <span class="checkboxLabel">AIOStreams catalogs</span>
+          <input type="checkbox" is="emby-checkbox" id="cfg-enable-backup-aio" />
+          <span class="checkboxLabel">Enable backup AIOStreams instance</span>
         </label>
-        <div style="display:flex;align-items:center;justify-content:space-between;margin:.6em 0 .35em">
-          <span style="font-size:.88em;opacity:.75">Catalogs to sync</span>
-          <button type="button" is="emby-button" class="raised button" data-es-load-catalogs="cfg" style="font-size:.8em">↻ Load</button>
-        </div>
-        <div id="es-catalog-panel-cfg" class="es-catalog-prog-wrap">
-          <span style="display:block;padding:.5em;opacity:.45;font-size:.85em">Click Load to fetch catalogs.</span>
-        </div>
-        <div class="es-hint" style="margin-top:.3em">
-          <a style="cursor:pointer;color:var(--theme-button-background,#00a4dc)" data-es-select="cfg" data-es-select-val="true">Select all</a> &middot;
-          <a style="cursor:pointer;color:var(--theme-button-background,#00a4dc)" data-es-select="cfg" data-es-select-val="false">Select none</a>
-          — if none selected, all available catalogs are synced.
-        </div>
-        <input type="hidden" id="cfg-catalog-ids" value="" />
-        <div class="es-info-box" style="margin: 1em 0; padding: 1em;
-             background: rgba(0,0,0,0.1); border-radius: 4px; border-left: 3px solid #52b54b;">
-          <div style="display: flex; align-items: flex-start; gap: 0.75em;">
-            <span class="material-icons" style="color: #52b54b;">info</span>
-            <div>
-              <strong>Content Filtering</strong>
-              <p style="margin: 0.5em 0 0 0; opacity: 0.9; font-size: 0.9em;">
-                InfiniteDrive syncs <em>all content</em> from your AIOStreams manifest.
-                To filter content (genres, ratings, catalogs), edit your manifest settings.
-              </p>
-            </div>
+        <div id="cfg-backup-aio-fields" style="display:none;margin-top:.75em">
+          <div class="inputContainer">
+            <label class="inputLabel inputLabelUnfocused" for="cfg-aio-backup-url">Backup Manifest URL</label>
+            <input id="cfg-aio-backup-url" type="url" is="emby-input" placeholder="https://backup.yourdomain.com/stremio/uuid/token/manifest.json" />
           </div>
         </div>
       </div>
-
-      <div class="es-card" id="cfg-section-anime">
-        <h3>Anime Content</h3>
-        <div id="es-anime-plugin-warning" style="display:none;padding:.5em .7em;margin-bottom:.6em;background:rgba(52, 152, 219, 0.1);border-left:3px solid #3498db;border-radius:3px;font-size:.85em">
-          <span style="color:#3498db">ℹ️</span> For best anime support, install the <strong>Emby Anime Plugin</strong>.
-          It provides enhanced metadata and artwork.
-        </div>
-        <label class="checkboxContainer" id="es-anime-toggle-wrapper">
-          <input type="checkbox" is="emby-checkbox" id="cfg-enable-anime" />
-          <span class="checkboxLabel">Enable Anime Content</span>
-        </label>
-        <div class="inputContainer" id="es-anime-path-wrapper" style="display:none">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-anime-path">Anime content path</label>
-          <input id="cfg-anime-path" type="text" is="emby-input"
-                 value="/media/infinitedrive/anime" />
-          <div class="es-hint">InfiniteDrive creates a Series library at this path for anime content. Default: /media/infinitedrive/anime</div>
-        </div>
+      <div class="inputContainer" style="margin-top:.8em">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-aio-metadata-url">AIOMetadata URL <span style="opacity:.6;font-size:.9em">(optional)</span></label>
+        <input id="cfg-aio-metadata-url" type="url" is="emby-input" placeholder="https://yourdomain.com/aio-metadata" />
+        <div class="es-hint">Base URL for a separate AIOMetadata service. Leave blank if not used.</div>
       </div>
-
-      <div class="es-card">
-        <h3>Sync Schedule</h3>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-sync-interval">Catalog sync interval (hours)</label>
-          <input id="cfg-sync-interval" type="number" is="emby-input" min="1" max="168" />
-          <div class="es-hint">Hours between re-fetching a source. Default: 24.</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-sync-hour">Daily sync hour (UTC 0–23)</label>
-          <input id="cfg-sync-hour" type="number" is="emby-input" min="-1" max="23" />
-          <div class="es-hint">Hour of day (UTC) for automatic daily sync. Default: 3. Set −1 to disable and use the <a href="/web/#/scheduledtasks.html" target="_blank" style="color:var(--theme-button-background,#00a4dc)">Emby task scheduler</a> instead.</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-item-cap">Catalog item cap</label>
-          <input id="cfg-item-cap" type="number" is="emby-input" min="50" max="5000" placeholder="500" />
-          <div class="es-hint">Max items fetched per catalog per sync. Default: 500.</div>
-        </div>
-      </div>
-
-      <div class="es-btn-row" style="margin-bottom:1.2em">
-        <button type="button" is="emby-button" class="raised button-submit" data-es-action="save-settings">Save Settings</button>
-        <button type="button" is="emby-button" class="raised button" data-es-action="validate-settings">Validate Setup</button>
-      </div>
-      <div id="es-save-result" style="margin-top:-.6em;margin-bottom:.8em;display:none"></div>
-      <div id="es-validate-result-settings" style="margin-top:-.6em;margin-bottom:.8em;display:none"></div>
-
-    </div><!-- /accordion-body catalog-sync -->
-  </div><!-- /accordion catalog-sync -->
-
-  <!-- ── Accordion: Playback & Cache ── -->
-  <div class="es-accordion" id="es-adv-playback">
-    <div class="es-accordion-hdr" data-es-accordion="playback">
-      <span class="es-accordion-icon">⚡</span>
-      <span>Playback &amp; Cache</span>
-      <span class="es-accordion-chevron">▼</span>
     </div>
-    <div class="es-accordion-body">
 
-      <div class="es-card" id="cfg-section-cache">
-        <h3>Cache &amp; Resolution</h3>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-cache-lifetime">Cache lifetime (minutes)</label>
-          <input id="cfg-cache-lifetime" type="number" is="emby-input" min="60" max="1440" placeholder="360" />
-          <div class="es-hint">How long a resolved stream URL stays valid. Default: 360 (6 hours).</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-api-budget">API daily budget (calls/day)</label>
-          <input id="cfg-api-budget" type="number" is="emby-input" min="100" max="10000" placeholder="2000" />
-          <div class="es-hint">Max AIOStreams calls per day. Default: 2000.</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-max-concurrent">Max concurrent resolutions</label>
-          <input id="cfg-max-concurrent" type="number" is="emby-input" min="1" max="10" placeholder="4" />
-          <div class="es-hint">Parallel stream pre-resolves. Lower values reduce server load. Default: 4.</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-candidates-per-provider">Candidates per provider</label>
-          <input id="cfg-candidates-per-provider" type="number" is="emby-input" min="1" max="10" />
-          <div class="es-hint">Stream candidates stored per debrid provider per item. Default: 3.</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-sync-resolve-timeout">Sync resolve timeout (seconds)</label>
-          <input id="cfg-sync-resolve-timeout" type="number" is="emby-input" min="5" max="300" placeholder="30" />
-          <div class="es-hint">Max seconds to wait for a stream URL. Default: 30.</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-provider-priority">Provider priority order</label>
-          <input id="cfg-provider-priority" type="text" is="emby-input" placeholder="realdebrid,torbox,alldebrid,premiumize,stremthru,usenet,http" />
-          <div class="es-hint">Comma-separated provider keys, highest first. Leave empty to use manifest order.</div>
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">System RSS Feeds</h4>
+      <p class="es-hint" style="margin-bottom:.75em">RSS feeds available to <strong>every user</strong> on this server. Individual users can add private feeds in their account settings.</p>
+      <div class="es-alert es-alert-warn" style="font-size:.82em;margin-bottom:.75em;padding:.6em .8em">
+        Content from system RSS feeds is visible to all users regardless of parental controls. Only add feeds appropriate for your entire audience.
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-rss-feeds">Feed URLs <span style="opacity:.6">(one per line)</span></label>
+        <textarea id="cfg-rss-feeds" is="emby-textarea" rows="3" style="font-size:.85em;font-family:monospace;width:100%" placeholder="https://example.com/feed.rss"></textarea>
+      </div>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">AIOStreams Sources</h4>
+      <label class="checkboxContainer">
+        <input type="checkbox" is="emby-checkbox" id="cfg-enable-aio" />
+        <span class="checkboxLabel">AIOStreams sources</span>
+      </label>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:.6em 0 .35em">
+        <span style="font-size:.88em;opacity:.75">Sources to sync</span>
+        <button type="button" is="emby-button" class="raised button" data-es-load-catalogs="cfg" style="font-size:.8em">↻ Load</button>
+      </div>
+      <div id="es-catalog-panel-cfg" class="es-catalog-prog-wrap">
+        <span style="display:block;padding:.5em;opacity:.45;font-size:.85em">Click Load to fetch sources.</span>
+      </div>
+      <div class="es-hint" style="margin-top:.3em">
+        <a style="cursor:pointer;color:var(--theme-button-background,#00a4dc)" data-es-select="cfg" data-es-select-val="true">Select all</a> &middot;
+        <a style="cursor:pointer;color:var(--theme-button-background,#00a4dc)" data-es-select="cfg" data-es-select-val="false">Select none</a>
+        — if none selected, all available sources are synced.
+      </div>
+      <input type="hidden" id="cfg-catalog-ids" value="" />
+      <div class="es-info-box" style="margin: 1em 0; padding: 1em; background: rgba(0,0,0,0.1); border-radius: 4px; border-left: 3px solid #52b54b;">
+        <div style="display: flex; align-items: flex-start; gap: 0.75em;">
+          <span class="material-icons" style="color: #52b54b;">info</span>
+          <div>
+            <strong>Content Filtering</strong>
+            <p style="margin: 0.5em 0 0 0; opacity: 0.9; font-size: 0.9em;">InfiniteDrive syncs <em>all content</em> from your AIOStreams manifest. To filter content (genres, ratings), edit your manifest settings.</p>
+          </div>
         </div>
       </div>
+    </div>
 
-      <div class="es-card" id="cfg-section-proxy">
-        <h3>Streaming, Playback &amp; Library</h3>
-        <div class="selectContainer">
-          <label class="selectLabel" for="cfg-proxy-mode">Proxy mode</label>
-          <select id="cfg-proxy-mode" is="emby-select">
-            <option value="auto">auto (learn per client)</option>
-            <option value="redirect">redirect (always 302)</option>
-            <option value="proxy">proxy (passthrough)</option>
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Anime Content</h4>
+      <div id="es-anime-plugin-warning" style="display:none;padding:.5em .7em;margin-bottom:.6em;background:rgba(52, 152, 219, 0.1);border-left:3px solid #3498db;border-radius:3px;font-size:.85em">
+        <span style="color:#3498db">ℹ️</span> For best anime support, install <strong>Emby Anime Plugin</strong>. It provides enhanced metadata and artwork.
+      </div>
+      <label class="checkboxContainer" id="es-anime-toggle-wrapper">
+        <input type="checkbox" is="emby-checkbox" id="cfg-enable-anime" />
+        <span class="checkboxLabel">Enable Anime Content</span>
+      </label>
+      <div class="inputContainer" id="es-anime-path-wrapper" style="display:none">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-anime-path">Anime content path</label>
+        <input id="cfg-anime-path" type="text" is="emby-input" value="/media/infinitedrive/anime" />
+        <div class="es-hint">InfiniteDrive creates a Series library at this path for anime content. Default: /media/infinitedrive/anime</div>
+      </div>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div>
+      <h4 style="font-size:.95em;margin:0 0 .5em">Sync Schedule</h4>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-sync-interval">Source sync interval (hours)</label>
+        <input id="cfg-sync-interval" type="number" is="emby-input" min="1" max="168" />
+        <div class="es-hint">Hours between re-fetching a source. Default: 24.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-sync-hour">Daily sync hour (UTC 0–23)</label>
+        <input id="cfg-sync-hour" type="number" is="emby-input" min="-1" max="23" />
+        <div class="es-hint">Hour of day (UTC) for automatic daily sync. Default: 3. Set −1 to disable and use <a href="/web/#/scheduledtasks.html" target="_blank" style="color:var(--theme-button-background,#00a4dc)">Emby task scheduler</a> instead.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-item-cap">Source item cap</label>
+        <input id="cfg-item-cap" type="number" is="emby-input" min="50" max="5000" placeholder="500" />
+        <div class="es-hint">Max items fetched per source per sync. Default: 500.</div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Card 2: Playback & Cache -->
+  <div class="es-card">
+    <h3>Playback & Cache</h3>
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Cache & Resolution</h4>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-cache-lifetime">Cache lifetime (minutes)</label>
+        <input id="cfg-cache-lifetime" type="number" is="emby-input" min="60" max="1440" placeholder="360" />
+        <div class="es-hint">How long a resolved stream URL stays valid. Default: 360 (6 hours).</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-api-budget">API daily budget (calls/day)</label>
+        <input id="cfg-api-budget" type="number" is="emby-input" min="100" max="10000" placeholder="2000" />
+        <div class="es-hint">Max AIOStreams calls per day. Default: 2000.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-max-concurrent">Max concurrent resolutions</label>
+        <input id="cfg-max-concurrent" type="number" is="emby-input" min="1" max="10" placeholder="4" />
+        <div class="es-hint">Parallel stream pre-resolves. Lower values reduce server load. Default: 4.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-candidates-per-provider">Candidates per provider</label>
+        <input id="cfg-candidates-per-provider" type="number" is="emby-input" min="1" max="10" />
+        <div class="es-hint">Stream candidates stored per debrid provider per item. Default: 3.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-sync-resolve-timeout">Sync resolve timeout (seconds)</label>
+        <input id="cfg-sync-resolve-timeout" type="number" is="emby-input" min="5" max="300" placeholder="30" />
+        <div class="es-hint">Max seconds to wait for a stream URL. Default: 30.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-provider-priority">Provider priority order</label>
+        <input id="cfg-provider-priority" type="text" is="emby-input" placeholder="realdebrid,torbox,alldebrid,premiumize,stremthru,usenet,http" />
+        <div class="es-hint">Comma-separated provider keys, highest first. Leave empty to use manifest order.</div>
+      </div>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div>
+      <h4 style="font-size:.95em;margin:0 0 .5em">Streaming, Playback & Library</h4>
+      <div class="selectContainer">
+        <label class="selectLabel" for="cfg-proxy-mode">Proxy mode</label>
+        <select id="cfg-proxy-mode" is="emby-select">
+          <option value="auto">auto (learn per client)</option>
+          <option value="redirect">redirect (always 302)</option>
+          <option value="proxy">proxy (passthrough)</option>
+        </select>
+        <div class="es-hint">auto learns best mode per device. Default: auto.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-max-proxy">Max concurrent proxy streams</label>
+        <input id="cfg-max-proxy" type="number" is="emby-input" min="1" max="20" placeholder="5" />
+        <div class="es-hint">Simultaneous proxied streams. Reduce on low-bandwidth servers. Default: 5.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-next-up-lookahead">Next-up lookahead episodes</label>
+        <input id="cfg-next-up-lookahead" type="number" is="emby-input" min="0" max="10" />
+        <div class="es-hint">Episodes pre-resolved in background after playback stops. 0 = disabled. Default: 2.</div>
+      </div>
+      <label class="checkboxContainer" style="margin-top:.5em">
+        <input type="checkbox" is="emby-checkbox" id="cfg-delete-strm-on-readoption" />
+        <span class="checkboxLabel">Delete .strm when real file is detected</span>
+      </label>
+      <div class="es-hint" style="margin-left:2em">Prevents duplicates in Emby when you acquire a real file.</div>
+    </div>
+  </div>
+
+
+  <!-- Card 3: Library Paths -->
+  <div class="es-card">
+    <h3>Library Paths</h3>
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Sync Paths</h4>
+      <p class="es-hint" style="margin-bottom:.75em">These folders must exist as Emby libraries (Movies + TV Shows). Tip: <a href="/web/#/mypreferencesdisplay.html" target="_blank" style="color:var(--theme-button-background,#00a4dc)">disable <b>Extract chapter images</b></a> in Library settings to prevent per-file scanning overhead.</p>
+      <div style="background:rgba(128,128,128,0.08);border-radius:6px;padding:.6em .8em;margin-bottom:.8em">
+        <div style="font-size:.8em;opacity:.6;margin-bottom:.4em">Current sync paths:</div>
+        <div style="display:flex;flex-direction:column;gap:.3em;font-size:.85em">
+          <div>Movies: <code id="cfg-readonly-movies">/media/infinitedrive/catalog/movies</code></div>
+          <div>Series: <code id="cfg-readonly-series">/media/infinitedrive/catalog/shows</code></div>
+          <div id="cfg-readonly-anime-row" style="display:none">Anime: <code id="cfg-readonly-anime">/media/infinitedrive/anime</code></div>
+        </div>
+        <div style="margin-top:.5em;font-size:.78em;opacity:.7">
+          <a data-es-tab="setup" style="cursor:pointer;color:var(--theme-button-background,#00a4dc)">Edit paths in Setup Wizard →</a>
+        </div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-base-path">Base sync path</label>
+        <input id="cfg-base-path" type="text" is="emby-input" placeholder="/media/infinitedrive" />
+        <div class="es-hint">Subfolders: <code>catalog/movies</code>, <code>catalog/shows</code>, <code>discover/movies</code>, <code>discover/shows</code></div>
+      </div>
+      <div id="cfg-derived-paths" style="font-size:.85em;opacity:.6;margin:.2em 0 .6em">
+        Movies: <code id="cfg-derived-movies"></code> &nbsp;|&nbsp; Shows: <code id="cfg-derived-shows"></code>
+      </div>
+      <div class="inputContainer" style="margin-top:.5em">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-library-name-movies">Movies library name</label>
+        <input id="cfg-library-name-movies" type="text" is="emby-input" placeholder="Streamed Movies" />
+        <div class="es-hint">Name for Emby library pointing to movies sync path</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-library-name-series">Series library name</label>
+        <input id="cfg-library-name-series" type="text" is="emby-input" placeholder="Streamed Series" />
+        <div class="es-hint">Name for Emby library pointing to series sync path</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-emby-base">Emby base URL</label>
+        <input id="cfg-emby-base" type="url" is="emby-input" placeholder="http://127.0.0.1:8096" />
+        <div class="es-hint">The URL this Emby server is reachable at. Usually <code>http://127.0.0.1:8096</code> — change only if clients access Emby at a different address (e.g. reverse proxy).</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-sig-validity">Signature validity (days)</label>
+        <input id="cfg-sig-validity" type="number" is="emby-input" placeholder="365" />
+        <div class="es-hint">How long signed .strm URLs remain valid. Lower = more frequent re-signing. Default: 365</div>
+      </div>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div>
+      <h4 style="font-size:.95em;margin:0 0 .5em">Metadata Preferences</h4>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6em">
+        <div class="inputContainer" style="margin:0">
+          <label class="inputLabel inputLabelUnfocused" for="cfg-meta-lang-dropdown">Metadata language</label>
+          <select id="cfg-meta-lang-dropdown" is="emby-select" style="width:100%">
+            <option value="en">English</option>
+            <option value="es">Español (Spanish)</option>
+            <option value="fr">Français (French)</option>
+            <option value="de">Deutsch (German)</option>
+            <option value="it">Italiano (Italian)</option>
+            <option value="ja">日本語 (Japanese)</option>
+            <option value="pt">Português (Portuguese)</option>
+            <option value="ru">Русский (Russian)</option>
+            <option value="zh">中文 (Chinese)</option>
+            <option value="ko">한국어 (Korean)</option>
+            <option value="pl">Polski (Polish)</option>
+            <option value="nl">Nederlands (Dutch)</option>
           </select>
-          <div class="es-hint">auto learns the best mode per device. Default: auto.</div>
+          <div class="es-hint">Used for metadata and .nfo file content</div>
         </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-max-proxy">Max concurrent proxy streams</label>
-          <input id="cfg-max-proxy" type="number" is="emby-input" min="1" max="20" placeholder="5" />
-          <div class="es-hint">Simultaneous proxied streams. Reduce on low-bandwidth servers. Default: 5.</div>
+        <div class="inputContainer" style="margin:0">
+          <label class="inputLabel inputLabelUnfocused" for="cfg-meta-language">Metadata language (ISO 639-1)</label>
+          <input id="cfg-meta-language" type="text" is="emby-input" placeholder="en" />
+          <div class="es-hint">Two-letter ISO language code. Default: en</div>
         </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-next-up-lookahead">Next-up lookahead episodes</label>
-          <input id="cfg-next-up-lookahead" type="number" is="emby-input" min="0" max="10" />
-          <div class="es-hint">Episodes pre-resolved in background after playback stops. 0 = disabled. Default: 2.</div>
+        <div class="inputContainer" style="margin:0">
+          <label class="inputLabel inputLabelUnfocused" for="cfg-meta-country">Metadata country (ISO 3166-1 alpha-2)</label>
+          <input id="cfg-meta-country" type="text" is="emby-input" placeholder="US" />
+          <div class="es-hint">Two-letter ISO country code. Default: US</div>
         </div>
-        <label class="checkboxContainer" style="margin-top:.5em">
-          <input type="checkbox" is="emby-checkbox" id="cfg-delete-strm-on-readoption" />
-          <span class="checkboxLabel">Delete .strm when real file is detected</span>
-        </label>
-        <div class="es-hint" style="margin-left:2em">Prevents duplicates in Emby when you acquire the real file.</div>
       </div>
-
-    </div><!-- /accordion-body playback -->
-  </div><!-- /accordion playback -->
-
-  <!-- ── Accordion: STRM Files & Paths ── -->
-  <div class="es-accordion" id="es-adv-strm-paths">
-    <div class="es-accordion-hdr" data-es-accordion="strm-paths">
-      <span class="es-accordion-icon">📁</span>
-      <span>STRM Files &amp; Paths</span>
-      <span class="es-accordion-chevron">▼</span>
+      <label class="checkboxContainer" style="margin-top:.5em">
+        <input type="checkbox" is="emby-checkbox" id="cfg-enable-nfo" />
+        <span class="checkboxLabel">Write .nfo metadata files</span>
+      </label>
+      <div class="es-hint" style="margin-left:2em">Creates .nfo files next to .strm files with metadata. Useful for backup/recovery.</div>
     </div>
-    <div class="es-accordion-body">
+  </div>
 
-      <div class="es-card" id="cfg-section-paths">
-        <h3>Library Paths</h3>
-        <div class="es-hint" style="margin-bottom:.75em">
-          These folders must exist as Emby libraries (Movies + TV Shows). Tip: <a href="/web/#/mypreferencesdisplay.html" target="_blank" style="color:var(--theme-button-background,#00a4dc)">disable <b>Extract chapter images</b></a> in Library settings to prevent per-file scanning overhead.
-        </div>
 
-        <!-- Current paths display (read-only) -->
-        <div style="background:rgba(128,128,128,0.08);border-radius:6px;padding:.6em .8em;margin-bottom:.8em">
-          <div style="font-size:.8em;opacity:.6;margin-bottom:.4em">Current sync paths:</div>
-          <div style="display:flex;flex-direction:column;gap:.3em;font-size:.85em">
-            <div>Movies: <code id="cfg-readonly-movies">/media/infinitedrive/catalog/movies</code></div>
-            <div>Series: <code id="cfg-readonly-series">/media/infinitedrive/catalog/shows</code></div>
-            <div id="cfg-readonly-anime-row" style="display:none">Anime: <code id="cfg-readonly-anime">/media/infinitedrive/anime</code></div>
-          </div>
-          <div style="margin-top:.5em;font-size:.78em;opacity:.7">
-            <a data-es-tab="setup" style="cursor:pointer;color:var(--theme-button-background,#00a4dc)">Edit paths in Setup Wizard →</a>
-          </div>
-        </div>
+  <!-- Card 4: Security -->
+  <div class="es-card" id="cfg-section-security" style="border-color:rgba(0,164,220,0.35);background:rgba(0,164,220,0.04)">
+    <h3 style="color:var(--theme-button-background,#00a4dc)">🔐 Security</h3>
 
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-base-path">Base sync path</label>
-          <input id="cfg-base-path" type="text" is="emby-input" placeholder="/media/infinitedrive" />
-          <div class="es-hint">Subfolders: <code>catalog/movies</code>, <code>catalog/shows</code>, <code>discover/movies</code>, <code>discover/shows</code></div>
-        </div>
-        <div id="cfg-derived-paths" style="font-size:.85em;opacity:.6;margin:.2em 0 .6em">
-          Movies: <code id="cfg-derived-movies"></code> &nbsp;|&nbsp; Shows: <code id="cfg-derived-shows"></code>
-        </div>
-        <div class="inputContainer" style="margin-top:.5em">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-library-name-movies">Movies library name</label>
-          <input id="cfg-library-name-movies" type="text" is="emby-input" placeholder="Streamed Movies" />
-          <div class="es-hint">Name for the Emby library pointing to the movies sync path</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-library-name-series">Series library name</label>
-          <input id="cfg-library-name-series" type="text" is="emby-input" placeholder="Streamed Series" />
-          <div class="es-hint">Name for the Emby library pointing to the series sync path</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-emby-base">Emby base URL</label>
-          <input id="cfg-emby-base" type="url" is="emby-input" placeholder="http://127.0.0.1:8096" />
-          <div class="es-hint">The URL this Emby server is reachable at. Usually <code>http://127.0.0.1:8096</code> — change only if clients access Emby at a different address (e.g. reverse proxy).</div>
-        </div>
-        <div class="inputContainer">
-          <label class="inputLabel inputLabelUnfocused" for="cfg-sig-validity">Signature validity (days)</label>
-          <input id="cfg-sig-validity" type="number" is="emby-input" placeholder="365" />
-          <div class="es-hint">How long signed .strm URLs remain valid. Lower = more frequent re-signing. Default: 365</div>
-        </div>
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Playback Authentication</h4>
+      <p style="font-size:.9em;line-height:1.6;margin:.4em 0 .8em">InfiniteDrive uses a unique <strong>API key</strong> to authenticate playback requests. The key is automatically embedded in all <code style="background:rgba(0,0,0,0.15);padding:.1em .35em;border-radius:2px">.strm</code> files.</p>
+      <div class="es-alert es-alert-info" style="font-size:.88em;margin-bottom:.8em">
+        <strong>How it works:</strong>
+        <ul style="margin:.5em 0;padding-left:1.4em">
+          <li>Your API key is generated once during initial setup.</li>
+          <li>It's stored in your plugin configuration file (plaintext, same as debrid API keys).</li>
+          <li>The key is only used for local playback — not transmitted over internet.</li>
+          <li>Invalid keys return 401, preventing unauthorized playback.</li>
+        </ul>
       </div>
-
-      <div class="es-card">
-        <h3>Metadata Preferences</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.6em">
-          <div class="inputContainer" style="margin:0">
-            <label class="inputLabel inputLabelUnfocused" for="cfg-meta-lang-dropdown">Metadata language</label>
-            <select id="cfg-meta-lang-dropdown" is="emby-select" style="width:100%">
-              <option value="en">English</option>
-              <option value="es">Español (Spanish)</option>
-              <option value="fr">Français (French)</option>
-              <option value="de">Deutsch (German)</option>
-              <option value="it">Italiano (Italian)</option>
-              <option value="ja">日本語 (Japanese)</option>
-              <option value="pt">Português (Portuguese)</option>
-              <option value="ru">Русский (Russian)</option>
-              <option value="zh">中文 (Chinese)</option>
-              <option value="ko">한국어 (Korean)</option>
-              <option value="pl">Polski (Polish)</option>
-              <option value="nl">Nederlands (Dutch)</option>
-            </select>
-            <div class="es-hint">Used for metadata and .nfo file content</div>
-          </div>
-          <div class="inputContainer" style="margin:0">
-            <label class="inputLabel inputLabelUnfocused" for="cfg-meta-country-dropdown">Certification country</label>
-            <select id="cfg-meta-country-dropdown" is="emby-select" style="width:100%">
-              <option value="US">United States</option>
-              <option value="GB">United Kingdom</option>
-              <option value="AU">Australia</option>
-              <option value="CA">Canada</option>
-              <option value="DE">Germany</option>
-              <option value="FR">France</option>
-              <option value="IT">Italy</option>
-              <option value="ES">Spain</option>
-              <option value="JP">Japan</option>
-              <option value="IN">India</option>
-              <option value="BR">Brazil</option>
-              <option value="MX">Mexico</option>
-            </select>
-            <div class="es-hint">For content rating labels (G, PG, 15, etc.)</div>
-          </div>
-          <div class="inputContainer" style="margin:0">
-            <label class="inputLabel inputLabelUnfocused" for="cfg-meta-img-lang-dropdown">Image language</label>
-            <select id="cfg-meta-img-lang-dropdown" is="emby-select" style="width:100%">
-              <option value="en">English</option>
-              <option value="es">Español (Spanish)</option>
-              <option value="fr">Français (French)</option>
-              <option value="de">Deutsch (German)</option>
-              <option value="it">Italiano (Italian)</option>
-              <option value="ja">日本語 (Japanese)</option>
-              <option value="pt">Português (Portuguese)</option>
-              <option value="ru">Русский (Russian)</option>
-              <option value="zh">中文 (Chinese)</option>
-              <option value="ko">한국어 (Korean)</option>
-            </select>
-            <div class="es-hint">For poster/backdrop downloads</div>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- /accordion-body strm-paths -->
-  </div><!-- /accordion strm-paths -->
-
-  <!-- ── Accordion: Security ── -->
-  <div class="es-accordion" id="es-adv-security">
-    <div class="es-accordion-hdr" data-es-accordion="security">
-      <span class="es-accordion-icon">🔐</span>
-      <span>Security</span>
-      <span class="es-accordion-chevron">▼</span>
+      <hr class="es-divider" />
+      <p style="font-size:.85em;opacity:.6;line-height:1.5;margin:0">⚠ Config is stored in plaintext (<code>config/plugins/InfiniteDrive.xml</code>). Restrict filesystem access to Emby config directory to trusted users only.</p>
     </div>
-    <div class="es-accordion-body">
 
-      <div class="es-card" id="cfg-section-security" style="border-color:rgba(0,164,220,0.35);background:rgba(0,164,220,0.04)">
-        <h3 style="color:var(--theme-button-background,#00a4dc)">🔐 Playback Authentication</h3>
-        <p style="font-size:.9em;line-height:1.6;margin:.4em 0 .8em">
-          InfiniteDrive uses a unique <strong>API key</strong> to authenticate playback requests. The key is automatically
-          embedded in all <code style="background:rgba(0,0,0,0.15);padding:.1em .35em;border-radius:2px">.strm</code> files.
-        </p>
-        <div class="es-alert es-alert-info" style="font-size:.88em;margin-bottom:.8em">
-          <strong>How it works:</strong>
-          <ul style="margin:.5em 0;padding-left:1.4em">
-            <li>Your API key is generated once during initial setup.</li>
-            <li>It's stored in your plugin configuration file (plaintext, same as debrid API keys).</li>
-            <li>The key is only used for local playback — not transmitted over the internet.</li>
-            <li>Invalid keys return 401, preventing unauthorized playback.</li>
-          </ul>
-        </div>
-        <hr class="es-divider" />
-        <p style="font-size:.85em;opacity:.6;line-height:1.5;margin:0">
-          For detailed security information, see the <a href="https://github.com/jagtrembley-source/embyStreams/blob/master/SECURITY.md" target="_blank" rel="noopener" style="color:var(--theme-button-background,#00a4dc)">Security documentation</a>.
-        </p>
-      </div>
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
 
-      <p class="es-hint" style="margin-bottom:.5em">
-        ⚠ Config is stored in plaintext (<code>config/plugins/InfiniteDrive.xml</code>).
-        Restrict filesystem access to the Emby config directory to trusted users only.
-      </p>
-
-    </div><!-- /accordion-body security -->
-  </div><!-- /accordion security -->
-
-  <!-- ── Accordion: Maintenance ── -->
-  <div class="es-accordion" id="es-adv-maintenance">
-    <div class="es-accordion-hdr" data-es-accordion="maintenance">
-      <span class="es-accordion-icon">🔧</span>
-      <span>Maintenance</span>
-      <span class="es-accordion-chevron">▼</span>
-    </div>
-    <div class="es-accordion-body">
-
-      <div class="es-card" id="cfg-section-reset" style="border-color:rgba(100,150,200,0.35);background:rgba(100,150,200,0.04)">
-        <h3 style="color:var(--theme-button-background,#00a4dc)">Recovery</h3>
-        <p style="font-size:.9em;opacity:.8;margin:0 0 .8em">Start fresh by clearing all InfiniteDrive settings. Your Emby library and .strm files are preserved — only configuration is reset.</p>
-        <button type="button" is="emby-button" class="raised button" data-es-action="reset-settings-confirm">🔄 Reset All Settings</button>
-        <div id="es-reset-result" style="margin-top:.6em;display:none"></div>
-      </div>
-
-      <div class="es-card" id="cfg-section-danger" style="border-color:rgba(220,53,69,0.35);background:rgba(220,53,69,0.04)">
-        <h3 style="color:#dc3545">Danger Zone</h3>
-
-        <hr class="es-divider" />
-
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5em;margin-bottom:.65em">
-          <div>
-            <div style="font-size:.9em;font-weight:600">Mostly Harmless</div>
-            <div class="es-hint">Re-shows the Setup Wizard. Your settings and library are untouched.</div>
-          </div>
-          <button type="button" is="emby-button" class="raised button" data-es-action="reset-wizard-confirm">Reset Wizard</button>
-        </div>
-
-        <hr class="es-divider" />
-
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5em;margin-bottom:.65em">
-          <div>
-            <div style="font-size:.9em;font-weight:600">Purge Catalog</div>
-            <div class="es-hint">Wipes all catalog items, .strm files and sync state from disk. Resolution cache is preserved.</div>
-          </div>
-          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-confirm">Purge Catalog</button>
-        </div>
-        <div id="es-purge-confirm" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.25);border-radius:6px;padding:.8em;margin-bottom:.65em">
-          <div style="font-size:.9em;font-weight:600;color:#dc3545;margin-bottom:.4em">⚠ Are you sure?</div>
-          <p style="font-size:.85em;margin:0 0 .6em">All .strm files will be deleted from disk and catalog data wiped from the database. You'll need to run a Catalog Sync to rebuild. Your stream resolution cache is kept.</p>
-          <div class="es-btn-row">
-            <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-execute">Yes, Purge Catalog</button>
-            <button type="button" is="emby-button" class="raised button" data-es-action="purge-cancel">Cancel</button>
-          </div>
-        </div>
-
-        <hr class="es-divider" />
-
-        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.5em;margin-bottom:.5em">
-          <div>
-            <div style="font-size:.9em;font-weight:700;color:#dc3545">Total Existence Failure</div>
-            <div class="es-hint">Wipes <strong>everything</strong> — database, .strm files, <em>and</em> all configuration. Cannot be undone.</div>
-          </div>
-          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step1">☢ Total Existence Failure</button>
-        </div>
-
-        <div id="es-nuclear-step1" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.3);border-radius:6px;padding:.9em;margin-bottom:.5em">
-          <div style="font-size:1.1em;font-weight:900;color:#dc3545;letter-spacing:.05em;margin-bottom:.5em">⚠ STOP. READ THIS.</div>
-          <p style="font-size:.88em;line-height:1.6;margin:0 0 .5em">
-            You are about to activate the <strong>Total Perspective Vortex</strong> for InfiniteDrive.
-            Unlike the original, this one will not merely show you your own insignificance in the universe —
-            it will <strong>delete every trace of InfiniteDrive from your system</strong>:
-          </p>
-          <ul style="font-size:.85em;line-height:1.8;margin:.25em 0 .5em 1.2em;padding:0">
-            <li>All catalog items, stream candidates, and resolution cache</li>
-            <li>All sync state, playback history, and client profiles</li>
-            <li>Every .strm and .nfo file written to your movie and shows folders</li>
-            <li><strong>Every configuration field</strong> — URLs, API keys, paths, everything</li>
-          </ul>
-          <p style="font-size:.85em;margin:0 0 .65em">
-            Your AIOStreams instance itself is unaffected. Emby library entries pointing to .strm files
-            may need a manual library scan to clear. <em>Don't Panic</em> — but maybe think twice.
-          </p>
-          <div class="es-btn-row">
-            <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step2">I understand — continue →</button>
-            <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel (wise choice)</button>
-          </div>
-        </div>
-
-        <div id="es-nuclear-step2" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.4);border-radius:6px;padding:.9em;margin-bottom:.5em">
-          <div style="font-size:1em;font-weight:800;color:#dc3545;margin-bottom:.5em">ONE MORE WARNING.</div>
-          <p style="font-size:.88em;line-height:1.55;margin:0 0 .6em">
-            The Vogon Constructor Fleet does not offer refunds. There is no undo button.
-            No backup. No safety net. This is a <strong>one-way hyperspace bypass</strong>.
-          </p>
-          <p style="font-size:.88em;margin:0 0 .6em">
-            To confirm, type <code style="font-size:1em;font-weight:700;letter-spacing:.05em">VOGON</code> below:
-          </p>
-          <div style="display:flex;gap:.6em;align-items:center;flex-wrap:wrap">
-            <input id="es-nuclear-confirm-input" type="text" is="emby-input" placeholder="type VOGON" autocomplete="off"
-                   style="width:140px;flex:0 0 auto;font-family:monospace;text-transform:uppercase" />
-            <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-execute">
-              ☢ EXECUTE — So Long, and Thanks for All the Streams
-            </button>
-            <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel</button>
-          </div>
-          <div id="es-nuclear-confirm-error" style="display:none;color:#dc3545;font-size:.82em;margin-top:.35em"></div>
-        </div>
-
-        <div id="es-nuclear-done" style="display:none"></div>
-
-      </div><!-- /danger zone -->
-
-    </div><!-- /accordion-body maintenance -->
-  </div><!-- /accordion maintenance -->
-
-  <!-- ═══════════════════════════ Stream Signing Secret ══════════════════════════ -->
-  <div class="es-accordion">
-    <div class="es-accordion-header" data-es-accordion="signing-secret">
-      <span>Stream Signing Secret</span>
-      <span class="es-chevron">▶</span>
-    </div>
-    <div class="es-accordion-body" id="es-accordion-body-signing-secret" style="display:none">
-      <p style="font-size:.85em;color:#aaa;margin:0 0 1em">
-        The signing secret secures .strm file URLs. It is auto-generated on first load.
-        <strong>Rotating it invalidates all existing .strm files</strong> — run a full
-        catalog sync afterwards to regenerate them.
-      </p>
+    <div>
+      <h4 style="font-size:.95em;margin:0 0 .5em">Stream Signing Secret</h4>
+      <p style="font-size:.85em;color:#aaa;margin:0 0 1em">The signing secret secures .strm file URLs. It is auto-generated on first load. <strong>Rotating it invalidates all existing .strm files</strong> — run a full source sync afterwards to regenerate them.</p>
       <div class="inputContainer">
         <label class="inputLabel inputLabelUnfocused" for="cfg-plugin-secret">Plugin Secret (HMAC key)</label>
-        <input id="cfg-plugin-secret" type="text" is="emby-input" readonly
-               style="font-family:monospace;font-size:.82em" />
+        <input id="cfg-plugin-secret" type="text" is="emby-input" readonly style="font-family:monospace;font-size:.82em" />
       </div>
       <div id="es-secret-empty-warning" style="display:none;padding:.6em .9em;margin-bottom:.8em;background:rgba(240,173,78,.15);border:1px solid #f0ad4e;border-radius:6px;font-size:.85em;color:#f0ad4e">
         ⚠ PluginSecret is empty or too short — stream URL signing will not work. Save settings to auto-generate one.
       </div>
       <div style="margin-top:.75em;display:flex;gap:.5em;align-items:center">
         <button id="es-regen-secret-btn" is="emby-button" class="raised button">Regenerate Secret</button>
-        <span id="es-regen-secret-warning" style="display:none;color:#f0ad4e;font-size:.82em">
-          ⚠ Regenerated — save settings, then run a full catalog sync.
-        </span>
+        <span id="es-regen-secret-warning" style="display:none;color:#f0ad4e;font-size:.82em">⚠ Regenerated — save settings, then run a full source sync.</span>
       </div>
     </div>
-  </div><!-- /signing-secret accordion -->
+  </div>
+
+
+  <!-- Card 5: Danger Zone -->
+  <div class="es-card" id="cfg-section-danger" style="border-color:rgba(220,53,69,0.35);background:rgba(220,53,69,0.04)">
+    <h3 style="color:#dc3545">Danger Zone</h3>
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Recovery</h4>
+      <p style="font-size:.9em;opacity:.8;margin:0 0 .8em">Start fresh by clearing all InfiniteDrive settings. Your Emby library and .strm files are preserved — only configuration is reset.</p>
+      <button type="button" is="emby-button" class="raised button" data-es-action="reset-settings-confirm">🔄 Reset All Settings</button>
+      <div id="es-reset-result" style="margin-top:.6em;display:none"></div>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Reset Wizard</h4>
+      <p class="es-hint">Re-shows the Setup Wizard. Your settings and library are untouched.</p>
+      <button type="button" is="emby-button" class="raised button" data-es-action="reset-wizard-confirm">Reset Wizard</button>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Purge Source Data</h4>
+      <p class="es-hint">Wipes all catalog items, .strm files and sync state from disk. Resolution cache is preserved.</p>
+      <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-confirm">Purge Source Data</button>
+      <div id="es-purge-confirm" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.25);border-radius:6px;padding:.8em;margin-top:.65em">
+        <div style="font-size:.9em;font-weight:600;color:#dc3545;margin-bottom:.4em">⚠ Are you sure?</div>
+        <p style="font-size:.85em;margin:0 0 .6em">All .strm files will be deleted from disk and source data wiped from the database. You'll need to run a Source Sync to rebuild. Your stream resolution cache is kept.</p>
+        <div class="es-btn-row">
+          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-execute">Yes, Purge Source Data</button>
+          <button type="button" is="emby-button" class="raised button" data-es-action="purge-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div>
+      <h4 style="font-size:.95em;margin:0 0 .5em;color:#dc3545">Total Existence Failure</h4>
+      <p class="es-hint">Wipes <strong>everything</strong> — database, .strm files, <em>and</em> all configuration. Cannot be undone.</p>
+      <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step1">☢ Total Existence Failure</button>
+      <div id="es-nuclear-step1" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.3);border-radius:6px;padding:.9em;margin-top:.5em">
+        <div style="font-size:1.1em;font-weight:900;color:#dc3545;letter-spacing:.05em;margin-bottom:.5em">⚠ STOP. READ THIS.</div>
+        <p style="font-size:.88em;line-height:1.6;margin:0 0 .5em">You are about to activate <strong>Total Perspective Vortex</strong> for InfiniteDrive. Unlike the original, this one will not merely show you your own insignificance in the universe — it will <strong>delete every trace of InfiniteDrive from your system</strong>:</p>
+        <ul style="font-size:.85em;line-height:1.8;margin:.25em 0 .5em 1.2em;padding:0">
+          <li>All source items, stream candidates, and resolution cache</li>
+          <li>All sync state, playback history, and client profiles</li>
+          <li>Every .strm and .nfo file written to your movie and shows folders</li>
+          <li><strong>Every configuration field</strong> — URLs, API keys, paths, everything</li>
+        </ul>
+        <p style="font-size:.85em;margin:0 0 .65em">Your AIOStreams instance itself is unaffected. Emby library entries pointing to .strm files may need a manual library scan to clear. <em>Don't Panic</em> — but maybe think twice.</p>
+        <div class="es-btn-row">
+          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step2">I understand — continue →</button>
+          <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel (wise choice)</button>
+        </div>
+      </div>
+      <div id="es-nuclear-step2" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.4);border-radius:6px;padding:.9em;margin-top:.5em">
+        <div style="font-size:1em;font-weight:800;color:#dc3545;margin-bottom:.5em">ONE MORE WARNING.</div>
+        <p style="font-size:.88em;line-height:1.55;margin:0 0 .6em">The Vogon Constructor Fleet does not offer refunds. There is no undo button. No backup. No safety net. This is a <strong>one-way hyperspace bypass</strong>.</p>
+        <p style="font-size:.88em;margin:0 0 .6em">To confirm, type <code style="font-size:1em;font-weight:700;letter-spacing:.05em">VOGON</code> below:</p>
+        <div style="display:flex;gap:.6em;align-items:center;flex-wrap:wrap">
+          <input id="es-nuclear-confirm-input" type="text" is="emby-input" placeholder="type VOGON" autocomplete="off" style="width:140px;flex:0 0 auto;font-family:monospace;text-transform:uppercase" />
+          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-execute">☢ EXECUTE — So Long, and Thanks for All the Streams</button>
+          <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel</button>
+        </div>
+        <div id="es-nuclear-confirm-error" style="display:none;color:#dc3545;font-size:.82em;margin-top:.35em"></div>
+      </div>
+      <div id="es-nuclear-done" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Save buttons at bottom of Settings -->
+  <div class="es-btn-row" style="margin-top:1.5em">
+    <button type="button" is="emby-button" class="raised button-submit" data-es-action="save-settings">Save Settings</button>
+    <button type="button" is="emby-button" class="raised button" data-es-action="validate-settings">Validate Setup</button>
+  </div>
+  <div id="es-save-result" style="margin-top:-.6em;margin-bottom:.8em;display:none"></div>
+  <div id="es-validate-result-settings" style="margin-top:-.6em;margin-bottom:.8em;display:none"></div>
+
+</div><!-- /settings tab -->
+
 
   <!-- Hidden wizard wizard fields needed by existing save logic -->
   <div style="display:none">
@@ -1623,49 +1489,36 @@
 
 </div>
 
-<!-- ════════════════════════════ TAB — Blocked Items (Admin) ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-blocked">
 
+<!-- ══════════════════════════ TAB 3 — Content ══════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-content">
   <div class="es-card">
     <h2 style="margin-top:0">Blocked Items</h2>
     <p class="es-hint">Items blocked after failing enrichment 3 times. Still playable but won't be retried automatically.</p>
-
     <div id="es-blocked-items-list" style="margin-bottom:1em"></div>
-
     <div style="display:flex;gap:.75em;flex-wrap:wrap">
       <button id="es-unblock-selected-btn" class="es-btn es-btn-primary">Unblock Selected</button>
       <button id="es-unblock-all-btn" class="es-btn">Unblock All</button>
     </div>
   </div>
-
-</div>
-
-<!-- ════════════════════════════ TAB — Content Management (Admin) ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-content-mgmt">
-
   <div class="es-card">
     <h2 style="margin-top:0">Content Management</h2>
-
-    <div style="margin-bottom:1.5em">
-      <h3 style="margin-bottom:.5em">Catalog Sync</h3>
+    <div style="margin-bottom:1.5em;">
+      <h3 style="margin-bottom:.5em">Source Sync</h3>
       <p class="es-hint">Manually trigger catalog sync (normally runs every 6 hours).</p>
-      <button id="es-force-catalog-sync-btn" class="es-btn" data-es-task="catalog_sync">Force Catalog Sync Now</button>
+      <button id="es-force-catalog-sync-btn" class="es-btn" data-es-task="catalog_sync">Force Source Sync Now</button>
     </div>
-
-    <div style="margin-bottom:1.5em">
+    <div style="margin-bottom:1.5em;">
       <h3 style="margin-bottom:.5em">Version Slots</h3>
       <p class="es-hint">Apply pending slot changes (add/remove quality tiers) across all catalog items.</p>
-      <button class="es-btn" data-es-task="infinitedrive_rehydration">Run Pending Rehydration</button>
+      <button id="es-slot-btn" class="es-btn" data-es-task="infinitedrive_rehydration">Run Pending Rehydration</button>
     </div>
-
-    <div style="margin-bottom:1.5em">
+    <div style="margin-bottom:1.5em;">
       <h3 style="margin-bottom:.5em">Sync Sources</h3>
       <div id="es-sync-sources-list" class="es-hint">Loading…</div>
     </div>
   </div>
-
-</div>
-
+</div><!-- /content tab -->
 </div><!-- #es-page -->
 
   </div><!-- content-primary -->
