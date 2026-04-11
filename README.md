@@ -1,24 +1,20 @@
 # InfiniteDrive
 
-> *"It is known that there are an infinite number of worlds, simply because there is an infinite amount of space for them to be in. However, not every one of them is inhabited. Therefore, there must be a finite number of inhabited worlds. Any finite number divided by infinity is as near to nothing as makes no odds, so the average population of all the planets in the Universe can be said to be zero. From this it follows that the population of the whole Universe is also zero, and that any people you may meet from time to time are merely the products of a deranged imagination."*
->
-> — Douglas Adams, *The Restaurant at the End of the Universe*
+🚀 **DON'T PANIC**
+
+> *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
+
+⚠️ **WARNING:** This project is currently under heavy development. It does not work. It may never work. It might make your Emby server question its own existence. You have been warned. Bring a towel.
 
 An Emby plugin that discovers streaming catalogs from [AIOStreams](https://github.com/aiostreams), writes `.strm` files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably.
 
 ---
 
-## WARNING: Heavy Development
+## Design Principle: Simplicity Over Complexity
 
-**This plugin is in heavy development and may or may not work on any given day.**
+Users want simplicity, administrators want flexibility, nobody wants complexity. Fortunately for us, the debrid and usenet streaming world is inherently complex.
 
-- The API may change without notice
-- Database schemas migrate automatically but may break
-- Features described here may not yet exist
-- Features that exist may not work as described
-- The author makes no promises, express or implied, about the continued existence of any stream
-
-Don't panic. It's mostly harmless.
+When making architectural decisions: prefer the simple approach that works over the sophisticated one that handles every edge case.
 
 ---
 

@@ -19,9 +19,9 @@ Use descriptive names instead:
 
 ## Design Principle
 
-> **Design Principle: Simplicity Over Complexity**
+> **Simplicity Over Complexity**
 >
-> Users want simplicity, administrators want flexibility, nobody wants complexity. Fortunately for us, debrid and usenet streaming world is inherently complex.
+> Users want simplicity, administrators want flexibility, nobody wants complexity. Fortunately for us, the debrid and usenet streaming world is inherently complex.
 >
 > When making architectural decisions: prefer the simple approach that works over the sophisticated one that handles every edge case.
 
@@ -30,18 +30,25 @@ Use descriptive names instead:
 ## Startup Ritual (Every Session)
 
 Read these two files **only**, then stop and wait for the task:
+
 1. `.ai/CURRENT_TASK.md` — active task and status
 2. `.ai/REPO_MAP.md` — where to find code
 
 Do NOT read README.md, BACKLOG.md, or any source file unless the task requires it.
 
+---
+
 ## Sprint Completion Ritual (Every Sprint)
 
-At the end of every sprint, before committing:
-1. Update `.ai/REPO_MAP.md` — add/modify/remove entries for any .cs files that were created, deleted, or significantly refactored this sprint
+At the end of every sprint, **commit and push immediately before starting the next sprint**. No accumulated uncommitted work.
+
+Before committing:
+1. Update `.ai/REPO_MAP.md` — add/modify/remove entries for any .cs files created, deleted, or significantly refactored this sprint
 2. Update `BACKLOG.md` — mark completed tasks `[x]`, add Findings and Guidance
 3. Update `.ai/SESSION_SUMMARY.md` — log tokens saved, delegation outcomes
 4. `git add .ai/REPO_MAP.md BACKLOG.md && git commit -m "chore: end-of-sprint update"`
+
+Sprint-specific schema changes, feature specs, and behaviour decisions belong in `BACKLOG.md` or `.ai/CURRENT_TASK.md` — not in this file.
 
 ---
 
@@ -49,9 +56,9 @@ At the end of every sprint, before committing:
 
 - **Max 3 files per subtask** without explicit user approval
 - **Never read a file >300 lines in full** — use `grep`, `sed`, or line-range reads
-- **Never re-read a file already read this session** — use `.ai/CURRENT_TASK.md` notes
+- **Never re-read a file already read this session** — use `.ai/CURRENT_TASK.md` notes instead
 - **No broad grep sweeps** — always scope to a specific path
-- **Summarize before continuing** — write 3-line summary to `.ai/CURRENT_TASK.md` after each subtask
+- **Summarize before continuing** — write a 3-line summary to `.ai/CURRENT_TASK.md` after each subtask
 
 ---
 
@@ -65,18 +72,20 @@ At the end of every sprint, before committing:
 
 ## Delegation (Cost-Optimized Mode)
 
+Route source of truth: `.ai/MODEL_STATE.json` — resolve at runtime, never assume.
+**If `.ai/MODEL_STATE.json` is missing or unreadable, default to direct Claude and flag the issue.**
+
 Route class → task type:
 - `code-fast` — file analysis, code explanation
 - `code-accurate` — code review, test generation, refactoring
 - `docs-fast` — boilerplate, documentation, summaries
 - `longctx-analysis` — multi-file audits, repo-wide analysis
 
-Route source of truth: `.ai/MODEL_STATE.json` — resolve at runtime, never assume.
 Never silently switch to a paid route without explicit approval.
 
 **Reserve Claude for:** architecture decisions, tradeoff analysis, integration planning, final patch review, security changes, incident triage.
 
-**High-risk changes (require Claude review):**
+**High-risk changes (require Claude review before committing):**
 - Plugin entrypoints / service registration
 - Database schema or migrations
 - Auth / API key handling
@@ -95,6 +104,25 @@ Never silently switch to a paid route without explicit approval.
 - `.ai/REPO_MAP.md` — codebase index
 
 Never depend on chat history for state. Always read `.ai/CURRENT_TASK.md`.
+
+---
+
+## Sprint Planning
+
+**Always start from the template:** `.ai/SPRINT_TEMPLATE.md`
+
+When defining a new sprint:
+1. Copy `.ai/SPRINT_TEMPLATE.md` to a new sprint file (e.g., `.ai/sprints/sprint-162.md`)
+2. Fill in the header (Version, Status, Risk, Depends, Owner, Target, PR)
+3. Write the Overview section with problem statement, why now, and approach
+4. Research findings go into "What the Research Found" — document API/library capabilities, existing patterns, constraints
+5. List Breaking Changes and Non-Goals explicitly
+6. Break work into phases (A: Database, B: Service Layer, C: Wiring, D: Registration, E: Verification)
+7. Each task gets a FIX-XXX format ID with file path, estimated effort, and detailed "What"
+8. Build & Verification phase includes build check, grep checklist, and manual tests
+9. Completion Criteria is a checklist of all deliverables
+10. Open Questions / Blockers table for items requiring research or decision
+11. Notes section summarizes files changed and risk assessment
 
 ---
 
@@ -119,11 +147,14 @@ Never depend on chat history for state. Always read `.ai/CURRENT_TASK.md`.
 
 ## Quick Reference
 
-    dotnet build -c Release
-    tail -f ~/emby-dev-data/logs/embyserver.txt
-    # Config UI: http://localhost:8096/web/configurationpage?name=InfiniteDrive
+```
+dotnet build -c Release
+tail -f ~/emby-dev-data/logs/embyserver.txt
+# Config UI: http://localhost:8096/web/configurationpage?name=InfiniteDrive
+```
 
 ### Beta Software Locations
+
 - **Emby Server:** `../emby-beta/` (extracted from emby-server-deb_4.10.0.8_amd64.deb)
 - **Emby SDK:** `../emby.SDK-beta/` (Emby Plugin SDK documentation and samples)
 - **SQLite DLLs:** Referenced from `../emby-beta/opt/emby-server/system/`
@@ -138,50 +169,7 @@ Never depend on chat history for state. Always read `.ai/CURRENT_TASK.md`.
 | `./test-signed-stream.sh` | Test HMAC signed-stream endpoint against :8096 |
 
 **If the server fails to start or loops on startup errors → always run `./emby-reset.sh` first.**
+
 Retired scripts are in `_retired/` — do not use them.
 
 Full dev guide: `docs/dev-guide.md`
-
----
-
-## Recent Sprint Amendments (2026-04-08)
-
-### Commit Discipline (Non-Negotiable)
-After completing every sprint, commit and push immediately before starting next sprint. No accumulated uncommitted work.
-
-### Schema: User Pins Table (Sprint 142)
-Replace global pin with `user_item_pins` table. Pinning is per-user, not global.
-- Users can have independent pins based on playback history
-- `pin_source` values: `'playback'` (auto), `'discover'` (manual), `'admin'` (global)
-- Items blocked by admin are tombstones; Deep Clean must skip them entirely
-
-### Auto-Pin on Playback Hook (Sprint 142 or 148)
-Wire `IEventConsumer<PlaybackStartEventArgs>` in EmbyEventHandler.cs.
-When user plays an InfiniteDrive `.strm` item, auto-create a `user_item_pins` row with `pin_source = 'playback'`.
-
-### Blocked Items: Admin-Only, Permanent Tombstone (Sprints 142, 145, 147)
-- `Blocked` state is admin-initiated only
-- Blocked items have `blocked_at` and `blocked_by` columns
-- Deep Clean must skip Blocked rows entirely (never delete)
-- Admin can unblock, which removes tombstone and re-queues item
-- Catalog sync and Refresh must silently skip items matching Blocked tombstones
-
-### Admin UI: Blocked Tab (Sprint 146)
-Add to admin Content Management page:
-- Shows all Blocked items (`WHERE item_state = Blocked`)
-- Columns: Title, Year, Type, Blocked date, Blocked by (admin user)
-- Action: "Unblock" — sets state to Queued, removes tombstone
-
-### User Discover Page (New Sprint 148)
-Separate user Discover from admin Content Management:
-- Filtered by user's Emby parental rating ceiling
-- Items above rating ceiling are hidden server-side
-- Single action: "Add to My Library" — creates user pin with `pin_source = 'discover'`
-- Items already pinned by this user show as "In My Library" (disabled button)
-
-### My Picks Tab (New Sprint 148)
-Alongside User Discover, add "My Picks" tab:
-- Shows all items user has pinned (auto-pin via playback or manual Discover add)
-- Sorted by `pinned_at DESC`
-- Action: "I'm done with this" — deletes user pin
-- Item remains in library until Deep Clean removes it (no immediate delete)

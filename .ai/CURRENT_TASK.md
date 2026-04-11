@@ -33,3 +33,4 @@ Build verified: 0 errors, 1 warning (pre-existing harmless EMBY_HAS_CONTENTSECTI
 ## Next Sprint
 
 Sprint 161+. Read BACKLOG.md for queued items.
+**New Sprint Template:** Use `.ai/SPRINT_TEMPLATE.md` when defining new sprints.
