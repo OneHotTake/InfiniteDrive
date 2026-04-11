@@ -176,26 +176,6 @@ namespace InfiniteDrive.Services
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
 
-                // ── Auto-pin on playback (Sprint 144) ─────────────────────────────
-
-                // Auto-pin for all InfiniteDrive .strm files
-                var userId = e.Users?.FirstOrDefault()?.Id.ToString();
-                if (!string.IsNullOrEmpty(userId))
-                {
-                    var catalogItem = await db.GetCatalogItemByStrmPathAsync(strmPath);
-                    if (catalogItem != null)
-                    {
-                        var userPinRepo = Plugin.Instance?.UserPinRepository;
-                        if (userPinRepo != null)
-                        {
-                            await userPinRepo.AddPinAsync(userId, catalogItem.Id, "playback");
-                            _logger.LogDebug(
-                                "[InfiniteDrive] Auto-pinned {Title} for user {UserId} via playback",
-                                catalogItem.Title, userId);
-                        }
-                    }
-                }
-
                 // Only pre-warm for series episodes
                 if (!season.HasValue || !episode.HasValue) return;
 

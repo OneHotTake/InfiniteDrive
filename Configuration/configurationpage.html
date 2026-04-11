@@ -748,56 +748,6 @@
     All existing settings are accessible here. Most changes take effect on the next Catalog Sync.
   </p>
 
-  <!-- ── Doctor — Catalog Reconciliation (Primary Action) ── -->
-  <div class="es-card" style="border-color:rgba(40,167,69,0.3);background:rgba(40,167,69,0.03)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.5em">
-      <div style="display:flex;align-items:center;gap:.5em">
-        <span style="font-size:1.3em">🩺</span>
-        <h3 style="margin:0">Doctor — Catalog Reconciliation</h3>
-      </div>
-      <span id="es-doctor-last-run" style="font-size:.75em;font-weight:400;opacity:.6"></span>
-    </div>
-    <p style="font-size:.82em;opacity:.7;margin:0 0 .75em">
-      Unified item state management: writes .strm, retires when real files appear, validates URLs, cleans orphans.
-    </p>
-
-    <!-- Last Run Summary (Sprint 67 v0.67.2) -->
-    <div id="es-doctor-summary" style="margin-bottom:.75em;display:none">
-      <div id="es-doctor-summary-content" style="font-size:.85em"></div>
-    </div>
-    <div id="es-doctor-never-run" style="margin-bottom:.75em;font-size:.82em;opacity:.6">
-      ── Not run yet ──<br/>
-      The Doctor reconciles your catalog with disk. Run it once to build your library, then it runs daily at 3 AM.
-    </div>
-
-    <div style="display:flex;flex-wrap:wrap;gap:1em;margin-bottom:.75em">
-      <div style="display:flex;align-items:center;gap:.4em">
-        <span style="font-size:.75em;opacity:.6">Catalogued</span>
-        <span id="es-state-catalogued" style="font-weight:700;color:#6c757d">—</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:.4em">
-        <span style="font-size:.75em;opacity:.6">Present</span>
-        <span id="es-state-present" style="font-weight:700;color:#17a2b8">—</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:.4em">
-        <span style="font-size:.75em;opacity:.6">Resolved</span>
-        <span id="es-state-resolved" style="font-weight:700;color:#28a745">—</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:.4em">
-        <span style="font-size:.75em;opacity:.6">Retired</span>
-        <span id="es-state-retired" style="font-weight:700;color:#007bff">—</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:.4em">
-        <span style="font-size:.75em;opacity:.6">Pinned</span>
-        <span id="es-state-pinned" style="font-weight:700;color:#fd7e14">📌</span>
-      </div>
-      <div style="display:flex;align-items:center;gap:.4em">
-        <span style="font-size:.75em;opacity:.6">Orphaned</span>
-        <span id="es-state-orphaned" style="font-weight:700;color:#dc3545">—</span>
-      </div>
-    </div>
-    <button type="button" is="emby-button" class="raised button-submit" data-es-task="doctor" style="width:100%">▶ Run Doctor Now</button>
-  </div>
 
   <!-- ── Accordion: System Status ── -->
   <div class="es-accordion" id="es-adv-system-status">

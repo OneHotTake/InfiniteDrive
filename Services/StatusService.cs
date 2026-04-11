@@ -193,10 +193,10 @@ namespace InfiniteDrive.Services
         /// <summary>Number of items processed in current RefreshTask run.</summary>
         public int RefreshItemsProcessed { get; set; }
 
-        /// <summary>True if DeepCleanTask has run at least once since server start.</summary>
+        /// <summary>True if MarvinTask has run at least once since server start.</summary>
         public bool DeepCleanHasRun { get; set; }
 
-        /// <summary>ISO-8601 UTC timestamp of last DeepCleanTask completion.</summary>
+        /// <summary>ISO-8601 UTC timestamp of last MarvinTask completion.</summary>
         public string? DeepCleanLastRunAt { get; set; }
 
         /// <summary>Number of items with nfo_status = 'NeedsEnrich'.</summary>
@@ -208,7 +208,7 @@ namespace InfiniteDrive.Services
         /// <summary>Health of RefreshTask: "green", "yellow", or "red" based on 2×/3× interval thresholds.</summary>
         public string? RefreshHealth { get; set; }
 
-        /// <summary>Health of DeepCleanTask: "green", "yellow", or "red" based on 2×/3× interval thresholds.</summary>
+        /// <summary>Health of MarvinTask: "green", "yellow", or "red" based on 2×/3× interval thresholds.</summary>
         public string? DeepCleanHealth { get; set; }
 
         // ── End Sprint 146 ───────────────────────────────────────────────────────
@@ -607,7 +607,7 @@ namespace InfiniteDrive.Services
                 response.RefreshActiveStep = string.IsNullOrEmpty(refreshActiveStep) ? null : refreshActiveStep;
                 response.RefreshItemsProcessed = int.TryParse(refreshItemsProcessed, out var processedCount) ? processedCount : 0;
 
-                // Read DeepCleanTask metadata
+                // Read MarvinTask metadata
                 var lastDeepCleanRun = db.GetMetadata("last_deepclean_run_time");
                 response.DeepCleanHasRun = !string.IsNullOrEmpty(lastDeepCleanRun);
                 response.DeepCleanLastRunAt = lastDeepCleanRun;

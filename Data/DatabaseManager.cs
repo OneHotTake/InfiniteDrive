@@ -29,7 +29,7 @@ namespace InfiniteDrive.Data
     /// All write operations are wrapped in transactions.
     /// All parameterised queries use named parameters — no string interpolation.
     /// </summary>
-    public class DatabaseManager : ICatalogRepository, IPinRepository, IResolutionCacheRepository
+    public class DatabaseManager : ICatalogRepository, IResolutionCacheRepository
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
@@ -1572,7 +1572,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Sets the nfo_status for a catalog item by id.
-        /// Used by DeepCleanTask for enrichment retry backoff.
+        /// Used by MarvinTask for enrichment retry backoff.
         /// </summary>
         public async Task SetNfoStatusAsync(string itemId, string nfoStatus, CancellationToken cancellationToken = default)
         {
@@ -1590,7 +1590,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Updates retry_count and next_retry_at for a catalog item by id.
-        /// Used by DeepCleanTask for enrichment retry backoff.
+        /// Used by MarvinTask for enrichment retry backoff.
         /// </summary>
         public async Task UpdateItemRetryInfoAsync(
             string itemId,
@@ -1665,22 +1665,8 @@ namespace InfiniteDrive.Data
         /// Returns the set of IMDB IDs the user has pinned (via any pin source).
         /// Used by DiscoverService to compute per-user InLibrary status.
         /// </summary>
-        public async Task<HashSet<string>> GetUserPinnedImdbIdsAsync(string userId, CancellationToken ct = default)
-        {
-            const string sql = @"
-                SELECT ci.imdb_id
-                FROM user_item_pins uip
-                JOIN catalog_items ci ON ci.id = uip.catalog_item_id
-                WHERE uip.emby_user_id = @user_id
-                  AND ci.imdb_id IS NOT NULL;";
-
-            var results = await QueryListAsync(sql, cmd => BindText(cmd, "@user_id", userId), r => r.GetString(0));
-            return new HashSet<string>(results, StringComparer.OrdinalIgnoreCase);
-        }
-
         /// <summary>
         /// Returns catalog items by a list of IDs.
-        /// Used by UserService to fetch metadata for pinned items.
         /// </summary>
         public async Task<List<CatalogItem>> GetCatalogItemsByIdsAsync(List<string> ids, CancellationToken ct = default)
         {
@@ -1708,7 +1694,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Queries for a scalar integer value (COUNT, SUM, etc.).
-        /// Used by DeepCleanTask for counting Blocked and NeedsEnrich items.
+        /// Used by MarvinTask for counting Blocked and NeedsEnrich items.
         /// </summary>
         public Task<int> QueryScalarIntAsync(string sql, CancellationToken cancellationToken = default)
         {
@@ -2334,7 +2320,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Returns the count of catalog items in the given item state.
-        /// Used by the Doctor dashboard to display state distribution.
+        /// Used by the Marvin dashboard to display state distribution.
         /// </summary>
         public Task<int> GetCatalogItemCountByItemStateAsync(ItemState state)
         {
@@ -3290,21 +3276,6 @@ CREATE TABLE IF NOT EXISTS refresh_run_log (
     items_affected  INTEGER DEFAULT 0,
     notes           TEXT
 );");
-
-                // Create user_item_pins table for per-user pin tracking
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS user_item_pins (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    emby_user_id    TEXT NOT NULL,
-    catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
-    pinned_at       TEXT NOT NULL,
-    pin_source      TEXT NOT NULL CHECK(pin_source IN ('playback', 'discover', 'admin')),
-    UNIQUE(emby_user_id, catalog_item_id)
-);");
-
-                ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_catalog_item ON user_item_pins(catalog_item_id);");
-                ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_user ON user_item_pins(emby_user_id);");
-                ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_item_pins_user_source_pinned ON user_item_pins(emby_user_id, pin_source, pinned_at DESC);");
 
                 // Add lifecycle columns to catalog_items
                 if (!ColumnExists(conn, "catalog_items", "nfo_status"))
@@ -4406,63 +4377,6 @@ LIMIT 1";
         async Task<IEnumerable<CatalogItem>> ICatalogRepository.GetBySourceAsync(string sourceId, CancellationToken ct)
         {
             return await GetCatalogItemsBySourceAsync(sourceId);
-        }
-
-        #endregion
-
-        #region IPinRepository Explicit Implementation
-
-        async Task<bool> IPinRepository.IsPinnedAsync(string imdbId, CancellationToken ct)
-        {
-            var item = await GetCatalogItemByImdbIdAsync(imdbId);
-            return item?.ItemState == ItemState.Pinned;
-        }
-
-        async Task IPinRepository.PinAsync(string imdbId, CancellationToken ct)
-        {
-            var item = await GetCatalogItemByImdbIdAsync(imdbId);
-            if (item == null)
-            {
-                // Item doesn't exist in catalog - cannot pin
-                return;
-            }
-
-            item.ItemState = ItemState.Pinned;
-            item.PinSource = "user:manual";
-            item.PinnedAt = DateTime.UtcNow.ToString("o");
-            item.UpdatedAt = DateTime.UtcNow.ToString("o");
-
-            await UpsertCatalogItemAsync(item, ct);
-        }
-
-        async Task IPinRepository.UnpinAsync(string imdbId, CancellationToken ct)
-        {
-            var item = await GetCatalogItemByImdbIdAsync(imdbId);
-            if (item == null)
-            {
-                return;
-            }
-
-            item.ItemState = ItemState.Catalogued;
-            item.PinSource = null;
-            item.PinnedAt = null;
-            item.UpdatedAt = DateTime.UtcNow.ToString("o");
-
-            await UpsertCatalogItemAsync(item, ct);
-        }
-
-        async Task<IEnumerable<string>> IPinRepository.GetAllPinnedIdsAsync(CancellationToken ct)
-        {
-            const string sql = @"
-                SELECT imdb_id
-                FROM catalog_items
-                WHERE item_state = @item_state AND removed_at IS NULL;";
-
-            var result = await QueryListAsync(sql, cmd =>
-            {
-                BindNullableInt(cmd, "@item_state", (int)ItemState.Pinned);
-            }, row => row.GetString(0));
-            return result!;
         }
 
         #endregion

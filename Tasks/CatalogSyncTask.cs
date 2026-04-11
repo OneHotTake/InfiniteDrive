@@ -912,7 +912,7 @@ namespace InfiniteDrive.Tasks
             // Sprint 147: CatalogSyncTask no longer writes .strm files
             // Items are persisted with ItemState = Queued for RefreshTask to process
             // RefreshTask handles: Write -> Hint -> Notify -> Verify -> Promote
-            // DeepCleanTask handles: Validation, Enrichment, Token Renewal
+            // MarvinTask handles: Validation, Enrichment, Token Renewal
             progress.Report(90);
 
             // Sprint 158: Backstop sync for all active user RSS catalogs (Trakt / MDBList).

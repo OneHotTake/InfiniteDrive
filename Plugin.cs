@@ -59,7 +59,7 @@ namespace InfiniteDrive
 
         /// <summary>
         /// Global synchronization lock for catalog-mutating operations.
-        /// Ensures only one catalog sync or doctor task runs at a time.
+        /// Ensures only one catalog sync or Marvin task runs at a time.
         /// (Sprint 100A-10)
         /// </summary>
         public static readonly System.Threading.SemaphoreSlim SyncLock =
@@ -176,18 +176,6 @@ namespace InfiniteDrive
         /// Delegates to DatabaseManager - temporary adapter during split.
         /// </summary>
         public ICatalogRepository CatalogRepository { get; private set; } = null!;
-
-        /// <summary>
-        /// Pin repository interface for item pin/unpin operations.
-        /// Delegates to DatabaseManager (Sprint 104A-04).
-        /// </summary>
-        public IPinRepository PinRepository => DatabaseManager;
-
-        /// <summary>
-        /// User pin repository for per-user pin operations (Sprint 142).
-        /// Tracks user_item_pins table for playback, discover, and admin pins.
-        /// </summary>
-        public Repositories.UserPinRepository UserPinRepository { get; private set; } = null!;
 
         /// <summary>
         /// StrmWriterService — unified .strm file writer.
@@ -440,10 +428,6 @@ namespace InfiniteDrive
                 // Initialise home section tracker (Sprint 118: Home Screen Rails)
                 HomeSectionTracker = new HomeSectionTracker(DatabaseManager, new EmbyLoggerAdapter<HomeSectionTracker>(_logManager.GetLogger("HomeSectionTracker")));
                 _logger.LogInformation("[InfiniteDrive] Home section tracker initialised");
-
-                // Initialise user pin repository (Sprint 142: User Pins)
-                UserPinRepository = new Repositories.UserPinRepository(DatabaseManager, _logger);
-                _logger.LogInformation("[InfiniteDrive] User pin repository initialised");
 
                 // Initialise StrmWriterService (Sprint 156: Unified Write Path)
                 StrmWriterService = new Services.StrmWriterService(_logManager, DatabaseManager);

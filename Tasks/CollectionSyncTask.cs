@@ -20,7 +20,7 @@ namespace InfiniteDrive.Tasks
     /// <summary>
     /// Syncs Emby BoxSet collections from provider metadata.
     /// Sprint 100C-02: Collection sync task (new).
-    /// Runs after DoctorTask, uses Emby REST API to create/update BoxSets.
+    /// Runs after MarvinTask, uses Emby REST API to create/update BoxSets.
     /// Only operates on BoxSets tagged "InfiniteDrive:managed".
     /// </summary>
     public class CollectionSyncTask : IScheduledTask
