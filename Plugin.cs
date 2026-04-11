@@ -297,24 +297,6 @@ namespace InfiniteDrive
                 {
                     Name = "InfiniteDriveConfigJS",
                     EmbeddedResourcePath = "InfiniteDrive.Configuration.configurationpage.js"
-                },
-                new PluginPageInfo
-                {
-                    Name = "Wizard",
-                    DisplayName = "InfiniteDrive Setup Wizard",
-                    EnableInMainMenu = true
-                },
-                new PluginPageInfo
-                {
-                    Name = "ContentManagement",
-                    DisplayName = "InfiniteDrive Content Management",
-                    EnableInMainMenu = true
-                },
-                new PluginPageInfo
-                {
-                    Name = "MyLibrary",
-                    DisplayName = "InfiniteDrive My Library",
-                    EnableInMainMenu = true
                 }
             };
         }
