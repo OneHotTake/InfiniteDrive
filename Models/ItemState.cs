@@ -3,23 +3,23 @@ using System;
 namespace InfiniteDrive.Models
 {
     /// <summary>
-    /// Item states for the Doctor reconciliation engine (Sprint 66).
+    /// Item states for the Marvin reconciliation engine (Sprint 66).
     /// Every catalog item has exactly one state at any time.
     ///
     /// State transitions:
-    /// CATALOGUED → PRESENT   (Doctor Phase 2: writes .strm to disk)
+    /// CATALOGUED → PRESENT   (Marvin Phase 2: writes .strm to disk)
     /// PRESENT    → RESOLVED  (Link Resolver: caches valid stream URL)
-    /// RESOLVED   → PRESENT   (Doctor Phase 5: dead URL detected, re-queue)
-    /// RESOLVED   → RETIRED   (Doctor Phase 3: real file found in Emby library)
+    /// RESOLVED   → PRESENT   (Marvin Phase 5: dead URL detected, re-queue)
+    /// RESOLVED   → RETIRED   (Marvin Phase 3: real file found in Emby library)
     /// PINNED     → RESOLVED  (Discover: Add to Library → immediate resolve)
-    /// PINNED     → RETIRED   (Doctor Phase 3: real file found, PIN cleared)
-    /// ORPHANED   → [deleted] (Doctor Phase 1: item removed from catalog, no PIN)
+    /// PINNED     → RETIRED   (Marvin Phase 3: real file found, PIN cleared)
+    /// ORPHANED   → [deleted] (Marvin Phase 1: item removed from catalog, no PIN)
     /// </summary>
     public enum ItemState
     {
         /// <summary>
         /// Item exists in DB from sync, no .strm on disk yet.
-        /// Transitions to: PRESENT (Doctor Phase 2)
+        /// Transitions to: PRESENT (Marvin Phase 2)
         /// </summary>
         Catalogued = 0,
 
@@ -43,7 +43,7 @@ namespace InfiniteDrive.Models
 
         /// <summary>
         /// .strm on disk but item no longer in catalog (and not PINNED).
-        /// Will be purged in Doctor Phase 2.
+        /// Will be purged in Marvin Phase 2.
         /// </summary>
         Orphaned = 4,
 

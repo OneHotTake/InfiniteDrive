@@ -23,7 +23,7 @@ namespace InfiniteDrive.Tasks
     /// source of truth.
     ///
     /// <para><b>DEPRECATED (Sprint 66):</b> This task has been consolidated into
-    /// <see cref="DoctorTask"/>. Use the Doctor task instead for all catalog
+    /// <see cref="MarvinTask"/>. Use the Doctor task instead for all catalog
     /// reconciliation operations. Episode expansion is now handled by
     /// <see cref="SeriesPreExpansionService"/> during catalog sync.</para>
     ///
@@ -39,7 +39,7 @@ namespace InfiniteDrive.Tasks
     ///
     /// Default schedule: every 4 hours.
     /// </summary>
-    [Obsolete("Use DoctorTask instead (Sprint 66)")]
+    [Obsolete("Superseded by SeriesPreExpansionService (Sprint 66). Retained as fallback.")]
     public class EpisodeExpandTask : IScheduledTask
     {
         // ── Constants ───────────────────────────────────────────────────────────

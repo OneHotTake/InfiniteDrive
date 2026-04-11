@@ -18,32 +18,32 @@ using Microsoft.Extensions.Logging;
 namespace InfiniteDrive.Tasks
 {
     /// <summary>
-    /// Deep Clean scheduled task for 18-24 hour validation cycles.
+    /// Marvin scheduled task for 18-24 hour validation cycles.
     /// Handles full library validation, orphan cleanup, enriched metadata trickle,
     /// token renewal, and integrity checks.
     /// </summary>
-    public class DeepCleanTask : IScheduledTask
+    public class MarvinTask : IScheduledTask
     {
         // ── Constants ────────────────────────────────────────────────────────────
 
-        private const string TaskName     = "InfiniteDrive Deep Clean";
-        private const string TaskKey      = "InfiniteDriveDeepClean";
+        private const string TaskName     = "InfiniteDrive Marvin";
+        private const string TaskKey      = "InfiniteDriveMarvin";
         private const string TaskCategory = "InfiniteDrive";
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
-        private readonly ILogger<DeepCleanTask> _logger;
-        private readonly ILibraryManager           _libraryManager;
+        private readonly ILogger<MarvinTask> _logger;
+        private readonly ILibraryManager       _libraryManager;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
 
         // ── Constructor ──────────────────────────────────────────────────────────
 
-        public DeepCleanTask(
+        public MarvinTask(
             ILogManager logManager,
             ILibraryManager libraryManager)
         {
-            _logger         = new EmbyLoggerAdapter<DeepCleanTask>(logManager.GetLogger("InfiniteDrive"));
+            _logger         = new EmbyLoggerAdapter<MarvinTask>(logManager.GetLogger("InfiniteDrive"));
             _libraryManager = libraryManager;
         }
 
@@ -79,7 +79,7 @@ namespace InfiniteDrive.Tasks
             // Concurrency guard — skip if another instance is already running
             if (!_runningGate.Wait(0))
             {
-                _logger.LogInformation("[InfiniteDrive] DeepCleanTask already running, skipping");
+                _logger.LogInformation("[InfiniteDrive] MarvinTask already running, skipping");
                 return;
             }
 
@@ -106,7 +106,7 @@ namespace InfiniteDrive.Tasks
 
         private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[InfiniteDrive] DeepCleanTask started");
+            _logger.LogInformation("[InfiniteDrive] MarvinTask started");
 
             try
             {
@@ -133,11 +133,11 @@ namespace InfiniteDrive.Tasks
                 await PersistEnrichmentCountsAsync(cancellationToken);
 
                 progress?.Report(1.0);
-                _logger.LogInformation("[InfiniteDrive] DeepCleanTask completed successfully");
+                _logger.LogInformation("[InfiniteDrive] MarvinTask completed successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[InfiniteDrive] DeepCleanTask failed");
+                _logger.LogError(ex, "[InfiniteDrive] MarvinTask failed");
                 throw;
             }
         }
@@ -285,7 +285,7 @@ namespace InfiniteDrive.Tasks
                         ELSE 1
                     END ASC,
                     created_at ASC
-                LIMIT 42;"; // 42: max enrichment items per deep-clean cycle — balanced to avoid long I/O stalls
+                LIMIT 42;"; // 42: max enrichment items per Marvin cycle — balanced to avoid long I/O stalls
 
             var needsEnrichItems = await db.QueryListAsync<EnrichedItem>(
                 needsEnrichQuery,

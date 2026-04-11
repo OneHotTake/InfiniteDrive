@@ -2835,7 +2835,7 @@ function (loading) {
         statusEl.textContent = 'Starting deep clean…';
 
         ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
-            var task = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveDeepClean'; });
+            var task = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveMarvin'; });
             if (!task) {
                 btn.textContent = 'Summon Marvin';
                 btn.disabled = false;

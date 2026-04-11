@@ -18,8 +18,7 @@ namespace InfiniteDrive.Tasks
     /// acquired a real media file in their Emby library.
     ///
     /// <para><b>DEPRECATED (Sprint 66):</b> This task has been consolidated into
-    /// <see cref="DoctorTask"/>. Use the Doctor task instead for all catalog
-    /// reconciliation operations.</para>
+    /// MarvinTask. Use Marvin for all catalog reconciliation operations.</para>
     ///
     /// When a match is found the task:
     /// <list type="number">
@@ -36,7 +35,7 @@ namespace InfiniteDrive.Tasks
     ///
     /// Default schedule: every 6 hours.
     /// </summary>
-    [Obsolete("Use DoctorTask instead (Sprint 66)")]
+    [Obsolete("Superseded by MarvinTask (Sprint 202). Retained as scheduled safety net.")]
     public class LibraryReadoptionTask : IScheduledTask
     {
         // ── Constants ───────────────────────────────────────────────────────────

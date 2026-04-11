@@ -112,10 +112,10 @@ namespace InfiniteDrive.Models
         /// </summary>
         public string? RawMetaJson { get; set; }
 
-        // ── Sprint 66: Doctor Item State Machine ───────────────────────────────────
+        // ── Sprint 66: Marvin Item State Machine ───────────────────────────────────
 
         /// <summary>
-        /// Current state in the Doctor reconciliation lifecycle.
+        /// Current state in the Marvin reconciliation lifecycle.
         /// See <see cref="ItemState"/> for state transitions.
         /// Default: Catalogued (0) for existing items.
         /// </summary>

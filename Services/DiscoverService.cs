@@ -306,13 +306,8 @@ namespace InfiniteDrive.Services
                 var limit = Math.Min(Math.Max(req.Limit, 1), 200);
                 var offset = Math.Max(req.Offset, 0);
 
-                var userId = TryGetCurrentUserId();
-                var userPinnedIds = userId != null
-                    ? await _db.GetUserPinnedImdbIdsAsync(userId)
-                    : null;
-
                 var entries = await _db.GetDiscoverCatalogAsync(limit, offset);
-                var items = entries.Select(e => MapToDiscoverItem(e, userPinnedIds)).ToList();
+                var items = entries.Select(e => MapToDiscoverItem(e, null)).ToList();
                 var total = await _db.GetDiscoverCatalogCountAsync();
 
                 return new DiscoverBrowseResponse
@@ -346,13 +341,8 @@ namespace InfiniteDrive.Services
                 }
 
                 // Step 1: Search local FTS5 index
-                var userId = TryGetCurrentUserId();
-                var userPinnedIds = userId != null
-                    ? await _db.GetUserPinnedImdbIdsAsync(userId)
-                    : null;
-
                 var localEntries = await _db.SearchDiscoverCatalogAsync(req.Query, req.Type);
-                var localItems = localEntries.Select(e => MapToDiscoverItem(e, userPinnedIds)).ToList();
+                var localItems = localEntries.Select(e => MapToDiscoverItem(e, null)).ToList();
 
                 // Step 2: Determine if we should do a live AIOStreams search
                 var shouldLiveSearch = req.Live || localItems.Count < 5;
@@ -375,13 +365,11 @@ namespace InfiniteDrive.Services
                 // Step 3: Merge and deduplicate (local results take priority)
                 var mergedByImdbId = new Dictionary<string, DiscoverItem>(StringComparer.OrdinalIgnoreCase);
 
-                // Add live results first (overlay per-user pin status)
+                // Add live results first
                 foreach (var item in liveItems)
                 {
                     if (!mergedByImdbId.ContainsKey(item.ImdbId))
                     {
-                        if (userPinnedIds != null)
-                            item.InLibrary = userPinnedIds.Contains(item.ImdbId ?? string.Empty);
                         mergedByImdbId[item.ImdbId] = item;
                     }
                 }
@@ -651,13 +639,8 @@ namespace InfiniteDrive.Services
                     return new DiscoverDetailResponse { Item = null };
                 }
 
-                var userId = TryGetCurrentUserId();
-                var userPinnedIds = userId != null
-                    ? await _db.GetUserPinnedImdbIdsAsync(userId)
-                    : null;
-
                 var entry = await _db.GetDiscoverCatalogEntryByImdbIdAsync(req.ImdbId);
-                var item = entry != null ? MapToDiscoverItem(entry, userPinnedIds) : null;
+                var item = entry != null ? MapToDiscoverItem(entry, null) : null;
 
                 return new DiscoverDetailResponse { Item = item };
             }
