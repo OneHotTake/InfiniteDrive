@@ -287,7 +287,7 @@ function (loading) {
         };
         var mappedName = tabMap[name] || name;
 
-        ['setup','overview','settings','content','marvin','discover','mypicks','mylists'].forEach(function(t) {
+        ['setup','overview','settings','content','marvin'].forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
             if (c) c.classList.toggle('active', mappedName === t);
         });
@@ -317,9 +317,6 @@ function (loading) {
         if (name === 'settings' && _loadedConfig) { populateSettings(view, _loadedConfig); }
         if (name === 'setup' && _loadedConfig) { initWizardTab(view, _loadedConfig); }
         if (name === 'overview') { refreshSourcesTab(view); }
-        if (name === 'discover') { discoverInit(view); }
-        if (name === 'mypicks') { loadMyPicks(view); }
-        if (name === 'mylists') { loadMyLists(view); }
         if (name === 'blocked') { loadBlockedItems(view); }
         if (name === 'content-mgmt') { loadContentMgmtSources(view); }
     }
@@ -1719,199 +1716,6 @@ function (loading) {
         }
     }
 
-    // ── Discover (live catalog search & Add to Library) ─────────────────────
-    var _discoverSearchTimer = null;
-    var _discoverCurrentType = '';
-    var _discoverLastQuery   = '';
-    var _discoverInitialized = false;
-
-    function discoverInit(view) {
-        if (!_discoverInitialized) {
-            _discoverInitialized = true;
-            discoverBrowse(view);
-        }
-    }
-
-    function discoverSearchDebounce(view) {
-        if (_discoverSearchTimer) clearTimeout(_discoverSearchTimer);
-        _discoverSearchTimer = setTimeout(function() { discoverDoSearch(view); }, 320);
-    }
-
-    function discoverDoSearch(view) {
-        var queryVal = (esVal(view, 'es-discover-q') || '').trim();
-        _discoverLastQuery = queryVal;
-        if (queryVal.length < 2) {
-            discoverBrowse(view);
-            return;
-        }
-        discoverFetch(view, queryVal);
-    }
-
-    function discoverBrowse(view) {
-        discoverSetStatus(view, 'Loading popular content…');
-        discoverSetLoading(view, true);
-        esFetch('/InfiniteDrive/Discover/Browse?limit=24')
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                discoverSetLoading(view, false);
-                var items = (d && d.Items) ? d.Items : [];
-                if (items.length === 0) {
-                    discoverSetStatus(view, 'No catalog content yet — run a Catalog Sync from Health Dashboard to populate.');
-                    discoverShowEmpty(view, false);
-                } else {
-                    discoverRenderGrid(view, items);
-                    discoverSetStatus(view, 'Showing ' + items.length + ' catalog items · Search to find anything');
-                }
-            })
-            .catch(function() {
-                discoverSetLoading(view, false);
-                discoverSetStatus(view, 'Could not load catalog — check AIOStreams connection in Settings.');
-            });
-    }
-
-    function discoverFetch(view, query) {
-        var typeParam = _discoverCurrentType ? '&type=' + encodeURIComponent(_discoverCurrentType) : '';
-        discoverSetStatus(view, 'Searching AIOStreams for "' + query + '"…');
-        discoverSetLoading(view, true);
-        esFetch('/InfiniteDrive/Discover/Search?q=' + encodeURIComponent(query) + typeParam + '&live=true')
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                discoverSetLoading(view, false);
-                if (_discoverLastQuery !== query) return; // stale response, discard
-                var items = (d && d.Items) ? d.Items : [];
-                if (items.length === 0) {
-                    discoverShowEmpty(view, true);
-                    discoverSetStatus(view, 'No results for "' + query + '"');
-                } else {
-                    discoverRenderGrid(view, items);
-                    discoverSetStatus(view, items.length + ' results for "' + query + '"');
-                }
-            })
-            .catch(function(err) {
-                discoverSetLoading(view, false);
-                var friendlyMsg = mapFetchError(err);
-                discoverSetStatus(view, 'Search failed: ' + friendlyMsg);
-            });
-    }
-
-    function discoverSetLoading(view, loading) {
-        var loadEl  = q(view, 'es-discover-loading');
-        var gridEl  = q(view, 'es-discover-grid');
-        var emptyEl = q(view, 'es-discover-empty');
-        if (loadEl) loadEl.style.display = loading ? '' : 'none';
-        if (gridEl) gridEl.style.opacity = loading ? '.4' : '1';
-        if (loading && emptyEl) emptyEl.style.display = 'none';
-    }
-
-    function discoverShowEmpty(view, show) {
-        var emptyEl = q(view, 'es-discover-empty');
-        var gridEl  = q(view, 'es-discover-grid');
-        if (emptyEl) emptyEl.style.display = show ? '' : 'none';
-        if (show && gridEl) gridEl.innerHTML = '';
-    }
-
-    function discoverSetStatus(view, text) {
-        var el = q(view, 'es-discover-status');
-        if (el) el.textContent = text;
-    }
-
-    function discoverRenderGrid(view, items) {
-        var grid    = q(view, 'es-discover-grid');
-        var emptyEl = q(view, 'es-discover-empty');
-        if (!grid) return;
-        if (emptyEl) emptyEl.style.display = 'none';
-        grid.innerHTML = items.map(discoverCard).join('');
-    }
-
-    function discoverCard(item) {
-        var inLib   = !!item.InLibrary;
-        var rating  = item.ImdbRating ? ('★ ' + parseFloat(item.ImdbRating).toFixed(1)) : '';
-        var year    = item.Year  ? String(item.Year)  : '';
-        var type    = item.MediaType === 'series' ? 'Series' : 'Movie';
-        var subLine = [year, type].filter(Boolean).join(' · ');
-
-        var posterBg = item.PosterUrl
-            ? 'background-image:url(' + esc(item.PosterUrl) + ');background-size:cover;background-position:center top'
-            : '';
-
-        var badge = inLib
-            ? '<div class="es-discover-badge">IN LIBRARY</div>'
-            : '';
-
-        var navigateAttr = (inLib && item.EmbyItemId)
-            ? ' data-es-navigate-item="' + esc(item.EmbyItemId) + '" style="cursor:pointer"'
-            : '';
-
-        var addArea = inLib
-            ? '<div class="es-discover-in-lib">✓ In Library</div>'
-            : '<button type="button" is="emby-button" class="raised button-submit" data-es-add-imdb="' + esc(item.ImdbId) + '"'
-                + ' data-es-add-type="' + esc(item.MediaType || 'movie') + '"'
-                + ' data-es-add-title="' + esc(item.Title || '') + '"'
-                + ' data-es-add-year="' + esc(year) + '"'
-                + '>+ Add to Library</button>';
-
-        return '<div class="es-discover-card" data-discover-imdb="' + esc(item.ImdbId) + '"' + navigateAttr + '>'
-            + '<div class="es-discover-poster" style="' + posterBg + '">'
-                + badge
-                + '<div class="es-discover-poster-grad">'
-                    + (rating ? '<span class="es-discover-rating">' + esc(rating) + '</span>' : '')
-                + '</div>'
-            + '</div>'
-            + '<div class="es-discover-meta">'
-                + '<div class="es-discover-title" title="' + esc(item.Title || '') + '">' + esc(item.Title || '—') + '</div>'
-                + '<div class="es-discover-sub">' + esc(subLine) + '</div>'
-                + addArea
-            + '</div>'
-            + '</div>';
-    }
-
-    function discoverAddToLibrary(view, imdbId, type, title, year) {
-        var card = view.querySelector('[data-discover-imdb="' + imdbId + '"]');
-        var btn  = card ? card.querySelector('.es-discover-add-btn') : null;
-        if (btn) { btn.textContent = 'Adding…'; btn.disabled = true; }
-
-        var url = '/InfiniteDrive/Discover/AddToLibrary'
-            + '?imdbId=' + encodeURIComponent(imdbId)
-            + '&type='   + encodeURIComponent(type)
-            + '&title='  + encodeURIComponent(title)
-            + (year ? '&year=' + encodeURIComponent(year) : '');
-
-        esFetch(url, { method: 'POST' })
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (!card) return;
-                if (d.Ok || (d.Error && d.Error.indexOf('already') !== -1)) {
-                    // Mark as in-library
-                    if (btn) btn.outerHTML = '<div class="es-discover-in-lib">✓ Added!</div>';
-                    var existing = card.querySelector('.es-discover-badge');
-                    if (!existing) {
-                        var posterEl = card.querySelector('.es-discover-poster');
-                        if (posterEl) {
-                            var b = document.createElement('div');
-                            b.className = 'es-discover-badge';
-                            b.textContent = 'IN LIBRARY';
-                            posterEl.appendChild(b);
-                        }
-                    }
-                } else {
-                    if (btn) { btn.textContent = '+ Add to Library'; btn.disabled = false; }
-                    Dashboard.alert('Could not add: ' + (d.Error || 'Unknown error'));
-                }
-            })
-            .catch(function(err) {
-                if (btn) { btn.textContent = '+ Add to Library'; btn.disabled = false; }
-                Dashboard.alert('Add to Library failed: ' + (err.message || 'Unknown error'));
-            });
-    }
-
-    function discoverSetTypeFilter(view, type) {
-        _discoverCurrentType = type;
-        var btns = view.querySelectorAll('.es-discover-filter-btn');
-        for (var i = 0; i < btns.length; i++) {
-            btns[i].classList.toggle('active', (btns[i].getAttribute('data-es-discover-type') || '') === type);
-        }
-        discoverDoSearch(view);
-    }
 
     // ── Validate / cache ops / webhook ────────────────────────────────────────
     function validateSetup(view, resultDivId) {
@@ -2118,12 +1922,8 @@ function (loading) {
         var searchEl = view.querySelector('#es-search-q');
         if (searchEl) searchEl.addEventListener('input', function() { searchDebounce(view); });
 
-        // Discover search input
-        var discoverSearchEl = view.querySelector('#es-discover-q');
-        if (discoverSearchEl) discoverSearchEl.addEventListener('input', function() { discoverSearchDebounce(view); });
 
         // My Picks and Blocked tabs
-        initMyPicksTab(view);
         initBlockedTab(view);
 
         // ── Single capture-phase delegated click listener ─────────────────────
@@ -2148,8 +1948,6 @@ function (loading) {
                     var catMove = el.getAttribute('data-es-catalog-move');
                     var catPrefix = el.getAttribute('data-es-catalog-prefix');
                     var catIdx = el.getAttribute('data-es-catalog-idx');
-                    var discoverAddImdb  = el.getAttribute('data-es-add-imdb');
-                    var discoverType     = el.getAttribute('data-es-discover-type');
                     var srcTest         = el.getAttribute('data-es-src-test');
                     var srcTestAll      = el.getAttribute('data-es-src-test-all');
                     var srcSave         = el.getAttribute('data-es-src-save');
@@ -2169,19 +1967,6 @@ function (loading) {
                     if (imdb) { e.stopPropagation(); pickSearchResult(view, imdb); return; }
                     if (view_type) { e.stopPropagation(); setDashboardView(view, view_type); return; }
                     if (catMove && catPrefix && catIdx) { e.stopPropagation(); moveCatalogRow(view, catPrefix, parseInt(catIdx, 10), catMove); return; }
-                    if (discoverAddImdb !== null) {
-                        e.stopPropagation();
-                        discoverAddToLibrary(view, discoverAddImdb,
-                            el.getAttribute('data-es-add-type') || 'movie',
-                            el.getAttribute('data-es-add-title') || '',
-                            el.getAttribute('data-es-add-year') || '');
-                        return;
-                    }
-                    if (discoverType !== null && el.classList.contains('es-discover-filter-btn')) {
-                        e.stopPropagation();
-                        discoverSetTypeFilter(view, discoverType);
-                        return;
-                    }
                     if (act)  { e.stopPropagation(); dispatchAction(view, act, el); return; }
                     if (wizTest !== null) { e.stopPropagation(); testWizardConnection(view, wizTest); return; }
                     if (wizFinish !== null) { e.stopPropagation(); finishWizard(view); return; }
@@ -2233,7 +2018,6 @@ function (loading) {
             case 'edit-provider':       editProvider(view, el);  break;
             case 'remove-provider':     removeProvider(view, el); break;
             case 'add-new-provider':    addNewProvider(view);    break;
-            case 'dismiss-discover-onboarding': dismissDiscoverOnboarding(view); break;
             case 'reset-settings-confirm': resetSettingsConfirm(view); break;
             case 'toggle-quickstart': toggleQuickstartGuide(view); break;
             case 'rerun-wizard': rerunWizard(view); break;
@@ -2513,24 +2297,6 @@ function (loading) {
             });
     }
 
-    // ── Discover onboarding (Sprint 14: UX-DISCOVER-ONBOARDING) ────────────────
-    function dismissDiscoverOnboarding(view) {
-        var modal = q(view, 'es-discover-onboarding');
-        if (modal) {
-            modal.style.display = 'none';
-            localStorage.setItem('es-discover-onboarding-seen', 'true');
-        }
-    }
-    function showDiscoverOnboarding(view) {
-        if (localStorage.getItem('es-discover-onboarding-seen')) return;
-        var modal = q(view, 'es-discover-onboarding');
-        if (modal) {
-            modal.style.display = 'flex';
-        }
-    }
-
-
-    // ── List discovery helpers ─────────────────────────────────────────────────
 
 
     // ── Advanced settings & debug collapsibles ────────────────────────────────
@@ -2916,207 +2682,6 @@ function (loading) {
         }
     }
 
-    // ── My Picks tab ─────────────────────────────────────────────────────────────
-
-    function renderPinsList(container, pins) {
-        if (!container) return;
-        if (!pins || pins.length === 0) {
-            container.innerHTML = '<p style="opacity:.5;font-size:.85em">No items yet.</p>';
-            return;
-        }
-        container.innerHTML = pins.map(function(pin) {
-            return '<div class="es-pin-item" style="display:flex;align-items:center;gap:.75em;padding:.5em 0;border-bottom:1px solid rgba(255,255,255,.06)">' +
-                '<label style="display:flex;align-items:center;gap:.5em;flex:1;cursor:pointer">' +
-                '<input type="checkbox" class="es-pin-checkbox" data-catalog-id="' + esc(pin.CatalogItemId) + '" style="width:1em;height:1em">' +
-                '<span>' + esc(pin.Title) + (pin.Year ? ' (' + pin.Year + ')' : '') + '</span>' +
-                '</label>' +
-                '<span style="opacity:.5;font-size:.8em">' + esc(pin.ImdbId || '') + '</span>' +
-                '</div>';
-        }).join('');
-    }
-
-    function loadMyPicks(view) {
-        var playbackEl = view.querySelector('#es-playback-pins-list');
-        var discoverEl = view.querySelector('#es-discover-pins-list');
-        if (playbackEl) playbackEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
-        if (discoverEl) discoverEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
-
-        esFetch('/InfiniteDrive/User/MyPins')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                renderPinsList(playbackEl, data.PlaybackPins);
-                renderPinsList(discoverEl, data.DiscoverPins);
-            })
-            .catch(function(err) {
-                if (playbackEl) playbackEl.innerHTML = '<p style="color:#dc3545;font-size:.85em">Failed to load pins.</p>';
-            });
-    }
-
-    function initMyPicksTab(view) {
-        var removeBtn = view.querySelector('#es-remove-pins-btn');
-        if (!removeBtn || removeBtn._esBound) return;
-        removeBtn._esBound = true;
-
-        removeBtn.addEventListener('click', function() {
-            var checked = view.querySelectorAll('.es-pin-checkbox:checked');
-            if (!checked.length) { Dashboard.alert('No items selected.'); return; }
-            var ids = Array.from(checked).map(function(cb) { return cb.getAttribute('data-catalog-id'); });
-
-            esFetch('/InfiniteDrive/User/RemovePins', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ CatalogItemIds: ids })
-            })
-            .then(function() {
-                Dashboard.alert('Removed ' + ids.length + ' item(s) from your picks.');
-                loadMyPicks(view);
-            })
-            .catch(function() { Dashboard.alert('Failed to remove pins. Check server logs.'); });
-        });
-    }
-
-    // ── My Lists tab ──────────────────────────────────────────────────────────
-
-    function loadMyLists(view) {
-        var listEl = view.querySelector('#es-user-catalogs-list');
-        if (listEl) listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
-
-        esFetch('/InfiniteDrive/User/Catalogs')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                renderMyLists(view, data);
-                wireMyListsButtons(view);
-            })
-            .catch(function() {
-                if (listEl) listEl.innerHTML = '<p style="color:#d00">Failed to load lists.</p>';
-            });
-    }
-
-    function renderMyLists(view, data) {
-        var listEl = view.querySelector('#es-user-catalogs-list');
-        if (!listEl) return;
-        var catalogs = (data && data.Catalogs) || [];
-        if (catalogs.length === 0) {
-            listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">No lists yet. Paste a Trakt or MDBList RSS URL above to add one.</p>';
-            return;
-        }
-        var html = '<table style="width:100%;border-collapse:collapse">';
-        html += '<thead><tr style="border-bottom:1px solid var(--es-border,#ddd)">';
-        html += '<th style="text-align:left;padding:.5em .25em">Name</th>';
-        html += '<th style="text-align:left;padding:.5em .25em">Service</th>';
-        html += '<th style="text-align:left;padding:.5em .25em">Last sync</th>';
-        html += '<th style="padding:.5em .25em"></th>';
-        html += '</tr></thead><tbody>';
-        catalogs.forEach(function(c) {
-            var syncInfo = c.LastSyncedAt
-                ? (new Date(c.LastSyncedAt).toLocaleString() + ' (' + (c.LastSyncStatus || '?') + ')')
-                : 'Never';
-            html += '<tr data-catalog-id="' + esc(c.Id) + '" style="border-bottom:1px solid var(--es-border,#eee)">';
-            html += '<td style="padding:.5em .25em">' + esc(c.DisplayName) + '</td>';
-            html += '<td style="padding:.5em .25em">' + esc(c.Service) + '</td>';
-            html += '<td style="padding:.5em .25em;font-size:.8em;opacity:.7">' + esc(syncInfo) + '</td>';
-            html += '<td style="padding:.5em .25em;white-space:nowrap">';
-            html += '<button class="es-btn es-refresh-one-btn" data-catalog-id="' + esc(c.Id) + '" style="margin-right:.5em">Refresh now</button>';
-            html += '<button class="es-btn es-btn-danger es-remove-list-btn" data-catalog-id="' + esc(c.Id) + '">Remove</button>';
-            html += '</td></tr>';
-        });
-        html += '</tbody></table>';
-        listEl.innerHTML = html;
-    }
-
-    function wireMyListsButtons(view) {
-        // "Refresh all my lists"
-        var refreshAllBtn = view.querySelector('#es-refresh-all-lists-btn');
-        if (refreshAllBtn) {
-            refreshAllBtn.onclick = function() {
-                var statusEl = view.querySelector('#es-refresh-all-status');
-                if (statusEl) statusEl.textContent = 'Refreshing…';
-                refreshAllBtn.disabled = true;
-                esFetch('/InfiniteDrive/User/Catalogs/Refresh', { method: 'POST' })
-                    .then(function(r) { return r.json(); })
-                    .then(function(r) {
-                        if (statusEl) statusEl.textContent = 'Added ' + (r.Added||0) + ', updated ' + (r.Updated||0) + '.';
-                        loadMyLists(view);
-                    })
-                    .catch(function() {
-                        if (statusEl) statusEl.textContent = 'Refresh failed.';
-                    })
-                    .finally(function() { refreshAllBtn.disabled = false; });
-            };
-        }
-
-        // "Add" button
-        var addBtn = view.querySelector('#es-add-list-btn');
-        var errEl = view.querySelector('#es-add-list-error');
-        if (addBtn) {
-            addBtn.onclick = function() {
-                var urlInput = view.querySelector('#es-new-list-url');
-                var url = (urlInput && urlInput.value) ? urlInput.value.trim() : '';
-                if (!url) return;
-                if (errEl) errEl.style.display = 'none';
-                addBtn.disabled = true;
-                esFetch('/InfiniteDrive/User/Catalogs/Add?rssUrl=' + encodeURIComponent(url), { method: 'POST' })
-                    .then(function(r) { return r.json(); })
-                    .then(function(r) {
-                        if (r && r.Ok) {
-                            esAlert('Added. Fetched ' + (r.Fetched||0) + ', ' + (r.Added||0) + ' new items.');
-                            if (urlInput) urlInput.value = '';
-                            loadMyLists(view);
-                        } else {
-                            var msg = (r && r.Error) ? r.Error : 'Add failed.';
-                            // 409-like: catalog limit
-                            if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
-                            else esAlert(msg);
-                        }
-                    })
-                    .catch(function(e) {
-                        var msg = (e && e.message) ? e.message : 'Add failed.';
-                        if (errEl) { errEl.textContent = msg; errEl.style.display = ''; }
-                    })
-                    .finally(function() { addBtn.disabled = false; });
-            };
-        }
-
-        // Per-list "Refresh now" and "Remove" — delegated to list container
-        var listEl = view.querySelector('#es-user-catalogs-list');
-        if (listEl) {
-            listEl.onclick = function(e) {
-                var btn = e.target.closest('button');
-                if (!btn) return;
-                var cid = btn.getAttribute('data-catalog-id');
-                if (!cid) return;
-
-                if (btn.classList.contains('es-refresh-one-btn')) {
-                    btn.disabled = true;
-                    esFetch('/InfiniteDrive/User/Catalogs/Refresh?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
-                        .then(function(r) { return r.json(); })
-                        .then(function(r) {
-                            esAlert('Added ' + (r.Added||0) + ', updated ' + (r.Updated||0) + '.');
-                            loadMyLists(view);
-                        })
-                        .catch(function() { esAlert('Refresh failed.'); btn.disabled = false; });
-                }
-
-                if (btn.classList.contains('es-remove-list-btn')) {
-                    btn.disabled = true;
-                    esFetch('/InfiniteDrive/User/Catalogs/Remove?catalogId=' + encodeURIComponent(cid), { method: 'POST' })
-                        .then(function(r) { return r.json(); })
-                        .then(function() {
-                            esAlert('List removed. Items will be cleaned up on next DoctorTask pass.');
-                            loadMyLists(view);
-                        })
-                        .catch(function() { esAlert('Remove failed.'); btn.disabled = false; });
-                }
-            };
-        }
-    }
-
-    function esc(str) {
-        if (!str) return '';
-        return String(str)
-            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-            .replace(/"/g,'&quot;');
-    }
 
     // ── Blocked Items tab (admin) ─────────────────────────────────────────────
 
