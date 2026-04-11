@@ -1,36 +1,36 @@
 ---
-status: partial
-task: Sprints 203–205 — In Progress
-phase: Near Complete (Sprint 203)
+status: ready
+task: Sprints 204–205 — Ready
+phase: Sprint 203 Complete
 last_updated: 2026-04-11
 
 ## Summary
 
-Sprint 203 nearly complete. Only remaining task: Rebuild Settings tab as 5 flat cards (dismantle accordion markup). Sprint 204-205 require significant backend work (IChannel, parental filtering) and user tab deletion.
+Sprint 203 complete. Settings tab restructured as 5 flat cards, vocabulary pass complete, tab bar reduced to 5 tabs. Sprints 204-205 pending.
+
+## Completed (Sprint 202)
+- ✅ Deleted dead pins-related code (UserItemPin, IPinRepository, UserPinRepository, UserService)
+- ✅ Removed GetUserPinnedImdbIdsAsync from DiscoverService
+- ✅ Renamed DeepCleanTask → MarvinTask (TaskName: "InfiniteDrive Marvin", TaskKey: "InfiniteDriveMarvin")
+- ✅ Updated all references to MarvinTask throughout codebase
 
 ## Completed (Sprint 203)
-- ✅ Tab bar restructured to 5 tabs (Setup, Overview, Settings, Content, Marvin)
-- ✅ Overview tab created (merged Health tab content + Sources Table)
-- ✅ showTab() JS updated with redirects (health→overview, improbability→marvin, blocked→content)
-- ✅ Marvin tab created (moved Improbability tab content)
-- ✅ Old Health tab deleted
-- ✅ Old Improbability tab comment renamed to "Marvin"
-- ✅ Content tab created (merged Blocked Items + Content Mgmt)
-- ✅ Update refreshSourcesTab() for Overview (line 319 changed from `health` to `overview`)
-- ✅ Catalogs→Sources vocabulary pass (HTML + JS user-visible strings)
-- ✅ Remove admin-gating user-tab block (user tabs already hidden with display:none)
+- ✅ Tab bar: 8→5 tabs (Setup, Overview, Settings, Content, Marvin)
+- ✅ Overview tab: Merged Health content (System Health, Sources Table, Resolution Coverage, Background Tasks, Debug Tools)
+- ✅ Marvin tab: Moved Improbability Drive content with updated heading
+- ✅ Content tab: Merged Blocked Items + Content Mgmt
+- ✅ Settings tab: 7 accordions→5 flat cards (Sources, Playback & Cache, Library Paths, Security, Danger Zone)
+- ✅ Deleted all accordion CSS and markup
+- ✅ Vocabulary pass: "Catalog"/"Catalogs" → "Source"/"Sources" in admin strings
+- ✅ showTab() fixes: Overview/Marvin mappings, refreshSourcesTab() trigger
+- ✅ User tabs: Hidden with display:none (Discover, My Picks, My Lists)
 
-## In Progress (Sprint 203)
-- ❌ Rebuild Settings tab as 5 flat cards (accordion → cards)
+## Next Sprints
 
-## Remaining Sprints
-- **Sprint 204:** Create InfiniteDriveChannel (IChannel) + DiscoverService un-gating + parental filtering
-- **Sprint 205:** Delete user tabs from config page
+**Sprint 204:** Create InfiniteDriveChannel (IChannel) + DiscoverService un-gating + parental filtering
+
+**Sprint 205:** Delete user tabs from config page (Discover, My Picks, My Lists tab bodies)
 
 ## Next Action
 
-**Option A:** Complete Settings tab restructure (5 flat cards), then commit Sprint 203
-**Option B:** Skip Settings restructure for now, commit Sprint 203 partial progress, continue to Sprint 204 (backend work is higher priority)
-**Option C:** Sprint 203 + 204 + 205 as one mega-session
-
-Recommendation: Settings tab restructure is pure UI cleanup (no backend impact). Sprint 204 (IChannel) is more critical as it enables user-facing browse. Consider deferring Settings restructure or doing it as a follow-up sprint.
+Ready to start Sprint 204 — InfiniteDriveChannel implementation for user-facing browse surface.
