@@ -43,12 +43,13 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 > Plugin configuration UI with 5-step wizard, Sources tab, and progressive disclosure.
 
 ### Structure
-- **Tab bar**: Setup, Discover, My Picks, Health, Improbability Drive, Blocked Items (admin), Content Mgmt (admin), Settings
-- **Setup tab**: 5-step wizard with progress bar (Provider → Libraries → Metadata → Catalogs → Sync)
-- **Discover tab**: Search/browse interface for adding content; per-user InLibrary status
-- **My Picks tab**: User pins management (playback + discover) with "I'm done" removal
-- **Blocked Items tab (admin-only)**: View and unblock catalog items failed after 3 enrichment attempts
-- **Content Mgmt tab (admin-only)**: Force catalog sync, view sync sources
+- **Tab bar**: Setup, Overview, Settings, Content, Marvin (Discover/My Picks/My Lists hidden, pending Sprint 205 deletion)
+- **Setup tab**: 5-step wizard with progress bar (Provider → Libraries → Metadata → Sources → Sync)
+- **Overview tab**: System health, sources table, resolution coverage, background tasks, debug tools (collapsible)
+- **Settings tab**: 5 flat cards (Sources, Playback & Cache, Library Paths, Security, Danger Zone) — no accordions
+- **Content tab**: Blocked Items + Content Mgmt merged (unblock table, force sync button, slot management)
+- **Marvin tab**: Marvin reconciliation engine (summon task, refresh status, enrichment summary, cooldown badge, task runner)
+- **Discover/My Picks/My Lists tabs**: Hidden pending Sprint 205 (channel must ship first)
 
 ### Wizard Steps
 1. **Provider**: Manifest URL + Test Connection, Base URL (auto-detected from origin)

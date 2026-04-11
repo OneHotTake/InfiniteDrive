@@ -2,7 +2,8 @@
 
 Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 
-**Current Status**: Sprint 200+201 Complete (Wizard UX Overhaul + Backend Wiring) |
+**Current Status**: Sprint 203 Complete (Admin Page Restructure + Catalogs→Sources Rename) |
+                     Sprint 200+201 Complete (Wizard UX Overhaul + Backend Wiring) |
                      Sprint 160 Complete (ID Normalization + NFO Fixes) |
                      Sprints 155-159 Complete (CooldownGate, Webhooks, User Catalogs, Stream Probe) |
                      Sprints 140-154 Complete (Security, UX, Refactoring, Emby Alignment) |
@@ -12,6 +13,66 @@ Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 **Rename**: Project renamed from EmbyStreams to InfiniteDrive at version 0.40.0.0 (2026-04-11). Breaking change — fresh install required.
 
 **Version 0.41**: Sprints 200+201 — Wizard UX redesign + library provisioning + anime routing fix.
+**Version 0.43**: Sprint 203 — Admin Page Restructure + Catalogs→Sources Rename.
+
+---
+
+## Sprint 203 — Admin Page Restructure + Catalogs→Sources Rename
+
+**Status:** Complete — 5-tab layout (Setup, Overview, Settings, Content, Marvin), Settings restructured as 5 flat cards
+
+### Goals
+- Replace 8 tabs with 5 tabs (Setup, Overview, Settings, Content, Marvin)
+- Move Health tab content → Overview tab
+- Move Improbability tab content → Marvin tab
+- Merge Blocked Items + Content Mgmt → Content tab
+- Dismantle Settings accordions into 5 flat cards (Sources, Playback & Cache, Library Paths, Security, Danger Zone)
+- Remove all accordion CSS and markup
+- Run vocabulary pass replacing "Catalog"/"Catalogs" with "Source"/"Sources" in admin surfaces
+- Update refreshSourcesTab() to target Overview tab elements
+
+| Task | Status | Result |
+|------|--------|--------|
+| Replace tab bar with 5 tabs | ✅ COMPLETE | Setup, Overview, Settings, Content, Marvin |
+| Create Overview tab body | ✅ COMPLETE | Merged Health content + Sources Table + debug tools |
+| Create Marvin tab body | ✅ COMPLETE | Moved Improbability tab content |
+| Create Content tab body | ✅ COMPLETE | Merged Blocked Items + Content Mgmt |
+| Update showTab() JS for new tab names | ✅ COMPLETE | Redirects: health→overview, improbability→marvin, blocked→content |
+| Update refreshSourcesTab() for Overview | ✅ COMPLETE | Changed trigger from 'health' to 'overview' |
+| Rebuild Settings tab as 5 flat cards | ✅ COMPLETE | Removed accordion CSS, merged content into 5 cards |
+| Catalogs→Sources vocabulary pass | ✅ COMPLETE | HTML + JS user-visible strings updated |
+| Remove admin-gating user-tab block | ✅ COMPLETE | User tabs hidden with display:none |
+| Build verification | ✅ COMPLETE | 0 errors, 0 warnings |
+
+### Changes Made
+
+**Modified:** Configuration/configurationpage.html
+- Tab bar: Replaced 8 tabs with 5 tabs (Setup, Overview, Settings, Content, Marvin)
+- User tab buttons: Hidden with `style="display:none"` (Discover, My Picks, My Lists)
+- Overview tab: Created with Sources Table, System Health cards, Resolution Coverage, Background Tasks, debug tools (collapsible)
+- Marvin tab: Moved Improbability Drive content with updated heading
+- Content tab: Created by merging Blocked Items table + Content Mgmt controls
+- Settings tab: Rebuilt as 5 flat cards:
+  - Sources: AIOStreams Provider, RSS Feeds, AIOStreams Sources, Anime Content, Sync Schedule
+  - Playback & Cache: Cache & Resolution, Streaming/Playback/Library
+  - Library Paths: Sync Paths, Metadata Preferences
+  - Security: Playback Authentication, Stream Signing Secret
+  - Danger Zone: Recovery, Reset Wizard, Purge Source Data, Total Existence Failure
+- Deleted: All accordion markup (`es-accordion` class), System Status accordion from Settings
+
+**Modified:** Configuration/configurationpage.js
+- `showTab()`: Updated tabMap for 5 new tabs + legacy redirects
+- `showTab()`: Fixed 'overview' mapping (was 'setup')
+- `showTab()`: Fixed 'marvin' mapping (was 'improbability')  
+- `showTab()`: Changed refreshSourcesTab() trigger from 'health' to 'overview'
+- Vocabulary: Updated user-visible strings (catalog → source, Catalog Sync → Source Sync, etc.)
+
+**Modified:** Configuration/configurationpage.html (CSS)
+- Deleted: Accordion CSS lines (.es-accordion, .es-accordion-hdr, etc.)
+
+**Modified:** .ai/REPO_MAP.md
+- Updated configurationpage.html Structure section to reflect 5-tab layout
+
 
 ---
 
