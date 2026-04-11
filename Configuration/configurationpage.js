@@ -2745,6 +2745,42 @@ function (loading) {
                 unblockIds(Array.from(checkboxes).map(function(cb) { return cb.getAttribute('data-id'); }));
             });
         }
+
+        // Block by IMDB ID
+        var blockBtn = view.querySelector('#es-block-imdb-btn');
+        var blockInput = view.querySelector('#es-block-imdb-input');
+        var blockResult = view.querySelector('#es-block-result');
+        if (blockBtn && !blockBtn._esBound) {
+            blockBtn._esBound = true;
+            blockBtn.addEventListener('click', function() {
+                var imdbId = (blockInput.value || '').trim();
+                if (!imdbId) { Dashboard.alert('Enter an IMDB ID.'); return; }
+                if (!confirm('Block ' + imdbId + '? This will delete its .strm file and remove it from all user libraries.')) return;
+                blockResult.textContent = 'Blocking…';
+                blockResult.style.color = '';
+                esFetch('/InfiniteDrive/Admin/BlockItems', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ImdbIds: [imdbId] })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.Success) {
+                        blockResult.textContent = 'Blocked ' + imdbId + ' successfully.';
+                        blockResult.style.color = '#28a745';
+                        blockInput.value = '';
+                        loadBlockedItems(view);
+                    } else {
+                        blockResult.textContent = 'Failed: ' + (data.Errors && data.Errors.length ? data.Errors.join(', ') : 'unknown error');
+                        blockResult.style.color = '#dc3545';
+                    }
+                })
+                .catch(function() {
+                    blockResult.textContent = 'Block request failed.';
+                    blockResult.style.color = '#dc3545';
+                });
+            });
+        }
     }
 
     // ── Module export — simple function pattern (like HomeScreenCompanion) ──────
