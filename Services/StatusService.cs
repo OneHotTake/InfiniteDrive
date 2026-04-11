@@ -1698,6 +1698,27 @@ namespace InfiniteDrive.Services
             request.Response.StatusCode = 403;
             return new { Error = "Forbidden", Message = "This endpoint requires administrator access." };
         }
+
+        /// <summary>
+        /// Returns <c>null</c> if the request is from an authenticated user, or a
+        /// 403 error object that the calling service should return immediately.
+        /// Sprint 204: Added to allow user-facing Discover endpoints
+        /// </summary>
+        public static object? RequireAuthenticated(IAuthorizationContext authCtx, IRequest request)
+        {
+            try
+            {
+                var info = authCtx.GetAuthorizationInfo(request);
+                if (info?.User != null)
+                    return null;
+            }
+            catch
+            {
+                // Auth context unavailable — fall through to deny
+            }
+            request.Response.StatusCode = 403;
+            return new { Error = "Forbidden", Message = "This endpoint requires authentication." };
+        }
     }
 
     // ════════════════════════════════════════════════════════════════════════════

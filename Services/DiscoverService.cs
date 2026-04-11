@@ -7,11 +7,13 @@ using System.Threading.Tasks;
 using InfiniteDrive.Data;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
+using MediaBrowser.Model.Users;
 
 namespace InfiniteDrive.Services
 {
@@ -274,6 +276,7 @@ namespace InfiniteDrive.Services
         private readonly ILibraryManager _libraryManager;
         private readonly IAuthorizationContext _authCtx;
         private readonly StrmWriterService _strmWriter;
+        private readonly IUserManager _userManager;
 
         /// <inheritdoc/>
         public IRequest Request { get; set; } = null!;
@@ -281,13 +284,14 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Emby injects dependencies automatically.
         /// </summary>
-        public DiscoverService(ILogManager logManager, ILibraryManager libraryManager, IAuthorizationContext authCtx)
+        public DiscoverService(ILogManager logManager, ILibraryManager libraryManager, IAuthorizationContext authCtx, IUserManager userManager)
         {
             _logger = new EmbyLoggerAdapter<DiscoverService>(logManager.GetLogger("InfiniteDrive"));
             _db = Plugin.Instance.DatabaseManager;
             _libraryManager = libraryManager;
             _authCtx = authCtx;
             _strmWriter = Plugin.Instance.StrmWriterService;
+            _userManager = userManager;
         }
 
         // ── Handlers ──────────────────────────────────────────────────────────────
@@ -298,7 +302,8 @@ namespace InfiniteDrive.Services
         /// </summary>
         public async Task<object> Get(DiscoverBrowseRequest req)
         {
-            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
+            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -330,7 +335,8 @@ namespace InfiniteDrive.Services
         /// </summary>
         public async Task<object> Get(DiscoverSearchRequest req)
         {
-            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
+            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -629,7 +635,8 @@ namespace InfiniteDrive.Services
         /// </summary>
         public async Task<object> Get(DiscoverDetailRequest req)
         {
-            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
+            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -657,7 +664,8 @@ namespace InfiniteDrive.Services
         /// </summary>
         public async Task<object> Post(DiscoverAddToLibraryRequest req, CancellationToken ct)
         {
-            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
+            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             // Ensure PluginSecret is initialized before accessing Configuration
@@ -925,7 +933,8 @@ namespace InfiniteDrive.Services
         [Route("/InfiniteDrive/Discover/TestStreamResolution", "GET")]
         public async Task<object> Get(DiscoverTestStreamResolutionRequest req)
         {
-            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
+            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -1026,7 +1035,8 @@ namespace InfiniteDrive.Services
         /// </summary>
         public async Task<object> Get(DiscoverDirectStreamRequest req)
         {
-            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
+            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -1103,5 +1113,99 @@ namespace InfiniteDrive.Services
             }
         }
 
+        // ── Parental Filter Helpers ───────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Applies parental rating filter to a list of discover catalog entries.
+        /// Filters out items that exceed the user's maximum allowed parental rating.
+        /// </summary>
+        private List<DiscoverCatalogEntry> ApplyParentalFilter(List<DiscoverCatalogEntry> items, int maxRating)
+        {
+            // Filter out items that exceed user's parental rating ceiling
+            // Unknown/unrated items (999) are treated as restricted
+            if (maxRating >= 999)
+            {
+                return items;
             }
+
+            return items.Where(item =>
+            {
+                var rating = ParseRating(item.RatingLabel);
+                return rating <= maxRating;
+            }).ToList();
+        }
+
+        /// <summary>
+        /// Gets the maximum allowed parental rating for the current request user.
+        /// Returns 999 for unrestricted access (no ceiling).
+        /// </summary>
+        private int GetUserMaxParentalRating()
+        {
+            try
+            {
+                var userId = GetUserId();
+                if (string.IsNullOrEmpty(userId))
+                {
+                    return 999; // Unauthenticated = unrestricted for now
+                }
+
+                // Load user from Emby user manager
+                var user = _userManager.GetUserById(userId);
+                if (user?.Policy == null)
+                {
+                    return 999; // User or policy not found = unrestricted
+                }
+
+                // Return user's MaxParentalRating (null means unrestricted)
+                return user.Policy.MaxParentalRating ?? 999;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[ParentalFilter] Failed to get user max parental rating, defaulting to unrestricted");
+                return 999;
+            }
+        }
+
+        /// <summary>
+        /// Maps rating labels to numeric values for comparison.
+        /// Higher values = more restrictive content.
+        /// Unknown/null ratings return 999 (fail-closed = restricted).
+        /// </summary>
+        private int ParseRating(string? ratingLabel)
+        {
+            if (string.IsNullOrEmpty(ratingLabel))
+            {
+                return 999; // Unknown = restricted
+            }
+
+            // Map rating labels to numeric values for comparison
+            return ratingLabel switch
+            {
+                "G" => 100,
+                "TV-Y" => 100,
+                "TV-G" => 200,
+                "PG" => 300,
+                "TV-PG" => 300,
+                "PG-13" => 400,
+                "TV-14" => 500,
+                "R" => 600,
+                "TV-MA" => 700,
+                "NC-17" => 800,
+                _ => 999
+            };
+        }
+
+        private string? GetUserId()
+        {
+            try
+            {
+                var authInfo = _authCtx.GetAuthorizationInfo(Request);
+                return authInfo?.UserId;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
 }
