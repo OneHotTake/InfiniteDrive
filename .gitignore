@@ -24,6 +24,12 @@ cookies.txt
 # Backup files
 *.bak
 
+# Repo dump / analysis artifacts
+repo_dump.txt
+dump_parts/
+repo_to_txt.py
+split_dump.py
+
 # Claude session bridging files
 CONTINUE.md
 test-config.json
