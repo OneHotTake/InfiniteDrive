@@ -152,18 +152,18 @@ namespace InfiniteDrive
         /// <summary>
         /// Absolute path where movie .strm files are written.
         /// Emby should have a Movies library pointed at this folder.
-        /// Default: <c>/media/embystreams/movies</c>
+        /// Default: <c>/media/infinitedrive/movies</c>
         /// </summary>
         [DataMember]
-        public string SyncPathMovies { get; set; } = "/media/embystreams/movies";
+        public string SyncPathMovies { get; set; } = "/media/infinitedrive/movies";
 
         /// <summary>
         /// Absolute path where TV show .strm files are written.
         /// Emby should have a TV Shows library pointed at this folder.
-        /// Default: <c>/media/embystreams/shows</c>
+        /// Default: <c>/media/infinitedrive/shows</c>
         /// </summary>
         [DataMember]
-        public string SyncPathShows { get; set; } = "/media/embystreams/shows";
+        public string SyncPathShows { get; set; } = "/media/infinitedrive/shows";
 
         /// <summary>Display name for the Movies library created by the plugin.</summary>
         [DataMember]
@@ -194,10 +194,10 @@ namespace InfiniteDrive
         /// <summary>
         /// Absolute path where anime .strm files are written.
         /// InfiniteDrive creates a Series library at this path when anime is enabled.
-        /// Default: <c>/media/embystreams/anime</c>
+        /// Default: <c>/media/infinitedrive/anime</c>
         /// </summary>
         [DataMember]
-        public string SyncPathAnime { get; set; } = "/media/embystreams/anime";
+        public string SyncPathAnime { get; set; } = "/media/infinitedrive/anime";
 
         
         /// <summary>Skip episodes that haven't aired yet. Default: true.</summary>

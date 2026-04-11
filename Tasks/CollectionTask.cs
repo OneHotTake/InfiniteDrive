@@ -1,9 +1,14 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using InfiniteDrive.Logging;
 using InfiniteDrive.Services;
+using MediaBrowser.Controller.Collections;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
+using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
 namespace InfiniteDrive.Tasks
 {
@@ -12,15 +17,20 @@ namespace InfiniteDrive.Tasks
     /// </summary>
     public class CollectionTask : IScheduledTask
     {
-        private readonly CollectionSyncService _service;
+        private readonly ILogManager _logManager;
+        private readonly ILibraryManager _libraryManager;
+        private readonly ICollectionManager _collectionManager;
         private readonly ILogger<CollectionTask> _logger;
 
         public CollectionTask(
-            CollectionSyncService service,
-            ILogger<CollectionTask> logger)
+            ILogManager logManager,
+            ILibraryManager libraryManager,
+            ICollectionManager collectionManager)
         {
-            _service = service;
-            _logger = logger;
+            _logManager = logManager;
+            _libraryManager = libraryManager;
+            _collectionManager = collectionManager;
+            _logger = new EmbyLoggerAdapter<CollectionTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         public string Name => "InfiniteDrive Collection Sync";
@@ -28,9 +38,6 @@ namespace InfiniteDrive.Tasks
         public string Description => "Syncs sources with ShowAsCollection to Emby BoxSets";
         public string Category => "InfiniteDrive";
 
-        /// <summary>
-        /// Returns default triggers for this task (runs every 1 hour).
-        /// </summary>
         public System.Collections.Generic.IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
             yield return new TaskTriggerInfo
@@ -40,19 +47,31 @@ namespace InfiniteDrive.Tasks
             };
         }
 
-        /// <summary>
-        /// Executes the collection sync task.
-        /// </summary>
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
+            var db = Plugin.Instance?.DatabaseManager;
+            if (db == null)
+            {
+                _logger.LogWarning("[CollectionTask] DatabaseManager not ready — skipping");
+                return;
+            }
+
             await Plugin.SyncLock.WaitAsync(cancellationToken);
             try
             {
                 progress?.Report(0);
-
                 _logger.LogInformation("[CollectionTask] Starting collection sync task...");
 
-                var result = await _service.SyncCollectionsAsync(cancellationToken);
+                var boxSetService = new BoxSetService(
+                    _collectionManager,
+                    _libraryManager,
+                    new EmbyLoggerAdapter<BoxSetService>(_logManager.GetLogger("InfiniteDrive")));
+                var service = new CollectionSyncService(
+                    db,
+                    boxSetService,
+                    new EmbyLoggerAdapter<CollectionSyncService>(_logManager.GetLogger("InfiniteDrive")));
+
+                var result = await service.SyncCollectionsAsync(cancellationToken);
                 progress?.Report(100);
 
                 _logger.LogInformation(

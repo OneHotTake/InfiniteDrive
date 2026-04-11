@@ -26,18 +26,17 @@ namespace InfiniteDrive.Tasks
     public class CollectionSyncTask : IScheduledTask
     {
         private readonly ILogger _logger;
-        private readonly DatabaseManager _db;
         private readonly ILibraryManager _libraryManager;
 
         public CollectionSyncTask(
             ILogManager logManager,
-            DatabaseManager db,
             ILibraryManager libraryManager)
         {
             _logger = new EmbyLoggerAdapter<CollectionSyncTask>(logManager.GetLogger("InfiniteDrive"));
-            _db = db;
             _libraryManager = libraryManager;
         }
+
+        private DatabaseManager Db => Plugin.Instance!.DatabaseManager;
 
         /// <summary>
         /// Task key for manual trigger via /InfiniteDrive/Trigger.
@@ -72,7 +71,7 @@ namespace InfiniteDrive.Tasks
                 _logger.LogInformation("[CollectionSyncTask] Starting collection sync");
 
                 // Fetch all collections from database
-                var collections = await _db.GetAllCollectionsAsync(cancellationToken);
+                var collections = await Db.GetAllCollectionsAsync(cancellationToken);
                 _logger.LogInformation("[CollectionSyncTask] Found {Count} collections to sync", collections.Count);
 
                 if (collections.Count == 0)
@@ -94,7 +93,7 @@ namespace InfiniteDrive.Tasks
                 {
                     currentCollection++;
                     var collectionName = kvp.Key;
-                    var itemIds = await _db.GetCollectionMembersAsync(collectionName, cancellationToken);
+                    var itemIds = await Db.GetCollectionMembersAsync(collectionName, cancellationToken);
 
                     // Report progress
                     progress.Report(currentCollection * 100.0 / totalCollections);
@@ -178,7 +177,7 @@ namespace InfiniteDrive.Tasks
                 // Sprint 102A-03: Persist last collection sync time
                 try
                 {
-                    await _db.PersistMetadataAsync(
+                    await Db.PersistMetadataAsync(
                         "last_collection_sync_time",
                         DateTimeOffset.UtcNow.ToString("o"),
                         CancellationToken.None);

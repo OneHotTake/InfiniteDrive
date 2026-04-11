@@ -1,14 +1,16 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using InfiniteDrive.Services;
+using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
-using MediaBrowser.Model.Serialization;
 using Microsoft.Extensions.Logging;
+using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
 namespace InfiniteDrive.Tasks
 {
@@ -17,24 +19,13 @@ namespace InfiniteDrive.Tasks
     /// </summary>
     public class SyncTask : IScheduledTask
     {
-        private readonly ManifestFetcher _fetcher;
-        private readonly ManifestFilter _filter;
-        private readonly ManifestDiff _diff;
-        private readonly ItemPipelineService _pipeline;
+        private readonly ILogManager _logManager;
         private readonly ILogger<SyncTask> _logger;
 
-        public SyncTask(
-            ManifestFetcher fetcher,
-            ManifestFilter filter,
-            ManifestDiff diff,
-            ItemPipelineService pipeline,
-            ILogger<SyncTask> logger)
+        public SyncTask(ILogManager logManager)
         {
-            _fetcher = fetcher;
-            _filter = filter;
-            _diff = diff;
-            _pipeline = pipeline;
-            _logger = logger;
+            _logManager = logManager;
+            _logger = new EmbyLoggerAdapter<SyncTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
@@ -49,7 +40,6 @@ namespace InfiniteDrive.Tasks
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
         {
-            // Run every 6 hours
             yield return new TaskTriggerInfo
             {
                 Type = TaskTriggerInfo.TriggerInterval,
@@ -59,49 +49,67 @@ namespace InfiniteDrive.Tasks
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
+            var db = Plugin.Instance?.DatabaseManager;
+            if (db == null)
+            {
+                _logger.LogWarning("[SyncTask] DatabaseManager not ready — skipping");
+                return;
+            }
+            var config = Plugin.Instance!.Configuration;
+            var log = _logManager;
+
             await Plugin.SyncLock.WaitAsync(cancellationToken);
             try
             {
                 progress?.Report(0);
 
+                var aioClient = new AioStreamsClient(config, new EmbyLoggerAdapter<AioStreamsClient>(log.GetLogger("InfiniteDrive")));
+                var releaseGate = new DigitalReleaseGateService(new HttpClient(), new EmbyLoggerAdapter<DigitalReleaseGateService>(log.GetLogger("InfiniteDrive")));
+                var cinemetaProvider = new CinemetaProvider(new EmbyLoggerAdapter<CinemetaProvider>(log.GetLogger("InfiniteDrive")));
+                var metadataHydrator = new MetadataHydrator(new EmbyLoggerAdapter<MetadataHydrator>(log.GetLogger("InfiniteDrive")), cinemetaProvider);
+                var streamResolver = new StreamResolver(new EmbyLoggerAdapter<StreamResolver>(log.GetLogger("InfiniteDrive")), aioClient);
+                var fetcher = new ManifestFetcher(aioClient, db, new EmbyLoggerAdapter<ManifestFetcher>(log.GetLogger("InfiniteDrive")));
+                var filter = new ManifestFilter(releaseGate, db, new EmbyLoggerAdapter<ManifestFilter>(log.GetLogger("InfiniteDrive")));
+                var diff = new ManifestDiff(db, new EmbyLoggerAdapter<ManifestDiff>(log.GetLogger("InfiniteDrive")));
+                var pipeline = new ItemPipelineService(new EmbyLoggerAdapter<ItemPipelineService>(log.GetLogger("InfiniteDrive")), db, streamResolver, metadataHydrator, releaseGate);
+
                 // Step 1: Fetch manifest
                 _logger.LogInformation("[SyncTask] Fetching manifest...");
-                var manifest = await _fetcher.FetchAllManifestsAsync(cancellationToken);
+                var manifest = await fetcher.FetchAllManifestsAsync(cancellationToken);
                 progress?.Report(20);
 
                 // Step 2: Filter entries (blocked first, then your files, then release gate)
                 _logger.LogInformation("[SyncTask] Filtering {Count} entries...", manifest.Count);
-                var filtered = await _filter.FilterEntriesAsync(manifest, SourceType.Aio, cancellationToken);
+                var filtered = await filter.FilterEntriesAsync(manifest, SourceType.Aio, cancellationToken);
                 progress?.Report(40);
 
                 // Step 3: Diff vs database
                 _logger.LogInformation("[SyncTask] Diffing manifest vs database...");
-                var diff = await _diff.DiffAsync(filtered, cancellationToken);
+                var diffResult = await diff.DiffAsync(filtered, cancellationToken);
                 progress?.Report(60);
 
                 // Step 4: Process new items
-                _logger.LogInformation("[SyncTask] Processing {Count} new items...", diff.NewItems.Count);
+                _logger.LogInformation("[SyncTask] Processing {Count} new items...", diffResult.NewItems.Count);
                 var processedCount = 0;
-                foreach (var entry in diff.NewItems)
+                foreach (var entry in diffResult.NewItems)
                 {
                     var item = CreateMediaItem(entry);
-                    await _pipeline.ProcessItemAsync(item, PipelineTrigger.Sync, cancellationToken);
+                    await pipeline.ProcessItemAsync(item, PipelineTrigger.Sync, cancellationToken);
                     processedCount++;
 
-                    // Report progress for each 10 items
                     if (processedCount % 10 == 0)
                     {
-                        var itemProgress = 60 + (double)processedCount / diff.NewItems.Count * 20;
+                        var itemProgress = 60 + (double)processedCount / diffResult.NewItems.Count * 20;
                         progress?.Report(Math.Min(itemProgress, 80));
                     }
                 }
                 progress?.Report(80);
 
                 // Step 5: Handle removed items
-                _logger.LogInformation("[SyncTask] Handling {Count} removed items...", diff.RemovedItems.Count);
-                foreach (var item in diff.RemovedItems)
+                _logger.LogInformation("[SyncTask] Handling {Count} removed items...", diffResult.RemovedItems.Count);
+                foreach (var item in diffResult.RemovedItems)
                 {
-                    await HandleRemovedItemAsync(item, cancellationToken);
+                    await HandleRemovedItemAsync(item, db, cancellationToken);
                 }
                 progress?.Report(100);
 
@@ -113,13 +121,9 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        /// <summary>
-        /// Creates a MediaItem from a ManifestEntry.
-        /// </summary>
         private MediaItem CreateMediaItem(ManifestEntry entry)
         {
             var mediaId = MediaId.Parse(entry.Id);
-
             return new MediaItem
             {
                 PrimaryId = mediaId,
@@ -132,57 +136,26 @@ namespace InfiniteDrive.Tasks
             };
         }
 
-        /// <summary>
-        /// Handles an item that was removed from the manifest.
-        /// </summary>
-        private async Task HandleRemovedItemAsync(MediaItem item, CancellationToken ct)
+        private async Task HandleRemovedItemAsync(MediaItem item, DatabaseManager db, CancellationToken ct)
         {
-            // Check if item is saved or has enabled source (coalition rule)
-            var db = Plugin.Instance?.DatabaseManager;
-            var hasEnabledSource = db != null && await db.ItemHasEnabledSourceAsync(item.Id, ct);
+            var hasEnabledSource = await db.ItemHasEnabledSourceAsync(item.Id, ct);
 
             if (item.Saved || hasEnabledSource)
             {
-                // Keep item - start grace period for potential removal
                 _logger.LogInformation("[SyncTask] Starting grace period for removed item: {Id}", item.Id);
                 item.GraceStartedAt = DateTimeOffset.UtcNow;
                 item.UpdatedAt = DateTimeOffset.UtcNow;
-
-                if (Plugin.Instance?.DatabaseManager != null)
-                {
-                    await Plugin.Instance.DatabaseManager.UpsertMediaItemAsync(item, ct);
-                }
+                await db.UpsertMediaItemAsync(item, ct);
             }
             else
             {
-                // Remove item from library
-                RemoveFromLibraryAsync(item);
-            }
-        }
-
-        /// <summary>
-        /// Removes an item from the library (deletes .strm file).
-        /// </summary>
-        private void RemoveFromLibraryAsync(MediaItem item)
-        {
-            _logger.LogInformation("[SyncTask] Removing item from library: {Id}", item.Id);
-
-            // Delete .strm file if exists
-            if (!string.IsNullOrEmpty(item.StrmPath) && System.IO.File.Exists(item.StrmPath))
-            {
-                try
+                _logger.LogInformation("[SyncTask] Removing item from library: {Id}", item.Id);
+                if (!string.IsNullOrEmpty(item.StrmPath) && System.IO.File.Exists(item.StrmPath))
                 {
-                    System.IO.File.Delete(item.StrmPath);
-                    _logger.LogDebug("[SyncTask] Deleted .strm file: {Path}", item.StrmPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[SyncTask] Failed to delete .strm file: {Path}", item.StrmPath);
+                    try { System.IO.File.Delete(item.StrmPath); }
+                    catch (Exception ex) { _logger.LogError(ex, "[SyncTask] Failed to delete .strm file: {Path}", item.StrmPath); }
                 }
             }
-
-            // TODO: Trigger Emby library refresh to update the UI
-            // This would typically be done via ILibraryManager via item deletion
         }
     }
 }

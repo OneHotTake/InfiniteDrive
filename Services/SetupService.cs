@@ -17,13 +17,13 @@ namespace InfiniteDrive.Services
         Summary = "Create library directories for movies and shows")]
     public class CreateDirectoriesRequest : IReturn<CreateDirectoriesResponse>
     {
-        /// <summary>Full path to movies directory (e.g. /media/embystreams/movies)</summary>
+        /// <summary>Full path to movies directory (e.g. /media/infinitedrive/movies)</summary>
         public string MoviesPath { get; set; } = string.Empty;
 
-        /// <summary>Full path to shows directory (e.g. /media/embystreams/shows)</summary>
+        /// <summary>Full path to shows directory (e.g. /media/infinitedrive/shows)</summary>
         public string ShowsPath { get; set; } = string.Empty;
 
-        /// <summary>Full path to anime directory (e.g. /media/embystreams/anime)</summary>
+        /// <summary>Full path to anime directory (e.g. /media/infinitedrive/anime)</summary>
         public string AnimePath { get; set; } = string.Empty;
     }
 

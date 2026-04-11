@@ -73,7 +73,7 @@ namespace InfiniteDrive.Data
         public DatabaseManager(string dbDirectory, ILogger logger)
         {
             _logger = logger;
-            _dbPath = Path.Combine(dbDirectory, "embystreams.db");
+            _dbPath = Path.Combine(dbDirectory, "infinitedrive.db");
 
             Directory.CreateDirectory(dbDirectory);
         }
@@ -3425,11 +3425,16 @@ CREATE TABLE IF NOT EXISTS user_catalogs (
                 }
 
                 // Sprint 158: user_catalog_id column on source_memberships
-                if (!ColumnExists(conn, "source_memberships", "user_catalog_id"))
+                // Guard with TableExists — on fresh DB source_memberships may not exist yet;
+                // the column will be present when the table is first created via the safeguard below.
+                if (TableExists(conn, "source_memberships"))
+                {
+                    if (!ColumnExists(conn, "source_memberships", "user_catalog_id"))
+                        ExecuteInline(conn,
+                            "ALTER TABLE source_memberships ADD COLUMN user_catalog_id TEXT;");
                     ExecuteInline(conn,
-                        "ALTER TABLE source_memberships ADD COLUMN user_catalog_id TEXT;");
-                ExecuteInline(conn,
-                    "CREATE INDEX IF NOT EXISTS idx_source_memberships_user_catalog ON source_memberships(user_catalog_id);");
+                        "CREATE INDEX IF NOT EXISTS idx_source_memberships_user_catalog ON source_memberships(user_catalog_id);");
+                };
 
                 ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (25);");
                 _logger.LogInformation("[InfiniteDrive] Schema V25 migration complete");
@@ -3811,8 +3816,10 @@ _logger.LogDebug("[InfiniteDrive] Schema at version {Version}", version);
         private IDatabaseConnection OpenConnection()
         {
             var conn = SQLite3.Open(_dbPath, ConnectionFlags.ReadWrite | ConnectionFlags.Create, null, true);
-            // PRAGMAs are set once during Initialise() - don't set them per-connection
-            // to avoid "database is locked" errors from PRAGMA journal_mode=WAL
+            // Set busy_timeout on every connection so SQLite waits for locks instead of
+            // immediately failing. This prevents "database is locked" errors when
+            // SQLitePCL.pretty runs PRAGMA optimize on dispose while a write is active.
+            conn.Execute("PRAGMA busy_timeout=30000;");
             return conn;
         }
 

@@ -22,7 +22,7 @@ set -e
 
 export PATH="$PATH:$HOME/.dotnet"
 
-cd /home/onehottake/Projects/emby/embyStreams
+cd /home/onehottake/Projects/emby/InfiniteDrive
 
 echo "=== Building InfiniteDrive plugin ==="
 dotnet publish -c Release || { echo "Build failed"; exit 1; }

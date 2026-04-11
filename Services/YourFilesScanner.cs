@@ -63,7 +63,7 @@ namespace InfiniteDrive.Services
             }
 
             // Check if item has InfiniteDrive provider ID
-            if (item.ProviderIds != null && item.ProviderIds.ContainsKey("embystreams"))
+            if (item.ProviderIds != null && item.ProviderIds.ContainsKey("infinitedrive"))
             {
                 return true;
             }

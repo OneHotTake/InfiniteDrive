@@ -166,7 +166,7 @@ namespace InfiniteDrive.Services
 
 #pragma warning disable CS0618 // Type is obsolete (kept for backward compatibility)
                 case TaskFileResurrection:
-                    FireAndForget(ct => new FileResurrectionTask(_libraryManager, _logManager, InfiniteDrive.Plugin.Instance.StrmWriterService)
+                    FireAndForget(ct => new FileResurrectionTask(_libraryManager, _logManager)
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
@@ -183,7 +183,7 @@ namespace InfiniteDrive.Services
 
                 // Sprint 100C-02: Collection sync task
                 case TaskCollectionSync:
-                    FireAndForget(ct => new CollectionSyncTask(_logManager, Plugin.Instance?.DatabaseManager!, _libraryManager)
+                    FireAndForget(ct => new CollectionSyncTask(_logManager, _libraryManager)
                         .Execute(ct, new Progress<double>()), TaskCollectionSync);
                     break;
 
