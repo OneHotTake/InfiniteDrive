@@ -4,23 +4,23 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
-    /// <summary>Request for <c>GET /EmbyStreams/User/Catalogs</c>.</summary>
-    [Route("/EmbyStreams/User/Catalogs", "GET",
+    /// <summary>Request for <c>GET /InfiniteDrive/User/Catalogs</c>.</summary>
+    [Route("/InfiniteDrive/User/Catalogs", "GET",
         Summary = "Returns the caller's active RSS catalogs")]
     public class GetUserCatalogsRequest : IReturn<GetUserCatalogsResponse> { }
 
-    /// <summary>Response from <c>GET /EmbyStreams/User/Catalogs</c>.</summary>
+    /// <summary>Response from <c>GET /InfiniteDrive/User/Catalogs</c>.</summary>
     public class GetUserCatalogsResponse
     {
         public List<UserCatalogDto> Catalogs { get; set; } = new();
@@ -39,8 +39,8 @@ namespace EmbyStreams.Services
         public string? LastSyncStatus { get; set; }
     }
 
-    /// <summary>Request for <c>POST /EmbyStreams/User/Catalogs/Add</c>.</summary>
-    [Route("/EmbyStreams/User/Catalogs/Add", "POST",
+    /// <summary>Request for <c>POST /InfiniteDrive/User/Catalogs/Add</c>.</summary>
+    [Route("/InfiniteDrive/User/Catalogs/Add", "POST",
         Summary = "Adds a public Trakt or MDBList RSS feed as a user catalog")]
     public class AddUserCatalogRequest : IReturn<AddUserCatalogResponse>
     {
@@ -51,7 +51,7 @@ namespace EmbyStreams.Services
         public string? DisplayName { get; set; }
     }
 
-    /// <summary>Response from <c>POST /EmbyStreams/User/Catalogs/Add</c>.</summary>
+    /// <summary>Response from <c>POST /InfiniteDrive/User/Catalogs/Add</c>.</summary>
     public class AddUserCatalogResponse
     {
         public bool   Ok          { get; set; }
@@ -63,8 +63,8 @@ namespace EmbyStreams.Services
         public string? Error      { get; set; }
     }
 
-    /// <summary>Request for <c>POST /EmbyStreams/User/Catalogs/Remove</c>.</summary>
-    [Route("/EmbyStreams/User/Catalogs/Remove", "POST",
+    /// <summary>Request for <c>POST /InfiniteDrive/User/Catalogs/Remove</c>.</summary>
+    [Route("/InfiniteDrive/User/Catalogs/Remove", "POST",
         Summary = "Soft-deletes a user catalog (sets active=0)")]
     public class RemoveUserCatalogRequest : IReturn<RemoveUserCatalogResponse>
     {
@@ -72,15 +72,15 @@ namespace EmbyStreams.Services
         public string CatalogId { get; set; } = string.Empty;
     }
 
-    /// <summary>Response from <c>POST /EmbyStreams/User/Catalogs/Remove</c>.</summary>
+    /// <summary>Response from <c>POST /InfiniteDrive/User/Catalogs/Remove</c>.</summary>
     public class RemoveUserCatalogResponse
     {
         public bool   Ok    { get; set; }
         public string? Error { get; set; }
     }
 
-    /// <summary>Request for <c>POST /EmbyStreams/User/Catalogs/Refresh</c>.</summary>
-    [Route("/EmbyStreams/User/Catalogs/Refresh", "POST",
+    /// <summary>Request for <c>POST /InfiniteDrive/User/Catalogs/Refresh</c>.</summary>
+    [Route("/InfiniteDrive/User/Catalogs/Refresh", "POST",
         Summary = "Synchronously refreshes one or all of the caller's RSS catalogs")]
     public class RefreshUserCatalogsRequest : IReturn<RefreshUserCatalogsResponse>
     {
@@ -89,7 +89,7 @@ namespace EmbyStreams.Services
         public string? CatalogId { get; set; }
     }
 
-    /// <summary>Response from <c>POST /EmbyStreams/User/Catalogs/Refresh</c>.</summary>
+    /// <summary>Response from <c>POST /InfiniteDrive/User/Catalogs/Refresh</c>.</summary>
     public class RefreshUserCatalogsResponse
     {
         public bool   Ok       { get; set; }
@@ -126,7 +126,7 @@ namespace EmbyStreams.Services
             ILogManager logManager,
             IAuthorizationContext authCtx)
         {
-            _logger      = new EmbyLoggerAdapter<UserCatalogsService>(logManager.GetLogger("EmbyStreams"));
+            _logger      = new EmbyLoggerAdapter<UserCatalogsService>(logManager.GetLogger("InfiniteDrive"));
             _db          = Plugin.Instance.DatabaseManager;
             _authCtx     = authCtx;
             _syncService = new UserCatalogSyncService(
@@ -136,7 +136,7 @@ namespace EmbyStreams.Services
                 Plugin.Instance.CooldownGate);
         }
 
-        // ── GET /EmbyStreams/User/Catalogs ────────────────────────────────────────
+        // ── GET /InfiniteDrive/User/Catalogs ────────────────────────────────────────
 
         public async Task<object> Get(GetUserCatalogsRequest req)
         {
@@ -160,7 +160,7 @@ namespace EmbyStreams.Services
             };
         }
 
-        // ── POST /EmbyStreams/User/Catalogs/Add ───────────────────────────────────
+        // ── POST /InfiniteDrive/User/Catalogs/Add ───────────────────────────────────
 
         public async Task<object> Post(AddUserCatalogRequest req)
         {
@@ -235,7 +235,7 @@ namespace EmbyStreams.Services
             };
         }
 
-        // ── POST /EmbyStreams/User/Catalogs/Remove ────────────────────────────────
+        // ── POST /InfiniteDrive/User/Catalogs/Remove ────────────────────────────────
 
         public async Task<object> Post(RemoveUserCatalogRequest req)
         {
@@ -257,7 +257,7 @@ namespace EmbyStreams.Services
             return new RemoveUserCatalogResponse { Ok = true };
         }
 
-        // ── POST /EmbyStreams/User/Catalogs/Refresh ───────────────────────────────
+        // ── POST /InfiniteDrive/User/Catalogs/Refresh ───────────────────────────────
 
         public async Task<object> Post(RefreshUserCatalogsRequest req)
         {

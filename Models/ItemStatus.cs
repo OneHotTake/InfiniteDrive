@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Lifecycle states for a media item in the v3.3 item pipeline.

@@ -6,11 +6,11 @@ using System.Runtime.Loader;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Services;
-using EmbyStreams.Repositories.Interfaces;
-using EmbyStreams.Repositories;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Services;
+using InfiniteDrive.Repositories.Interfaces;
+using InfiniteDrive.Repositories;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
@@ -23,12 +23,12 @@ using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
 
-[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("EmbyStreams.Tests")]
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("InfiniteDrive.Tests")]
 
-namespace EmbyStreams
+namespace InfiniteDrive
 {
     /// <summary>
-    /// EmbyStreams plugin entry point.
+    /// InfiniteDrive plugin entry point.
     /// Inherits <see cref="BasePlugin{TConfiguration}"/> which handles XML config
     /// persistence at {DataPath}/plugins/configurations/EmbyStreams.xml.
     /// </summary>
@@ -203,7 +203,7 @@ namespace EmbyStreams
 
         /// <summary>
         /// Cooldown gate for HTTP throttling. Replaces scattered Task.Delay(ApiCallDelayMs).
-        /// Initialised during <see cref="EmbyStreamsInitializationService.Run"/>.
+        /// Initialised during <see cref="InfiniteDriveInitializationService.Run"/>.
         /// </summary>
         public Services.CooldownGate CooldownGate { get; internal set; } = null!;
 
@@ -221,7 +221,7 @@ namespace EmbyStreams
         /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.
         /// Heavy initialization (database, repositories, PluginSecret) is deferred to
-        /// EmbyStreamsInitializationService.Run() via IServerEntryPoint.
+        /// InfiniteDriveInitializationService.Run() via IServerEntryPoint.
         /// </summary>
         public Plugin(
             IApplicationPaths appPaths,
@@ -232,17 +232,17 @@ namespace EmbyStreams
             Instance = this;
             _appPaths = appPaths;
             _logManager = logManager;
-            _logger = new EmbyLoggerAdapter<Plugin>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<Plugin>(logManager.GetLogger("InfiniteDrive"));
             //
             // NOTE (Sprint 152): DatabaseManager.Initialise() and PluginSecret generation
-            // are now called from EmbyStreamsInitializationService.Run() (IServerEntryPoint),
+            // are now called from InfiniteDriveInitializationService.Run() (IServerEntryPoint),
             // not from this constructor. IServerEntryPoint.Run() is called before any
             // scheduled tasks fire, so this is safe.
             //
         }
 
         /// <inheritdoc/>
-        public override string Name => "EmbyStreams";
+        public override string Name => "InfiniteDrive";
 
         /// <inheritdoc/>
         public override Guid Id => PluginGuid;
@@ -283,7 +283,7 @@ namespace EmbyStreams
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning(ex, "[EmbyStreams] Failed to read version from plugin.json");
+                    _logger?.LogWarning(ex, "[InfiniteDrive] Failed to read version from plugin.json");
                 }
                 return "unknown";
             }
@@ -299,33 +299,33 @@ namespace EmbyStreams
             {
                 new PluginPageInfo
                 {
-                    Name = "EmbyStreams",
-                    EmbeddedResourcePath = "EmbyStreams.Configuration.configurationpage.html",
+                    Name = "InfiniteDrive",
+                    EmbeddedResourcePath = "InfiniteDrive.Configuration.configurationpage.html",
                     IsMainConfigPage = true,
                     EnableInMainMenu = true,
-                    DisplayName = "EmbyStreams"
+                    DisplayName = "InfiniteDrive"
                 },
                 new PluginPageInfo
                 {
-                    Name = "EmbyStreamsConfigJS",
-                    EmbeddedResourcePath = "EmbyStreams.Configuration.configurationpage.js"
+                    Name = "InfiniteDriveConfigJS",
+                    EmbeddedResourcePath = "InfiniteDrive.Configuration.configurationpage.js"
                 },
                 new PluginPageInfo
                 {
                     Name = "Wizard",
-                    DisplayName = "EmbyStreams Setup Wizard",
+                    DisplayName = "InfiniteDrive Setup Wizard",
                     EnableInMainMenu = true
                 },
                 new PluginPageInfo
                 {
                     Name = "ContentManagement",
-                    DisplayName = "EmbyStreams Content Management",
+                    DisplayName = "InfiniteDrive Content Management",
                     EnableInMainMenu = true
                 },
                 new PluginPageInfo
                 {
                     Name = "MyLibrary",
-                    DisplayName = "EmbyStreams My Library",
+                    DisplayName = "InfiniteDrive My Library",
                     EnableInMainMenu = true
                 }
             };
@@ -365,11 +365,11 @@ namespace EmbyStreams
             var success = !string.IsNullOrEmpty(Configuration?.PluginSecret);
             if (!success)
             {
-                _logger?.LogWarning("[EmbyStreams] PluginSecret is empty after EnsurePluginSecret — .strm files will use unauthenticated URLs");
+                _logger?.LogWarning("[InfiniteDrive] PluginSecret is empty after EnsurePluginSecret — .strm files will use unauthenticated URLs");
             }
             else
             {
-                _logger?.LogInformation("[EmbyStreams] PluginSecret confirmed ready for .strm file generation");
+                _logger?.LogInformation("[InfiniteDrive] PluginSecret confirmed ready for .strm file generation");
             }
             return Task.FromResult(success);
         }
@@ -413,54 +413,54 @@ namespace EmbyStreams
         {
             try
             {
-                var dbDirectory = Path.Combine(_appPaths.DataPath, "EmbyStreams");
+                var dbDirectory = Path.Combine(_appPaths.DataPath, "InfiniteDrive");
                 DatabaseManager = new DatabaseManager(dbDirectory, _logger);
                 DatabaseManager.Initialise();
-                _logger.LogInformation("[EmbyStreams] Database initialised at {DbDir}", dbDirectory);
+                _logger.LogInformation("[InfiniteDrive] Database initialised at {DbDir}", dbDirectory);
 
                 // Initialise repository layer (Sprint 104D-02)
                 CatalogRepository = new CatalogRepository(DatabaseManager, _logManager);
-                _logger.LogInformation("[EmbyStreams] Repository layer initialised");
+                _logger.LogInformation("[InfiniteDrive] Repository layer initialised");
 
                 // Initialise version slot repository (Sprint 122: Versioned Playback)
                 VersionSlotRepository = new Data.VersionSlotRepository(dbDirectory, _logger);
-                _logger.LogInformation("[EmbyStreams] Version slot repository initialised");
+                _logger.LogInformation("[InfiniteDrive] Version slot repository initialised");
 
                 // Initialise versioned playback repositories (Sprint 127: Registration)
                 CandidateRepository = new Data.CandidateRepository(DatabaseManager, _logger);
                 SnapshotRepository = new Data.SnapshotRepository(DatabaseManager, _logger);
                 MaterializedVersionRepository = new Data.MaterializedVersionRepository(DatabaseManager, _logger);
-                _logger.LogInformation("[EmbyStreams] Versioned playback repositories initialised");
+                _logger.LogInformation("[InfiniteDrive] Versioned playback repositories initialised");
 
                 // Initialise versioned playback services (Sprint 127: Registration)
                 CandidateNormalizer = new Services.CandidateNormalizer(_logger);
                 SlotMatcher = new Services.SlotMatcher();
-                _logger.LogInformation("[EmbyStreams] Versioned playback services initialised");
+                _logger.LogInformation("[InfiniteDrive] Versioned playback services initialised");
 
                 // Initialise home section tracker (Sprint 118: Home Screen Rails)
                 HomeSectionTracker = new HomeSectionTracker(DatabaseManager, new EmbyLoggerAdapter<HomeSectionTracker>(_logManager.GetLogger("HomeSectionTracker")));
-                _logger.LogInformation("[EmbyStreams] Home section tracker initialised");
+                _logger.LogInformation("[InfiniteDrive] Home section tracker initialised");
 
                 // Initialise user pin repository (Sprint 142: User Pins)
                 UserPinRepository = new Repositories.UserPinRepository(DatabaseManager, _logger);
-                _logger.LogInformation("[EmbyStreams] User pin repository initialised");
+                _logger.LogInformation("[InfiniteDrive] User pin repository initialised");
 
                 // Initialise StrmWriterService (Sprint 156: Unified Write Path)
                 StrmWriterService = new Services.StrmWriterService(_logManager, DatabaseManager);
-                _logger.LogInformation("[EmbyStreams] StrmWriterService initialised");
+                _logger.LogInformation("[InfiniteDrive] StrmWriterService initialised");
 
                 // Initialise StreamProbeService (Sprint 159: Stream Availability Probe)
                 StreamProbeService = new Services.StreamProbeService(
                     new EmbyLoggerAdapter<Services.StreamProbeService>(_logManager.GetLogger("StreamProbeService")));
-                _logger.LogInformation("[EmbyStreams] StreamProbeService initialised");
+                _logger.LogInformation("[InfiniteDrive] StreamProbeService initialised");
 
                 // Initialise IdResolverService (Sprint 160: Robust ID Normalisation)
                 IdResolverService = new Services.IdResolverService(_logManager);
-                _logger.LogInformation("[EmbyStreams] IdResolverService initialised");
+                _logger.LogInformation("[InfiniteDrive] IdResolverService initialised");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Failed to initialise database — plugin may not function correctly");
+                _logger.LogError(ex, "[InfiniteDrive] Failed to initialise database — plugin may not function correctly");
             }
         }
 
@@ -479,7 +479,7 @@ namespace EmbyStreams
                 // Guard against ApplicationPaths not being ready yet
                 if (ApplicationPaths?.PluginConfigurationsPath == null)
                 {
-                    _logger.LogWarning("[EmbyStreams] Deferring PluginSecret — ApplicationPaths not ready yet");
+                    _logger.LogWarning("[InfiniteDrive] Deferring PluginSecret — ApplicationPaths not ready yet");
                     return;
                 }
 
@@ -492,11 +492,11 @@ namespace EmbyStreams
                 Configuration.PluginSecret = PlaybackTokenService.GenerateSecret();
                 SaveConfiguration();
                 _secretEnsured = true;
-                _logger.LogInformation("[EmbyStreams] PluginSecret generated and saved");
+                _logger.LogInformation("[InfiniteDrive] PluginSecret generated and saved");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Failed to generate PluginSecret — stream signing will not work");
+                _logger.LogError(ex, "[InfiniteDrive] Failed to generate PluginSecret — stream signing will not work");
                 _secretEnsured = true; // Don't retry on error
             }
         }

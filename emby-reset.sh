@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 EMBY_BIN="$(dirname "$(readlink -f "$0")")/../emby-beta/opt/emby-server/bin/emby-server"
 DATA_DIR="$HOME/emby-dev-data"
 LOG_FILE="$DATA_DIR/logs/embyserver.txt"
-MEDIA_DIR="/media/embystreams"
+MEDIA_DIR="/media/infinitedrive"
 export LD_LIBRARY_PATH=/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH 
 export PATH="$PATH:$HOME/.dotnet"
 
@@ -45,18 +45,18 @@ find "$MEDIA_DIR" -mindepth 2 -type d -empty -delete 2>/dev/null || true
 echo "      Done."
 
 # ── 4. Build and deploy DLL ───────────────────────────────────────────────────
-echo "[4/5] Building EmbyStreams..."
+echo "[4/5] Building InfiniteDrive..."
 cd "$SCRIPT_DIR"
 dotnet publish -c Release || { echo "BUILD FAILED — aborting."; exit 1; }
 
-DLL="$SCRIPT_DIR/bin/Release/net8.0/publish/EmbyStreams.dll"
+DLL="$SCRIPT_DIR/bin/Release/net8.0/publish/InfiniteDrive.dll"
 if [ ! -f "$DLL" ]; then
     echo "ERROR: DLL not found at $DLL"; exit 1
 fi
-cp "$DLL" "$DATA_DIR/plugins/EmbyStreams.dll"
-mkdir -p "$DATA_DIR/plugins/EmbyStreams/libs"
-cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/EmbyStreams/libs/" 2>/dev/null || true
-cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/EmbyStreams/libs/" 2>/dev/null || true
+cp "$DLL" "$DATA_DIR/plugins/InfiniteDrive.dll"
+mkdir -p "$DATA_DIR/plugins/InfiniteDrive/libs"
+cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
+cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
 echo "      DLL deployed to $DATA_DIR/plugins/"
 cp "$SCRIPT_DIR/plugin.json" "$DATA_DIR/plugins/"
 echo "      plugin.json deployed to $DATA_DIR/plugins/"
@@ -79,7 +79,7 @@ if ss -tlnp 2>/dev/null | grep -q 8096; then
     echo ""
     echo "✓ Emby is UP on port 8096"
     echo "  Web UI:    http://localhost:8096"
-    echo "  Plugin:    http://localhost:8096/web/configurationpage?name=EmbyStreams"
+    echo "  Plugin:    http://localhost:8096/web/configurationpage?name=InfiniteDrive"
     echo "  Logs:      $LOG_FILE"
 else
     echo ""

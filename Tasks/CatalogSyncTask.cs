@@ -7,9 +7,9 @@ using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
@@ -18,7 +18,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     // ── CatalogFetchResult ──────────────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ namespace EmbyStreams.Tasks
             {
                 result.ProviderReachable = false;
                 result.ErrorMessage = "AIOStreams URL is not configured";
-                logger.LogWarning("[EmbyStreams] {Err}", result.ErrorMessage);
+                logger.LogWarning("[InfiniteDrive] {Err}", result.ErrorMessage);
                 return result;
             }
 
@@ -146,7 +146,7 @@ namespace EmbyStreams.Tasks
             {
                 result.ProviderReachable = false;
                 result.ErrorMessage = "AIOStreams client could not be configured (check URL / UUID / token)";
-                logger.LogWarning("[EmbyStreams] {Err}", result.ErrorMessage);
+                logger.LogWarning("[InfiniteDrive] {Err}", result.ErrorMessage);
                 return result;
             }
 
@@ -164,7 +164,7 @@ namespace EmbyStreams.Tasks
             {
                 result.ProviderReachable = false;
                 result.ErrorMessage = $"Manifest unreachable: {ex.Message}";
-                logger.LogWarning(ex, "[EmbyStreams] AIOStreams manifest fetch failed");
+                logger.LogWarning(ex, "[InfiniteDrive] AIOStreams manifest fetch failed");
                 return result;
             }
 
@@ -174,17 +174,17 @@ namespace EmbyStreams.Tasks
                 // but warn; do not remove existing items.
                 result.ProviderReachable = true;
                 result.ErrorMessage = "Manifest returned no eligible catalogs (check addon configuration)";
-                logger.LogWarning("[EmbyStreams] {Err}", result.ErrorMessage);
+                logger.LogWarning("[InfiniteDrive] {Err}", result.ErrorMessage);
                 return result;
             }
 
-            logger.LogInformation("[EmbyStreams] Discovered {Count} AIOStreams catalog(s) to sync", catalogs.Count);
+            logger.LogInformation("[InfiniteDrive] Discovered {Count} AIOStreams catalog(s) to sync", catalogs.Count);
 
             // Cap sources per run from CooldownProfile (Sprint 155)
             var sourcesCap = Plugin.Instance?.CooldownGate?.Profile.CatalogSourcesPerRun ?? catalogs.Count;
             if (catalogs.Count > sourcesCap)
             {
-                logger.LogInformation("[EmbyStreams] Capping catalog sync to {Cap} of {Total} sources (profile limit)",
+                logger.LogInformation("[InfiniteDrive] Capping catalog sync to {Cap} of {Total} sources (profile limit)",
                     sourcesCap, catalogs.Count);
                 catalogs = catalogs.Take(sourcesCap).ToList();
             }
@@ -213,9 +213,9 @@ namespace EmbyStreams.Tasks
                 result.CatalogOutcomes[key] = outcome;
 
                 if (outcome.Succeeded)
-                    logger.LogDebug("[EmbyStreams] Catalog {Key} → {Count} items", key, outcome.ItemCount);
+                    logger.LogDebug("[InfiniteDrive] Catalog {Key} → {Count} items", key, outcome.ItemCount);
                 else
-                    logger.LogWarning("[EmbyStreams] Catalog {Key} failed: {Err}", key, outcome.Error);
+                    logger.LogWarning("[InfiniteDrive] Catalog {Key} failed: {Err}", key, outcome.Error);
             }
 
             result.ProviderReachable = true;
@@ -236,7 +236,7 @@ namespace EmbyStreams.Tasks
             var manifest = await client.GetManifestAsync(cancellationToken);
             if (manifest == null)
             {
-                logger.LogWarning("[EmbyStreams] AIOStreams manifest fetch returned null — check URL and connectivity");
+                logger.LogWarning("[InfiniteDrive] AIOStreams manifest fetch returned null — check URL and connectivity");
                 return new List<AioStreamsCatalogDef>();
             }
 
@@ -247,14 +247,14 @@ namespace EmbyStreams.Tasks
             {
                 config.AioStreamsDiscoveredName = manifest.Name;
                 needsSave = true;
-                logger.LogInformation("[EmbyStreams] Addon name: {Name}", manifest.Name);
+                logger.LogInformation("[InfiniteDrive] Addon name: {Name}", manifest.Name);
             }
             if (!string.IsNullOrEmpty(manifest.Version)
                 && manifest.Version != config.AioStreamsDiscoveredVersion)
             {
                 config.AioStreamsDiscoveredVersion = manifest.Version;
                 needsSave = true;
-                logger.LogInformation("[EmbyStreams] Addon version: {Version}", manifest.Version);
+                logger.LogInformation("[InfiniteDrive] Addon version: {Version}", manifest.Version);
             }
 
             // ── Stream-only mode detection ────────────────────────────────────────
@@ -267,7 +267,7 @@ namespace EmbyStreams.Tasks
             if (isStreamOnly)
             {
                 logger.LogInformation(
-                    "[EmbyStreams] '{Name}' is stream-only (no catalog entries). " +
+                    "[InfiniteDrive] '{Name}' is stream-only (no catalog entries). " +
                     "Library must be populated via Trakt or MDBList. Stream resolution works normally.",
                     manifest.Name ?? "AIOStreams");
             }
@@ -283,9 +283,9 @@ namespace EmbyStreams.Tasks
             {
                 // "library" type = debrid cloud library (e.g. aiostreams::library.realdebrid prefix)
                 // "other" type   = generic catch-all
-                // Neither is generated by EmbyStreams .strm files — logged for future reference.
+                // Neither is generated by InfiniteDrive .strm files — logged for future reference.
                 logger.LogDebug(
-                    "[EmbyStreams] Stream resource advertises additional types not handled by EmbyStreams: {Types}",
+                    "[InfiniteDrive] Stream resource advertises additional types not handled by InfiniteDrive: {Types}",
                     string.Join(", ", unsupportedTypes));
             }
 
@@ -300,8 +300,8 @@ namespace EmbyStreams.Tasks
             if (!manifest.SupportsImdbIds)
             {
                 logger.LogWarning(
-                    "[EmbyStreams] Stream resource does not list 'tt' or 'imdb' in idPrefixes ({Prefixes}). " +
-                    "EmbyStreams generates IMDB IDs only — stream resolution may fail.",
+                    "[InfiniteDrive] Stream resource does not list 'tt' or 'imdb' in idPrefixes ({Prefixes}). " +
+                    "InfiniteDrive generates IMDB IDs only — stream resolution may fail.",
                     prefixStr);
             }
 
@@ -309,7 +309,7 @@ namespace EmbyStreams.Tasks
             if (manifest.BehaviorHints?.ConfigurationRequired == true)
             {
                 logger.LogWarning(
-                    "[EmbyStreams] Manifest sets configurationRequired=true. " +
+                    "[InfiniteDrive] Manifest sets configurationRequired=true. " +
                     "Complete the AIOStreams web UI configuration before streams will resolve.");
             }
 
@@ -326,7 +326,7 @@ namespace EmbyStreams.Tasks
                 config.AioStreamsDiscoveredTimeoutSeconds = manifestTimeout;
                 Plugin.Instance?.SaveConfiguration();
                 logger.LogInformation(
-                    "[EmbyStreams] Manifest behaviorHints.requestTimeout = {T}s — stored as discovered timeout",
+                    "[InfiniteDrive] Manifest behaviorHints.requestTimeout = {T}s — stored as discovered timeout",
                     manifestTimeout);
             }
 
@@ -340,7 +340,7 @@ namespace EmbyStreams.Tasks
                 : new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "movie", "series", "anime" };
 
             logger.LogDebug(
-                "[EmbyStreams] Accepted catalog types: {Types}",
+                "[InfiniteDrive] Accepted catalog types: {Types}",
                 string.Join(", ", acceptedTypes));
 
             var all = manifest.Catalogs
@@ -358,7 +358,7 @@ namespace EmbyStreams.Tasks
                     .ToList();
 
                 logger.LogInformation(
-                    "[EmbyStreams] Catalog allowlist active — {Count}/{Total} catalogs selected",
+                    "[InfiniteDrive] Catalog allowlist active — {Count}/{Total} catalogs selected",
                     all.Count, manifest.Catalogs.Count);
             }
 
@@ -424,7 +424,7 @@ namespace EmbyStreams.Tasks
             catch (Exception ex)
             {
                 logger.LogError(ex,
-                    "[EmbyStreams] Failed to fetch AIOStreams catalog {Type}/{Id}",
+                    "[InfiniteDrive] Failed to fetch AIOStreams catalog {Type}/{Id}",
                     catalog.Type, catalog.Id);
                 return (items, new CatalogOutcome { Succeeded = false, Error = ex.Message });
             }
@@ -496,7 +496,7 @@ namespace EmbyStreams.Tasks
                 case "channel":
                 case "tv":
                     logger.LogInformation(
-                        "[EmbyStreams] Skipping item '{Title}' - catalog type '{Type}' is not supported",
+                        "[InfiniteDrive] Skipping item '{Title}' - catalog type '{Type}' is not supported",
                         meta.Name ?? "Unknown", rawType);
                     return null;
 
@@ -514,7 +514,7 @@ namespace EmbyStreams.Tasks
 
                 default:
                     logger.LogWarning(
-                        "[EmbyStreams] Skipping item '{Title}' - unknown catalog type '{Type}'",
+                        "[InfiniteDrive] Skipping item '{Title}' - unknown catalog type '{Type}'",
                         meta.Name ?? "Unknown", rawType);
                     return null;
             }
@@ -658,7 +658,7 @@ namespace EmbyStreams.Tasks
             var result = new CatalogFetchResult();
 
             logger.LogInformation(
-                "[EmbyStreams] No catalog source configured — using Cinemeta defaults " +
+                "[InfiniteDrive] No catalog source configured — using Cinemeta defaults " +
                 "(https://v3-cinemeta.strem.io). Disable via EnableCinemetaDefault in settings.");
 
             using var client = AioStreamsClient.CreateForStremioBase(CinemetaBaseUrl, logger);
@@ -676,7 +676,7 @@ namespace EmbyStreams.Tasks
             {
                 result.ProviderReachable = false;
                 result.ErrorMessage = $"Cinemeta manifest unreachable: {ex.Message}";
-                logger.LogWarning(ex, "[EmbyStreams] {Err}", result.ErrorMessage);
+                logger.LogWarning(ex, "[InfiniteDrive] {Err}", result.ErrorMessage);
                 return result;
             }
 
@@ -684,7 +684,7 @@ namespace EmbyStreams.Tasks
             {
                 result.ProviderReachable = true;
                 result.ErrorMessage = "Cinemeta returned no catalogs";
-                logger.LogWarning("[EmbyStreams] {Err}", result.ErrorMessage);
+                logger.LogWarning("[InfiniteDrive] {Err}", result.ErrorMessage);
                 return result;
             }
 
@@ -704,7 +704,7 @@ namespace EmbyStreams.Tasks
                     if (c.Extra != null && c.Extra.Any(e => e.IsRequired == true))
                     {
                         logger.LogInformation(
-                            "[EmbyStreams] Skipping catalog '{Catalog}' — requires additional " +
+                            "[InfiniteDrive] Skipping catalog '{Catalog}' — requires additional " +
                             "configuration in AIOStreams",
                             c.Name ?? c.Id);
                         return false;
@@ -713,7 +713,7 @@ namespace EmbyStreams.Tasks
                 })
                 .ToList();
 
-            logger.LogInformation("[EmbyStreams] Cinemeta: {Count} catalog(s) to sync", catalogs.Count);
+            logger.LogInformation("[InfiniteDrive] Cinemeta: {Count} catalog(s) to sync", catalogs.Count);
 
             foreach (var catalog in catalogs)
             {
@@ -742,9 +742,9 @@ namespace EmbyStreams.Tasks
                 result.CatalogOutcomes[key] = outcome;
 
                 if (outcome.Succeeded)
-                    logger.LogDebug("[EmbyStreams] Cinemeta {Key} → {Count} items", key, outcome.ItemCount);
+                    logger.LogDebug("[InfiniteDrive] Cinemeta {Key} → {Count} items", key, outcome.ItemCount);
                 else
-                    logger.LogWarning("[EmbyStreams] Cinemeta {Key} failed: {Err}", key, outcome.Error);
+                    logger.LogWarning("[InfiniteDrive] Cinemeta {Key} failed: {Err}", key, outcome.Error);
             }
 
             result.ProviderReachable = true;
@@ -774,9 +774,9 @@ namespace EmbyStreams.Tasks
 
         private const int    StrmBatchSize    = 42;          // The answer was obvious
         private const int    StrmBatchPauseMs = 60_000;
-        private const string TaskName         = "EmbyStreams Catalog Sync";
-        private const string TaskKey          = "EmbyStreamsCatalogSync";
-        private const string TaskCategory     = "EmbyStreams";
+        private const string TaskName         = "InfiniteDrive Catalog Sync";
+        private const string TaskKey          = "InfiniteDriveCatalogSync";
+        private const string TaskCategory     = "InfiniteDrive";
 
         // ── Fields ──────────────────────────────────────────────────────────────
 
@@ -796,7 +796,7 @@ namespace EmbyStreams.Tasks
         {
             _libraryManager = libraryManager;
             _logManager     = logManager;
-            _logger         = new EmbyLoggerAdapter<CatalogSyncTask>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<CatalogSyncTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
@@ -842,20 +842,20 @@ namespace EmbyStreams.Tasks
             await Plugin.SyncLock.WaitAsync(cancellationToken);
             try
             {
-                _logger.LogInformation("[EmbyStreams] CatalogSyncTask started");
+                _logger.LogInformation("[InfiniteDrive] CatalogSyncTask started");
                 progress.Report(0);
 
                 var config = Plugin.Instance?.Configuration;
                 if (config == null)
                 {
-                    _logger.LogWarning("[EmbyStreams] Plugin configuration not available — aborting sync");
+                    _logger.LogWarning("[InfiniteDrive] Plugin configuration not available — aborting sync");
                     return;
                 }
 
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null)
             {
-                _logger.LogWarning("[EmbyStreams] DatabaseManager not available — aborting sync");
+                _logger.LogWarning("[InfiniteDrive] DatabaseManager not available — aborting sync");
                 return;
             }
 
@@ -863,7 +863,7 @@ namespace EmbyStreams.Tasks
             var providers = BuildProviders(config);
             if (providers.Count == 0)
             {
-                _logger.LogInformation("[EmbyStreams] No catalog sources enabled — nothing to sync");
+                _logger.LogInformation("[InfiniteDrive] No catalog sources enabled — nothing to sync");
                 progress.Report(100);
                 return;
             }
@@ -872,7 +872,7 @@ namespace EmbyStreams.Tasks
             progress.Report(5);
             var (allItems, fetchedSourceIds) = await FetchFromAllProvidersAsync(providers, config, db, cancellationToken);
             _logger.LogInformation(
-                "[EmbyStreams] Fetched {Count} raw catalog items from all sources", allItems.Count);
+                "[InfiniteDrive] Fetched {Count} raw catalog items from all sources", allItems.Count);
 
             // 2b. If AIOStreams was just detected as stream-only this run AND Cinemeta wasn't
             //     already scheduled, run Cinemeta immediately (same sync) rather than making
@@ -882,7 +882,7 @@ namespace EmbyStreams.Tasks
                 && !providers.Any(p => p is CinemetaDefaultProvider))
             {
                 _logger.LogInformation(
-                    "[EmbyStreams] AIOStreams detected as stream-only — running Cinemeta fallback in this sync");
+                    "[InfiniteDrive] AIOStreams detected as stream-only — running Cinemeta fallback in this sync");
                 var (cinemetaItems, cinemetaIds) = await FetchFromAllProvidersAsync(
                     new List<ICatalogProvider> { new CinemetaDefaultProvider() },
                     config, db, cancellationToken);
@@ -890,7 +890,7 @@ namespace EmbyStreams.Tasks
                 foreach (var kvp in cinemetaIds)
                     fetchedSourceIds[kvp.Key] = kvp.Value;
                 _logger.LogInformation(
-                    "[EmbyStreams] Cinemeta fallback returned {Count} items", cinemetaItems.Count);
+                    "[InfiniteDrive] Cinemeta fallback returned {Count} items", cinemetaItems.Count);
             }
 
             // 3. Deduplicate and upsert
@@ -898,7 +898,7 @@ namespace EmbyStreams.Tasks
             cancellationToken.ThrowIfCancellationRequested();
 
             var deduplicated = DeduplicateItems(allItems);
-            _logger.LogInformation("[EmbyStreams] {Count} items after deduplication", deduplicated.Count);
+            _logger.LogInformation("[InfiniteDrive] {Count} items after deduplication", deduplicated.Count);
 
             await UpsertItemsAsync(db, deduplicated, cancellationToken);
             progress.Report(40);
@@ -923,7 +923,7 @@ namespace EmbyStreams.Tasks
                 if (userCatalogs.Count > 0)
                 {
                     _logger.LogInformation(
-                        "[EmbyStreams] CatalogSyncTask: syncing {Count} active user catalogs", userCatalogs.Count);
+                        "[InfiniteDrive] CatalogSyncTask: syncing {Count} active user catalogs", userCatalogs.Count);
                     var userCatalogSync = new Services.UserCatalogSyncService(
                         _logManager, db, Plugin.Instance!.StrmWriterService, Plugin.Instance.CooldownGate);
                     foreach (var uc in userCatalogs)
@@ -931,7 +931,7 @@ namespace EmbyStreams.Tasks
                         if (cancellationToken.IsCancellationRequested) break;
                         var result = await userCatalogSync.SyncOneAsync(uc.Id, cancellationToken);
                         _logger.LogInformation(
-                            "[EmbyStreams] UserCatalog {Id} ({Name}): ok={Ok} fetched={F} added={A} elapsed={Ms}ms",
+                            "[InfiniteDrive] UserCatalog {Id} ({Name}): ok={Ok} fetched={F} added={A} elapsed={Ms}ms",
                             uc.Id, uc.DisplayName, result.Ok, result.Fetched, result.Added, result.ElapsedMs);
                     }
                 }
@@ -939,12 +939,12 @@ namespace EmbyStreams.Tasks
             catch (OperationCanceledException) { /* swallow — task was cancelled */ }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] CatalogSyncTask: error syncing user catalogs (non-fatal)");
+                _logger.LogWarning(ex, "[InfiniteDrive] CatalogSyncTask: error syncing user catalogs (non-fatal)");
             }
 
             progress.Report(100);
 
-            _logger.LogInformation("[EmbyStreams] CatalogSyncTask complete");
+            _logger.LogInformation("[InfiniteDrive] CatalogSyncTask complete");
             }
             finally
             {
@@ -960,7 +960,7 @@ namespace EmbyStreams.Tasks
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[EmbyStreams] Failed to persist last_sync_time");
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to persist last_sync_time");
                     }
                 }
                 // Sprint 100A-10: Release global sync lock
@@ -1027,17 +1027,17 @@ namespace EmbyStreams.Tasks
                     if (ShouldSkipProvider(state, config))
                     {
                         _logger.LogInformation(
-                            "[EmbyStreams] Skipping {Provider} — within sync interval ({Hours}h)",
+                            "[InfiniteDrive] Skipping {Provider} — within sync interval ({Hours}h)",
                             provider.ProviderName, config.CatalogSyncIntervalHours);
                         continue;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[EmbyStreams] Could not read sync state for {Key}", provider.SourceKey);
+                    _logger.LogDebug(ex, "[InfiniteDrive] Could not read sync state for {Key}", provider.SourceKey);
                 }
 
-                _logger.LogInformation("[EmbyStreams] Fetching catalog from {Provider}", provider.ProviderName);
+                _logger.LogInformation("[InfiniteDrive] Fetching catalog from {Provider}", provider.ProviderName);
 
                 CatalogFetchResult fetchResult;
                 try
@@ -1050,7 +1050,7 @@ namespace EmbyStreams.Tasks
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[EmbyStreams] Provider {Provider} threw unexpectedly", provider.ProviderName);
+                    _logger.LogError(ex, "[InfiniteDrive] Provider {Provider} threw unexpectedly", provider.ProviderName);
                     fetchResult = new CatalogFetchResult
                     {
                         ProviderReachable = false,
@@ -1083,7 +1083,7 @@ namespace EmbyStreams.Tasks
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[EmbyStreams] Failed to record health for {Key}", provider.SourceKey);
+                    _logger.LogDebug(ex, "[InfiniteDrive] Failed to record health for {Key}", provider.SourceKey);
                 }
 
                 // ── Record per-catalog health (AIOStreams per-catalog outcomes) ─
@@ -1098,12 +1098,12 @@ namespace EmbyStreams.Tasks
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "[EmbyStreams] Failed to record health for catalog {Key}", kvp.Key);
+                        _logger.LogDebug(ex, "[InfiniteDrive] Failed to record health for catalog {Key}", kvp.Key);
                     }
                 }
 
                 _logger.LogInformation(
-                    "[EmbyStreams] {Provider} returned {Count} items (reachable={Reachable})",
+                    "[InfiniteDrive] {Provider} returned {Count} items (reachable={Reachable})",
                     provider.ProviderName, fetchResult.Items.Count, fetchResult.ProviderReachable);
             }
 
@@ -1161,11 +1161,11 @@ namespace EmbyStreams.Tasks
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex,
-                        "[EmbyStreams] Failed to upsert catalog item {ImdbId}", item.ImdbId);
+                        "[InfiniteDrive] Failed to upsert catalog item {ImdbId}", item.ImdbId);
                 }
             }
             _logger.LogInformation(
-                "[EmbyStreams] Upserted {Count}/{Total} catalog items", upserted, items.Count);
+                "[InfiniteDrive] Upserted {Count}/{Total} catalog items", upserted, items.Count);
         }
 
         // ── Private: source diff / prune ────────────────────────────────────────
@@ -1197,7 +1197,7 @@ namespace EmbyStreams.Tasks
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "[EmbyStreams] CatalogSyncTask: prune failed for source {Source}", sourceKey);
+                        "[InfiniteDrive] CatalogSyncTask: prune failed for source {Source}", sourceKey);
                     continue;
                 }
 
@@ -1205,7 +1205,7 @@ namespace EmbyStreams.Tasks
                     continue;
 
                 _logger.LogInformation(
-                    "[EmbyStreams] CatalogSyncTask: pruning {Count} removed items from source {Source}",
+                    "[InfiniteDrive] CatalogSyncTask: pruning {Count} removed items from source {Source}",
                     removedPaths.Count, sourceKey);
 
                 foreach (var strmPath in removedPaths)
@@ -1217,7 +1217,7 @@ namespace EmbyStreams.Tasks
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
-                            "[EmbyStreams] CatalogSyncTask: could not delete {Path}", strmPath);
+                            "[InfiniteDrive] CatalogSyncTask: could not delete {Path}", strmPath);
                     }
                 }
             }
@@ -1304,7 +1304,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "[EmbyStreams] BuildLibraryItemMapPublic: query failed");
+                logger.LogWarning(ex, "[InfiniteDrive] BuildLibraryItemMapPublic: query failed");
             }
 
             return map;
@@ -1333,7 +1333,7 @@ namespace EmbyStreams.Tasks
                     if (!allPaths.Any(p => string.Equals(p.TrimEnd('/', '\\'), norm, StringComparison.OrdinalIgnoreCase)))
                     {
                         _logger.LogWarning(
-                            "[EmbyStreams] No Emby library points to '{Path}'. " +
+                            "[InfiniteDrive] No Emby library points to '{Path}'. " +
                             "Create a {Type} library via Emby Dashboard → Libraries → Add Library → " +
                             "set type to '{CollectionType}' and add path '{Path}'. " +
                             "Without this, synced .strm files will not appear in Emby.",
@@ -1346,7 +1346,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] WarnIfLibrariesMissing: could not read virtual folders");
+                _logger.LogDebug(ex, "[InfiniteDrive] WarnIfLibrariesMissing: could not read virtual folders");
             }
         }
 
@@ -1356,7 +1356,7 @@ namespace EmbyStreams.Tasks
         {
             try
             {
-                _logger.LogInformation("[EmbyStreams] Triggering targeted Emby library scan");
+                _logger.LogInformation("[InfiniteDrive] Triggering targeted Emby library scan");
 
                 // Use ValidateMediaLibrary for more efficient targeted scanning
                 // This validates specific paths rather than scanning all libraries
@@ -1365,7 +1365,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] Failed to trigger library scan");
+                _logger.LogWarning(ex, "[InfiniteDrive] Failed to trigger library scan");
             }
         }
 

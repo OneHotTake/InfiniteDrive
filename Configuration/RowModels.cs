@@ -1,7 +1,7 @@
 using System;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 
-namespace EmbyStreams.Configuration
+namespace InfiniteDrive.Configuration
 {
     /// <summary>
     /// Data row for Sources grid.

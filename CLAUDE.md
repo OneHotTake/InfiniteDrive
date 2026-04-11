@@ -1,10 +1,10 @@
-# EmbyStreams — Claude Code Instructions
+# InfiniteDrive — Claude Code Instructions
 
 ## Version Naming Policy
 
 **DO NOT use version numbers (V1, V2, V3, V20, V33, etc.) in code, class names, or method names.**
 
-EmbyStreams is beta software. Version numbers are arbitrary during development and should only be used for:
+InfiniteDrive is beta software. Version numbers are arbitrary during development and should only be used for:
 - Documentation and release notes
 - Database schema version tracking (stored in schema_version table)
 - External communication (not internal code)
@@ -121,7 +121,7 @@ Never depend on chat history for state. Always read `.ai/CURRENT_TASK.md`.
 
     dotnet build -c Release
     tail -f ~/emby-dev-data/logs/embyserver.txt
-    # Config UI: http://localhost:8096/web/configurationpage?name=EmbyStreams
+    # Config UI: http://localhost:8096/web/configurationpage?name=InfiniteDrive
 
 ### Beta Software Locations
 - **Emby Server:** `../emby-beta/` (extracted from emby-server-deb_4.10.0.8_amd64.deb)
@@ -157,7 +157,7 @@ Replace global pin with `user_item_pins` table. Pinning is per-user, not global.
 
 ### Auto-Pin on Playback Hook (Sprint 142 or 148)
 Wire `IEventConsumer<PlaybackStartEventArgs>` in EmbyEventHandler.cs.
-When user plays an EmbyStreams `.strm` item, auto-create a `user_item_pins` row with `pin_source = 'playback'`.
+When user plays an InfiniteDrive `.strm` item, auto-create a `user_item_pins` row with `pin_source = 'playback'`.
 
 ### Blocked Items: Admin-Only, Permanent Tombstone (Sprints 142, 145, 147)
 - `Blocked` state is admin-initiated only

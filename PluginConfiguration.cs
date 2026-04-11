@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 using MediaBrowser.Model.Plugins;
 
-namespace EmbyStreams
+namespace InfiniteDrive
 {
     /// <summary>
-    /// All persisted settings for the EmbyStreams plugin.
-    /// Emby serialises this to {DataPath}/plugins/configurations/EmbyStreams.xml.
+    /// All persisted settings for the InfiniteDrive plugin.
+    /// Emby serialises this to {DataPath}/plugins/configurations/InfiniteDrive.xml.
     /// Every property must carry <see cref="DataMemberAttribute"/> to be persisted.
     ///
     /// ──────────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ namespace EmbyStreams
     ///   • Sorting priority and stream expression rules
     ///   • Title/year/season matching
     ///
-    /// EmbyStreams only needs to know *where* that AIOStreams instance lives.
+    /// InfiniteDrive only needs to know *where* that AIOStreams instance lives.
     /// Configure all quality/filter preferences inside AIOStreams itself.
     /// </summary>
     [DataContract]
@@ -80,7 +80,7 @@ namespace EmbyStreams
 
         /// <summary>
         /// Enable fetching catalog items from AIOStreams catalog endpoints.
-        /// When enabled, EmbyStreams reads the AIOStreams manifest on each sync
+        /// When enabled, InfiniteDrive reads the AIOStreams manifest on each sync
         /// to discover all configured catalogs automatically.
         /// </summary>
         [DataMember]
@@ -137,7 +137,7 @@ namespace EmbyStreams
         /// Used in .strm files to authenticate playback requests.
         ///
         /// Get from: Emby Dashboard → API Keys → Add → Copy the key
-        /// Or use /EmbyStreams/Setup/CreateEmbyApiKey to create one programmatically.
+        /// Or use /InfiniteDrive/Setup/CreateEmbyApiKey to create one programmatically.
         ///
         /// WARNING: If leaked, this gives full access to your Emby server!
         /// Treat this like a password - never share it.
@@ -193,7 +193,7 @@ namespace EmbyStreams
 
         /// <summary>
         /// Absolute path where anime .strm files are written.
-        /// EmbyStreams creates a Series library at this path when anime is enabled.
+        /// InfiniteDrive creates a Series library at this path when anime is enabled.
         /// Default: <c>/media/embystreams/anime</c>
         /// </summary>
         [DataMember]
@@ -225,7 +225,7 @@ namespace EmbyStreams
         public int DefaultSeriesEpisodesPerSeason { get; set; } = 10;
 
         /// <summary>
-        /// When <c>true</c> (default), EmbyStreams writes a minimal Kodi-format
+        /// When <c>true</c> (default), InfiniteDrive writes a minimal Kodi-format
         /// <c>.nfo</c> file alongside every <c>.strm</c> file it creates.
         ///
         /// The <c>.nfo</c> contains only IMDB and TMDB <c>&lt;uniqueid&gt;</c> tags —
@@ -237,7 +237,7 @@ namespace EmbyStreams
         /// the need for exact filename formatting.
         ///
         /// Disable only if another tool manages your <c>.nfo</c> files and you do
-        /// not want EmbyStreams to overwrite them.
+        /// not want InfiniteDrive to overwrite them.
         /// </summary>
         [DataMember]
         public bool EnableNfoHints { get; set; } = true;
@@ -364,7 +364,7 @@ namespace EmbyStreams
 
         /// <summary>
         /// Comma-separated provider priority order.  Within the same quality tier,
-        /// EmbyStreams picks the stream whose provider appears earliest in this list.
+        /// InfiniteDrive picks the stream whose provider appears earliest in this list.
         ///
         /// Uses the <c>service.id</c> values returned by AIOStreams:
         /// <c>realdebrid</c>, <c>torbox</c>, <c>alldebrid</c>, <c>premiumize</c>,
@@ -446,13 +446,13 @@ namespace EmbyStreams
         /// <summary>
         /// Comma-separated ID prefixes the stream resource accepts
         /// (e.g. <c>tt,imdb,mal:,kitsu:</c>).  Populated during sync.
-        /// EmbyStreams currently generates only <c>tt</c> (IMDB) IDs.
+        /// InfiniteDrive currently generates only <c>tt</c> (IMDB) IDs.
         /// </summary>
         [DataMember]
         public string AioStreamsStreamIdPrefixes { get; set; } = string.Empty;
 
         /// <summary>
-        /// When <c>true</c> (default), EmbyStreams automatically adds Cinemeta
+        /// When <c>true</c> (default), InfiniteDrive automatically adds Cinemeta
         /// (<c>https://v3-cinemeta.strem.io</c>) as a catalog source when the
         /// primary AIOStreams instance has no available catalogs.
         ///

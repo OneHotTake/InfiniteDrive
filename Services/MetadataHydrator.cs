@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Fetches and enriches item metadata from Cinemeta/AIOMetadata.

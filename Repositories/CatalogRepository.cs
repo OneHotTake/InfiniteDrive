@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Repositories.Interfaces;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Repositories.Interfaces;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Repositories
+namespace InfiniteDrive.Repositories
 {
     /// <summary>
     /// Catalog repository implementation.
@@ -25,7 +25,7 @@ namespace EmbyStreams.Repositories
         public CatalogRepository(DatabaseManager db, ILogManager logManager)
         {
             _db = db;
-            _logger = new EmbyLoggerAdapter<CatalogRepository>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<CatalogRepository>(logManager.GetLogger("InfiniteDrive"));
         }
 
         /// <inheritdoc/>

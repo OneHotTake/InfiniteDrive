@@ -2,21 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Request object for the <c>GET /EmbyStreams/TestFailover</c> dry-run endpoint.
+    /// Request object for the <c>GET /InfiniteDrive/TestFailover</c> dry-run endpoint.
     /// </summary>
-    [Route("/EmbyStreams/TestFailover", "GET",
+    [Route("/InfiniteDrive/TestFailover", "GET",
         Summary = "Dry-run the full failover chain for a given IMDB ID without serving a stream")]
     public class TestFailoverRequest : IReturn<object>
     {
@@ -69,7 +69,7 @@ namespace EmbyStreams.Services
     // ── Service ──────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Handles <c>GET /EmbyStreams/TestFailover</c>.
+    /// Handles <c>GET /InfiniteDrive/TestFailover</c>.
     ///
     /// <para>
     /// Dry-runs the complete resilience chain for a given IMDB ID:
@@ -100,7 +100,7 @@ namespace EmbyStreams.Services
         public TestFailoverService(ILogManager logManager, IAuthorizationContext authCtx)
         {
             _logger  = new EmbyLoggerAdapter<TestFailoverService>(
-                logManager.GetLogger("EmbyStreams"));
+                logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 

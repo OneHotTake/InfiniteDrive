@@ -4,17 +4,17 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
-using EmbyStreams.Logging;
+using InfiniteDrive.Logging;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Subscribes to Emby server events to enable:
@@ -26,7 +26,7 @@ namespace EmbyStreams.Services
     ///   <item><b>Next-Up pre-warm (stop)</b>: same queueing fires again when an
     ///         episode finishes, covering the brief inter-episode gap as a safety net.</item>
     ///   <item><b>Instant episode expansion</b>: when Emby indexes a new Episode item
-    ///         from an EmbyStreams .strm folder, resets the parent series'
+    ///         from an InfiniteDrive .strm folder, resets the parent series'
     ///         <c>seasons_json</c> so <see cref="Tasks.EpisodeExpandTask"/> rewrites all
     ///         .strm files on its next run.</item>
     ///   <item><b>Redirect-success learning</b>: each completed redirect play
@@ -63,7 +63,7 @@ namespace EmbyStreams.Services
         {
             _sessionManager = sessionManager;
             _libraryManager = libraryManager;
-            _logger         = new EmbyLoggerAdapter<EmbyEventHandler>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<EmbyEventHandler>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IServerEntryPoint ────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ namespace EmbyStreams.Services
             _sessionManager.PlaybackStart   += OnPlaybackStarted;
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
             _libraryManager.ItemAdded       += OnItemAdded;
-            _logger.LogInformation("[EmbyStreams] EmbyEventHandler started — watching playback and library events");
+            _logger.LogInformation("[InfiniteDrive] EmbyEventHandler started — watching playback and library events");
         }
 
         /// <inheritdoc/>
@@ -89,7 +89,7 @@ namespace EmbyStreams.Services
 
         /// <summary>
         /// Fires whenever Emby indexes a new library item.  When the item is an
-        /// <c>Episode</c> and its path lives inside the EmbyStreams shows folder,
+        /// <c>Episode</c> and its path lives inside the InfiniteDrive shows folder,
         /// the parent series' <c>seasons_json</c> is cleared so
         /// <see cref="Tasks.EpisodeExpandTask"/> rewrites all episode .strm files on
         /// its next run.
@@ -136,19 +136,19 @@ namespace EmbyStreams.Services
                 await db.UpdateSeasonsJsonAsync(imdbId, catalogItem.Source, string.Empty);
 
                 _logger.LogInformation(
-                    "[EmbyStreams] New episode indexed for {ImdbId} — seasons_json cleared for EpisodeExpandTask",
+                    "[InfiniteDrive] New episode indexed for {ImdbId} — seasons_json cleared for EpisodeExpandTask",
                     imdbId);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] HandleNewEpisodeIndexedAsync failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] HandleNewEpisodeIndexedAsync failed");
             }
         }
 
         // ── Private: playback-started handler (BINGE-PREWARM) ───────────────────
 
         /// <summary>
-        /// Fires when any item begins playing.  For EmbyStreams episodes, queues
+        /// Fires when any item begins playing.  For InfiniteDrive episodes, queues
         /// the next two episodes for Tier 1 resolution immediately so the full
         /// episode runtime is available as the pre-warm window.
         /// </summary>
@@ -171,14 +171,14 @@ namespace EmbyStreams.Services
                 var (imdb, season, episode) = ParseStrmUrl(strmUrl);
 
                 if (string.IsNullOrEmpty(imdb)) return;
-                if (strmUrl.IndexOf("/EmbyStreams/Play", StringComparison.OrdinalIgnoreCase) < 0) return;
+                if (strmUrl.IndexOf("/InfiniteDrive/Play", StringComparison.OrdinalIgnoreCase) < 0) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
 
                 // ── Auto-pin on playback (Sprint 144) ─────────────────────────────
 
-                // Auto-pin for all EmbyStreams .strm files
+                // Auto-pin for all InfiniteDrive .strm files
                 var userId = e.Users?.FirstOrDefault()?.Id.ToString();
                 if (!string.IsNullOrEmpty(userId))
                 {
@@ -190,7 +190,7 @@ namespace EmbyStreams.Services
                         {
                             await userPinRepo.AddPinAsync(userId, catalogItem.Id, "playback");
                             _logger.LogDebug(
-                                "[EmbyStreams] Auto-pinned {Title} for user {UserId} via playback",
+                                "[InfiniteDrive] Auto-pinned {Title} for user {UserId} via playback",
                                 catalogItem.Title, userId);
                         }
                     }
@@ -200,7 +200,7 @@ namespace EmbyStreams.Services
                 if (!season.HasValue || !episode.HasValue) return;
 
                 _logger.LogInformation(
-                    "[EmbyStreams] Binge pre-warm triggered: {Imdb} S{S}E{E} — queuing next episodes",
+                    "[InfiniteDrive] Binge pre-warm triggered: {Imdb} S{S}E{E} — queuing next episodes",
                     imdb, season, episode);
 
                 await QueueNextEpisodesAsync(db, imdb, season.Value, episode.Value);
@@ -210,7 +210,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] HandlePlaybackStartedAsync failed for {Path}", strmPath);
+                _logger.LogDebug(ex, "[InfiniteDrive] HandlePlaybackStartedAsync failed for {Path}", strmPath);
             }
         }
 
@@ -218,7 +218,7 @@ namespace EmbyStreams.Services
 
         private void OnPlaybackStopped(object? sender, PlaybackStopEventArgs e)
         {
-            // Only process items that came from EmbyStreams .strm files
+            // Only process items that came from InfiniteDrive .strm files
             var item = e.Item;
             if (item?.Path == null) return;
             if (!item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)) return;
@@ -238,7 +238,7 @@ namespace EmbyStreams.Services
                 var (imdb, season, episode) = ParseStrmUrl(strmUrl);
 
                 if (string.IsNullOrEmpty(imdb)) return;
-                if (strmUrl.IndexOf("/EmbyStreams/Play", StringComparison.OrdinalIgnoreCase) < 0) return;
+                if (strmUrl.IndexOf("/InfiniteDrive/Play", StringComparison.OrdinalIgnoreCase) < 0) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
@@ -246,7 +246,7 @@ namespace EmbyStreams.Services
                 // Log playback stop details
                 var clientType = ExtractClientType(e);
                 _logger.LogInformation(
-                    "[EmbyStreams] Playback stopped: {Imdb} S{S}E{E} client={Client}",
+                    "[InfiniteDrive] Playback stopped: {Imdb} S{S}E{E} client={Client}",
                     imdb, season, episode, clientType);
 
                 // ── Next-Up pre-warm ─────────────────────────────────────────────
@@ -263,7 +263,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] Error in playback-stopped handler for {Path}", strmPath);
+                _logger.LogWarning(ex, "[InfiniteDrive] Error in playback-stopped handler for {Path}", strmPath);
             }
         }
 
@@ -304,7 +304,7 @@ namespace EmbyStreams.Services
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
-                            "[EmbyStreams] RefreshSeriesCache: failed to queue {Imdb} S{S:D2}E{E:D2}",
+                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {Imdb} S{S:D2}E{E:D2}",
                             imdb, season, ep);
                     }
                 }
@@ -330,7 +330,7 @@ namespace EmbyStreams.Services
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
-                            "[EmbyStreams] RefreshSeriesCache: failed to queue {Imdb} S{S:D2}E{E:D2}",
+                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {Imdb} S{S:D2}E{E:D2}",
                             imdb, season + 1, ep);
                     }
                 }
@@ -338,14 +338,14 @@ namespace EmbyStreams.Services
                 if (queued > 0)
                 {
                     _logger.LogInformation(
-                        "[EmbyStreams] Series cache refresh queued {Count} episodes for {Imdb} S{S:D2}",
+                        "[InfiniteDrive] Series cache refresh queued {Count} episodes for {Imdb} S{S:D2}",
                         queued, imdb, season);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex,
-                    "[EmbyStreams] RefreshSeriesCacheAsync failed for {Imdb} S{S}", imdb, season);
+                    "[InfiniteDrive] RefreshSeriesCacheAsync failed for {Imdb} S{S}", imdb, season);
             }
         }
 
@@ -384,7 +384,7 @@ namespace EmbyStreams.Services
                             if (ageMinutes <= cacheLifetime * 0.7)
                             {
                                 _logger.LogDebug(
-                                    "[EmbyStreams] Skipping Tier 1 queue for {Imdb} S{S:D2}E{E:D2} — already fresh ({Age:F0} min old)",
+                                    "[InfiniteDrive] Skipping Tier 1 queue for {Imdb} S{S:D2}E{E:D2} — already fresh ({Age:F0} min old)",
                                     imdb, nextSeason, nextEp, ageMinutes);
                                 continue;
                             }
@@ -393,12 +393,12 @@ namespace EmbyStreams.Services
 
                     await db.QueueForResolutionAsync(imdb, nextSeason, nextEp, "tier1");
                     _logger.LogDebug(
-                        "[EmbyStreams] Queued Tier 1: {Imdb} S{S:D2}E{E:D2}",
+                        "[InfiniteDrive] Queued Tier 1: {Imdb} S{S:D2}E{E:D2}",
                         imdb, nextSeason, nextEp);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Failed to queue tier1 for {Imdb} S{S}E{E}",
+                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to queue tier1 for {Imdb} S{S}E{E}",
                         imdb, nextSeason, nextEp);
                 }
             }
@@ -465,7 +465,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Could not query episode count for {Imdb} S{Season}", imdbId, season);
+                _logger.LogDebug(ex, "[InfiniteDrive] Could not query episode count for {Imdb} S{Season}", imdbId, season);
                 return Fallback;
             }
         }
@@ -509,18 +509,18 @@ namespace EmbyStreams.Services
                 // UpdateClientCompatAsync upserts and bumps test_count atomically.
                 // Passing supportsRedirect=true and null bitrate keeps existing constraints.
                 await db.UpdateClientCompatAsync(clientType, supportsRedirect: true, maxBitrate: null);
-                _logger.LogDebug("[EmbyStreams] Redirect-success recorded for client {Client}", clientType);
+                _logger.LogDebug("[InfiniteDrive] Redirect-success recorded for client {Client}", clientType);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] client compat update skipped for {Client}", clientType);
+                _logger.LogDebug(ex, "[InfiniteDrive] client compat update skipped for {Client}", clientType);
             }
         }
 
         // ── Private: helpers ─────────────────────────────────────────────────────
 
         /// <summary>
-        /// Parses the IMDB ID, season, and episode from an EmbyStreams .strm URL.
+        /// Parses the IMDB ID, season, and episode from an InfiniteDrive .strm URL.
         /// </summary>
         private static (string imdb, int? season, int? episode) ParseStrmUrl(string url)
         {

@@ -1,6 +1,6 @@
 using System;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Parses year values from various release info formats.

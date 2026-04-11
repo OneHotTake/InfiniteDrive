@@ -3,7 +3,7 @@ using System.Linq;
 using SQLitePCL.pretty;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Data
+namespace InfiniteDrive.Data
 {
     /// <summary>
     /// Initializes and migrates the v3.3 database schema.
@@ -74,7 +74,7 @@ namespace EmbyStreams.Data
             SeedVersionSlots(connection);
 
             // Set schema version
-            SetSchemaVersion(connection, Schema.CurrentSchemaVersion, "EmbyStreams v3.3 initial schema");
+            SetSchemaVersion(connection, Schema.CurrentSchemaVersion, "InfiniteDrive v3.3 initial schema");
 
             _logger.LogInformation("Fresh install complete — {Count} tables, version {Version}",
                 Schema.Tables.Count, Schema.CurrentSchemaVersion);

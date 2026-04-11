@@ -3,21 +3,21 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Repositories;
+using InfiniteDrive;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Repositories;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
-    [Route("/EmbyStreams/User/MyPins", "GET",
+    [Route("/InfiniteDrive/User/MyPins", "GET",
         Summary = "Returns all pins for the current user (playback + discover)")]
     public class GetUserPinsRequest : IReturn<GetUserPinsResponse> { }
 
@@ -38,7 +38,7 @@ namespace EmbyStreams.Services
         public List<UserPinDto> DiscoverPins { get; set; } = new();
     }
 
-    [Route("/EmbyStreams/User/RemovePins", "POST",
+    [Route("/InfiniteDrive/User/RemovePins", "POST",
         Summary = "Removes selected pins for the current user")]
     public class RemovePinsRequest : IReturn<RemovePinsResponse>
     {
@@ -68,7 +68,7 @@ namespace EmbyStreams.Services
 
         public UserService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<UserService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<UserService>(logManager.GetLogger("InfiniteDrive"));
             _db      = Plugin.Instance.DatabaseManager;
             _pinRepo = Plugin.Instance.UserPinRepository;
             _authCtx = authCtx;
@@ -86,7 +86,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>GET /EmbyStreams/User/MyPins</c>.
+        /// Handles <c>GET /InfiniteDrive/User/MyPins</c>.
         /// Returns playback-pinned and discover-pinned items for the current user.
         /// </summary>
         public async Task<object> Get(GetUserPinsRequest _)
@@ -103,7 +103,7 @@ namespace EmbyStreams.Services
                 var items = await _db.GetCatalogItemsByIdsAsync(catalogIds, CancellationToken.None);
                 var itemById = items.ToDictionary(i => i.Id, StringComparer.OrdinalIgnoreCase);
 
-                UserPinDto? ToDto(EmbyStreams.Models.UserItemPin pin)
+                UserPinDto? ToDto(InfiniteDrive.Models.UserItemPin pin)
                 {
                     if (!itemById.TryGetValue(pin.CatalogItemId, out var item))
                         return null;
@@ -153,7 +153,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>POST /EmbyStreams/User/RemovePins</c>.
+        /// Handles <c>POST /InfiniteDrive/User/RemovePins</c>.
         /// Deletes pin records for the current user. Item remains until Deep Clean removes it.
         /// </summary>
         public async Task<object> Post(RemovePinsRequest req)

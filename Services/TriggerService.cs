@@ -4,8 +4,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Tasks;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Tasks;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
@@ -13,15 +13,15 @@ using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Request object for <c>POST /EmbyStreams/Trigger</c>.
+    /// Request object for <c>POST /InfiniteDrive/Trigger</c>.
     ///
     /// Pass the task key as a query parameter, e.g.:
-    /// <c>POST /EmbyStreams/Trigger?task=catalog_sync</c>
+    /// <c>POST /InfiniteDrive/Trigger?task=catalog_sync</c>
     ///
     /// Accepted values:
     /// <list type="bullet">
@@ -31,8 +31,8 @@ namespace EmbyStreams.Services
     ///   <item><c>library_readoption</c> — <see cref="LibraryReadoptionTask"/></item>
     /// </list>
     /// </summary>
-    [Route("/EmbyStreams/Trigger", "POST",
-        Summary = "Manually triggers a named EmbyStreams scheduled task in the background")]
+    [Route("/InfiniteDrive/Trigger", "POST",
+        Summary = "Manually triggers a named InfiniteDrive scheduled task in the background")]
     public class TriggerRequest : IReturn<object>
     {
         /// <summary>Task identifier (see accepted values in class summary).</summary>
@@ -42,7 +42,7 @@ namespace EmbyStreams.Services
         public bool Force { get; set; }
     }
 
-    /// <summary>Response from <c>POST /EmbyStreams/Trigger</c>.</summary>
+    /// <summary>Response from <c>POST /InfiniteDrive/Trigger</c>.</summary>
     public class TriggerResponse
     {
         /// <summary><c>ok</c> if the task was queued, <c>error</c> otherwise.</summary>
@@ -58,7 +58,7 @@ namespace EmbyStreams.Services
     /// <summary>
     /// Request to clear sync states so the next sync runs immediately.
     /// </summary>
-    [Route("/EmbyStreams/Setup/ClearSyncStates", "POST",
+    [Route("/InfiniteDrive/Setup/ClearSyncStates", "POST",
         Summary = "Clear sync states to force next sync to run immediately")]
     public class ClearSyncStatesRequest : IReturn<TriggerResponse> { }
 
@@ -66,12 +66,12 @@ namespace EmbyStreams.Services
 
     /// <summary>
     /// Exposes a POST endpoint that lets the admin dashboard manually fire any
-    /// EmbyStreams scheduled task without waiting for its next scheduled run.
+    /// InfiniteDrive scheduled task without waiting for its next scheduled run.
     ///
     /// Tasks run in a background <see cref="System.Threading.Tasks.Task"/> with a
     /// 30-minute timeout, matching the pattern already used by
     /// <see cref="WebhookService"/>.  The endpoint returns immediately; callers
-    /// can monitor progress via the <c>GET /EmbyStreams/Status</c> dashboard.
+    /// can monitor progress via the <c>GET /InfiniteDrive/Status</c> dashboard.
     ///
     /// ════════════════════════════════════════════════════════════════
     /// ADMIN GUARD AUDIT (Sprint 100A-09)
@@ -80,16 +80,16 @@ namespace EmbyStreams.Services
     /// as the FIRST statement in every endpoint method.
     ///
     /// Endpoints covered:
-    /// • POST /EmbyStreams/Trigger            (Post(TriggerRequest))
-    /// • POST /EmbyStreams/Setup/ClearSyncStates (Post(ClearSyncStatesRequest))
-    /// • POST /EmbyStreams/Invalidate          (CacheManagementService.Post(InvalidateRequest))
-    /// • POST /EmbyStreams/Queue               (CacheManagementService.Post(QueueRequest))
-    /// • POST /EmbyStreams/Validate            (ValidateService.Post(ValidateRequest))
-    /// • POST /EmbyStreams/Housekeeping/OrphanedFolders (Post(HousekeepingOrphanedFoldersRequest))
-    /// • GET  /EmbyStreams/Housekeeping/ExpiredStrm    (Get(HousekeepingExpiredStrmRequest))
-    /// • GET  /EmbyStreams/Housekeeping/StrmCount      (Get(HousekeepingStrmCountRequest))
+    /// • POST /InfiniteDrive/Trigger            (Post(TriggerRequest))
+    /// • POST /InfiniteDrive/Setup/ClearSyncStates (Post(ClearSyncStatesRequest))
+    /// • POST /InfiniteDrive/Invalidate          (CacheManagementService.Post(InvalidateRequest))
+    /// • POST /InfiniteDrive/Queue               (CacheManagementService.Post(QueueRequest))
+    /// • POST /InfiniteDrive/Validate            (ValidateService.Post(ValidateRequest))
+    /// • POST /InfiniteDrive/Housekeeping/OrphanedFolders (Post(HousekeepingOrphanedFoldersRequest))
+    /// • GET  /InfiniteDrive/Housekeeping/ExpiredStrm    (Get(HousekeepingExpiredStrmRequest))
+    /// • GET  /InfiniteDrive/Housekeeping/StrmCount      (Get(HousekeepingStrmCountRequest))
     ///
-    /// POST /EmbyStreams/RefreshManifest (FIX-100A-01) - will be added to HealthService
+    /// POST /InfiniteDrive/RefreshManifest (FIX-100A-01) - will be added to HealthService
     /// ════════════════════════════════════════════════════════════════
     /// </summary>
     public partial class TriggerService : IService, IRequiresRequest
@@ -133,12 +133,12 @@ namespace EmbyStreams.Services
             _libraryManager = libraryManager;
             _logManager     = logManager;
             _authCtx        = authCtx;
-            _logger         = new EmbyLoggerAdapter<TriggerService>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<TriggerService>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IService ─────────────────────────────────────────────────────────────
 
-        /// <summary>Handles <c>POST /EmbyStreams/Trigger?task={key}</c>.</summary>
+        /// <summary>Handles <c>POST /InfiniteDrive/Trigger?task={key}</c>.</summary>
         public object Post(TriggerRequest request)
         {
             // All trigger tasks require admin authentication
@@ -166,7 +166,7 @@ namespace EmbyStreams.Services
 
 #pragma warning disable CS0618 // Type is obsolete (kept for backward compatibility)
                 case TaskFileResurrection:
-                    FireAndForget(ct => new FileResurrectionTask(_libraryManager, _logManager, EmbyStreams.Plugin.Instance.StrmWriterService)
+                    FireAndForget(ct => new FileResurrectionTask(_libraryManager, _logManager, InfiniteDrive.Plugin.Instance.StrmWriterService)
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
@@ -195,7 +195,7 @@ namespace EmbyStreams.Services
                         {
                             await db.ClearAllClientProfilesAsync();
                             _logger.LogInformation(
-                                "[EmbyStreams] All client compatibility profiles cleared via dashboard");
+                                "[InfiniteDrive] All client compatibility profiles cleared via dashboard");
                         }
                     }, taskKey);
                     break;
@@ -209,7 +209,7 @@ namespace EmbyStreams.Services
                         {
                             await db.ResetSyncIntervalsAsync();
                             _logger.LogInformation(
-                                "[EmbyStreams] Sync interval guard reset — next catalog sync will fetch all sources");
+                                "[InfiniteDrive] Sync interval guard reset — next catalog sync will fetch all sources");
                         }
                     }, taskKey);
                     break;
@@ -224,7 +224,7 @@ namespace EmbyStreams.Services
                             await db.ClearResolutionCacheAsync();
                             await db.VacuumAsync();
                             _logger.LogInformation(
-                                "[EmbyStreams] Resolution cache cleared and database vacuumed");
+                                "[InfiniteDrive] Resolution cache cleared and database vacuumed");
                         }
                     }, taskKey);
                     break;
@@ -259,7 +259,7 @@ namespace EmbyStreams.Services
                                         entry.ImdbId, entry.Season, entry.Episode);
                                     staled++;
                                     _logger.LogDebug(
-                                        "[EmbyStreams] DeadLinkScan: {Imdb} returned {Code} — marked stale",
+                                        "[InfiniteDrive] DeadLinkScan: {Imdb} returned {Code} — marked stale",
                                         entry.ImdbId, code);
                                 }
                             }
@@ -268,7 +268,7 @@ namespace EmbyStreams.Services
                             await Task.Delay(200, ct); // gentle pacing
                         }
                         _logger.LogInformation(
-                            "[EmbyStreams] DeadLinkScan: checked {Total} entries, marked {Staled} stale",
+                            "[InfiniteDrive] DeadLinkScan: checked {Total} entries, marked {Staled} stale",
                             validEntries.Count, staled);
                     }, taskKey);
                     break;
@@ -292,7 +292,7 @@ namespace EmbyStreams.Services
                             _logger);
 
                         _logger.LogInformation(
-                            "[EmbyStreams] PurgeCatalog: {Items} catalog rows removed, " +
+                            "[InfiniteDrive] PurgeCatalog: {Items} catalog rows removed, " +
                             "{Files} .strm/.nfo files deleted from disk",
                             strmPaths.Count, deleted);
                     }, taskKey);
@@ -316,7 +316,7 @@ namespace EmbyStreams.Services
                             _logger);
 
                         _logger.LogInformation(
-                            "[EmbyStreams] ResetAll: all tables cleared, " +
+                            "[InfiniteDrive] ResetAll: all tables cleared, " +
                             "{Files} .strm/.nfo files deleted from disk",
                             deleted);
                     }, taskKey);
@@ -332,7 +332,7 @@ namespace EmbyStreams.Services
                         config.IsFirstRunComplete = false;
                         Plugin.Instance?.SaveConfiguration();
                         _logger.LogInformation(
-                            "[EmbyStreams] Wizard reset — IsFirstRunComplete set to false");
+                            "[InfiniteDrive] Wizard reset — IsFirstRunComplete set to false");
 
                         await Task.CompletedTask;
                     }, taskKey);
@@ -389,7 +389,7 @@ namespace EmbyStreams.Services
             try
             {
                 await db.ClearAllSyncStatesAsync();
-                _logger.LogInformation("[EmbyStreams] All sync states cleared - next catalog sync will run immediately");
+                _logger.LogInformation("[InfiniteDrive] All sync states cleared - next catalog sync will run immediately");
                 
                 // Trigger a sync immediately
                 FireAndForget(ct => new CatalogSyncTask(_libraryManager, _logManager)
@@ -403,7 +403,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Failed to clear sync states");
+                _logger.LogError(ex, "[InfiniteDrive] Failed to clear sync states");
                 return new TriggerResponse
                 {
                     Status  = "error",
@@ -419,19 +419,19 @@ namespace EmbyStreams.Services
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
                 using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(30));
-                _logger.LogInformation("[EmbyStreams] TriggerService: starting '{Task}'", taskKey);
+                _logger.LogInformation("[InfiniteDrive] TriggerService: starting '{Task}'", taskKey);
                 try
                 {
                     await taskFactory(cts.Token);
-                    _logger.LogInformation("[EmbyStreams] TriggerService: '{Task}' finished", taskKey);
+                    _logger.LogInformation("[InfiniteDrive] TriggerService: '{Task}' finished", taskKey);
                 }
                 catch (OperationCanceledException)
                 {
-                    _logger.LogWarning("[EmbyStreams] TriggerService: '{Task}' timed out (30 min)", taskKey);
+                    _logger.LogWarning("[InfiniteDrive] TriggerService: '{Task}' timed out (30 min)", taskKey);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[EmbyStreams] TriggerService: '{Task}' failed", taskKey);
+                    _logger.LogError(ex, "[InfiniteDrive] TriggerService: '{Task}' failed", taskKey);
                 }
             });
         }
@@ -482,7 +482,7 @@ namespace EmbyStreams.Services
                 }
                 catch (Exception ex)
                 {
-                    logger.LogDebug(ex, "[EmbyStreams] DeleteStrmFiles: could not delete {Path}", path);
+                    logger.LogDebug(ex, "[InfiniteDrive] DeleteStrmFiles: could not delete {Path}", path);
                 }
             }
 
@@ -517,7 +517,7 @@ namespace EmbyStreams.Services
                 }
                 catch (Exception ex)
                 {
-                    logger.LogDebug(ex, "[EmbyStreams] DeleteStrmFiles: sweep failed for root {Root}", root);
+                    logger.LogDebug(ex, "[InfiniteDrive] DeleteStrmFiles: sweep failed for root {Root}", root);
                 }
             }
 
@@ -530,11 +530,11 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request for <c>POST /EmbyStreams/Invalidate</c>.
+    /// Request for <c>POST /InfiniteDrive/Invalidate</c>.
     /// Marks one resolution cache entry as stale so it is re-resolved on the next
     /// LinkResolverTask run (or immediately on the next play).
     /// </summary>
-    [Route("/EmbyStreams/Invalidate", "POST",
+    [Route("/InfiniteDrive/Invalidate", "POST",
         Summary = "Marks a resolution cache entry as stale, forcing re-resolution")]
     public class InvalidateRequest : IReturn<object>
     {
@@ -546,7 +546,7 @@ namespace EmbyStreams.Services
         public int?   Episode { get; set; }
     }
 
-    /// <summary>Response for <c>POST /EmbyStreams/Invalidate</c> and <c>/EmbyStreams/Queue</c>.</summary>
+    /// <summary>Response for <c>POST /InfiniteDrive/Invalidate</c> and <c>/InfiniteDrive/Queue</c>.</summary>
     public class CacheActionResponse
     {
         /// <summary><c>ok</c> or <c>error</c>.</summary>
@@ -556,10 +556,10 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Request for <c>POST /EmbyStreams/Queue</c>.
+    /// Request for <c>POST /InfiniteDrive/Queue</c>.
     /// Adds an item to the Tier 0 (immediate) resolution queue.
     /// </summary>
-    [Route("/EmbyStreams/Queue", "POST",
+    [Route("/InfiniteDrive/Queue", "POST",
         Summary = "Adds an item to the Tier 0 immediate resolution queue")]
     public class QueueRequest : IReturn<object>
     {
@@ -585,11 +585,11 @@ namespace EmbyStreams.Services
         /// <summary>Emby injects dependencies automatically.</summary>
         public CacheManagementService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<CacheManagementService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<CacheManagementService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
-        /// <summary>Handles <c>POST /EmbyStreams/Invalidate</c>.</summary>
+        /// <summary>Handles <c>POST /InfiniteDrive/Invalidate</c>.</summary>
         public async Task<object> Post(InvalidateRequest request)
         {
             // SEC-3: Admin-only — directly modifies the resolution cache.
@@ -606,7 +606,7 @@ namespace EmbyStreams.Services
             {
                 await db.MarkStreamStaleAsync(imdb, request.Season, request.Episode);
                 _logger.LogInformation(
-                    "[EmbyStreams] CacheManagementService: invalidated {Imdb} S{S}E{E}",
+                    "[InfiniteDrive] CacheManagementService: invalidated {Imdb} S{S}E{E}",
                     imdb, request.Season, request.Episode);
 
                 return new CacheActionResponse
@@ -618,12 +618,12 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] Invalidate failed for {Imdb}", imdb);
+                _logger.LogWarning(ex, "[InfiniteDrive] Invalidate failed for {Imdb}", imdb);
                 return Err(ex.Message);
             }
         }
 
-        /// <summary>Handles <c>POST /EmbyStreams/Queue</c>.</summary>
+        /// <summary>Handles <c>POST /InfiniteDrive/Queue</c>.</summary>
         public async Task<object> Post(QueueRequest request)
         {
             // SEC-3: Admin-only — queues a Tier 0 resolution job (triggers AIOStreams API call).
@@ -640,7 +640,7 @@ namespace EmbyStreams.Services
             {
                 await db.QueueForResolutionAsync(imdb, request.Season, request.Episode, "tier0");
                 _logger.LogInformation(
-                    "[EmbyStreams] CacheManagementService: queued tier0 {Imdb} S{S}E{E}",
+                    "[InfiniteDrive] CacheManagementService: queued tier0 {Imdb} S{S}E{E}",
                     imdb, request.Season, request.Episode);
 
                 return new CacheActionResponse
@@ -652,7 +652,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] Queue failed for {Imdb}", imdb);
+                _logger.LogWarning(ex, "[InfiniteDrive] Queue failed for {Imdb}", imdb);
                 return Err(ex.Message);
             }
         }
@@ -665,8 +665,8 @@ namespace EmbyStreams.Services
     // ║  SETUP VALIDATION ENDPOINT                                               ║
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
-    /// <summary>Request for <c>POST /EmbyStreams/Validate</c>.</summary>
-    [Route("/EmbyStreams/Validate", "POST",
+    /// <summary>Request for <c>POST /InfiniteDrive/Validate</c>.</summary>
+    [Route("/InfiniteDrive/Validate", "POST",
         Summary = "Validates plugin configuration — checks paths and AIOStreams connectivity")]
     public class ValidateRequest : IReturn<object> { }
 
@@ -681,7 +681,7 @@ namespace EmbyStreams.Services
         public string Message { get; set; } = string.Empty;
     }
 
-    /// <summary>Response from <c>POST /EmbyStreams/Validate</c>.</summary>
+    /// <summary>Response from <c>POST /InfiniteDrive/Validate</c>.</summary>
     public class ValidateResponse
     {
         /// <summary><c>ok</c> if all checks passed, <c>warn</c> if any warnings, <c>error</c> if any errors.</summary>
@@ -706,11 +706,11 @@ namespace EmbyStreams.Services
         /// <summary>Emby injects dependencies automatically.</summary>
         public ValidateService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<ValidateService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<ValidateService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
-        /// <summary>Handles <c>POST /EmbyStreams/Validate</c>.</summary>
+        /// <summary>Handles <c>POST /InfiniteDrive/Validate</c>.</summary>
         public async Task<object> Post(ValidateRequest _)
         {
             // SEC-3: Admin-only — makes outbound network call to AIOStreams and
@@ -923,15 +923,15 @@ namespace EmbyStreams.Services
 
     // ── Housekeeping endpoints (Sprint 60) ─────────────────────────────────────
 
-    [Route("/EmbyStreams/Housekeeping/OrphanedFolders", "POST",
+    [Route("/InfiniteDrive/Housekeeping/OrphanedFolders", "POST",
         Summary = "Clean up orphaned [tmdbid=...] folders")]
     public class HousekeepingOrphanedFoldersRequest : IReturn<object> { }
 
-    [Route("/EmbyStreams/Housekeeping/ExpiredStrm", "GET",
+    [Route("/InfiniteDrive/Housekeeping/ExpiredStrm", "GET",
         Summary = "List .strm files with expired HMAC signatures")]
     public class HousekeepingExpiredStrmRequest : IReturn<object> { }
 
-    [Route("/EmbyStreams/Housekeeping/StrmCount", "GET",
+    [Route("/InfiniteDrive/Housekeeping/StrmCount", "GET",
         Summary = "Count total .strm files in media paths")]
     public class HousekeepingStrmCountRequest : IReturn<object> { }
 

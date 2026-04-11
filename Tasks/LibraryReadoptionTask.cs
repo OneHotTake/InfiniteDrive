@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Scheduled task that detects catalog items currently managed by the plugin
@@ -41,9 +41,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string TaskName     = "EmbyStreams Library Re-adoption";
-        private const string TaskKey      = "EmbyStreamsLibraryReadoption";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskName     = "InfiniteDrive Library Re-adoption";
+        private const string TaskKey      = "InfiniteDriveLibraryReadoption";
+        private const string TaskCategory = "InfiniteDrive";
 
         // ── Fields ──────────────────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ namespace EmbyStreams.Tasks
             ILogManager      logManager)
         {
             _libraryManager = libraryManager;
-            _logger         = new EmbyLoggerAdapter<LibraryReadoptionTask>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<LibraryReadoptionTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
@@ -101,20 +101,20 @@ namespace EmbyStreams.Tasks
         /// <inheritdoc/>
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[EmbyStreams] LibraryReadoptionTask started");
+            _logger.LogInformation("[InfiniteDrive] LibraryReadoptionTask started");
             progress.Report(0);
 
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
-                _logger.LogWarning("[EmbyStreams] Plugin configuration not available — aborting re-adoption check");
+                _logger.LogWarning("[InfiniteDrive] Plugin configuration not available — aborting re-adoption check");
                 return;
             }
 
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null)
             {
-                _logger.LogWarning("[EmbyStreams] DatabaseManager not available — aborting re-adoption check");
+                _logger.LogWarning("[InfiniteDrive] DatabaseManager not available — aborting re-adoption check");
                 return;
             }
 
@@ -126,19 +126,19 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Failed to query .strm-tracked items");
+                _logger.LogError(ex, "[InfiniteDrive] Failed to query .strm-tracked items");
                 return;
             }
 
             if (strmItems.Count == 0)
             {
-                _logger.LogInformation("[EmbyStreams] No .strm-tracked items to check — re-adoption pass skipped");
+                _logger.LogInformation("[InfiniteDrive] No .strm-tracked items to check — re-adoption pass skipped");
                 progress.Report(100);
                 return;
             }
 
             _logger.LogInformation(
-                "[EmbyStreams] Re-adoption check: {Count} .strm item(s) to compare against library",
+                "[InfiniteDrive] Re-adoption check: {Count} .strm item(s) to compare against library",
                 strmItems.Count);
 
             progress.Report(10);
@@ -148,7 +148,7 @@ namespace EmbyStreams.Tasks
             var libraryMap = CatalogSyncTask.BuildLibraryItemMapPublic(config, _libraryManager, _logger);
 
             _logger.LogInformation(
-                "[EmbyStreams] Library map built: {Count} external item(s) found",
+                "[InfiniteDrive] Library map built: {Count} external item(s) found",
                 libraryMap.Count);
 
             progress.Report(20);
@@ -173,7 +173,7 @@ namespace EmbyStreams.Tasks
                 // Item has been acquired — switch tracking to the real file.
                 adoptedCount++;
                 _logger.LogInformation(
-                    "[EmbyStreams] '{Title}' ({ImdbId}): real copy found at '{RealPath}' — retiring .strm",
+                    "[InfiniteDrive] '{Title}' ({ImdbId}): real copy found at '{RealPath}' — retiring .strm",
                     item.Title, item.ImdbId, realPath);
 
                 try
@@ -190,7 +190,7 @@ namespace EmbyStreams.Tasks
                     }
 
                     _logger.LogInformation(
-                        "[EmbyStreams] '{Title}' ({ImdbId}): re-adopted → '{RealPath}'",
+                        "[InfiniteDrive] '{Title}' ({ImdbId}): re-adopted → '{RealPath}'",
                         item.Title, item.ImdbId, realPath);
                 }
                 catch (OperationCanceledException)
@@ -200,7 +200,7 @@ namespace EmbyStreams.Tasks
                 catch (Exception ex)
                 {
                     _logger.LogError(ex,
-                        "[EmbyStreams] '{Title}' ({ImdbId}): re-adoption update failed",
+                        "[InfiniteDrive] '{Title}' ({ImdbId}): re-adoption update failed",
                         item.Title, item.ImdbId);
                     failedCount++;
                 }
@@ -209,7 +209,7 @@ namespace EmbyStreams.Tasks
             progress.Report(100);
 
             _logger.LogInformation(
-                "[EmbyStreams] LibraryReadoptionTask complete — " +
+                "[InfiniteDrive] LibraryReadoptionTask complete — " +
                 "checked: {Checked}, adopted: {Adopted}, .strm deleted: {Deleted}, failed: {Failed}",
                 checkedCount, adoptedCount, deletedCount, failedCount);
 
@@ -237,7 +237,7 @@ namespace EmbyStreams.Tasks
                 if (File.Exists(strmPath))
                 {
                     File.Delete(strmPath);
-                    _logger.LogDebug("[EmbyStreams] Deleted .strm: {Path}", strmPath);
+                    _logger.LogDebug("[InfiniteDrive] Deleted .strm: {Path}", strmPath);
                 }
 
                 // Remove the containing folder if it's now empty (e.g. movie folder
@@ -248,7 +248,7 @@ namespace EmbyStreams.Tasks
                     && Directory.GetFileSystemEntries(dir).Length == 0)
                 {
                     Directory.Delete(dir);
-                    _logger.LogDebug("[EmbyStreams] Removed empty folder: {Dir}", dir);
+                    _logger.LogDebug("[InfiniteDrive] Removed empty folder: {Dir}", dir);
 
                     // Also remove the grandparent folder if it's empty (series season dir).
                     var parent = Path.GetDirectoryName(dir);
@@ -257,7 +257,7 @@ namespace EmbyStreams.Tasks
                         && Directory.GetFileSystemEntries(parent).Length == 0)
                     {
                         Directory.Delete(parent);
-                        _logger.LogDebug("[EmbyStreams] Removed empty folder: {Dir}", parent);
+                        _logger.LogDebug("[InfiniteDrive] Removed empty folder: {Dir}", parent);
                     }
                 }
 
@@ -265,7 +265,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] Could not delete .strm at {Path}", strmPath);
+                _logger.LogWarning(ex, "[InfiniteDrive] Could not delete .strm at {Path}", strmPath);
                 return false;
             }
         }
@@ -275,11 +275,11 @@ namespace EmbyStreams.Tasks
             try
             {
                 _libraryManager.QueueLibraryScan();
-                _logger.LogInformation("[EmbyStreams] LibraryReadoptionTask: triggered Emby library scan");
+                _logger.LogInformation("[InfiniteDrive] LibraryReadoptionTask: triggered Emby library scan");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] LibraryReadoptionTask: failed to queue library scan");
+                _logger.LogWarning(ex, "[InfiniteDrive] LibraryReadoptionTask: failed to queue library scan");
             }
         }
     }

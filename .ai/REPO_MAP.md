@@ -1,6 +1,6 @@
-# EmbyStreams Repository Map
+# InfiniteDrive Repository Map
 
-_Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
+_Updated 2026-04-11 (renamed from EmbyStreams). Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
 
 ---
 
@@ -19,7 +19,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## PluginConfiguration.cs
-> All persisted plugin settings; serialised to EmbyStreams.xml by Emby.
+> All persisted plugin settings; serialised to InfiniteDrive.xml by Emby.
 
 ### Public Methods
 - `Validate()` — clamps all numeric fields to safe ranges after deserialisation
@@ -72,8 +72,8 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 - `initWizardTab(view, cfg)` — populates wizard fields from config
 - `testWizardConnection(view, type)` — tests AIOStreams connection from wizard
 - `finishWizard(view)` — saves wizard config and triggers first sync
-- `refreshSourcesTab(view)` — fetches and displays catalog sources from /EmbyStreams/Status
-- `refreshDashboard(view)` — polls /EmbyStreams/Status for system health
+- `refreshSourcesTab(view)` — fetches and displays catalog sources from /InfiniteDrive/Status
+- `refreshDashboard(view)` — polls /InfiniteDrive/Status for system health
 
 ### State Variables
 - `_wizardStep` — current wizard step (1-5)
@@ -198,10 +198,10 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 > REST API for user-owned public RSS catalogs. All endpoints require authenticated user.
 
 ### Endpoints
-- `GET /EmbyStreams/User/Catalogs` — returns caller's active catalogs + limit
-- `POST /EmbyStreams/User/Catalogs/Add` — validate URL, fetch feed, insert row, eager sync
-- `POST /EmbyStreams/User/Catalogs/Remove` — soft-delete (active=0), ownership check
-- `POST /EmbyStreams/User/Catalogs/Refresh` — synchronous single or all-catalog refresh
+- `GET /InfiniteDrive/User/Catalogs` — returns caller's active catalogs + limit
+- `POST /InfiniteDrive/User/Catalogs/Add` — validate URL, fetch feed, insert row, eager sync
+- `POST /InfiniteDrive/User/Catalogs/Remove` — soft-delete (active=0), ownership check
+- `POST /InfiniteDrive/User/Catalogs/Refresh` — synchronous single or all-catalog refresh
 
 ---
 
@@ -246,7 +246,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## Services/PlaybackService.cs
-> Handles `GET /EmbyStreams/Play`; cache-first stream resolution with rate limiting.
+> Handles `GET /InfiniteDrive/Play`; cache-first stream resolution with rate limiting.
 
 ### Public Methods
 - `Get(PlayRequest req)` — resolves and serves stream via redirect or proxy; checks cache, validates URLs, rate-limits by IP and user
@@ -258,7 +258,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## Services/SignedStreamService.cs
-> Public `GET /EmbyStreams/Stream` endpoint secured by HMAC-SHA256 signature.
+> Public `GET /InfiniteDrive/Stream` endpoint secured by HMAC-SHA256 signature.
 
 ### Public Methods
 - `Get(SignedStreamRequest req)` — validates HMAC sig, resolves stream, returns HTTP 302
@@ -279,7 +279,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## Services/StreamProxyService.cs
-> Passthrough proxy for `GET/HEAD /EmbyStreams/Stream/{ProxyId}`; Range-request aware.
+> Passthrough proxy for `GET/HEAD /InfiniteDrive/Stream/{ProxyId}`; Range-request aware.
 
 ### Public Methods
 - `Get(StreamProxyRequest req)` — proxies or redirects stream bytes to Emby client
@@ -332,8 +332,8 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 > Admin-only REST endpoints for blocked catalog item management.
 
 ### Endpoints
-- `GET /EmbyStreams/Admin/BlockedItems` — returns all admin-blocked items
-- `POST /EmbyStreams/Admin/UnblockItems` — resets blocked items to NeedsEnrich, clears tombstone
+- `GET /InfiniteDrive/Admin/BlockedItems` — returns all admin-blocked items
+- `POST /InfiniteDrive/Admin/UnblockItems` — resets blocked items to NeedsEnrich, clears tombstone
 
 ---
 
@@ -341,8 +341,8 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 > User-facing REST endpoints for pin management (My Picks).
 
 ### Endpoints
-- `GET /EmbyStreams/User/MyPins` — returns user's playback and discover pins with metadata
-- `POST /EmbyStreams/User/RemovePins` — removes selected pins for the current user
+- `GET /InfiniteDrive/User/MyPins` — returns user's playback and discover pins with metadata
+- `POST /InfiniteDrive/User/RemovePins` — removes selected pins for the current user
 
 ---
 
@@ -398,7 +398,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## Services/TriggerService.cs
-> `POST /EmbyStreams/Trigger` — manually fires any named EmbyStreams scheduled task.
+> `POST /InfiniteDrive/Trigger` — manually fires any named EmbyStreams scheduled task.
 
 ### Public Methods
 - `Post(TriggerRequest req)` — validates task key, launches background task, returns immediately
@@ -409,7 +409,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## Services/StatusService.cs
-> `GET /EmbyStreams/Status` — returns full health/stats JSON snapshot for the dashboard.
+> `GET /InfiniteDrive/Status` — returns full health/stats JSON snapshot for the dashboard.
 
 ### Key Types / Constants
 - `StatusResponse` — version, AIOStreams connection, catalog counts, cache coverage, recent playback
@@ -443,7 +443,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## Services/TestFailoverService.cs
-> `GET /EmbyStreams/TestFailover` — dry-runs the full 3-layer resilience chain.
+> `GET /InfiniteDrive/TestFailover` — dry-runs the full 3-layer resilience chain.
 
 ### Public Methods
 - `Get(TestFailoverRequest req)` — probes primary AIOStreams, fallbacks, and direct debrid APIs
@@ -459,7 +459,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 
 ### Public Methods
 - `WriteAsync(item, originSourceType, ownerUserId, ct)` — writes .strm file with NFO, persists first_added_by_user_id
-- `BuildSignedStrmUrl(config, imdbId, mediaType, season, episode, quality)` — generates signed URL for /EmbyStreams/resolve
+- `BuildSignedStrmUrl(config, imdbId, mediaType, season, episode, quality)` — generates signed URL for /InfiniteDrive/resolve
 - `SanitisePathPublic(input)` — public wrapper for filesystem path sanitisation
 
 ### Key Types / Constants
@@ -519,11 +519,11 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 ---
 
 ## Services/YourFilesScanner.cs (Sprint 114)
-> Scans library for user-added files ("Your Files"), filters out EmbyStreams-managed items (.strm files).
+> Scans library for user-added files ("Your Files"), filters out InfiniteDrive-managed items (.strm files).
 
 ### Public Methods
 - `ScanAsync(ct)` — scans library for Movie/Episode items, filters out EmbyStreams items
-- `IsEmbyStreamsItem(item)` — checks if item is EmbyStreams-managed (.strm or embystreams provider ID)
+- `IsEmbyStreamsItem(item)` — checks if item is InfiniteDrive-managed (.strm or embystreams provider ID)
 
 ### Key Features
 - Filters out .strm files
@@ -628,7 +628,7 @@ _Generated 2026-04-10. Covers all `.cs` files in root, Services/, Data/, Models/
 - `Execute(ct, progress)` — 5-phase operation: Fetch & Diff, Write, Adopt, Health Check, Report & Signal
 
 ### Key Types / Constants
-- `TaskKey` — `doctor` for triggering via `/EmbyStreams/Trigger?task=doctor`
+- `TaskKey` — `doctor` for triggering via `/InfiniteDrive/Trigger?task=doctor`
 
 ### Phases
 1. **Fetch & Diff** — Load catalog items, detect PINNED items, build change lists (toWrite, toRetire, toResolve, orphans)

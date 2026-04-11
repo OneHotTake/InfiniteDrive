@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
 
-namespace EmbyStreams.Configuration
+namespace InfiniteDrive.Configuration
 {
     /// <summary>
     /// Wizard ViewModel for initial setup.
@@ -8,19 +8,19 @@ namespace EmbyStreams.Configuration
     /// </summary>
     public class WizardViewModel : BasePluginViewModel
     {
-        [Display(Name = "API Key", Description = "Your EmbyStreams API key for accessing the catalog")]
+        [Display(Name = "API Key", Description = "Your InfiniteDrive API key for accessing the catalog")]
         [Required]
         public string ApiKey { get; set; } = string.Empty;
 
-        [Display(Name = "Movies Library Path", Description = "Path to the EmbyStreams movies library")]
+        [Display(Name = "Movies Library Path", Description = "Path to the InfiniteDrive movies library")]
         [Required]
         public string MoviesLibraryPath { get; set; } = "/embystreams/library/movies/";
 
-        [Display(Name = "Series Library Path", Description = "Path to the EmbyStreams series library")]
+        [Display(Name = "Series Library Path", Description = "Path to the InfiniteDrive series library")]
         [Required]
         public string SeriesLibraryPath { get; set; } = "/embystreams/library/series/";
 
-        [Display(Name = "Anime Library Path", Description = "Path to the EmbyStreams anime library (AniList/AniDB)")]
+        [Display(Name = "Anime Library Path", Description = "Path to the InfiniteDrive anime library (AniList/AniDB)")]
         [Required]
         public string AnimeLibraryPath { get; set; } = "/embystreams/library/anime/";
 

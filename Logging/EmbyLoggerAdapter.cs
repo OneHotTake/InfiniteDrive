@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging;
 using MelLogLevel = Microsoft.Extensions.Logging.LogLevel;
 using EmbyILogger = MediaBrowser.Model.Logging.ILogger;
 
-namespace EmbyStreams.Logging
+namespace InfiniteDrive.Logging
 {
     /// <summary>
     /// Adapts Emby's <see cref="EmbyILogger"/> to MEL's <see cref="ILogger{T}"/>

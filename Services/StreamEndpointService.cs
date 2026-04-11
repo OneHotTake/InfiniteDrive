@@ -2,21 +2,21 @@ using System;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request DTO ─────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Stream endpoint request model.
     /// </summary>
-    [Route("/EmbyStreams/Stream", "GET", Summary = "Proxies HLS manifests and redirects to CDN")]
+    [Route("/InfiniteDrive/Stream", "GET", Summary = "Proxies HLS manifests and redirects to CDN")]
     public class StreamEndpointRequest : IReturn<object>
     {
         /// <summary>
@@ -34,7 +34,7 @@ namespace EmbyStreams.Services
 
     /// <summary>
     /// Proxy endpoint for HLS manifests and stream content.
-    /// Rewrites relative URLs in HLS manifests to /EmbyStreams/Stream
+    /// Rewrites relative URLs in HLS manifests to /InfiniteDrive/Stream
     /// with individual signed tokens (1-hour expiry).
     /// </summary>
     public class StreamEndpointService : IService, IRequiresRequest
@@ -44,17 +44,17 @@ namespace EmbyStreams.Services
 
         public StreamEndpointService(ILogManager logManager, PluginConfiguration config)
         {
-            _logger = new EmbyLoggerAdapter<StreamEndpointService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<StreamEndpointService>(logManager.GetLogger("InfiniteDrive"));
             _config = config;
         }
 
         // ── IService ─────────────────────────────────────────────────────────────
 
         /// <inheritdoc/>
-        public string Name => "EmbyStreams Stream Endpoint";
+        public string Name => "InfiniteDrive Stream Endpoint";
 
         /// <inheritdoc/>
-        public string Key => "EmbyStreamsStream";
+        public string Key => "InfiniteDriveStream";
 
         // ── IRequiresRequest ──────────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ namespace EmbyStreams.Services
         // ── Main handler ─────────────────────────────────────────────────────
 
         /// <summary>
-        /// Handles GET/HEAD for /EmbyStreams/Stream endpoint.
+        /// Handles GET/HEAD for /InfiniteDrive/Stream endpoint.
         /// </summary>
         public async Task<object> Get(StreamEndpointRequest req)
         {
@@ -95,7 +95,7 @@ namespace EmbyStreams.Services
 
             if (!PlaybackTokenService.ValidateStreamToken(req.Token, _config.PluginSecret))
             {
-                _logger.LogWarning("[EmbyStreams][Stream] Invalid or expired stream token");
+                _logger.LogWarning("[InfiniteDrive][Stream] Invalid or expired stream token");
                 return Error(401, "unauthorized", "Invalid or expired token");
             }
 
@@ -131,7 +131,7 @@ namespace EmbyStreams.Services
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams][Stream] Failed to fetch upstream M3U8: " + upstreamUrl);
+                    _logger.LogWarning(ex, "[InfiniteDrive][Stream] Failed to fetch upstream M3U8: " + upstreamUrl);
                     return Error(502, "upstream_error", "Failed to fetch upstream manifest");
                 }
 
@@ -148,7 +148,7 @@ namespace EmbyStreams.Services
             }
 
             // 5. Binary streaming (redirect to CDN)
-            _logger.LogInformation("[EmbyStreams][Stream] Redirecting to CDN: " + upstreamUrl);
+            _logger.LogInformation("[InfiniteDrive][Stream] Redirecting to CDN: " + upstreamUrl);
             Request.Response.Redirect(upstreamUrl);
             return new
             {
@@ -161,7 +161,7 @@ namespace EmbyStreams.Services
         // ── HLS manifest rewriting ───────────────────────────────────────
 
         /// <summary>
-        /// Rewrites relative URLs in HLS manifests to /EmbyStreams/Stream
+        /// Rewrites relative URLs in HLS manifests to /InfiniteDrive/Stream
         /// Each rewritten URL gets a fresh short-lived stream token.
         /// </summary>
         private string RewriteHlsUrls(string hlsContent, string? upstreamBaseUrl, string embyBaseUrl, string secret)
@@ -207,8 +207,8 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Builds a proxy URL through /EmbyStreams/Stream with a signed token.
-        /// Format: {embyBaseUrl}/EmbyStreams/stream?url={signedUrl}
+        /// Builds a proxy URL through /InfiniteDrive/Stream with a signed token.
+        /// Format: {embyBaseUrl}/InfiniteDrive/stream?url={signedUrl}
         /// where signedUrl = {url}|{timestamp}|{signature}
         /// </summary>
         private static string BuildProxyUrl(string embyBaseUrl, string secret, string upstreamUrl)
@@ -216,7 +216,7 @@ namespace EmbyStreams.Services
             // Sign the upstream URL with timestamp and HMAC signature
             var signedUrl = PlaybackTokenService.Sign(upstreamUrl, secret, 1); // 1 hour expiry
 
-            return $"{embyBaseUrl.TrimEnd('/')}/EmbyStreams/stream?url={Uri.EscapeDataString(signedUrl)}";
+            return $"{embyBaseUrl.TrimEnd('/')}/InfiniteDrive/stream?url={Uri.EscapeDataString(signedUrl)}";
         }
 
         /// <summary>

@@ -1,7 +1,7 @@
 using System;
 using MediaBrowser.Model.Plugins;
 
-namespace EmbyStreams.Configuration
+namespace InfiniteDrive.Configuration
 {
     /// <summary>
     /// Base class for all Plugin UI ViewModels.

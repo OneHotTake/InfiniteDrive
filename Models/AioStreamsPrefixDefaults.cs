@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Default prefix mappings for AIOStreams media ID types.

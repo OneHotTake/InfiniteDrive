@@ -7,9 +7,9 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Stremio resources polymorphic converter ──────────────────────────────────
     // The Stremio spec allows "resources" to be either a plain string array
@@ -91,7 +91,7 @@ namespace EmbyStreams.Services
         /// Stremio addons configuration block, present on some hosted AIOStreams
         /// instances (e.g. ElfHosted).  Contains an <c>issuer</c> URL and a
         /// <c>signature</c> JWE used by Stremio clients to verify addon identity.
-        /// EmbyStreams does not use this — it is stored for diagnostic purposes only.
+        /// InfiniteDrive does not use this — it is stored for diagnostic purposes only.
         /// </summary>
         [JsonPropertyName("stremioAddonsConfig")] public StremioAddonsConfig?          StremioAddonsConfig { get; set; }
 
@@ -110,7 +110,7 @@ namespace EmbyStreams.Services
         /// no catalog entries.  Duck Streams and many private AIOStreams
         /// deployments are stream-only: they resolve streams on demand but
         /// publish no IMDB-browsable catalog, so the user must populate the
-        /// EmbyStreams library from Trakt or MDBList instead.
+        /// InfiniteDrive library from Trakt or MDBList instead.
         /// </summary>
         public bool IsStreamOnly =>
             HasStreamResource && (Catalogs == null || Catalogs.Count == 0);
@@ -136,7 +136,7 @@ namespace EmbyStreams.Services
 
         /// <summary>
         /// True when the stream resource accepts <c>tt</c> (IMDB) IDs,
-        /// which is the only ID scheme EmbyStreams currently generates.
+        /// which is the only ID scheme InfiniteDrive currently generates.
         /// </summary>
         public bool SupportsImdbIds =>
             StreamIdPrefixes.Count == 0
@@ -183,7 +183,7 @@ namespace EmbyStreams.Services
         /// <summary>
         /// How many seconds AIOStreams needs to resolve one stream request.
         /// Driven by the number and latency of addons the user has configured.
-        /// EmbyStreams uses this as a floor for <c>SyncResolveTimeoutSeconds</c>.
+        /// InfiniteDrive uses this as a floor for <c>SyncResolveTimeoutSeconds</c>.
         /// </summary>
         [JsonPropertyName("requestTimeout")] public int?  RequestTimeout { get; set; }
 
@@ -199,7 +199,7 @@ namespace EmbyStreams.Services
 
         /// <summary>
         /// True when the user must complete addon configuration before it returns
-        /// any useful results.  EmbyStreams warns the admin if this is true and
+        /// any useful results.  InfiniteDrive warns the admin if this is true and
         /// the plugin has not been configured.
         /// </summary>
         [JsonPropertyName("configurationRequired")] public bool? ConfigurationRequired { get; set; }
@@ -209,7 +209,7 @@ namespace EmbyStreams.Services
     /// <summary>
     /// Stremio addons configuration block present on some hosted AIOStreams
     /// instances (e.g. ElfHosted).  Used by Stremio clients to verify addon
-    /// identity via a signed JWT.  EmbyStreams does not act on this.
+    /// identity via a signed JWT.  InfiniteDrive does not act on this.
     /// </summary>
     public class StremioAddonsConfig
     {
@@ -562,7 +562,7 @@ namespace EmbyStreams.Services
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string UserAgent     = "EmbyStreams/1.0 (+https://github.com/OneHotTake/embyStreams)";
+        private const string UserAgent     = "InfiniteDrive/1.0 (+https://github.com/OneHotTake/embyStreams)";
         private const int    TimeoutSeconds = 60;  // Increased from 30s to handle slow AIOStreams responses (10+ seconds)
 
         // ── Fields ──────────────────────────────────────────────────────────────
@@ -785,7 +785,7 @@ namespace EmbyStreams.Services
                 name.Contains("[AIOStreams]", StringComparison.OrdinalIgnoreCase))
             {
                 _logger.LogWarning(
-                    "[EmbyStreams] Error stub detected for item {Item}: Title='{Title}', Name='{Name}'. " +
+                    "[InfiniteDrive] Error stub detected for item {Item}: Title='{Title}', Name='{Name}'. " +
                     "Treating as resolution failure.",
                     itemId, title, name);
                 return new AioStreamsStreamResponse { Streams = new List<AioStreamsStream>() };
@@ -1080,7 +1080,7 @@ namespace EmbyStreams.Services
             {
                 try
                 {
-                    _logger.LogDebug("[EmbyStreams] GET {Url} (attempt {Attempt}/{Max})",
+                    _logger.LogDebug("[InfiniteDrive] GET {Url} (attempt {Attempt}/{Max})",
                         safeUrl, attempt, maxAttempts);
 
                     // Pre-call throttle via CooldownGate (Sprint 155)
@@ -1096,7 +1096,7 @@ namespace EmbyStreams.Services
                         // Sprint 100A-11: Do NOT retry 401, 403, 404
                         if (code == 401 || code == 403 || code == 404)
                         {
-                            _logger.LogDebug("[EmbyStreams] {Code} from AIOStreams: {Url} — not retrying",
+                            _logger.LogDebug("[InfiniteDrive] {Code} from AIOStreams: {Url} — not retrying",
                                 code, safeUrl);
                             return null;
                         }
@@ -1110,10 +1110,10 @@ namespace EmbyStreams.Services
                             throw new AioStreamsRateLimitException(safeUrl);
                         }
                         if (code == 404)
-                            _logger.LogDebug("[EmbyStreams] 404 from AIOStreams: {Url}", safeUrl);
+                            _logger.LogDebug("[InfiniteDrive] 404 from AIOStreams: {Url}", safeUrl);
                         else
                             _logger.LogWarning(
-                                "[EmbyStreams] AIOStreams returned {Status} for {Url}", code, safeUrl);
+                                "[InfiniteDrive] AIOStreams returned {Status} for {Url}", code, safeUrl);
                         return null;
                     }
 
@@ -1126,7 +1126,7 @@ namespace EmbyStreams.Services
                 }
                 catch (TaskCanceledException ex)
                 {
-                    _logger.LogWarning("[EmbyStreams] Timeout fetching {Url}: {Msg}",
+                    _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}: {Msg}",
                         safeUrl, ex.Message);
 
                     // Sprint 100A-11: Retry on timeout with delays: 1s, 4s, 16s
@@ -1134,7 +1134,7 @@ namespace EmbyStreams.Services
                     {
                         int delayMs = attempt == 1 ? 1000 : (attempt == 2 ? 4000 : 16000);
                         _logger.LogWarning(
-                            "[EmbyStreams] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
+                            "[InfiniteDrive] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
                             safeUrl, delayMs, attempt, maxAttempts);
                         await Task.Delay(delayMs, cancellationToken);
                         continue;
@@ -1145,7 +1145,7 @@ namespace EmbyStreams.Services
                 }
                 catch (HttpRequestException ex)
                 {
-                    _logger.LogWarning("[EmbyStreams] Connection failed for {Url}: {Msg}",
+                    _logger.LogWarning("[InfiniteDrive] Connection failed for {Url}: {Msg}",
                         safeUrl, ex.Message);
 
                     // Sprint 100A-11: Retry on HttpRequestException
@@ -1153,7 +1153,7 @@ namespace EmbyStreams.Services
                     {
                         int delayMs = attempt == 1 ? 1000 : (attempt == 2 ? 4000 : 16000);
                         _logger.LogWarning(
-                            "[EmbyStreams] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
+                            "[InfiniteDrive] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
                             safeUrl, delayMs, attempt, maxAttempts);
                         await Task.Delay(delayMs, cancellationToken);
                         continue;
@@ -1166,7 +1166,7 @@ namespace EmbyStreams.Services
                 catch (AioStreamsUnreachableException) { throw; }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[EmbyStreams] Error fetching {Url}", safeUrl);
+                    _logger.LogError(ex, "[InfiniteDrive] Error fetching {Url}", safeUrl);
                     return null;
                 }
             }
@@ -1180,13 +1180,13 @@ namespace EmbyStreams.Services
             var safeUrl = SanitizeUrl(url);
             try
             {
-                _logger.LogDebug("[EmbyStreams] GET {Url}", safeUrl);
+                _logger.LogDebug("[InfiniteDrive] GET {Url}", safeUrl);
                 var response = await _sharedHttp.GetAsync(url, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     var code = (int)response.StatusCode;
                     if (code == 429) throw new AioStreamsRateLimitException(safeUrl);
-                    _logger.LogDebug("[EmbyStreams] {Status} from AIOStreams: {Url}", code, safeUrl);
+                    _logger.LogDebug("[InfiniteDrive] {Status} from AIOStreams: {Url}", code, safeUrl);
                     return null;
                 }
 
@@ -1197,12 +1197,12 @@ namespace EmbyStreams.Services
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (TaskCanceledException)
             {
-                _logger.LogWarning("[EmbyStreams] Timeout fetching {Url}", safeUrl);
+                _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}", safeUrl);
                 return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Error fetching {Url}", safeUrl);
+                _logger.LogError(ex, "[InfiniteDrive] Error fetching {Url}", safeUrl);
                 return null;
             }
         }
@@ -1219,13 +1219,13 @@ namespace EmbyStreams.Services
             var safeUrl = SanitizeUrl(url);
             try
             {
-                _logger.LogDebug("[EmbyStreams] GET {Url}", safeUrl);
+                _logger.LogDebug("[InfiniteDrive] GET {Url}", safeUrl);
                 var response = await _sharedHttp.GetAsync(url, cancellationToken);
                 if (!response.IsSuccessStatusCode)
                 {
                     var code = (int)response.StatusCode;
                     if (code == 429) throw new AioStreamsRateLimitException(safeUrl);
-                    _logger.LogDebug("[EmbyStreams] {Status} from AIOStreams: {Url}", code, safeUrl);
+                    _logger.LogDebug("[InfiniteDrive] {Status} from AIOStreams: {Url}", code, safeUrl);
                     return null;
                 }
 
@@ -1234,12 +1234,12 @@ namespace EmbyStreams.Services
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (TaskCanceledException)
             {
-                _logger.LogWarning("[EmbyStreams] Timeout fetching {Url}", safeUrl);
+                _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}", safeUrl);
                 return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Error fetching {Url}", safeUrl);
+                _logger.LogError(ex, "[InfiniteDrive] Error fetching {Url}", safeUrl);
                 return null;
             }
         }

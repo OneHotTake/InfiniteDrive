@@ -3,11 +3,11 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Text;
 using System.Xml;
-using EmbyStreams.Models;
-using EmbyStreams.Tasks;
+using InfiniteDrive.Models;
+using InfiniteDrive.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Writes versioned .strm and .nfo files with slot suffixes.
@@ -29,7 +29,7 @@ namespace EmbyStreams.Services
         /// Builds a .strm URL with resolve token for multi-tier playback.
         /// <para>
         /// Format:
-        ///   <c>{embyBase}/EmbyStreams/resolve?token={resolve_token}&amp;quality={tier}&amp;id={id}&amp;idType={type}[&amp;season={n}&amp;episode={m}]</c>
+        ///   <c>{embyBase}/InfiniteDrive/resolve?token={resolve_token}&amp;quality={tier}&amp;id={id}&amp;idType={type}[&amp;season={n}&amp;episode={m}]</c>
         /// </para>
         /// <para>
         /// Token format: <c>{quality}:{imdbId}:{exp}:{signature}</c>
@@ -73,7 +73,7 @@ namespace EmbyStreams.Services
 
             var sb = new StringBuilder();
             sb.Append(baseUrl);
-            sb.Append("/EmbyStreams/resolve?");
+            sb.Append("/InfiniteDrive/resolve?");
             sb.Append("token=").Append(Uri.EscapeDataString(token));
             sb.Append("&quality=").Append(Uri.EscapeDataString(slotKey));
             sb.Append("&id=").Append(Uri.EscapeDataString(titleId));
@@ -206,7 +206,7 @@ namespace EmbyStreams.Services
                 // Synthetic stream details from candidate metadata
                 if (topCandidate != null)
                 {
-                    writer.WriteComment(" Derived stream details from EmbyStreams candidate metadata ");
+                    writer.WriteComment(" Derived stream details from InfiniteDrive candidate metadata ");
                     writer.WriteStartElement("streamdetails");
                     writer.WriteStartElement("video");
 

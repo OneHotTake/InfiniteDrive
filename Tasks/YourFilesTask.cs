@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Services;
+using InfiniteDrive.Services;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Scheduled task for "Your Files" reconciliation.
@@ -32,10 +32,10 @@ namespace EmbyStreams.Tasks
             _logger = logger;
         }
 
-        public string Name => "EmbyStreams Your Files Reconciler";
+        public string Name => "InfiniteDrive Your Files Reconciler";
         public string Key => "embystreams_yourfiles";
-        public string Description => "Reconciles 'Your Files' with EmbyStreams items";
-        public string Category => "EmbyStreams";
+        public string Description => "Reconciles 'Your Files' with InfiniteDrive items";
+        public string Category => "InfiniteDrive";
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers() =>
             new[]

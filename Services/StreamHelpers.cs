@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 using System.Text.Json;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ╔══════════════════════════════════════════════════════════════════════════╗
     // ║  STREAM TYPE POLICY                                                      ║

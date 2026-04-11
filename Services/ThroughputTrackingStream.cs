@@ -4,7 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// A read-through <see cref="Stream"/> wrapper that measures sustained
@@ -130,7 +130,7 @@ namespace EmbyStreams.Services
             var threshold    = (int)(_expectedKbps * ThresholdFraction);
 
             _logger.LogDebug(
-                "[EmbyStreams] Throughput window: {Client} measured={Measured} kbps expected={Expected} kbps",
+                "[InfiniteDrive] Throughput window: {Client} measured={Measured} kbps expected={Expected} kbps",
                 _clientType, measuredKbps, _expectedKbps);
 
             if (measuredKbps < threshold)
@@ -159,7 +159,7 @@ namespace EmbyStreams.Services
                 if (db == null) return;
 
                 _logger.LogInformation(
-                    "[EmbyStreams] Client {Client} sustained {Kbps} kbps (< 70% of {Expected} kbps) — " +
+                    "[InfiniteDrive] Client {Client} sustained {Kbps} kbps (< 70% of {Expected} kbps) — " +
                     "updating client_compat: max_safe_bitrate={Kbps}",
                     _clientType, measuredKbps, _expectedKbps, measuredKbps);
 
@@ -170,7 +170,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Failed to update client compat after low throughput");
+                _logger.LogDebug(ex, "[InfiniteDrive] Failed to update client compat after low throughput");
             }
         }
     }

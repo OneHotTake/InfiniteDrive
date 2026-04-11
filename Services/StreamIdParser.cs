@@ -1,7 +1,7 @@
 using System;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Parses and validates stream IDs from various provider formats.
@@ -62,7 +62,7 @@ namespace EmbyStreams.Services
                         // Unknown provider
                         var normalizedProvider = $"unknown_{prefix}";
                         logger?.LogWarning(
-                            "[EmbyStreams] Unknown stream ID prefix '{Prefix}' - treating as {Provider}",
+                            "[InfiniteDrive] Unknown stream ID prefix '{Prefix}' - treating as {Provider}",
                             prefix, normalizedProvider);
                         return (normalizedProvider, id, false);
                 }
@@ -82,14 +82,14 @@ namespace EmbyStreams.Services
             if (long.TryParse(id, out _))
             {
                 logger?.LogDebug(
-                    "[EmbyStreams] Numeric ID without prefix detected - treating as IMDB: {Id}",
+                    "[InfiniteDrive] Numeric ID without prefix detected - treating as IMDB: {Id}",
                     id);
                 return ("imdb", id, true);
             }
 
             // Unknown format - attempt with raw ID
             logger?.LogWarning(
-                "[EmbyStreams] Unknown stream ID format: {Id} - attempting with raw ID",
+                "[InfiniteDrive] Unknown stream ID format: {Id} - attempting with raw ID",
                 id);
             return ("unknown", id, false);
         }

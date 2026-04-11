@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
 using Microsoft.Extensions.Logging;
 using SQLitePCL.pretty;
 
-namespace EmbyStreams.Repositories
+namespace InfiniteDrive.Repositories
 {
     /// <summary>
     /// Repository for <c>user_item_pins</c> table.

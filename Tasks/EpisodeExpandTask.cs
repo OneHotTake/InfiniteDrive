@@ -5,9 +5,9 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
@@ -15,7 +15,7 @@ using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Expands series catalog items from the initial S01E01 seed to full
@@ -44,9 +44,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string TaskName     = "EmbyStreams Episode Expander";
-        private const string TaskKey      = "EmbyStreamsEpisodeExpander";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskName     = "InfiniteDrive Episode Expander";
+        private const string TaskKey      = "InfiniteDriveEpisodeExpander";
+        private const string TaskCategory = "InfiniteDrive";
 
         // ── Fields ──────────────────────────────────────────────────────────────
 
@@ -61,7 +61,7 @@ namespace EmbyStreams.Tasks
             ILogManager      logManager)
         {
             _libraryManager = libraryManager;
-            _logger         = new EmbyLoggerAdapter<EpisodeExpandTask>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<EpisodeExpandTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
@@ -101,7 +101,7 @@ namespace EmbyStreams.Tasks
             // Sprint 100A-12: Startup jitter to prevent thundering herd on Emby restart
             await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
 
-            _logger.LogInformation("[EmbyStreams] EpisodeExpandTask started");
+            _logger.LogInformation("[InfiniteDrive] EpisodeExpandTask started");
             progress.Report(0);
 
             var config = Plugin.Instance?.Configuration;
@@ -109,13 +109,13 @@ namespace EmbyStreams.Tasks
 
             if (config == null || db == null)
             {
-                _logger.LogWarning("[EmbyStreams] EpisodeExpandTask: plugin not initialised — aborting");
+                _logger.LogWarning("[InfiniteDrive] EpisodeExpandTask: plugin not initialised — aborting");
                 return;
             }
 
             if (string.IsNullOrWhiteSpace(config.SyncPathShows))
             {
-                _logger.LogInformation("[EmbyStreams] EpisodeExpandTask: SyncPathShows not set — nothing to do");
+                _logger.LogInformation("[InfiniteDrive] EpisodeExpandTask: SyncPathShows not set — nothing to do");
                 progress.Report(100);
                 return;
             }
@@ -124,13 +124,13 @@ namespace EmbyStreams.Tasks
             var pending = await db.GetSeriesWithoutSeasonsJsonAsync();
             if (pending.Count == 0)
             {
-                _logger.LogInformation("[EmbyStreams] EpisodeExpandTask: all series already expanded");
+                _logger.LogInformation("[InfiniteDrive] EpisodeExpandTask: all series already expanded");
                 progress.Report(100);
                 return;
             }
 
             _logger.LogInformation(
-                "[EmbyStreams] EpisodeExpandTask: {Count} series pending expansion", pending.Count);
+                "[InfiniteDrive] EpisodeExpandTask: {Count} series pending expansion", pending.Count);
 
             // 2. Build lookup: IMDB ID → Emby Series item
             var embySeriesMap = BuildEmbySeriesMap();
@@ -153,7 +153,7 @@ namespace EmbyStreams.Tasks
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "[EmbyStreams] EpisodeExpandTask: error expanding {ImdbId} ({Title})",
+                        "[InfiniteDrive] EpisodeExpandTask: error expanding {ImdbId} ({Title})",
                         item.ImdbId, item.Title);
                     skipped++;
                 }
@@ -166,12 +166,12 @@ namespace EmbyStreams.Tasks
                 try { _libraryManager.QueueLibraryScan(); }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[EmbyStreams] EpisodeExpandTask: library scan queue failed");
+                    _logger.LogDebug(ex, "[InfiniteDrive] EpisodeExpandTask: library scan queue failed");
                 }
             }
 
             _logger.LogInformation(
-                "[EmbyStreams] EpisodeExpandTask complete — {Expanded} expanded, {Skipped} skipped",
+                "[InfiniteDrive] EpisodeExpandTask complete — {Expanded} expanded, {Skipped} skipped",
                 expanded, skipped);
             progress.Report(100);
         }
@@ -198,11 +198,11 @@ namespace EmbyStreams.Tasks
                 }
 
                 _logger.LogDebug(
-                    "[EmbyStreams] EpisodeExpandTask: {Count} series found in Emby library", map.Count);
+                    "[InfiniteDrive] EpisodeExpandTask: {Count} series found in Emby library", map.Count);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] EpisodeExpandTask: failed to build Emby series map");
+                _logger.LogWarning(ex, "[InfiniteDrive] EpisodeExpandTask: failed to build Emby series map");
             }
 
             return map;
@@ -225,7 +225,7 @@ namespace EmbyStreams.Tasks
             if (!Directory.Exists(showDir))
             {
                 _logger.LogDebug(
-                    "[EmbyStreams] EpisodeExpandTask: show dir not found for {ImdbId} — waiting for CatalogSyncTask",
+                    "[InfiniteDrive] EpisodeExpandTask: show dir not found for {ImdbId} — waiting for CatalogSyncTask",
                     item.ImdbId);
                 return false;
             }
@@ -234,7 +234,7 @@ namespace EmbyStreams.Tasks
             if (!embySeriesMap.TryGetValue(item.ImdbId, out var seriesItem))
             {
                 _logger.LogDebug(
-                    "[EmbyStreams] EpisodeExpandTask: {ImdbId} not yet indexed by Emby — will retry next run",
+                    "[InfiniteDrive] EpisodeExpandTask: {ImdbId} not yet indexed by Emby — will retry next run",
                     item.ImdbId);
                 return false;
             }
@@ -246,7 +246,7 @@ namespace EmbyStreams.Tasks
             if (episodes.Count == 0)
             {
                 _logger.LogDebug(
-                    "[EmbyStreams] EpisodeExpandTask: no episodes found for {ImdbId} in Emby yet", item.ImdbId);
+                    "[InfiniteDrive] EpisodeExpandTask: no episodes found for {ImdbId} in Emby yet", item.ImdbId);
                 return false;
             }
 
@@ -264,7 +264,7 @@ namespace EmbyStreams.Tasks
             if (bySeason.Count == 0)
             {
                 _logger.LogDebug(
-                    "[EmbyStreams] EpisodeExpandTask: no valid season/episode numbers found for {ImdbId}",
+                    "[InfiniteDrive] EpisodeExpandTask: no valid season/episode numbers found for {ImdbId}",
                     item.ImdbId);
                 return false;
             }
@@ -306,7 +306,7 @@ namespace EmbyStreams.Tasks
             await db.UpdateSeasonsJsonAsync(item.ImdbId, item.Source, JsonSerializer.Serialize(seasonsList));
 
             _logger.LogInformation(
-                "[EmbyStreams] EpisodeExpandTask: {ImdbId} ({Title}) — " +
+                "[InfiniteDrive] EpisodeExpandTask: {ImdbId} ({Title}) — " +
                 "{Seasons} seasons, {Written} new .strm files written",
                 item.ImdbId, item.Title, bySeason.Count, written);
 
@@ -338,7 +338,7 @@ namespace EmbyStreams.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] EpisodeExpandTask: episode query failed");
+                _logger.LogWarning(ex, "[InfiniteDrive] EpisodeExpandTask: episode query failed");
                 return new List<BaseItem>();
             }
         }

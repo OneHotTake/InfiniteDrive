@@ -4,13 +4,13 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Services;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Services;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Prioritized metadata chain service.
@@ -28,7 +28,7 @@ namespace EmbyStreams.Services
 
         public MetadataChainService(ILogManager logManager, DatabaseManager db)
         {
-            _logger = new EmbyLoggerAdapter<MetadataChainService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<MetadataChainService>(logManager.GetLogger("InfiniteDrive"));
             _db = db;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
         }

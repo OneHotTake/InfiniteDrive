@@ -5,14 +5,14 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
-using EmbyStreams.Tasks;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
+using InfiniteDrive.Tasks;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Pre-expands series from full metadata instead of creating S01E01.strm and hoping Emby expands.
@@ -34,7 +34,7 @@ namespace EmbyStreams.Services
             _logger = logger;
             _metadataProvider = metadataProvider;
 
-            _logger.LogWarning("[EmbyStreams] StremioMetadataProvider not using MetadataService priority chain — using default episode fallback");
+            _logger.LogWarning("[InfiniteDrive] StremioMetadataProvider not using MetadataService priority chain — using default episode fallback");
         }
 
         /// <summary>
@@ -48,7 +48,7 @@ namespace EmbyStreams.Services
             try
             {
                 _logger.LogInformation(
-                    "[EmbyStreams] SeriesPreExpansion: Starting for {ImdbId} ({Title})",
+                    "[InfiniteDrive] SeriesPreExpansion: Starting for {ImdbId} ({Title})",
                     item.ImdbId, item.Title);
 
                 // Fetch full metadata with all episodes
@@ -57,7 +57,7 @@ namespace EmbyStreams.Services
                 {
                     // G2: Fallback to default episode counts when metadata unavailable
                     _logger.LogWarning(
-                        "[EmbyStreams] SeriesPreExpansion: No metadata found for {ImdbId}, " +
+                        "[InfiniteDrive] SeriesPreExpansion: No metadata found for {ImdbId}, " +
                         "using default {Seasons}s × {Episodes}ep fallback",
                         item.ImdbId, config.DefaultSeriesSeasons, config.DefaultSeriesEpisodesPerSeason);
 
@@ -70,7 +70,7 @@ namespace EmbyStreams.Services
                     StrmWriterService.SanitisePathPublic(BuildFolderName(fullMeta.GetName(), fullMeta.GetYear(), item.ImdbId)));
 
                 Directory.CreateDirectory(seriesPath);
-                _logger.LogDebug("[EmbyStreams] SeriesPreExpansion: Series folder: {Path}", seriesPath);
+                _logger.LogDebug("[InfiniteDrive] SeriesPreExpansion: Series folder: {Path}", seriesPath);
 
                 // Group episodes by season - same pattern as Gelato
                 var seasonGroups = fullMeta.Videos
@@ -83,13 +83,13 @@ namespace EmbyStreams.Services
                 if (seasonGroups.Count == 0)
                 {
                     _logger.LogWarning(
-                        "[EmbyStreams] SeriesPreExpansion: No valid episodes found for {ImdbId}",
+                        "[InfiniteDrive] SeriesPreExpansion: No valid episodes found for {ImdbId}",
                         item.ImdbId);
                     return false;
                 }
 
                 _logger.LogInformation(
-                    "[EmbyStreams] SeriesPreExpansion: Found {SeasonCount} seasons with {TotalEpisodes} episodes for {SeriesName}",
+                    "[InfiniteDrive] SeriesPreExpansion: Found {SeasonCount} seasons with {TotalEpisodes} episodes for {SeriesName}",
                     seasonGroups.Count, seasonGroups.Sum(g => g.Count()), fullMeta.GetName());
 
                 int written = 0;
@@ -112,7 +112,7 @@ namespace EmbyStreams.Services
                         if (config.SkipFutureEpisodes && !episode.IsReleased(config.FutureEpisodeBufferDays))
                         {
                             _logger.LogDebug(
-                                "[EmbyStreams] SeriesPreExpansion: Skipping unaired S{Season}x{Episode}",
+                                "[InfiniteDrive] SeriesPreExpansion: Skipping unaired S{Season}x{Episode}",
                                 seasonNum, epNum);
                             continue;
                         }
@@ -135,7 +135,7 @@ namespace EmbyStreams.Services
 
                             written++;
                             _logger.LogDebug(
-                                "[EmbyStreams] SeriesPreExpansion: Wrote {FilePath}",
+                                "[InfiniteDrive] SeriesPreExpansion: Wrote {FilePath}",
                                 filePath);
                         }
                     }
@@ -145,7 +145,7 @@ namespace EmbyStreams.Services
                 await WriteTvNfoFileAsync(seriesPath, fullMeta, item, cancellationToken);
 
                 _logger.LogInformation(
-                    "[EmbyStreams] SeriesPreExpansion: Complete for {ImdbId} ({Title}) - {Written} new .strm files written",
+                    "[InfiniteDrive] SeriesPreExpansion: Complete for {ImdbId} ({Title}) - {Written} new .strm files written",
                     item.ImdbId, item.Title, written);
 
                 return true;
@@ -154,7 +154,7 @@ namespace EmbyStreams.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex,
-                    "[EmbyStreams] SeriesPreExpansion: Failed for {ImdbId} ({Title})",
+                    "[InfiniteDrive] SeriesPreExpansion: Failed for {ImdbId} ({Title})",
                     item.ImdbId, item.Title);
                 return false;
             }
@@ -174,7 +174,7 @@ namespace EmbyStreams.Services
             var numEpisodes = config.DefaultSeriesEpisodesPerSeason;
 
             _logger.LogInformation(
-                "[EmbyStreams] SeriesPreExpansion: Writing default episodes for {ImdbId} - {Seasons}s × {Episodes}ep",
+                "[InfiniteDrive] SeriesPreExpansion: Writing default episodes for {ImdbId} - {Seasons}s × {Episodes}ep",
                 item.ImdbId, numSeasons, numEpisodes);
 
             // Create series folder
@@ -210,14 +210,14 @@ namespace EmbyStreams.Services
                         await File.WriteAllTextAsync(filePath, strmContent, Encoding.UTF8, cancellationToken);
                         written++;
                         _logger.LogDebug(
-                            "[EmbyStreams] SeriesPreExpansion: Wrote default {FilePath}",
+                            "[InfiniteDrive] SeriesPreExpansion: Wrote default {FilePath}",
                             filePath);
                     }
                 }
             }
 
             _logger.LogInformation(
-                "[EmbyStreams] SeriesPreExpansion: Default episodes complete for {ImdbId} ({Title}) - {Written} .strm files written",
+                "[InfiniteDrive] SeriesPreExpansion: Default episodes complete for {ImdbId} ({Title}) - {Written} .strm files written",
                 item.ImdbId, item.Title, written);
 
             return true;
@@ -259,7 +259,7 @@ namespace EmbyStreams.Services
 
             // Fallback: legacy Play endpoint with episode_id parameter
             var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
-            return $"{baseUrl}/EmbyStreams/Play?episode_id={Uri.EscapeDataString(stremioEpisodeId)}";
+            return $"{baseUrl}/InfiniteDrive/Play?episode_id={Uri.EscapeDataString(stremioEpisodeId)}";
         }
 
         /// <summary>

@@ -5,11 +5,11 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
+using InfiniteDrive.Logging;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Housekeeping operations: orphaned folder cleanup, .strm validity checking,
@@ -21,7 +21,7 @@ namespace EmbyStreams.Services
 
         public HousekeepingService(ILogManager logManager)
         {
-            _logger = new EmbyLoggerAdapter<HousekeepingService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<HousekeepingService>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── Orphaned folder cleanup (v0.60.1) ────────────────────────────────────
@@ -57,19 +57,19 @@ namespace EmbyStreams.Services
                         {
                             Directory.Delete(dir, recursive: true);
                             _logger.LogInformation(
-                                "[EmbyStreams] Removed empty orphaned folder: {Path}", dir);
+                                "[InfiniteDrive] Removed empty orphaned folder: {Path}", dir);
                             removed++;
                         }
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex,
-                                "[EmbyStreams] Could not remove orphaned folder: {Path}", dir);
+                                "[InfiniteDrive] Could not remove orphaned folder: {Path}", dir);
                         }
                     }
                     else
                     {
                         _logger.LogWarning(
-                            "[EmbyStreams] Orphaned folder still contains {Count} .strm files — skipping: {Path}",
+                            "[InfiniteDrive] Orphaned folder still contains {Count} .strm files — skipping: {Path}",
                             strmFiles.Length, dir);
                     }
                 }
@@ -109,7 +109,7 @@ namespace EmbyStreams.Services
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
-                            "[EmbyStreams] Could not check .strm file: {Path}", strmFile);
+                            "[InfiniteDrive] Could not check .strm file: {Path}", strmFile);
                     }
                 }
             }
@@ -196,7 +196,7 @@ namespace EmbyStreams.Services
                     if (!File.Exists(mv.StrmPath))
                     {
                         _logger.LogDebug(
-                            "[EmbyStreams] Skipping token rotation for missing .strm: {Path}", mv.StrmPath);
+                            "[InfiniteDrive] Skipping token rotation for missing .strm: {Path}", mv.StrmPath);
                         continue;
                     }
 
@@ -211,7 +211,7 @@ namespace EmbyStreams.Services
                     if (!idMatch.Success || !idTypeMatch.Success || !qualityMatch.Success)
                     {
                         _logger.LogWarning(
-                            "[EmbyStreams] Could not parse .strm URL for token rotation: {Path}", mv.StrmPath);
+                            "[InfiniteDrive] Could not parse .strm URL for token rotation: {Path}", mv.StrmPath);
                         continue;
                     }
 
@@ -245,7 +245,7 @@ namespace EmbyStreams.Services
                         mv.MediaItemId, mv.SlotKey, expiresAt, cancellationToken);
 
                     _logger.LogInformation(
-                        "[EmbyStreams] Rotated token: {Id} | {Type} | {Quality} | expires={Expiry}",
+                        "[InfiniteDrive] Rotated token: {Id} | {Type} | {Quality} | expires={Expiry}",
                         id, idType, quality,
                         DateTimeOffset.FromUnixTimeSeconds(expiresAt).ToString("o"));
 
@@ -254,7 +254,7 @@ namespace EmbyStreams.Services
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "[EmbyStreams] Failed to rotate token for {Path}", mv.StrmPath);
+                        "[InfiniteDrive] Failed to rotate token for {Path}", mv.StrmPath);
                 }
             }
 

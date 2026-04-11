@@ -4,23 +4,23 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request/Response DTOs ────────────────────────────────────────────────────
 
     /// <summary>
     /// Request object for testing on-demand stream resolution.
     /// </summary>
-    [Route("/EmbyStreams/Discover/TestStreamResolution", "GET",
+    [Route("/InfiniteDrive/Discover/TestStreamResolution", "GET",
         Summary = "Test on-demand stream resolution for an item")]
     public class DiscoverTestStreamResolutionRequest : IReturn<DiscoverTestStreamResolutionResponse>
     {
@@ -40,7 +40,7 @@ namespace EmbyStreams.Services
     /// <summary>
     /// Request object for getting direct stream URLs (no proxy tokens).
     /// </summary>
-    [Route("/EmbyStreams/Discover/DirectStreamUrl", "GET",
+    [Route("/InfiniteDrive/Discover/DirectStreamUrl", "GET",
         Summary = "Get direct CDN URL for streaming (no tokens)")]
     public class DiscoverDirectStreamRequest : IReturn<DiscoverDirectStreamResponse>
     {
@@ -58,7 +58,7 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Response from <c>GET /EmbyStreams/Discover/DirectStreamUrl</c>.
+    /// Response from <c>GET /InfiniteDrive/Discover/DirectStreamUrl</c>.
     /// </summary>
     public class DiscoverDirectStreamResponse
     {
@@ -79,7 +79,7 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Response from <c>GET /EmbyStreams/Discover/TestStreamResolution</c>.
+    /// Response from <c>GET /InfiniteDrive/Discover/TestStreamResolution</c>.
     /// </summary>
     public class DiscoverTestStreamResolutionResponse
     {
@@ -100,10 +100,10 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Discover/Browse</c>.
+    /// Request object for <c>GET /InfiniteDrive/Discover/Browse</c>.
     /// Returns paginated discover catalog entries.
     /// </summary>
-    [Route("/EmbyStreams/Discover/Browse", "GET",
+    [Route("/InfiniteDrive/Discover/Browse", "GET",
         Summary = "Browse available items in the Discover catalog")]
     public class DiscoverBrowseRequest : IReturn<DiscoverBrowseResponse>
     {
@@ -116,7 +116,7 @@ namespace EmbyStreams.Services
         public int Offset { get; set; } = 0;
     }
 
-    /// <summary>Response from <c>GET /EmbyStreams/Discover/Browse</c>.</summary>
+    /// <summary>Response from <c>GET /InfiniteDrive/Discover/Browse</c>.</summary>
     public class DiscoverBrowseResponse
     {
         /// <summary>Items in this page.</summary>
@@ -130,10 +130,10 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Discover/Search</c>.
+    /// Request object for <c>GET /InfiniteDrive/Discover/Search</c>.
     /// Searches local catalog and optionally AIOStreams live.
     /// </summary>
-    [Route("/EmbyStreams/Discover/Search", "GET",
+    [Route("/InfiniteDrive/Discover/Search", "GET",
         Summary = "Search available items in Discover catalog")]
     public class DiscoverSearchRequest : IReturn<DiscoverSearchResponse>
     {
@@ -153,7 +153,7 @@ namespace EmbyStreams.Services
         public bool Live { get; set; } = false;
     }
 
-    /// <summary>Response from <c>GET /EmbyStreams/Discover/Search</c>.</summary>
+    /// <summary>Response from <c>GET /InfiniteDrive/Discover/Search</c>.</summary>
     public class DiscoverSearchResponse
     {
         /// <summary>Merged and deduplicated search results.</summary>
@@ -161,10 +161,10 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Discover/Detail</c>.
+    /// Request object for <c>GET /InfiniteDrive/Discover/Detail</c>.
     /// Fetches detailed metadata for a specific item.
     /// </summary>
-    [Route("/EmbyStreams/Discover/Detail", "GET",
+    [Route("/InfiniteDrive/Discover/Detail", "GET",
         Summary = "Get detailed metadata for a Discover item")]
     public class DiscoverDetailRequest : IReturn<DiscoverDetailResponse>
     {
@@ -173,7 +173,7 @@ namespace EmbyStreams.Services
         public string ImdbId { get; set; } = string.Empty;
     }
 
-    /// <summary>Response from <c>GET /EmbyStreams/Discover/Detail</c>.</summary>
+    /// <summary>Response from <c>GET /InfiniteDrive/Discover/Detail</c>.</summary>
     public class DiscoverDetailResponse
     {
         /// <summary>The detailed item.</summary>
@@ -181,10 +181,10 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Request object for <c>POST /EmbyStreams/Discover/AddToLibrary</c>.
+    /// Request object for <c>POST /InfiniteDrive/Discover/AddToLibrary</c>.
     /// Creates a .strm file and adds item to the library.
     /// </summary>
-    [Route("/EmbyStreams/Discover/AddToLibrary", "POST",
+    [Route("/InfiniteDrive/Discover/AddToLibrary", "POST",
         Summary = "Add a Discover item to the user's library")]
     public class DiscoverAddToLibraryRequest : IReturn<DiscoverAddToLibraryResponse>
     {
@@ -205,7 +205,7 @@ namespace EmbyStreams.Services
         public int? Year { get; set; }
     }
 
-    /// <summary>Response from <c>POST /EmbyStreams/Discover/AddToLibrary</c>.</summary>
+    /// <summary>Response from <c>POST /InfiniteDrive/Discover/AddToLibrary</c>.</summary>
     public class DiscoverAddToLibraryResponse
     {
         /// <summary><c>true</c> if the item was added successfully.</summary>
@@ -283,7 +283,7 @@ namespace EmbyStreams.Services
         /// </summary>
         public DiscoverService(ILogManager logManager, ILibraryManager libraryManager, IAuthorizationContext authCtx)
         {
-            _logger = new EmbyLoggerAdapter<DiscoverService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<DiscoverService>(logManager.GetLogger("InfiniteDrive"));
             _db = Plugin.Instance.DatabaseManager;
             _libraryManager = libraryManager;
             _authCtx = authCtx;
@@ -293,7 +293,7 @@ namespace EmbyStreams.Services
         // ── Handlers ──────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Handles <c>GET /EmbyStreams/Discover/Browse</c>.
+        /// Handles <c>GET /InfiniteDrive/Discover/Browse</c>.
         /// Returns paginated catalog entries from the local discover_catalog table.
         /// </summary>
         public async Task<object> Get(DiscoverBrowseRequest req)
@@ -330,7 +330,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>GET /EmbyStreams/Discover/Search</c>.
+        /// Handles <c>GET /InfiniteDrive/Discover/Search</c>.
         /// Searches local FTS5 index first; if results are thin or live=true, fans out to AIOStreams.
         /// </summary>
         public async Task<object> Get(DiscoverSearchRequest req)
@@ -548,7 +548,7 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Debug endpoint to test catalog queries
         /// </summary>
-        [Route("/EmbyStreams/Debug/TestCatalog", "GET", Summary = "Debug catalog query")]
+        [Route("/InfiniteDrive/Debug/TestCatalog", "GET", Summary = "Debug catalog query")]
         public object TestCatalog()
         {
             try
@@ -594,7 +594,7 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Debug endpoint to test what the channel returns
         /// </summary>
-        [Route("/EmbyStreams/Debug/TestChannel", "GET", Summary = "Test channel item retrieval")]
+        [Route("/InfiniteDrive/Debug/TestChannel", "GET", Summary = "Test channel item retrieval")]
         public object TestChannel()
         {
             try
@@ -636,7 +636,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>GET /EmbyStreams/Discover/Detail</c>.
+        /// Handles <c>GET /InfiniteDrive/Discover/Detail</c>.
         /// Returns detailed metadata for a single item.
         /// </summary>
         public async Task<object> Get(DiscoverDetailRequest req)
@@ -669,7 +669,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>POST /EmbyStreams/Discover/AddToLibrary</c>.
+        /// Handles <c>POST /InfiniteDrive/Discover/AddToLibrary</c>.
         /// Creates a .strm file in the appropriate library folder and creates a catalog_item entry.
         /// </summary>
         public async Task<object> Post(DiscoverAddToLibraryRequest req, CancellationToken ct)
@@ -939,7 +939,7 @@ namespace EmbyStreams.Services
         /// Test endpoint for on-demand stream resolution.
         /// Demonstrates StreamResolver integration for on-demand playback.
         /// </summary>
-        [Route("/EmbyStreams/Discover/TestStreamResolution", "GET")]
+        [Route("/InfiniteDrive/Discover/TestStreamResolution", "GET")]
         public async Task<object> Get(DiscoverTestStreamResolutionRequest req)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
@@ -1038,7 +1038,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>GET /EmbyStreams/Discover/DirectStreamUrl</c>.
+        /// Handles <c>GET /InfiniteDrive/Discover/DirectStreamUrl</c>.
         /// Returns a direct CDN URL without proxy tokens for Emby to play.
         /// </summary>
         public async Task<object> Get(DiscoverDirectStreamRequest req)

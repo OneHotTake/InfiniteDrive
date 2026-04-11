@@ -7,7 +7,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Scans library for user-added files ("Your Files").
@@ -43,7 +43,7 @@ namespace EmbyStreams.Services
 
             // Filter: exclude items we created (have .strm files)
             var yourFilesItems = allItems
-                .Where(item => !IsEmbyStreamsItem(item))
+                .Where(item => !IsInfiniteDriveItem(item))
                 .ToList();
 
             _logger.LogInformation("[YourFilesScanner] Found {Count} 'Your Files' items", yourFilesItems.Count);
@@ -54,7 +54,7 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Checks if an item is managed by EmbyStreams.
         /// </summary>
-        private bool IsEmbyStreamsItem(BaseItem item)
+        private bool IsInfiniteDriveItem(BaseItem item)
         {
             // Check if item has .strm extension
             if (item.Path != null && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
@@ -62,7 +62,7 @@ namespace EmbyStreams.Services
                 return true;
             }
 
-            // Check if item has EmbyStreams provider ID
+            // Check if item has InfiniteDrive provider ID
             if (item.ProviderIds != null && item.ProviderIds.ContainsKey("embystreams"))
             {
                 return true;

@@ -6,8 +6,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Tasks;
@@ -15,13 +15,13 @@ using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Syncs Emby BoxSet collections from provider metadata.
     /// Sprint 100C-02: Collection sync task (new).
     /// Runs after DoctorTask, uses Emby REST API to create/update BoxSets.
-    /// Only operates on BoxSets tagged "EmbyStreams:managed".
+    /// Only operates on BoxSets tagged "InfiniteDrive:managed".
     /// </summary>
     public class CollectionSyncTask : IScheduledTask
     {
@@ -34,28 +34,28 @@ namespace EmbyStreams.Tasks
             DatabaseManager db,
             ILibraryManager libraryManager)
         {
-            _logger = new EmbyLoggerAdapter<CollectionSyncTask>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<CollectionSyncTask>(logManager.GetLogger("InfiniteDrive"));
             _db = db;
             _libraryManager = libraryManager;
         }
 
         /// <summary>
-        /// Task key for manual trigger via /EmbyStreams/Trigger.
+        /// Task key for manual trigger via /InfiniteDrive/Trigger.
         /// Sprint 100C-02: Task key for triggering.
         /// </summary>
         public static string TaskKey => "collection_sync";
 
-        public string Name => "EmbyStreams: Collection Sync";
+        public string Name => "InfiniteDrive: Collection Sync";
         public string Key => "CollectionSyncTask";
         public string Description => "Syncs Emby BoxSets from provider collection metadata";
-        public string Category => "EmbyStreams";
+        public string Category => "InfiniteDrive";
 
         /// <summary>
         /// Executes collection sync.
         /// 1. Fetches all collections from database
         /// 2. For each collection: creates/updates Emby BoxSet
         /// 3. Adds/removes items to/from BoxSet
-        /// 4. Tags BoxSet as "EmbyStreams:managed"
+        /// 4. Tags BoxSet as "InfiniteDrive:managed"
         /// Sprint 100C-02: Collection sync task.
         /// </summary>
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
@@ -205,7 +205,7 @@ namespace EmbyStreams.Tasks
 
         /// <summary>
         /// Searches for an existing BoxSet by name, creates one if not found.
-        /// Only operates on BoxSets tagged "EmbyStreams:managed".
+        /// Only operates on BoxSets tagged "InfiniteDrive:managed".
         /// Sprint 100C-02: Find or create BoxSet.
         /// </summary>
         private async Task<string?> FindOrCreateBoxSetAsync(
@@ -245,7 +245,7 @@ namespace EmbyStreams.Tasks
                     var hasTag = tagsProp.EnumerateArray()
                         .Any(tag => string.Equals(
                             tag.GetString(),
-                            "EmbyStreams:managed",
+                            "InfiniteDrive:managed",
                             StringComparison.OrdinalIgnoreCase));
                     if (hasTag)
                     {
@@ -290,7 +290,7 @@ namespace EmbyStreams.Tasks
         }
 
         /// <summary>
-        /// Tags a BoxSet as "EmbyStreams:managed".
+        /// Tags a BoxSet as "InfiniteDrive:managed".
         /// Sprint 100C-02: Tag BoxSet as managed.
         /// </summary>
         private async Task TagBoxSetAsManagedAsync(
@@ -299,7 +299,7 @@ namespace EmbyStreams.Tasks
             CancellationToken cancellationToken)
         {
             var tagsUrl = $"Items/{boxSetId}/Tags";
-            var tagData = new[] { "EmbyStreams:managed" };
+            var tagData = new[] { "InfiniteDrive:managed" };
             var content = new StringContent(
                 JsonSerializer.Serialize(tagData),
                 Encoding.UTF8,

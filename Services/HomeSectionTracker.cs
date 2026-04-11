@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Tracks per-user per-rail state for home screen sections.
@@ -17,7 +17,7 @@ namespace EmbyStreams.Services
     public class HomeSectionTracker
     {
         /// <summary>
-        /// Rail types supported by EmbyStreams home screen rails.
+        /// Rail types supported by InfiniteDrive home screen rails.
         /// </summary>
         public enum RailType
         {

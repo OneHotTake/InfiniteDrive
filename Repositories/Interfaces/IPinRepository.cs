@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace EmbyStreams.Repositories.Interfaces
+namespace InfiniteDrive.Repositories.Interfaces
 {
     /// <summary>
     /// Repository interface for item pin/unpin operations.

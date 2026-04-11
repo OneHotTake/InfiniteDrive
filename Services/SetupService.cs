@@ -2,18 +2,18 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
+using InfiniteDrive.Logging;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Request to create library directories during initial setup.
     /// </summary>
-    [Route("/EmbyStreams/Setup/CreateDirectories", "POST",
+    [Route("/InfiniteDrive/Setup/CreateDirectories", "POST",
         Summary = "Create library directories for movies and shows")]
     public class CreateDirectoriesRequest : IReturn<CreateDirectoriesResponse>
     {
@@ -49,7 +49,7 @@ namespace EmbyStreams.Services
     /// <summary>
     /// Request to rotate the playback API key and rewrite all .strm files.
     /// </summary>
-    [Route("/EmbyStreams/Setup/RotateApiKey", "POST",
+    [Route("/InfiniteDrive/Setup/RotateApiKey", "POST",
         Summary = "Rotate playback API key and rewrite all .strm files")]
     public class RotateApiKeyRequest : IReturn<RotateApiKeyResponse> { }
 
@@ -82,7 +82,7 @@ namespace EmbyStreams.Services
 
         public SetupService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger = new EmbyLoggerAdapter<SetupService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<SetupService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
@@ -162,7 +162,7 @@ namespace EmbyStreams.Services
 
             try
             {
-                _logger.LogInformation("[EmbyStreams] Starting API key rotation");
+                _logger.LogInformation("[InfiniteDrive] Starting API key rotation");
 
                 // Generate new API key (simple GUID-based key)
                 var newApiKey = Guid.NewGuid().ToString("N").Substring(0, 32);
@@ -172,7 +172,7 @@ namespace EmbyStreams.Services
                 config.EmbyApiKey = newApiKey;
                 Plugin.Instance?.SaveConfiguration();
 
-                _logger.LogInformation("[EmbyStreams] New API key generated, rewriting .strm files");
+                _logger.LogInformation("[InfiniteDrive] New API key generated, rewriting .strm files");
 
                 var secret = config.PluginSecret;
                 var validityDays = config.SignatureValidityDays > 0 ? config.SignatureValidityDays : 365;
@@ -193,7 +193,7 @@ namespace EmbyStreams.Services
                 }
 
                 _logger.LogInformation(
-                    "[EmbyStreams] API key rotation complete: {FilesRewritten} .strm files rewritten",
+                    "[InfiniteDrive] API key rotation complete: {FilesRewritten} .strm files rewritten",
                     filesRewritten);
 
                 return new RotateApiKeyResponse
@@ -205,7 +205,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] API key rotation failed");
+                _logger.LogError(ex, "[InfiniteDrive] API key rotation failed");
                 return new RotateApiKeyResponse
                 {
                     Success = false,
@@ -234,7 +234,7 @@ namespace EmbyStreams.Services
                         // Read the .strm file to extract the IMDB ID
                         var content = await File.ReadAllTextAsync(strmFile);
 
-                        // Extract IMDB ID from URL (e.g., "http://...?imdb=tt123" or "/EmbyStreams/Stream?id=tt123")
+                        // Extract IMDB ID from URL (e.g., "http://...?imdb=tt123" or "/InfiniteDrive/Stream?id=tt123")
                         var imdbMatch = System.Text.RegularExpressions.Regex.Match(content, @"[?&]imdb=([^&\s]+)|id=([^&\s]+)");
                         if (!imdbMatch.Success)
                             continue;
@@ -265,13 +265,13 @@ namespace EmbyStreams.Services
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[EmbyStreams] Failed to rewrite .strm file: {Path}", strmFile);
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to rewrite .strm file: {Path}", strmFile);
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Error rewriting .strm files in {Directory}", directoryPath);
+                _logger.LogError(ex, "[InfiniteDrive] Error rewriting .strm files in {Directory}", directoryPath);
             }
 
             return count;

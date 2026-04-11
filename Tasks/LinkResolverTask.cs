@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Pre-resolves stream URLs into the <c>resolution_cache</c> table so that
@@ -35,9 +35,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string TaskName     = "EmbyStreams Link Resolver";
-        private const string TaskKey      = "EmbyStreamsLinkResolver";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskName     = "InfiniteDrive Link Resolver";
+        private const string TaskKey      = "InfiniteDriveLinkResolver";
+        private const string TaskCategory = "InfiniteDrive";
 
         // Max items to process per tier per run (safety cap per iteration)
         private const int MaxItemsPerTier = 200;
@@ -53,7 +53,7 @@ namespace EmbyStreams.Tasks
         /// </summary>
         public LinkResolverTask(ILogManager logManager)
         {
-            _logger = new EmbyLoggerAdapter<LinkResolverTask>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<LinkResolverTask>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
@@ -90,20 +90,20 @@ namespace EmbyStreams.Tasks
             // Sprint 100A-12: Startup jitter to prevent thundering herd on Emby restart
             await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
 
-            _logger.LogInformation("[EmbyStreams] LinkResolverTask started");
+            _logger.LogInformation("[InfiniteDrive] LinkResolverTask started");
             progress.Report(0);
 
             var config = Plugin.Instance?.Configuration;
             var db     = Plugin.Instance?.DatabaseManager;
             if (config == null || db == null)
             {
-                _logger.LogWarning("[EmbyStreams] Plugin not initialised — aborting link resolution");
+                _logger.LogWarning("[InfiniteDrive] Plugin not initialised — aborting link resolution");
                 return;
             }
 
             if (await db.IsBudgetExhaustedAsync())
             {
-                _logger.LogWarning("[EmbyStreams] API daily budget exhausted — skipping link resolution");
+                _logger.LogWarning("[InfiniteDrive] API daily budget exhausted — skipping link resolution");
                 progress.Report(100);
                 return;
             }
@@ -133,7 +133,7 @@ namespace EmbyStreams.Tasks
             // Tier 3 is NEVER resolved proactively (would exhaust API quota)
 
             _logger.LogInformation(
-                "[EmbyStreams] LinkResolverTask complete — {Resolved} resolved, {Skipped} skipped, {Failed} failed",
+                "[InfiniteDrive] LinkResolverTask complete — {Resolved} resolved, {Skipped} skipped, {Failed} failed",
                 stats.Resolved, stats.Skipped, stats.Failed);
 
             progress.Report(100);
@@ -157,11 +157,11 @@ namespace EmbyStreams.Tasks
             var items = await db.GetPendingResolutionsByTierAsync(tier, MaxItemsPerTier);
             if (items.Count == 0)
             {
-                _logger.LogDebug("[EmbyStreams] {Tier}: nothing to resolve", tierLabel);
+                _logger.LogDebug("[InfiniteDrive] {Tier}: nothing to resolve", tierLabel);
                 return;
             }
 
-            _logger.LogInformation("[EmbyStreams] {Tier}: resolving {Count} items", tierLabel, items.Count);
+            _logger.LogInformation("[InfiniteDrive] {Tier}: resolving {Count} items", tierLabel, items.Count);
 
             // Also pull catalog items that have no cache entry yet for tier2
             List<CatalogItem> catalogItems = new List<CatalogItem>();
@@ -177,7 +177,7 @@ namespace EmbyStreams.Tasks
 
                 if (await db.IsBudgetExhaustedAsync())
                 {
-                    _logger.LogWarning("[EmbyStreams] Budget exhausted during {Tier} — stopping", tierLabel);
+                    _logger.LogWarning("[InfiniteDrive] Budget exhausted during {Tier} — stopping", tierLabel);
                     break;
                 }
 
@@ -236,7 +236,7 @@ namespace EmbyStreams.Tasks
                     wasRateLimited = true;
                     var backoff = StreamHelpers.ExponentialBackoffMs(attempt);
                     _logger.LogWarning(
-                        "[EmbyStreams] 429 for {Imdb} — backing off {Ms}ms (attempt {N})",
+                        "[InfiniteDrive] 429 for {Imdb} — backing off {Ms}ms (attempt {N})",
                         work.ImdbId, backoff, attempt + 1);
 
                     await db.RecordRateLimitHitAsync(
@@ -251,7 +251,7 @@ namespace EmbyStreams.Tasks
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Failed to resolve {Imdb}", work.ImdbId);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to resolve {Imdb}", work.ImdbId);
                     break;
                 }
             }
@@ -268,7 +268,7 @@ namespace EmbyStreams.Tasks
                 if (wasRateLimited)
                 {
                     _logger.LogWarning(
-                        "[EmbyStreams] Rate-limited (429) resolving {Imdb} — caching failed with 5min backoff",
+                        "[InfiniteDrive] Rate-limited (429) resolving {Imdb} — caching failed with 5min backoff",
                         work.ImdbId);
                     await db.UpsertResolutionCacheAsync(new ResolutionEntry
                     {
@@ -283,7 +283,7 @@ namespace EmbyStreams.Tasks
                     stats.Failed++;
                     return;
                 }
-                _logger.LogWarning("[EmbyStreams] Network/timeout error resolving {Imdb} — marking failed with 6h backoff", work.ImdbId);
+                _logger.LogWarning("[InfiniteDrive] Network/timeout error resolving {Imdb} — marking failed with 6h backoff", work.ImdbId);
                 await MarkFailedWithBackoffAsync(db, work);
                 stats.Failed++;
                 return;
@@ -297,7 +297,7 @@ namespace EmbyStreams.Tasks
                 // we retry sooner without hammering the API every 15 minutes.
                 // We use status='failed' with an empty stream_url as the sentinel;
                 // PlaybackService distinguishes this from a hard failure at serve time.
-                _logger.LogDebug("[EmbyStreams] AIOStreams returned empty streams for {Imdb} — caching no-streams result for 1h", work.ImdbId);
+                _logger.LogDebug("[InfiniteDrive] AIOStreams returned empty streams for {Imdb} — caching no-streams result for 1h", work.ImdbId);
                 await db.UpsertResolutionCacheAsync(new ResolutionEntry
                 {
                     ImdbId         = work.ImdbId,
@@ -342,7 +342,7 @@ namespace EmbyStreams.Tasks
             if (StreamHelpers.IsSeasonPack(filename))
             {
                 entry!.TorrentHash = response.Streams?.FirstOrDefault()?.InfoHash;
-                _logger.LogDebug("[EmbyStreams] Season pack detected for {Imdb} S{S} — hash={Hash}",
+                _logger.LogDebug("[InfiniteDrive] Season pack detected for {Imdb} S{S} — hash={Hash}",
                     work.ImdbId, work.Season, entry.TorrentHash ?? "(none)");
 
                 if (work.Season.HasValue)
@@ -357,7 +357,7 @@ namespace EmbyStreams.Tasks
             stats.Resolved++;
 
             _logger.LogDebug(
-                "[EmbyStreams] Resolved {Imdb} S{S}E{E} → {Quality} via {Tier}",
+                "[InfiniteDrive] Resolved {Imdb} S{S}E{E} → {Quality} via {Tier}",
                 work.ImdbId, work.Season, work.Episode, entry.QualityTier, tier);
         }
 

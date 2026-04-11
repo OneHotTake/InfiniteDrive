@@ -8,7 +8,7 @@ using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Service for provisioning Emby libraries on first plugin install.
@@ -52,11 +52,11 @@ namespace EmbyStreams.Services
             // Check if already provisioned
             if (File.Exists(flagPath))
             {
-                _logger.LogInformation("[EmbyStreams] Libraries already provisioned (flag file exists)");
+                _logger.LogInformation("[InfiniteDrive] Libraries already provisioned (flag file exists)");
                 return false;
             }
 
-            _logger.LogInformation("[EmbyStreams] Starting library provisioning for v3.3");
+            _logger.LogInformation("[InfiniteDrive] Starting library provisioning for v3.3");
 
             try
             {
@@ -68,12 +68,12 @@ namespace EmbyStreams.Services
                     $"Version: 3.3\n" +
                     $"Libraries: Movies, Series, Anime");
 
-                _logger.LogInformation("[EmbyStreams] Library provisioning completed");
+                _logger.LogInformation("[InfiniteDrive] Library provisioning completed");
                 return true;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Library provisioning failed");
+                _logger.LogError(ex, "[InfiniteDrive] Library provisioning failed");
                 throw;
             }
         }
@@ -101,7 +101,7 @@ namespace EmbyStreams.Services
         /// </summary>
         private void CreateLibraryDirectories()
         {
-            var basePath = GetEmbyStreamsLibraryBasePath();
+            var basePath = GetInfiniteDriveLibraryBasePath();
 
             var directories = new[]
             {
@@ -117,12 +117,12 @@ namespace EmbyStreams.Services
                     if (!Directory.Exists(dir))
                     {
                         Directory.CreateDirectory(dir);
-                        _logger.LogInformation("[EmbyStreams] Created directory: {Dir}", dir);
+                        _logger.LogInformation("[InfiniteDrive] Created directory: {Dir}", dir);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[EmbyStreams] Failed to create directory: {Dir}", dir);
+                    _logger.LogError(ex, "[InfiniteDrive] Failed to create directory: {Dir}", dir);
                 }
             }
         }
@@ -134,31 +134,31 @@ namespace EmbyStreams.Services
         /// </summary>
         private async Task RegisterEmbyLibrariesAsync()
         {
-            var basePath = GetEmbyStreamsLibraryBasePath();
+            var basePath = GetInfiniteDriveLibraryBasePath();
 
             var libraries = new[]
             {
                 new LibraryDefinition
                 {
-                    Name = "EmbyStreams Movies",
+                    Name = "InfiniteDrive Movies",
                     Path = Path.Combine(basePath, "movies"),
                     Type = "movies"
                 },
                 new LibraryDefinition
                 {
-                    Name = "EmbyStreams Series",
+                    Name = "InfiniteDrive Series",
                     Path = Path.Combine(basePath, "series"),
                     Type = "tvshows"
                 },
                 new LibraryDefinition
                 {
-                    Name = "EmbyStreams Anime",
+                    Name = "InfiniteDrive Anime",
                     Path = Path.Combine(basePath, "anime"),
                     Type = "mixed" // Movies+Series for anime
                 }
             };
 
-            _logger.LogInformation("[EmbyStreams] Would register {Count} libraries: {Libraries}",
+            _logger.LogInformation("[InfiniteDrive] Would register {Count} libraries: {Libraries}",
                 libraries.Length, string.Join(", ", libraries.Select(l => l.Name)));
 
             // Note: Actual library registration requires Emby REST API
@@ -169,15 +169,15 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Hides all THREE EmbyStreams libraries from the navigation panel for all users.
+        /// Hides all THREE InfiniteDrive libraries from the navigation panel for all users.
         /// Note: This is a placeholder implementation that requires further development.
         /// </summary>
         private async Task HideLibrariesForAllUsersAsync()
         {
-            var libraryNames = new[] { "EmbyStreams Movies", "EmbyStreams Series", "EmbyStreams Anime" };
+            var libraryNames = new[] { "InfiniteDrive Movies", "InfiniteDrive Series", "InfiniteDrive Anime" };
 
-            _logger.LogInformation("[EmbyStreams] Would hide libraries: {Libraries}", string.Join(", ", libraryNames));
-            _logger.LogInformation("[EmbyStreams] User enumeration requires additional SDK integration");
+            _logger.LogInformation("[InfiniteDrive] Would hide libraries: {Libraries}", string.Join(", ", libraryNames));
+            _logger.LogInformation("[InfiniteDrive] User enumeration requires additional SDK integration");
 
             await Task.CompletedTask;
         }
@@ -187,15 +187,15 @@ namespace EmbyStreams.Services
         /// </summary>
         private void LogProvisioningSummary()
         {
-            var basePath = GetEmbyStreamsLibraryBasePath();
+            var basePath = GetInfiniteDriveLibraryBasePath();
 
             _logger.LogInformation("""
-[EmbyStreams] Library Provisioning Summary
+[InfiniteDrive] Library Provisioning Summary
 =====================================
 Libraries Created:
-  1. EmbyStreams Movies   -> {MoviesPath}
-  2. EmbyStreams Series   -> {SeriesPath}
-  3. EmbyStreams Anime    -> {AnimePath}
+  1. InfiniteDrive Movies   -> {MoviesPath}
+  2. InfiniteDrive Series   -> {SeriesPath}
+  3. InfiniteDrive Anime    -> {AnimePath}
 
 Configuration:
   - Movies library: TMDB/IMDB metadata providers
@@ -217,10 +217,10 @@ Notes:
         }
 
         /// <summary>
-        /// Gets the base path for EmbyStreams libraries.
+        /// Gets the base path for InfiniteDrive libraries.
         /// Uses configuration or defaults to /embystreams/library/
         /// </summary>
-        private string GetEmbyStreamsLibraryBasePath()
+        private string GetInfiniteDriveLibraryBasePath()
         {
             // Default to /embystreams/library/
             return "/embystreams/library";
@@ -232,7 +232,7 @@ Notes:
         private string GetProvisioningFlagPath()
         {
             var configPath = _appPaths.DataPath;
-            return Path.Combine(configPath, "EmbyStreams", ProvisioningFlagFile);
+            return Path.Combine(configPath, "InfiniteDrive", ProvisioningFlagFile);
         }
 
         /// <summary>
@@ -244,7 +244,7 @@ Notes:
             if (File.Exists(flagPath))
             {
                 File.Delete(flagPath);
-                _logger.LogInformation("[EmbyStreams] Provisioning flag reset");
+                _logger.LogInformation("[InfiniteDrive] Provisioning flag reset");
             }
         }
     }

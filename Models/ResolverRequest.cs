@@ -1,11 +1,11 @@
 using MediaBrowser.Model.Services;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
-    /// Request model for /EmbyStreams/Resolve endpoint.
+    /// Request model for /InfiniteDrive/Resolve endpoint.
     /// </summary>
-    [Route("/EmbyStreams/Resolve", "GET", Summary = "Resolve AIOStreams stream and return M3U8 manifest")]
+    [Route("/InfiniteDrive/Resolve", "GET", Summary = "Resolve AIOStreams stream and return M3U8 manifest")]
     public class ResolverRequest : IReturn<object>
     {
         /// <summary>

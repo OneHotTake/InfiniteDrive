@@ -5,25 +5,25 @@ using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     // ── Request DTO ─────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Status</c>.
+    /// Request object for <c>GET /InfiniteDrive/Status</c>.
     /// No parameters — returns a full health snapshot.
     /// </summary>
-    [Route("/EmbyStreams/Status", "GET",
+    [Route("/InfiniteDrive/Status", "GET",
         Summary = "Returns a JSON health snapshot used by the dashboard")]
     public class StatusRequest : IReturn<object> { }
 
@@ -313,7 +313,7 @@ namespace EmbyStreams.Services
     // ── Service ──────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Returns a JSON health snapshot of the EmbyStreams plugin.
+    /// Returns a JSON health snapshot of the InfiniteDrive plugin.
     /// Polled by the dashboard every 5 seconds during active use.
     ///
     /// The response includes:
@@ -327,7 +327,7 @@ namespace EmbyStreams.Services
     /// </list>
     /// </summary>
     /// <summary>
-    /// Exposes health and status endpoints for the EmbyStreams dashboard.
+    /// Exposes health and status endpoints for the InfiniteDrive dashboard.
     ///
     /// ════════════════════════════════════════════════════════════════
     /// ADMIN GUARD AUDIT (Sprint 100A-09)
@@ -336,10 +336,10 @@ namespace EmbyStreams.Services
     /// AdminGuard.RequireAdmin() is called as FIRST statement in every endpoint.
     ///
     /// Endpoints covered:
-    /// • GET  /EmbyStreams/Status              (Get(StatusRequest)) - No auth (read-only)
-    /// • GET  /EmbyStreams/Health              (Get(HealthRequest)) - No auth (read-only) - FIX-100A-13
-    /// • POST /EmbyStreams/RefreshManifest       (Post(RefreshManifestRequest)) - Admin required - FIX-100A-01
-    /// • POST /EmbyStreams/Validate            (ValidateService.Post(ValidateRequest)) - Admin required
+    /// • GET  /InfiniteDrive/Status              (Get(StatusRequest)) - No auth (read-only)
+    /// • GET  /InfiniteDrive/Health              (Get(HealthRequest)) - No auth (read-only) - FIX-100A-13
+    /// • POST /InfiniteDrive/RefreshManifest       (Post(RefreshManifestRequest)) - Admin required - FIX-100A-01
+    /// • POST /InfiniteDrive/Validate            (ValidateService.Post(ValidateRequest)) - Admin required
     /// ════════════════════════════════════════════════════════════════
     /// </summary>
     public class StatusService : IService, IRequiresRequest
@@ -364,14 +364,14 @@ namespace EmbyStreams.Services
         /// </summary>
         public StatusService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<StatusService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<StatusService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
         // ── IService ─────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Handles <c>GET /EmbyStreams/Status</c>.
+        /// Handles <c>GET /InfiniteDrive/Status</c>.
         /// </summary>
         public async Task<object> Get(StatusRequest _)
         {
@@ -434,7 +434,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: cache stats query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: cache stats query failed");
             }
 
             // ── API budget ───────────────────────────────────────────────────────
@@ -450,7 +450,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: api budget query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: api budget query failed");
             }
 
             // ── Catalog item counts ──────────────────────────────────────────────
@@ -476,7 +476,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: catalog count query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: catalog count query failed");
             }
 
             // ── Recent playback ──────────────────────────────────────────────────
@@ -502,7 +502,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: recent playback query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: recent playback query failed");
             }
 
             // ── Per-source catalog stats ─────────────────────────────────────────
@@ -513,7 +513,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: source stats query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: source stats query failed");
             }
 
             // ── Client compat profiles ───────────────────────────────────────────
@@ -524,7 +524,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: client compat query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: client compat query failed");
             }
 
             // ── Sync states ──────────────────────────────────────────────────────
@@ -548,7 +548,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: sync state query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: sync state query failed");
             }
 
             // ── Setup warnings ───────────────────────────────────────────────────
@@ -567,7 +567,7 @@ namespace EmbyStreams.Services
                 {
                     response.UsingCinemetaDefault = true;
                     response.Warnings.Add(
-                        "No catalog source configured. EmbyStreams is using Cinemeta (Top Movies/Series) as a fallback. " +
+                        "No catalog source configured. InfiniteDrive is using Cinemeta (Top Movies/Series) as a fallback. " +
                         "For your full library, configure AIOStreams with a catalog addon, or disable Cinemeta default.");
                 }
                 else
@@ -641,7 +641,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] Status: Improbability Drive status query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] Status: Improbability Drive status query failed");
             }
 
             // ── End Sprint 146 ─────────────────────────────────────────────────────
@@ -707,7 +707,7 @@ namespace EmbyStreams.Services
         }
 
         /// <summary>
-        /// Handles <c>POST /EmbyStreams/Status/Refresh</c>.
+        /// Handles <c>POST /InfiniteDrive/Status/Refresh</c>.
         /// Clears cached health checks and forces fresh test on next status request.
         /// Called by the "Refresh" button in the dashboard.
         /// </summary>
@@ -716,12 +716,12 @@ namespace EmbyStreams.Services
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
 
-            // Clear the cache so the next GET /EmbyStreams/Status will re-test
+            // Clear the cache so the next GET /InfiniteDrive/Status will re-test
             _healthChecked = false;
             _cachedAioStreamsHealth = null;
             _cachedProviderHealth = null;
 
-            _logger.LogInformation("[EmbyStreams] Health check cache cleared by user request");
+            _logger.LogInformation("[InfiniteDrive] Health check cache cleared by user request");
 
             // Immediately return fresh status
             var statusReq = new StatusRequest();
@@ -734,11 +734,11 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request object for <c>POST /EmbyStreams/Status/Refresh</c>.
+    /// Request object for <c>POST /InfiniteDrive/Status/Refresh</c>.
     /// Clears the cached health check and forces a fresh test on the next status request.
     /// This is called by the "Refresh" button in the dashboard.
     /// </summary>
-    [Route("/EmbyStreams/Status/Refresh", "POST",
+    [Route("/InfiniteDrive/Status/Refresh", "POST",
         Summary = "Clear cached health status and refresh on next request")]
     public class StatusRefreshRequest : IReturn<StatusResponse> { }
 
@@ -747,11 +747,11 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/AnimePluginStatus</c>.
+    /// Request object for <c>GET /InfiniteDrive/AnimePluginStatus</c>.
     /// Returns whether the Emby Anime Plugin is installed.
     /// Used by the config UI to gate the anime library toggle.
     /// </summary>
-    [Route("/EmbyStreams/AnimePluginStatus", "GET",
+    [Route("/InfiniteDrive/AnimePluginStatus", "GET",
         Summary = "Check if the Emby Anime Plugin is installed")]
     public class AnimePluginStatusRequest : IReturn<AnimePluginStatusResponse> { }
 
@@ -781,7 +781,7 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request object for <c>POST /EmbyStreams/TestUrl</c>.
+    /// Request object for <c>POST /InfiniteDrive/TestUrl</c>.
     /// Tests an AIOStreams URL using the provided credentials without saving them.
     /// Used by the config wizard's "Test Connection" button to validate form values
     /// before the user commits to saving.
@@ -789,7 +789,7 @@ namespace EmbyStreams.Services
     /// NOTE: Changed from GET to POST so that the AIOStreams token is sent in the
     /// request body rather than as a query-string parameter (which Emby logs verbatim).
     /// </summary>
-    [Route("/EmbyStreams/TestUrl", "POST",
+    [Route("/InfiniteDrive/TestUrl", "POST",
         Summary = "Tests an AIOStreams connection with the provided credentials (does not save)")]
     public class TestUrlRequest : IReturn<object>
     {
@@ -826,11 +826,11 @@ namespace EmbyStreams.Services
         /// <summary>Emby injects dependencies automatically.</summary>
         public TestUrlService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<TestUrlService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<TestUrlService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
-        /// <summary>Handles <c>POST /EmbyStreams/TestUrl</c>.</summary>
+        /// <summary>Handles <c>POST /InfiniteDrive/TestUrl</c>.</summary>
         public async Task<object> Post(TestUrlRequest request)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
@@ -900,11 +900,11 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Catalogs</c>.
+    /// Request object for <c>GET /InfiniteDrive/Catalogs</c>.
     /// Fetches the AIOStreams manifest and returns every eligible catalog so the
     /// admin dashboard can render a pick-list of catalogs to sync.
     /// </summary>
-    [Route("/EmbyStreams/Catalogs", "GET",
+    [Route("/InfiniteDrive/Catalogs", "GET",
         Summary = "Returns catalog definitions discovered from the AIOStreams manifest")]
     public class CatalogsRequest : IReturn<object> { }
 
@@ -926,7 +926,7 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Response payload for <c>GET /EmbyStreams/Catalogs</c>.
+    /// Response payload for <c>GET /InfiniteDrive/Catalogs</c>.
     /// </summary>
     public class CatalogsResponse
     {
@@ -949,11 +949,11 @@ namespace EmbyStreams.Services
 
         public CatalogService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<CatalogService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<CatalogService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
-        /// <summary>Handles <c>GET /EmbyStreams/Catalogs</c>.</summary>
+        /// <summary>Handles <c>GET /InfiniteDrive/Catalogs</c>.</summary>
         public async Task<object> Get(CatalogsRequest _)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
@@ -1022,12 +1022,12 @@ namespace EmbyStreams.Services
             }
             catch (OperationCanceledException)
             {
-                _logger.LogWarning("[EmbyStreams] {Source} manifest request timed out (10s)", sourceName);
+                _logger.LogWarning("[InfiniteDrive] {Source} manifest request timed out (10s)", sourceName);
                 return null;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] {Source} manifest fetch failed", sourceName);
+                _logger.LogWarning(ex, "[InfiniteDrive] {Source} manifest fetch failed", sourceName);
                 return null;
             }
         }
@@ -1038,9 +1038,9 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/CatalogProgress</c>.
+    /// Request object for <c>GET /InfiniteDrive/CatalogProgress</c>.
     /// </summary>
-    [Route("/EmbyStreams/CatalogProgress", "GET",
+    [Route("/InfiniteDrive/CatalogProgress", "GET",
         Summary = "Returns live per-catalog sync progress from sync_state")]
     public class CatalogProgressRequest : IReturn<object> { }
 
@@ -1061,7 +1061,7 @@ namespace EmbyStreams.Services
     }
 
     /// <summary>
-    /// Response from <c>GET /EmbyStreams/CatalogProgress</c>.
+    /// Response from <c>GET /InfiniteDrive/CatalogProgress</c>.
     /// </summary>
     public class CatalogProgressResponse
     {
@@ -1081,7 +1081,7 @@ namespace EmbyStreams.Services
 
         public CatalogProgressService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<CatalogProgressService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<CatalogProgressService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
@@ -1123,7 +1123,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] CatalogProgress query failed");
+                _logger.LogWarning(ex, "[InfiniteDrive] CatalogProgress query failed");
                 return new CatalogProgressResponse();
             }
         }
@@ -1134,9 +1134,9 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Inspect</c>.
+    /// Request object for <c>GET /InfiniteDrive/Inspect</c>.
     /// </summary>
-    [Route("/EmbyStreams/Inspect", "GET",
+    [Route("/InfiniteDrive/Inspect", "GET",
         Summary = "Returns the catalog record and cached resolution data for a single item")]
     public class InspectRequest : IReturn<object>
     {
@@ -1181,7 +1181,7 @@ namespace EmbyStreams.Services
         public bool IsCached { get; set; }
     }
 
-    /// <summary>Response from <c>GET /EmbyStreams/Inspect</c>.</summary>
+    /// <summary>Response from <c>GET /InfiniteDrive/Inspect</c>.</summary>
     public class InspectResponse
     {
         /// <summary>Whether a catalog record exists for this IMDB ID.</summary>
@@ -1256,7 +1256,7 @@ namespace EmbyStreams.Services
     /// Returns the catalog record and cached resolution entry for any IMDB ID,
     /// making it easy to debug why a title isn't playing.
     ///
-    /// Example: <c>GET /EmbyStreams/Inspect?imdb=tt0903747&amp;season=1&amp;episode=1</c>
+    /// Example: <c>GET /InfiniteDrive/Inspect?imdb=tt0903747&amp;season=1&amp;episode=1</c>
     /// </summary>
     public class InspectService : IService, IRequiresRequest
     {
@@ -1266,11 +1266,11 @@ namespace EmbyStreams.Services
 
         public InspectService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<InspectService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<InspectService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
-        /// <summary>Handles <c>GET /EmbyStreams/Inspect</c>.</summary>
+        /// <summary>Handles <c>GET /InfiniteDrive/Inspect</c>.</summary>
         public async Task<object> Get(InspectRequest request)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
@@ -1313,7 +1313,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] InspectService: catalog lookup failed");
+                _logger.LogWarning(ex, "[InfiniteDrive] InspectService: catalog lookup failed");
                 response.Error = "Catalog lookup failed: " + ex.Message;
             }
 
@@ -1338,7 +1338,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] InspectService: cache lookup failed");
+                _logger.LogWarning(ex, "[InfiniteDrive] InspectService: cache lookup failed");
             }
 
             // ── Stream candidates ─────────────────────────────────────────────────
@@ -1364,7 +1364,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[EmbyStreams] InspectService: candidates query failed");
+                _logger.LogDebug(ex, "[InfiniteDrive] InspectService: candidates query failed");
             }
 
             // ── .strm play URL ────────────────────────────────────────────────────
@@ -1373,8 +1373,8 @@ namespace EmbyStreams.Services
             {
                 var port = ParsePort(config.EmbyBaseUrl) ?? 8096;
                 response.StrmPlayUrl = request.Season.HasValue
-                    ? $"http://127.0.0.1:{port}/EmbyStreams/GetStream?imdb={imdb}&season={request.Season}&episode={request.Episode}"
-                    : $"http://127.0.0.1:{port}/EmbyStreams/GetStream?imdb={imdb}";
+                    ? $"http://127.0.0.1:{port}/InfiniteDrive/GetStream?imdb={imdb}&season={request.Season}&episode={request.Episode}"
+                    : $"http://127.0.0.1:{port}/InfiniteDrive/GetStream?imdb={imdb}";
             }
 
             return response;
@@ -1401,10 +1401,10 @@ namespace EmbyStreams.Services
     // ╚══════════════════════════════════════════════════════════════════════════╝
 
     /// <summary>
-    /// Request object for <c>GET /EmbyStreams/Search</c>.
+    /// Request object for <c>GET /InfiniteDrive/Search</c>.
     /// Full-text search over catalog item titles.
     /// </summary>
-    [Route("/EmbyStreams/Search", "GET",
+    [Route("/InfiniteDrive/Search", "GET",
         Summary = "Searches the catalog by title — returns up to 20 matches")]
     public class SearchRequest : IReturn<object>
     {
@@ -1437,7 +1437,7 @@ namespace EmbyStreams.Services
         public bool HasValidCache { get; set; }
     }
 
-    /// <summary>Response from <c>GET /EmbyStreams/Search</c>.</summary>
+    /// <summary>Response from <c>GET /InfiniteDrive/Search</c>.</summary>
     public class SearchResponse
     {
         /// <summary>Search query that was executed.</summary>
@@ -1454,7 +1454,7 @@ namespace EmbyStreams.Services
     /// Searches the catalog by title and returns matching items with cache status.
     /// Designed to power the Inspect panel's title-lookup helper in the dashboard.
     ///
-    /// Example: <c>GET /EmbyStreams/Search?q=breaking+bad&amp;limit=10</c>
+    /// Example: <c>GET /InfiniteDrive/Search?q=breaking+bad&amp;limit=10</c>
     /// </summary>
     public class SearchService : IService, IRequiresRequest
     {
@@ -1464,11 +1464,11 @@ namespace EmbyStreams.Services
 
         public SearchService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<SearchService>(logManager.GetLogger("EmbyStreams"));
+            _logger  = new EmbyLoggerAdapter<SearchService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
-        /// <summary>Handles <c>GET /EmbyStreams/Search</c>.</summary>
+        /// <summary>Handles <c>GET /InfiniteDrive/Search</c>.</summary>
         public async Task<object> Get(SearchRequest request)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
@@ -1513,7 +1513,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[EmbyStreams] SearchService: query failed for '{Query}'", query);
+                _logger.LogWarning(ex, "[InfiniteDrive] SearchService: query failed for '{Query}'", query);
                 return new SearchResponse { Query = query, Error = ex.Message };
             }
         }
@@ -1535,12 +1535,12 @@ namespace EmbyStreams.Services
     // REFRESH MANIFEST ENDPOINT (Sprint 100A-01)
     // ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 
-    /// <summary>Request for <c>POST /EmbyStreams/RefreshManifest</c>.</summary>
-    [Route("/EmbyStreams/RefreshManifest", "POST",
+    /// <summary>Request for <c>POST /InfiniteDrive/RefreshManifest</c>.</summary>
+    [Route("/InfiniteDrive/RefreshManifest", "POST",
         Summary = "Force-refreshes the AIOStreams manifest and returns summary")]
     public class RefreshManifestRequest : IReturn<object> { }
 
-    /// <summary>Response from <c>POST /EmbyStreams/RefreshManifest</c>.</summary>
+    /// <summary>Response from <c>POST /InfiniteDrive/RefreshManifest</c>.</summary>
     public class RefreshManifestResponse
     {
         /// <summary>Status: "ok" or "error".</summary>
@@ -1574,11 +1574,11 @@ namespace EmbyStreams.Services
 
         public RefreshManifestService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger = new EmbyLoggerAdapter<RefreshManifestService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<RefreshManifestService>(logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
 
-        /// <summary>Handles <c>POST /EmbyStreams/RefreshManifest</c>.</summary>
+        /// <summary>Handles <c>POST /InfiniteDrive/RefreshManifest</c>.</summary>
         public async Task<object> Post(RefreshManifestRequest _)
         {
             // Sprint 100A-09: Admin guard required
@@ -1599,7 +1599,7 @@ namespace EmbyStreams.Services
             // Sprint 102A-01: Check if manifest is stale before fetching
             Plugin.CheckManifestStale();
 
-            _logger.LogInformation("[EmbyStreams] RefreshManifest: Force-refreshing manifest from {Url}",
+            _logger.LogInformation("[InfiniteDrive] RefreshManifest: Force-refreshing manifest from {Url}",
                 config.PrimaryManifestUrl);
 
             try
@@ -1610,7 +1610,7 @@ namespace EmbyStreams.Services
 
                 if (manifest == null)
                 {
-                    _logger.LogWarning("[EmbyStreams] RefreshManifest: Failed to fetch manifest");
+                    _logger.LogWarning("[InfiniteDrive] RefreshManifest: Failed to fetch manifest");
                     // Sprint 102A-01: Set status to error on fetch failure
                     Plugin.SetManifestStatus("error");
                     return new RefreshManifestResponse
@@ -1651,7 +1651,7 @@ namespace EmbyStreams.Services
                 var catalogCount = manifest.Catalogs?.Count ?? 0;
 
                 _logger.LogInformation(
-                    "[EmbyStreams] RefreshManifest: Success - {Catalogs} catalogs, " +
+                    "[InfiniteDrive] RefreshManifest: Success - {Catalogs} catalogs, " +
                     "{Resources} resource types, {Prefixes} ID prefixes",
                     catalogCount, string.Join(", ", resourceTypes), string.Join(", ", idPrefixes));
 
@@ -1667,7 +1667,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] RefreshManifest: Exception during manifest refresh");
+                _logger.LogError(ex, "[InfiniteDrive] RefreshManifest: Exception during manifest refresh");
                 // Sprint 102A-01: Set status to error on exception
                 Plugin.SetManifestStatus("error");
                 return new RefreshManifestResponse
@@ -1700,10 +1700,10 @@ namespace EmbyStreams.Services
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // Z1 — /EmbyStreams/Answer  (The Answer to Life, the Universe, and Everything)
+    // Z1 — /InfiniteDrive/Answer  (The Answer to Life, the Universe, and Everything)
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/Answer", "GET", Summary = "Returns the answer to life, the universe, and everything")]
+    [Route("/InfiniteDrive/Answer", "GET", Summary = "Returns the answer to life, the universe, and everything")]
     public class AnswerRequest : IReturn<object> { }
 
     /// <summary>
@@ -1743,10 +1743,10 @@ namespace EmbyStreams.Services
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // Z6 — /EmbyStreams/Marvin  (The Paranoid Android)
+    // Z6 — /InfiniteDrive/Marvin  (The Paranoid Android)
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/Marvin", "GET", Summary = "Consult the Paranoid Android for a depressed status report")]
+    [Route("/InfiniteDrive/Marvin", "GET", Summary = "Consult the Paranoid Android for a depressed status report")]
     public class MarvinRequest : IReturn<object> { }
 
     /// <summary>
@@ -1797,10 +1797,10 @@ namespace EmbyStreams.Services
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // A3 — /EmbyStreams/DbStats
+    // A3 — /InfiniteDrive/DbStats
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/DbStats", "GET", Summary = "Returns SQLite database statistics for the health dashboard")]
+    [Route("/InfiniteDrive/DbStats", "GET", Summary = "Returns SQLite database statistics for the health dashboard")]
     public class DbStatsRequest : IReturn<object> { }
 
     /// <summary>Admin-only DB stats endpoint.</summary>
@@ -1835,10 +1835,10 @@ namespace EmbyStreams.Services
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // T1 — /EmbyStreams/Panic  (Hitchhiker's Guide error page)
+    // T1 — /InfiniteDrive/Panic  (Hitchhiker's Guide error page)
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/Panic", "GET", Summary = "Hitchhiker's Guide to the Galaxy styled playback error page")]
+    [Route("/InfiniteDrive/Panic", "GET", Summary = "Hitchhiker's Guide to the Galaxy styled playback error page")]
     public class PanicRequest : IReturn<object>
     {
         [ApiMember(Name = "reason", Description = "Error reason code", DataType = "string", ParameterType = "query")]
@@ -1883,7 +1883,7 @@ namespace EmbyStreams.Services
 <head>
 <meta charset=""utf-8"">
 <meta name=""viewport"" content=""width=device-width,initial-scale=1"">
-<title>DON'T PANIC — EmbyStreams</title>
+<title>DON'T PANIC — InfiniteDrive</title>
 <style>
 *{{box-sizing:border-box;margin:0;padding:0}}
 html,body{{height:100%}}
@@ -1993,7 +1993,7 @@ body{{
       headline: ""NOW PANIC"",
       badge: ""IMPROBABILITY DRIVE MALFUNCTION"",
       msg: ""Something has gone wrong that even the infinite improbability drive cannot explain. "" +
-           ""The EmbyStreams plugin is not properly initialised. "" +
+           ""The InfiniteDrive plugin is not properly initialised. "" +
            ""Please check your Emby plugin configuration and try again. "" +
            ""Bring a towel.""
     }}
@@ -2069,10 +2069,10 @@ body{{
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // A1 — /EmbyStreams/RecentErrors
+    // A1 — /InfiniteDrive/RecentErrors
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/RecentErrors", "GET", Summary = "Returns the last 20 playback failures for the health dashboard")]
+    [Route("/InfiniteDrive/RecentErrors", "GET", Summary = "Returns the last 20 playback failures for the health dashboard")]
     public class RecentErrorsRequest : IReturn<object> { }
 
     /// <summary>Admin-only recent-errors endpoint — surfaces the last 20 failed play events.</summary>
@@ -2111,10 +2111,10 @@ body{{
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // U1 — /EmbyStreams/UnhealthyItems  (items currently stuck in failed state)
+    // U1 — /InfiniteDrive/UnhealthyItems  (items currently stuck in failed state)
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/UnhealthyItems", "GET",
+    [Route("/InfiniteDrive/UnhealthyItems", "GET",
         Summary = "Admin: returns items currently stuck in a failed/unavailable resolution state")]
     public class UnhealthyItemsRequest : IReturn<object> { }
 
@@ -2156,10 +2156,10 @@ body{{
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // A11 — /EmbyStreams/RawStreams  (Raw AIOStreams response inspector)
+    // A11 — /InfiniteDrive/RawStreams  (Raw AIOStreams response inspector)
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/RawStreams", "GET",
+    [Route("/InfiniteDrive/RawStreams", "GET",
         Summary = "Admin: Fetch the raw AIOStreams stream response for a given IMDB ID")]
     public class RawStreamsRequest : IReturn<object>
     {
@@ -2201,7 +2201,7 @@ body{{
             if (config == null) return new { Error = "Plugin not initialised" };
 
             var logger = new Logging.EmbyLoggerAdapter<RawStreamsService>(
-                _logManager.GetLogger("EmbyStreams"));
+                _logManager.GetLogger("InfiniteDrive"));
 
             var started = DateTime.UtcNow;
             try
@@ -2271,7 +2271,7 @@ body{{
     // Debug — Smoke test helpers
     // ════════════════════════════════════════════════════════════════════════════
 
-    [Route("/EmbyStreams/Debug/SeedMatrix", "POST", Summary = "Admin: Seed The Matrix into discover_catalog")]
+    [Route("/InfiniteDrive/Debug/SeedMatrix", "POST", Summary = "Admin: Seed The Matrix into discover_catalog")]
     public class DebugSeedMatrixRequest : IReturn<object> { }
 
     public class DebugSeedMatrixService : IService, IRequiresRequest
@@ -2296,7 +2296,7 @@ body{{
             if (db == null) return new { success = false, message = "Database not initialized" };
 
             var logger = new Logging.EmbyLoggerAdapter<DebugSeedMatrixService>(
-                _logManager.GetLogger("EmbyStreams"));
+                _logManager.GetLogger("InfiniteDrive"));
 
             try
             {
@@ -2337,7 +2337,7 @@ body{{
         /// <summary>
         /// Quick check: get total count of discover_catalog items
         /// </summary>
-        [Route("/EmbyStreams/Debug/CatalogCount", "GET", Summary = "Admin: Get discover_catalog item count")]
+        [Route("/InfiniteDrive/Debug/CatalogCount", "GET", Summary = "Admin: Get discover_catalog item count")]
         public class DebugCatalogCountRequest : IReturn<object> { }
 
         public class DebugCatalogCountService : IService, IRequiresRequest
@@ -2386,14 +2386,14 @@ body{{
     // ════════════════════════════════════════════════════════════════════════════════════
 
     /// <summary>
-    /// Request for <c>GET /EmbyStreams/Health</c>.
+    /// Request for <c>GET /InfiniteDrive/Health</c>.
     /// Sprint 100A-13: No auth required for read.
     /// </summary>
-    [Route("/EmbyStreams/Health", "GET",
+    [Route("/InfiniteDrive/Health", "GET",
         Summary = "Returns plugin health status (no auth required)")]
     public class HealthRequest : IReturn<object> { }
 
-    /// <summary>Response from <c>GET /EmbyStreams/Health</c>.</summary>
+    /// <summary>Response from <c>GET /InfiniteDrive/Health</c>.</summary>
     public class HealthResponse
     {
         /// <summary>"ok", "stale", or "error".</summary>
@@ -2463,10 +2463,10 @@ body{{
 
         public HealthService(ILogManager logManager)
         {
-            _logger = new EmbyLoggerAdapter<HealthService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<HealthService>(logManager.GetLogger("InfiniteDrive"));
         }
 
-        /// <summary>Handles <c>GET /EmbyStreams/Health</c>.</summary>
+        /// <summary>Handles <c>GET /InfiniteDrive/Health</c>.</summary>
         public async Task<object> Get(HealthRequest _)
         {
             // Sprint 100A-09: No auth required for health read endpoint
@@ -2538,14 +2538,14 @@ body{{
                 response.UnknownProviderPrefixes = new List<string>();
 
                 response.Status = "ok";
-                _logger.LogInformation("[EmbyStreams] Health: {Status}, Manifest: {ManifestStatus}",
+                _logger.LogInformation("[InfiniteDrive] Health: {Status}, Manifest: {ManifestStatus}",
                     response.Status, manifestStatus);
 
                 return response;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] Health endpoint error");
+                _logger.LogError(ex, "[InfiniteDrive] Health endpoint error");
                 response.Status = "error";
                 return response;
             }

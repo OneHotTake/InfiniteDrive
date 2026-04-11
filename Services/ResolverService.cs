@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Resolve endpoint service for AIOStreams stream resolution.
@@ -27,7 +27,7 @@ namespace EmbyStreams.Services
             PluginConfiguration config,
             AioStreamsClient aioClient)
         {
-            _logger = new EmbyLoggerAdapter<ResolverService>(logManager.GetLogger("EmbyStreams"));
+            _logger = new EmbyLoggerAdapter<ResolverService>(logManager.GetLogger("InfiniteDrive"));
             _config = config;
             _aioClient = aioClient;
             _m3u8Builder = new M3u8Builder();
@@ -40,7 +40,7 @@ namespace EmbyStreams.Services
         public IResponse Response => Request?.Response;
 
         /// <summary>
-        /// Handles GET /EmbyStreams/Resolve endpoint.
+        /// Handles GET /InfiniteDrive/Resolve endpoint.
         /// </summary>
         public async Task<object> Get(ResolverRequest req)
         {
@@ -69,7 +69,7 @@ namespace EmbyStreams.Services
 
             if (!PlaybackTokenService.ValidateStreamToken(req.Token, _config.PluginSecret))
             {
-                _logger.LogWarning("[EmbyStreams][Resolve] Invalid or expired resolve token");
+                _logger.LogWarning("[InfiniteDrive][Resolve] Invalid or expired resolve token");
                 return Error(401, "unauthorized", "Invalid or expired token");
             }
 
@@ -78,7 +78,7 @@ namespace EmbyStreams.Services
             if (tokenParts?.Length >= 3 &&
                 (tokenParts[0] != req.Quality || tokenParts[1] != req.Id))
             {
-                _logger.LogWarning("[EmbyStreams][Resolve] Token quality/id mismatch with request");
+                _logger.LogWarning("[InfiniteDrive][Resolve] Token quality/id mismatch with request");
                 return Error(401, "unauthorized", "Token parameters don't match request");
             }
 
@@ -86,7 +86,7 @@ namespace EmbyStreams.Services
             var streams = await ResolveStreamsAsync(req);
             if (streams == null || streams.Count == 0)
             {
-                _logger.LogWarning("[EmbyStreams][Resolve] No streams found for {Id}", req.Id);
+                _logger.LogWarning("[InfiniteDrive][Resolve] No streams found for {Id}", req.Id);
                 return Error(404, "not_found", "No streams available");
             }
 
@@ -94,7 +94,7 @@ namespace EmbyStreams.Services
             var filtered = FilterStreamsByTier(streams, req.Quality);
             if (filtered.Count == 0)
             {
-                _logger.LogWarning("[EmbyStreams][Resolve] No streams match tier {Quality} for {Id}", req.Quality, req.Id);
+                _logger.LogWarning("[InfiniteDrive][Resolve] No streams match tier {Quality} for {Id}", req.Quality, req.Id);
                 return Error(404, "not_found", $"No streams available for quality {req.Quality}");
             }
 
@@ -144,7 +144,7 @@ namespace EmbyStreams.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams][Resolve] Failed to resolve streams for {Id}", req.Id);
+                _logger.LogError(ex, "[InfiniteDrive][Resolve] Failed to resolve streams for {Id}", req.Id);
                 return new List<AioStreamsStream>();
             }
         }
@@ -230,7 +230,7 @@ namespace EmbyStreams.Services
                 {
                     // Sign stream URL
                     var signedUrl = PlaybackTokenService.Sign(s.Url!, _config.PluginSecret, 1);
-                    var proxyUrl = $"{_config.EmbyBaseUrl.TrimEnd('/')}/EmbyStreams/stream?url={Uri.EscapeDataString(signedUrl)}";
+                    var proxyUrl = $"{_config.EmbyBaseUrl.TrimEnd('/')}/InfiniteDrive/stream?url={Uri.EscapeDataString(signedUrl)}";
 
                     // Get resolution from parsed metadata
                     var resolution = s.ParsedFile?.Resolution ?? string.Empty;

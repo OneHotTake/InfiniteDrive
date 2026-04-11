@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Shared stream resolution helper used by PlaybackService, SignedStreamService, and DiscoverService.
@@ -53,7 +53,7 @@ namespace EmbyStreams.Services
             {
                 try
                 {
-                    logger.LogDebug("[EmbyStreams] Trying provider {Name} for {Imdb}",
+                    logger.LogDebug("[InfiniteDrive] Trying provider {Name} for {Imdb}",
                         provider.DisplayName ?? "unknown", req.Imdb);
 
                     using var client = new AioStreamsClient(
@@ -87,18 +87,18 @@ namespace EmbyStreams.Services
                 catch (AioStreamsUnreachableException ex)
                 {
                     lastUnreachable = ex;
-                    logger.LogDebug("[EmbyStreams] Provider {Name} unreachable, trying next",
+                    logger.LogDebug("[InfiniteDrive] Provider {Name} unreachable, trying next",
                         provider.DisplayName ?? "unknown");
                 }
                 catch (OperationCanceledException)
                 {
-                    logger.LogWarning("[EmbyStreams] Sync resolve timed out ({Timeout}s) for {Imdb}",
+                    logger.LogWarning("[InfiniteDrive] Sync resolve timed out ({Timeout}s) for {Imdb}",
                         timeoutMs / 1000, req.Imdb);
                     return null;
                 }
                 catch (Exception ex)
                 {
-                    logger.LogError(ex, "[EmbyStreams] Sync resolve failed for {Imdb} with provider {Name}",
+                    logger.LogError(ex, "[InfiniteDrive] Sync resolve failed for {Imdb} with provider {Name}",
                         req.Imdb, provider.DisplayName ?? "unknown");
                 }
             }

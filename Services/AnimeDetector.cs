@@ -1,7 +1,7 @@
 using System;
 using System.Text.Json;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Detects anime content using a three-tier approach.

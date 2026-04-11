@@ -4,7 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Whether the upstream AIOStreams instance is shared (public) or private (self-hosted).
@@ -19,7 +19,7 @@ namespace EmbyStreams.Services
 
     /// <summary>
     /// Compiled-in throttle constants per instance type.
-    /// Not user-editable from UI. Advanced users can edit EmbyStreams.xml directly.
+    /// Not user-editable from UI. Advanced users can edit InfiniteDrive.xml directly.
     /// </summary>
     public sealed class CooldownProfile
     {

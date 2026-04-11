@@ -1,12 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# EmbyStreams Development Server Startup Script
+# InfiniteDrive Development Server Startup Script
 # =============================================================================
 # Purpose: Run an isolated Emby development server on port 8096 for testing
-#          the EmbyStreams plugin, completely separate from production.
+#          the InfiniteDrive plugin, completely separate from production.
 #
 # What this script does:
-#   1. Builds the EmbyStreams plugin (Release mode)
+#   1. Builds the InfiniteDrive plugin (Release mode)
 #   2. Copies the DLL to ~/emby-dev-data/plugins/
 #   3. Kills any existing emby processes
 #   4. Starts Emby Server on port 8096 using isolated data directory
@@ -24,14 +24,14 @@ export PATH="$PATH:$HOME/.dotnet"
 
 cd /home/onehottake/Projects/emby/embyStreams
 
-echo "=== Building EmbyStreams plugin ==="
+echo "=== Building InfiniteDrive plugin ==="
 dotnet publish -c Release || { echo "Build failed"; exit 1; }
 
 echo "=== Deploying plugin to dev directory ==="
-mkdir -p ~/emby-dev-data/plugins/EmbyStreams/libs
-cp bin/Release/net8.0/publish/EmbyStreams.dll ~/emby-dev-data/plugins/
-cp bin/Release/net8.0/publish/Polly.dll ~/emby-dev-data/plugins/EmbyStreams/libs/ 2>/dev/null || true
-cp bin/Release/net8.0/publish/Polly.Core.dll ~/emby-dev-data/plugins/EmbyStreams/libs/ 2>/dev/null || true
+mkdir -p ~/emby-dev-data/plugins/InfiniteDrive/libs
+cp bin/Release/net8.0/publish/InfiniteDrive.dll ~/emby-dev-data/plugins/
+cp bin/Release/net8.0/publish/Polly.dll ~/emby-dev-data/plugins/InfiniteDrive/libs/ 2>/dev/null || true
+cp bin/Release/net8.0/publish/Polly.Core.dll ~/emby-dev-data/plugins/InfiniteDrive/libs/ 2>/dev/null || true
 cp plugin.json ~/emby-dev-data/plugins/
 
 echo "=== Checking for existing emby processes ==="
@@ -66,7 +66,7 @@ fi
 echo ""
 echo "=== Dev environment ready ==="
 echo "Server: http://localhost:8096"
-echo "Plugin config: http://localhost:8096/web/configurationpage?name=EmbyStreams"
+echo "Plugin config: http://localhost:8096/web/configurationpage?name=InfiniteDrive"
 echo "Logs: ~/emby-dev.log or ~/emby-dev-data/logs/embyserver.txt"
 echo ""
 echo "For troubleshooting, see RUNBOOK.md"

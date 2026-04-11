@@ -2,15 +2,15 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Models;
+using InfiniteDrive.Data;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
-    /// Resolves conflicts between "Your Files" items and EmbyStreams items.
+    /// Resolves conflicts between "Your Files" items and InfiniteDrive items.
     /// Implements coalition rule: keeps available but supersedes stream.
     /// </summary>
     public class YourFilesConflictResolver

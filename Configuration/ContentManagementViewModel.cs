@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using Emby.Plugin.UI.Attributes;
 
-namespace EmbyStreams.Configuration
+namespace InfiniteDrive.Configuration
 {
     /// <summary>
     /// Content Management ViewModel for admin-only functions.

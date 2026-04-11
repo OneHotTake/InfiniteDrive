@@ -5,17 +5,17 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Data;
-using EmbyStreams.Logging;
-using EmbyStreams.Models;
-using EmbyStreams.Services;
+using InfiniteDrive.Data;
+using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Deep Clean scheduled task for 18-24 hour validation cycles.
@@ -26,9 +26,9 @@ namespace EmbyStreams.Tasks
     {
         // ── Constants ────────────────────────────────────────────────────────────
 
-        private const string TaskName     = "EmbyStreams Deep Clean";
-        private const string TaskKey      = "EmbyStreamsDeepClean";
-        private const string TaskCategory = "EmbyStreams";
+        private const string TaskName     = "InfiniteDrive Deep Clean";
+        private const string TaskKey      = "InfiniteDriveDeepClean";
+        private const string TaskCategory = "InfiniteDrive";
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ namespace EmbyStreams.Tasks
             ILogManager logManager,
             ILibraryManager libraryManager)
         {
-            _logger         = new EmbyLoggerAdapter<DeepCleanTask>(logManager.GetLogger("EmbyStreams"));
+            _logger         = new EmbyLoggerAdapter<DeepCleanTask>(logManager.GetLogger("InfiniteDrive"));
             _libraryManager = libraryManager;
         }
 
@@ -79,7 +79,7 @@ namespace EmbyStreams.Tasks
             // Concurrency guard — skip if another instance is already running
             if (!_runningGate.Wait(0))
             {
-                _logger.LogInformation("[EmbyStreams] DeepCleanTask already running, skipping");
+                _logger.LogInformation("[InfiniteDrive] DeepCleanTask already running, skipping");
                 return;
             }
 
@@ -106,7 +106,7 @@ namespace EmbyStreams.Tasks
 
         private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[EmbyStreams] DeepCleanTask started");
+            _logger.LogInformation("[InfiniteDrive] DeepCleanTask started");
 
             try
             {
@@ -133,11 +133,11 @@ namespace EmbyStreams.Tasks
                 await PersistEnrichmentCountsAsync(cancellationToken);
 
                 progress?.Report(1.0);
-                _logger.LogInformation("[EmbyStreams] DeepCleanTask completed successfully");
+                _logger.LogInformation("[InfiniteDrive] DeepCleanTask completed successfully");
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[EmbyStreams] DeepCleanTask failed");
+                _logger.LogError(ex, "[InfiniteDrive] DeepCleanTask failed");
                 throw;
             }
         }
@@ -170,7 +170,7 @@ namespace EmbyStreams.Tasks
                             item.UpdatedAt = DateTime.UtcNow.ToString("o");
                             await db.UpsertCatalogItemAsync(item, cancellationToken);
                             _logger.LogWarning(
-                                "[EmbyStreams] Integrity fail: {Imdb} .strm folder missing, reset to Queued",
+                                "[InfiniteDrive] Integrity fail: {Imdb} .strm folder missing, reset to Queued",
                                 item.ImdbId);
                         }
                     }
@@ -185,7 +185,7 @@ namespace EmbyStreams.Tasks
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await db.UpsertCatalogItemAsync(item, cancellationToken);
                         _logger.LogInformation(
-                            "[EmbyStreams] Resurrection: {Imdb} real file missing, reset to Queued",
+                            "[InfiniteDrive] Resurrection: {Imdb} real file missing, reset to Queued",
                             item.ImdbId);
                     }
                 }
@@ -228,7 +228,7 @@ namespace EmbyStreams.Tasks
                     try
                     {
                         File.Delete(orphanFile);
-                        _logger.LogDebug("[EmbyStreams] Deleted orphan .strm: {Path}", orphanFile);
+                        _logger.LogDebug("[InfiniteDrive] Deleted orphan .strm: {Path}", orphanFile);
                         orphanedCount++;
 
                         // Delete orphan .nfo alongside .strm
@@ -245,7 +245,7 @@ namespace EmbyStreams.Tasks
                             try
                             {
                                 Directory.Delete(parentDir);
-                                _logger.LogDebug("[EmbyStreams] Deleted empty folder: {Path}", parentDir);
+                                _logger.LogDebug("[InfiniteDrive] Deleted empty folder: {Path}", parentDir);
                             }
                             catch
                             {
@@ -255,14 +255,14 @@ namespace EmbyStreams.Tasks
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogWarning(ex, "[EmbyStreams] Failed to delete orphan file: {Path}", orphanFile);
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to delete orphan file: {Path}", orphanFile);
                     }
                 }
             }
 
             if (orphanedCount > 0)
             {
-                _logger.LogInformation("[EmbyStreams] Cleanup: Deleted {Count} orphan files", orphanedCount);
+                _logger.LogInformation("[InfiniteDrive] Cleanup: Deleted {Count} orphan files", orphanedCount);
             }
         }
 
@@ -360,7 +360,7 @@ namespace EmbyStreams.Tasks
                         await db.SetNfoStatusAsync(item.Id, "Blocked", cancellationToken);
                         blockedCount++;
                         _logger.LogWarning(
-                            "[EmbyStreams] Enrichment blocked for {Imdb} after 3 retries",
+                            "[InfiniteDrive] Enrichment blocked for {Imdb} after 3 retries",
                             item.ImdbId);
                     }
                     else
@@ -372,7 +372,7 @@ namespace EmbyStreams.Tasks
                     }
 
                     _logger.LogDebug(
-                        "[EmbyStreams] Enrichment failed for {Imdb}, retry {Count}",
+                        "[InfiniteDrive] Enrichment failed for {Imdb}, retry {Count}",
                         item.ImdbId, item.RetryCount);
                 }
                 else
@@ -385,14 +385,14 @@ namespace EmbyStreams.Tasks
                     await db.UpdateItemRetryInfoAsync(item.Id, 0, null, cancellationToken);
 
                     enrichedCount++;
-                    _logger.LogDebug("[EmbyStreams] Enriched metadata for {Imdb}", item.ImdbId);
+                    _logger.LogDebug("[InfiniteDrive] Enriched metadata for {Imdb}", item.ImdbId);
                 }
 
                 // Rate-limit delay: 2 seconds between calls
                 await Task.Delay(2000, cancellationToken);
             }
 
-            _logger.LogInformation($"[EmbyStreams] Enrichment: Processed {needsEnrichItems.Count} items, {enrichedCount} enriched, {blockedCount} blocked");
+            _logger.LogInformation($"[InfiniteDrive] Enrichment: Processed {needsEnrichItems.Count} items, {enrichedCount} enriched, {blockedCount} blocked");
 
             // Notify Emby of updated NFO files
             if (enrichedCount > 0)
@@ -400,11 +400,11 @@ namespace EmbyStreams.Tasks
                 try
                 {
                     _libraryManager.QueueLibraryScan();
-                    _logger.LogInformation("[EmbyStreams] Enrichment: Triggered library scan for {Count} enriched items", enrichedCount);
+                    _logger.LogInformation("[InfiniteDrive] Enrichment: Triggered library scan for {Count} enriched items", enrichedCount);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Enrichment: Failed to trigger library scan");
+                    _logger.LogWarning(ex, "[InfiniteDrive] Enrichment: Failed to trigger library scan");
                 }
             }
         }
@@ -476,11 +476,11 @@ namespace EmbyStreams.Tasks
                 {
                     await File.WriteAllTextAsync(tmpPath, nfoSb.ToString(), new UTF8Encoding(false));
                     File.Move(tmpPath, fullPath, overwrite: true);
-                    _logger.LogDebug("[EmbyStreams] Wrote enriched .nfo: {Path}", fullPath);
+                    _logger.LogDebug("[InfiniteDrive] Wrote enriched .nfo: {Path}", fullPath);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Failed to write enriched .nfo: {Path}", fullPath);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to write enriched .nfo: {Path}", fullPath);
                     if (File.Exists(tmpPath))
                         File.Delete(tmpPath);
                 }
@@ -564,17 +564,17 @@ namespace EmbyStreams.Tasks
                     await db.UpsertCatalogItemAsync(item, cancellationToken);
 
                     renewedCount++;
-                    _logger.LogDebug("[EmbyStreams] Token renewal: {Imdb}", item.ImdbId);
+                    _logger.LogDebug("[InfiniteDrive] Token renewal: {Imdb}", item.ImdbId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[EmbyStreams] Token renewal failed for {Imdb}", item.ImdbId);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Token renewal failed for {Imdb}", item.ImdbId);
                 }
             }
 
             if (renewedCount > 0)
             {
-                _logger.LogInformation("[EmbyStreams] Token renewal: Renewed {Count} items", renewedCount);
+                _logger.LogInformation("[InfiniteDrive] Token renewal: Renewed {Count} items", renewedCount);
             }
         }
 

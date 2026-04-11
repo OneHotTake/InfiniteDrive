@@ -1,6 +1,6 @@
 using System.ComponentModel;
 
-namespace EmbyStreams.Models
+namespace InfiniteDrive.Models
 {
     /// <summary>
     /// Stream quality tiers for ranking.

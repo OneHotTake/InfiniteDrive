@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Models;
+using InfiniteDrive.Models;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Services
+namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Resolves playable streams from AIOStreams with quality ranking.
@@ -33,7 +33,7 @@ namespace EmbyStreams.Services
 
             try
             {
-                var streams = new List<EmbyStreams.Services.AioStreamsStream>();
+                var streams = new List<InfiniteDrive.Services.AioStreamsStream>();
 
                 // Query AIOStreams based on media type
                 if (item.MediaType.Equals("movie", StringComparison.OrdinalIgnoreCase))
@@ -76,7 +76,7 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Converts AIOStreams stream objects to StreamCandidate DTOs.
         /// </summary>
-        private List<StreamCandidate> ConvertToCandidates(List<EmbyStreams.Services.AioStreamsStream> streams)
+        private List<StreamCandidate> ConvertToCandidates(List<InfiniteDrive.Services.AioStreamsStream> streams)
         {
             return streams.Where(s => !string.IsNullOrEmpty(s.Url))
                 .Select(s => new StreamCandidate
@@ -99,7 +99,7 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Builds a stable stream key for deduplication.
         /// </summary>
-        private string? BuildStreamKey(EmbyStreams.Services.AioStreamsStream stream)
+        private string? BuildStreamKey(InfiniteDrive.Services.AioStreamsStream stream)
         {
             if (!string.IsNullOrEmpty(stream.InfoHash))
             {
@@ -111,7 +111,7 @@ namespace EmbyStreams.Services
         /// <summary>
         /// Parses quality tier from AIOStreams stream.
         /// </summary>
-        private string ParseQuality(EmbyStreams.Services.AioStreamsStream stream)
+        private string ParseQuality(InfiniteDrive.Services.AioStreamsStream stream)
         {
             // Check parsed file first
             if (stream.ParsedFile?.Quality != null)

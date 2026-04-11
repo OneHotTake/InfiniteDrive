@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using EmbyStreams.Services;
+using InfiniteDrive.Services;
 using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
-namespace EmbyStreams.Tasks
+namespace InfiniteDrive.Tasks
 {
     /// <summary>
     /// Scheduled task for removal pipeline processing.
@@ -25,10 +25,10 @@ namespace EmbyStreams.Tasks
             _logger = logger;
         }
 
-        public string Name => "EmbyStreams Removal Cleanup";
+        public string Name => "InfiniteDrive Removal Cleanup";
         public string Key => "embystreams_removal";
         public string Description => "Processes expired grace period items for removal";
-        public string Category => "EmbyStreams";
+        public string Category => "InfiniteDrive";
 
         public IEnumerable<TaskTriggerInfo> GetDefaultTriggers() =>
             new[]
