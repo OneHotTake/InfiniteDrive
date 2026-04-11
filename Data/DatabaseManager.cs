@@ -4440,7 +4440,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT id, primary_id_type, primary_id, media_type, title, year,
-                       status, failure_reason, saved, saved_at, saved_by, save_reason, saved_season,
+                       status, failure_reason, saved, saved_at,
                        blocked, blocked_at, created_at, updated_at, grace_started_at,
                        superseded, superseded_conflict, superseded_at,
                        emby_item_id, emby_indexed_at, strm_path, nfo_path,
@@ -4461,7 +4461,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
-                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
                        mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
@@ -4489,7 +4489,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
-                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
                        mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
@@ -4510,7 +4510,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
-                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
                        mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
@@ -4524,6 +4524,136 @@ LIMIT 1";
                 ReadMediaItem);
         }
 
+        // ── Per-user saves (user_item_saves) ────────────────────────────────
+
+        /// <summary>
+        /// Gets saved media items for a specific user.
+        /// </summary>
+        public async Task<List<MediaItem>> GetSavedItemsByUserAsync(string userId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at,
+                       mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
+                       mi.superseded, mi.superseded_conflict, mi.superseded_at,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.watch_progress_pct, mi.favorited
+                FROM user_item_saves us
+                JOIN media_items mi ON us.media_item_id = mi.id
+                WHERE us.user_id = @UserId
+                ORDER BY us.saved_at DESC;";
+
+            return await QueryListAsync(sql,
+                cmd => BindText(cmd, "@UserId", userId),
+                ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Inserts a per-user save (idempotent via INSERT OR IGNORE).
+        /// </summary>
+        public async Task UpsertUserSaveAsync(string userId, string mediaItemId, string? saveReason, int? savedSeason, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                INSERT OR IGNORE INTO user_item_saves (user_id, media_item_id, save_reason, saved_season)
+                VALUES (@UserId, @MediaItemId, @SaveReason, @SavedSeason);";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@UserId", userId);
+                BindText(cmd, "@MediaItemId", mediaItemId);
+                BindNullableText(cmd, "@SaveReason", saveReason);
+                BindNullableInt(cmd, "@SavedSeason", savedSeason);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Deletes a per-user save.
+        /// </summary>
+        public async Task DeleteUserSaveAsync(string userId, string mediaItemId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                DELETE FROM user_item_saves
+                WHERE user_id = @UserId AND media_item_id = @MediaItemId;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@UserId", userId);
+                BindText(cmd, "@MediaItemId", mediaItemId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Checks if a user has saved a specific item.
+        /// </summary>
+        public Task<bool> HasUserSaveAsync(string userId, string mediaItemId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT EXISTS(
+                    SELECT 1 FROM user_item_saves
+                    WHERE user_id = @UserId AND media_item_id = @MediaItemId
+                );";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@UserId", userId);
+            BindText(stmt, "@MediaItemId", mediaItemId);
+            return Task.FromResult(stmt.AsRows().Any());
+        }
+
+        /// <summary>
+        /// Re-syncs the denormalized saved flag on media_items from user_item_saves.
+        /// Sets saved=1 if any user save exists, saved=0 otherwise. Updates saved_at.
+        /// </summary>
+        public async Task SyncGlobalSavedFlagAsync(string mediaItemId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE media_items
+                SET saved = (SELECT CASE WHEN EXISTS(
+                    SELECT 1 FROM user_item_saves WHERE media_item_id = @Id
+                ) THEN 1 ELSE 0 END),
+                saved_at = (SELECT MAX(saved_at) FROM user_item_saves WHERE media_item_id = @Id)
+                WHERE id = @Id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@Id", mediaItemId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets orphaned user saves where the media_item no longer exists.
+        /// For Marvin cleanup.
+        /// </summary>
+        public Task<List<(string SaveId, string UserId, string MediaItemId)>> GetOrphanedUserSavesAsync(CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT us.id, us.user_id, us.media_item_id
+                FROM user_item_saves us
+                LEFT JOIN media_items mi ON us.media_item_id = mi.id
+                WHERE mi.id IS NULL;";
+
+            var results = new List<(string, string, string)>();
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            foreach (var row in stmt.AsRows())
+            {
+                results.Add((row.GetString(0), row.GetString(1), row.GetString(2)));
+            }
+            return Task.FromResult(results);
+        }
+
+        /// <summary>
+        /// Deletes a user save by row ID. For Marvin cleanup.
+        /// </summary>
+        public async Task DeleteUserSaveByIdAsync(string saveId, CancellationToken cancellationToken = default)
+        {
+            const string sql = "DELETE FROM user_item_saves WHERE id = @Id;";
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@Id", saveId);
+            }, cancellationToken);
+        }
+
         /// <summary>
         /// Gets media items with active grace period.
         /// </summary>
@@ -4531,7 +4661,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
-                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
                        mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
@@ -4559,7 +4689,7 @@ LIMIT 1";
 
             const string sqlTemplate = @"
                 SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
-                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
                        mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
@@ -4605,7 +4735,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT mi.id, mi.primary_id_type, mi.primary_id, mi.media_type, mi.title, mi.year,
-                       mi.status, mi.failure_reason, mi.saved, mi.saved_at, mi.saved_by, mi.save_reason, mi.saved_season,
+                       mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
                        mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
@@ -4628,14 +4758,14 @@ LIMIT 1";
             const string sql = @"
                 INSERT INTO media_items
                     (id, primary_id_type, primary_id, media_type, title, year,
-                     status, failure_reason, saved, saved_at, saved_by, save_reason, saved_season,
+                     status, failure_reason, saved, saved_at,
                      blocked, blocked_at, created_at, updated_at, grace_started_at,
                      superseded, superseded_conflict, superseded_at,
                      emby_item_id, emby_indexed_at, strm_path, nfo_path,
                      watch_progress_pct, favorited)
                 VALUES
                     (@id, @primary_id_type, @primary_id, @media_type, @title, @year,
-                     @status, @failure_reason, @saved, @saved_at, @saved_by, @save_reason, @saved_season,
+                     @status, @failure_reason, @saved, @saved_at,
                      @blocked, @blocked_at, @created_at, @updated_at, @grace_started_at,
                      @superseded, @superseded_conflict, @superseded_at,
                      @emby_item_id, @emby_indexed_at, @strm_path, @nfo_path,
@@ -4645,9 +4775,6 @@ LIMIT 1";
                     failure_reason = excluded.failure_reason,
                     saved = excluded.saved,
                     saved_at = excluded.saved_at,
-                    saved_by = excluded.saved_by,
-                    save_reason = excluded.save_reason,
-                    saved_season = excluded.saved_season,
                     blocked = excluded.blocked,
                     blocked_at = excluded.blocked_at,
                     updated_at = excluded.updated_at,
@@ -4674,9 +4801,6 @@ LIMIT 1";
                 BindNullableText(cmd, "@failure_reason", item.FailureReason != FailureReason.None ? item.FailureReason.ToString().ToLowerInvariant() : null);
                 BindInt(cmd, "@saved", item.Saved ? 1 : 0);
                 BindNullableText(cmd, "@saved_at", item.SavedAt?.ToString("o"));
-                BindNullableText(cmd, "@saved_by", item.SavedBy);
-                BindNullableText(cmd, "@save_reason", item.SaveReason?.ToString().ToLowerInvariant());
-                BindNullableInt(cmd, "@saved_season", item.SavedSeason);
                 BindInt(cmd, "@blocked", item.Blocked ? 1 : 0);
                 BindNullableText(cmd, "@blocked_at", item.BlockedAt?.ToString("o"));
                 BindText(cmd, "@created_at", item.CreatedAt.ToString("o"));
@@ -4729,9 +4853,6 @@ LIMIT 1";
                     failure_reason = @failure_reason,
                     saved = @saved,
                     saved_at = @saved_at,
-                    saved_by = @saved_by,
-                    save_reason = @save_reason,
-                    saved_season = @saved_season,
                     blocked = @blocked,
                     blocked_at = @blocked_at,
                     grace_started_at = @grace_started_at,
@@ -4759,9 +4880,6 @@ LIMIT 1";
                 BindNullableText(cmd, "@failure_reason", item.FailureReason != FailureReason.None ? item.FailureReason.ToString().ToLowerInvariant() : null);
                 BindInt(cmd, "@saved", item.Saved ? 1 : 0);
                 BindNullableText(cmd, "@saved_at", item.SavedAt?.ToString("o"));
-                BindNullableText(cmd, "@saved_by", item.SavedBy);
-                BindNullableText(cmd, "@save_reason", item.SaveReason?.ToString().ToLowerInvariant());
-                BindNullableInt(cmd, "@saved_season", item.SavedSeason);
                 BindInt(cmd, "@blocked", item.Blocked ? 1 : 0);
                 BindNullableText(cmd, "@blocked_at", item.BlockedAt?.ToString("o"));
                 BindNullableText(cmd, "@grace_started_at", item.GraceStartedAt?.ToString("o"));
@@ -5604,23 +5722,20 @@ LIMIT 1";
                 FailureReason = r.IsDBNull(7) ? FailureReason.None : Enum.Parse<FailureReason>(r.GetString(7), ignoreCase: true),
                 Saved = r.GetInt(8) == 1,
                 SavedAt = r.IsDBNull(9) ? null : DateTimeOffset.Parse(r.GetString(9)),
-                SavedBy = r.GetString(10),
-                SaveReason = r.IsDBNull(11) ? null : Enum.Parse<SaveReason>(r.GetString(11), ignoreCase: true),
-                SavedSeason = r.IsDBNull(12) ? null : (int?)r.GetInt(12),
-                Blocked = r.GetInt(13) == 1,
-                BlockedAt = r.IsDBNull(14) ? null : DateTimeOffset.Parse(r.GetString(14)),
-                CreatedAt = DateTimeOffset.Parse(r.GetString(15)),
-                UpdatedAt = DateTimeOffset.Parse(r.GetString(16)),
-                GraceStartedAt = r.IsDBNull(17) ? null : DateTimeOffset.Parse(r.GetString(17)),
-                Superseded = r.GetInt(18) == 1,
-                SupersededConflict = r.GetInt(19) == 1,
-                SupersededAt = r.IsDBNull(20) ? null : DateTimeOffset.Parse(r.GetString(20)),
-                EmbyItemId = r.GetString(21),
-                EmbyIndexedAt = r.IsDBNull(22) ? null : DateTimeOffset.Parse(r.GetString(22)),
-                StrmPath = r.GetString(23),
-                NfoPath = r.GetString(24),
-                WatchProgressPct = r.GetInt(25),
-                Favorited = r.GetInt(26) == 1
+                Blocked = r.GetInt(10) == 1,
+                BlockedAt = r.IsDBNull(11) ? null : DateTimeOffset.Parse(r.GetString(11)),
+                CreatedAt = DateTimeOffset.Parse(r.GetString(12)),
+                UpdatedAt = DateTimeOffset.Parse(r.GetString(13)),
+                GraceStartedAt = r.IsDBNull(14) ? null : DateTimeOffset.Parse(r.GetString(14)),
+                Superseded = r.GetInt(15) == 1,
+                SupersededConflict = r.GetInt(16) == 1,
+                SupersededAt = r.IsDBNull(17) ? null : DateTimeOffset.Parse(r.GetString(17)),
+                EmbyItemId = r.GetString(18),
+                EmbyIndexedAt = r.IsDBNull(19) ? null : DateTimeOffset.Parse(r.GetString(19)),
+                StrmPath = r.GetString(20),
+                NfoPath = r.GetString(21),
+                WatchProgressPct = r.GetInt(22),
+                Favorited = r.GetInt(23) == 1
             };
         }
 
@@ -5667,7 +5782,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT id, primary_id_type, primary_id_value, media_type, title, year,
-                       status, failure_reason, saved, saved_at, saved_by, save_reason, saved_season,
+                       status, failure_reason, saved, saved_at,
                        blocked, blocked_at, created_at, updated_at, grace_started_at,
                        superseded, superseded_conflict, superseded_at,
                        emby_item_id, emby_indexed_at, strm_path, nfo_path,

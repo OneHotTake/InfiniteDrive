@@ -221,6 +221,29 @@ namespace InfiniteDrive.Services
     }
 
     /// <summary>
+    /// Request object for <c>POST /InfiniteDrive/Discover/RemoveFromLibrary</c>.
+    /// Removes item from current user's saved library.
+    /// </summary>
+    [Route("/InfiniteDrive/Discover/RemoveFromLibrary", "POST",
+        Summary = "Remove item from current user's saved library")]
+    public class DiscoverRemoveFromLibraryRequest : IReturn<DiscoverRemoveFromLibraryResponse>
+    {
+        /// <summary>IMDB ID of the item to remove.</summary>
+        [ApiMember(Name = "imdbId", Description = "IMDB ID", IsRequired = true, DataType = "string", ParameterType = "query")]
+        public string ImdbId { get; set; } = string.Empty;
+    }
+
+    /// <summary>Response from <c>POST /InfiniteDrive/Discover/RemoveFromLibrary</c>.</summary>
+    public class DiscoverRemoveFromLibraryResponse
+    {
+        /// <summary><c>true</c> if the item was removed successfully.</summary>
+        public bool Ok { get; set; }
+
+        /// <summary>Error message if <c>Ok</c> is <c>false</c>.</summary>
+        public string? Error { get; set; }
+    }
+
+    /// <summary>
     /// A single item in the Discover catalog (used in browse/search responses).
     /// Combines metadata from discover_catalog and library status.
     /// </summary>
@@ -303,7 +326,7 @@ namespace InfiniteDrive.Services
         public async Task<object> Get(DiscoverBrowseRequest req)
         {
             // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
-            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -336,7 +359,7 @@ namespace InfiniteDrive.Services
         public async Task<object> Get(DiscoverSearchRequest req)
         {
             // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
-            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -636,7 +659,7 @@ namespace InfiniteDrive.Services
         public async Task<object> Get(DiscoverDetailRequest req)
         {
             // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
-            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -665,7 +688,7 @@ namespace InfiniteDrive.Services
         public async Task<object> Post(DiscoverAddToLibraryRequest req, CancellationToken ct)
         {
             // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
-            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             // Ensure PluginSecret is initialized before accessing Configuration
@@ -768,6 +791,22 @@ namespace InfiniteDrive.Services
                 // Update discover_catalog to mark as in library
                 await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.ImdbId, true);
 
+                // Per-user save: resolve IMDB ID → media_item, then save for calling user
+                if (!string.IsNullOrEmpty(callerUserId))
+                {
+                    var mediaItem = await _db.FindMediaItemByProviderIdAsync("imdb", req.ImdbId, ct);
+                    if (mediaItem != null)
+                    {
+                        await _db.UpsertUserSaveAsync(callerUserId, mediaItem.Id, "explicit", null, ct);
+                        await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
+                        _logger.LogDebug("Per-user save: user {UserId} saved media item {ItemId}", callerUserId, mediaItem.Id);
+                    }
+                    else
+                    {
+                        _logger.LogDebug("Media item not yet indexed for IMDB {ImdbId}, per-user save deferred to SyncTask", req.ImdbId);
+                    }
+                }
+
                 _logger.LogInformation("Added {ImdbId} to library", req.ImdbId);
 
                 // Auto-trigger library refresh in background (fire-and-forget)
@@ -784,6 +823,64 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "Error adding item to library: {ImdbId}", req.ImdbId);
                 return new DiscoverAddToLibraryResponse
+                {
+                    Ok = false,
+                    Error = "An internal error occurred. Check server logs."
+                };
+            }
+        }
+
+        /// <summary>
+        /// Handles <c>POST /InfiniteDrive/Discover/RemoveFromLibrary</c>.
+        /// Removes item from current user's saved library.
+        /// </summary>
+        public async Task<object> Post(DiscoverRemoveFromLibraryRequest req, CancellationToken ct)
+        {
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
+            if (deny != null) return deny;
+
+            try
+            {
+                if (string.IsNullOrWhiteSpace(req.ImdbId))
+                {
+                    return new DiscoverRemoveFromLibraryResponse
+                    {
+                        Ok = false,
+                        Error = "ImdbId is required"
+                    };
+                }
+
+                var callerUserId = TryGetCurrentUserId();
+                if (string.IsNullOrEmpty(callerUserId))
+                {
+                    return new DiscoverRemoveFromLibraryResponse
+                    {
+                        Ok = false,
+                        Error = "Unable to identify user"
+                    };
+                }
+
+                var mediaItem = await _db.FindMediaItemByProviderIdAsync("imdb", req.ImdbId, ct);
+                if (mediaItem == null)
+                {
+                    return new DiscoverRemoveFromLibraryResponse
+                    {
+                        Ok = false,
+                        Error = "Item not found in library"
+                    };
+                }
+
+                await _db.DeleteUserSaveAsync(callerUserId, mediaItem.Id, ct);
+                await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
+
+                _logger.LogInformation("Removed {ImdbId} from library for user {UserId}", req.ImdbId, callerUserId);
+
+                return new DiscoverRemoveFromLibraryResponse { Ok = true };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error removing item from library: {ImdbId}", req.ImdbId);
+                return new DiscoverRemoveFromLibraryResponse
                 {
                     Ok = false,
                     Error = "An internal error occurred. Check server logs."
@@ -934,7 +1031,7 @@ namespace InfiniteDrive.Services
         public async Task<object> Get(DiscoverTestStreamResolutionRequest req)
         {
             // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
-            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -1036,7 +1133,7 @@ namespace InfiniteDrive.Services
         public async Task<object> Get(DiscoverDirectStreamRequest req)
         {
             // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
-            var deny = StatusService.RequireAuthenticated(_authCtx, Request);
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
@@ -1128,11 +1225,8 @@ namespace InfiniteDrive.Services
                 return items;
             }
 
-            return items.Where(item =>
-            {
-                var rating = ParseRating(item.RatingLabel);
-                return rating <= maxRating;
-            }).ToList();
+            // No RatingLabel column in discover_catalog — pass through until rating data is available
+            return items;
         }
 
         /// <summary>
@@ -1195,17 +1289,6 @@ namespace InfiniteDrive.Services
             };
         }
 
-        private string? GetUserId()
-        {
-            try
-            {
-                var authInfo = _authCtx.GetAuthorizationInfo(Request);
-                return authInfo?.UserId;
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        private string? GetUserId() => TryGetCurrentUserId();
     }
 }

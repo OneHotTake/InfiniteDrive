@@ -44,7 +44,6 @@ namespace InfiniteDrive.Tests
 
                 // Act - Save the item
                 item.Saved = true;
-                item.SaveReason = SaveReason.Explicit;
                 item.UpdatedAt = DateTimeOffset.UtcNow;
                 await db.UpsertMediaItemAsync(item, CancellationToken.None);
 
@@ -57,10 +56,6 @@ namespace InfiniteDrive.Tests
                 if (!updated.Saved)
                 {
                     return "FAIL: Item should be marked as saved";
-                }
-                if (updated.SaveReason != SaveReason.Explicit)
-                {
-                    return $"FAIL: Save reason should be Explicit, got {updated.SaveReason}";
                 }
                 return "PASS: Item saved successfully";
             }
@@ -95,7 +90,6 @@ namespace InfiniteDrive.Tests
                     MediaType = "movie",
                     Status = ItemStatus.Active,
                     Saved = true,
-                    SaveReason = SaveReason.Explicit,
                     CreatedAt = DateTimeOffset.UtcNow,
                     UpdatedAt = DateTimeOffset.UtcNow
                 };
@@ -104,7 +98,6 @@ namespace InfiniteDrive.Tests
 
                 // Act - Unsave the item
                 item.Saved = false;
-                item.SaveReason = null;
                 item.UpdatedAt = DateTimeOffset.UtcNow;
                 await db.UpsertMediaItemAsync(item, CancellationToken.None);
 

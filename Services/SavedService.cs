@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Data;
@@ -8,7 +9,7 @@ using Microsoft.Extensions.Logging;
 namespace InfiniteDrive.Services
 {
     /// <summary>
-    /// Handles user Save/Unsave/Block actions.
+    /// Handles per-user Save/Unsave and global Block/Unblock actions.
     /// </summary>
     public class SavedService
     {
@@ -22,11 +23,11 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Saves an item.
+        /// Saves an item for a specific user.
         /// </summary>
-        public async Task SaveItemAsync(string itemId, CancellationToken ct = default)
+        public async Task SaveItemAsync(string itemId, string userId, CancellationToken ct = default)
         {
-            _logger.LogInformation("[SavedService] Saving item {ItemId}", itemId);
+            _logger.LogInformation("[SavedService] User {UserId} saving item {ItemId}", userId, itemId);
 
             var item = await _db.GetMediaItemAsync(itemId, ct);
             if (item == null)
@@ -35,26 +36,20 @@ namespace InfiniteDrive.Services
                 return;
             }
 
-            item.Saved = true;
-            item.SavedAt = DateTimeOffset.UtcNow;
-            item.SavedBy = "user";
-            item.SaveReason = SaveReason.Explicit;
-            item.UpdatedAt = DateTimeOffset.UtcNow;
-
-            await _db.UpsertMediaItemAsync(item, ct);
+            await _db.UpsertUserSaveAsync(userId, itemId, "explicit", null, ct);
+            await _db.SyncGlobalSavedFlagAsync(itemId, ct);
             await LogPipelineEvent(item.Id, "Save", PipelineTrigger.UserSave, true, null, ct);
 
-            _logger.LogDebug("[SavedService] Item {ItemId} saved successfully", itemId);
+            _logger.LogDebug("[SavedService] Item {ItemId} saved for user {UserId}", itemId, userId);
         }
 
         /// <summary>
-        /// Unsaves an item.
-        /// CRITICAL: Sets saved=false only, never sets Deleted directly.
-        /// The removal pipeline evaluates grace period on next run.
+        /// Unsaves an item for a specific user.
+        /// If no users remain with a save, the global saved flag drops to 0.
         /// </summary>
-        public async Task UnsaveItemAsync(string itemId, CancellationToken ct = default)
+        public async Task UnsaveItemAsync(string itemId, string userId, CancellationToken ct = default)
         {
-            _logger.LogInformation("[SavedService] Unsaving item {ItemId}", itemId);
+            _logger.LogInformation("[SavedService] User {UserId} unsaving item {ItemId}", userId, itemId);
 
             var item = await _db.GetMediaItemAsync(itemId, ct);
             if (item == null)
@@ -63,19 +58,31 @@ namespace InfiniteDrive.Services
                 return;
             }
 
-            item.Saved = false;
-            item.SaveReason = null;
-            item.SavedAt = null;
-            item.UpdatedAt = DateTimeOffset.UtcNow;
-
-            await _db.UpsertMediaItemAsync(item, ct);
+            await _db.DeleteUserSaveAsync(userId, itemId, ct);
+            await _db.SyncGlobalSavedFlagAsync(itemId, ct);
             await LogPipelineEvent(item.Id, "Unsave", PipelineTrigger.UserRemove, true, null, ct);
 
-            _logger.LogDebug("[SavedService] Item {ItemId} unsaved successfully", itemId);
+            _logger.LogDebug("[SavedService] Item {ItemId} unsaved for user {UserId}", itemId, userId);
         }
 
         /// <summary>
-        /// Blocks an item.
+        /// Checks if a specific user has saved an item.
+        /// </summary>
+        public Task<bool> IsItemSavedByUserAsync(string itemId, string userId, CancellationToken ct = default)
+        {
+            return _db.HasUserSaveAsync(userId, itemId, ct);
+        }
+
+        /// <summary>
+        /// Gets all saved items for a specific user.
+        /// </summary>
+        public Task<List<MediaItem>> GetUserSavedItemsAsync(string userId, CancellationToken ct = default)
+        {
+            return _db.GetSavedItemsByUserAsync(userId, ct);
+        }
+
+        /// <summary>
+        /// Blocks an item (global).
         /// </summary>
         public async Task BlockItemAsync(string itemId, CancellationToken ct = default)
         {
@@ -99,9 +106,7 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Unblocks an item.
-        /// CRITICAL: Sets blocked=false only, never sets Deleted directly.
-        /// Re-enters pipeline on next sync if any source claims it.
+        /// Unblocks an item (global).
         /// </summary>
         public async Task UnblockItemAsync(string itemId, CancellationToken ct = default)
         {
