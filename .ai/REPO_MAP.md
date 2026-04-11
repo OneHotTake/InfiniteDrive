@@ -1,6 +1,6 @@
 # InfiniteDrive Repository Map
 
-_Updated 2026-04-11 (renamed from EmbyStreams). Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
+_Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
 
 ---
 
@@ -26,6 +26,9 @@ _Updated 2026-04-11 (renamed from EmbyStreams). Covers all `.cs` files in root, 
 
 ### Key Types / Constants
 - `PrimaryManifestUrl` — full AIOStreams manifest URL (includes auth path)
+- `SecondaryManifestUrl` — backup AIOStreams manifest URL
+- `EnableBackupAioStreams` — gates whether SecondaryManifestUrl is used as fallback (Sprint 201)
+- `SystemRssFeedUrls` — newline-separated system-wide RSS feed URLs, visible to all users (Sprint 200)
 - `PluginSecret` — HMAC-SHA256 key for signing .strm URLs; auto-generated
 - `ProxyMode` — `auto` / `redirect` / `proxy` stream serving mode
 - `EnableAnimeLibrary` — enables syncing anime content to anime path (soft requirement)
@@ -418,25 +421,26 @@ _Updated 2026-04-11 (renamed from EmbyStreams). Covers all `.cs` files in root, 
 
 ---
 
-## Services/LibraryProvisioning.cs (Sprint 109)
-> Service for provisioning Emby libraries on first plugin install. Creates THREE separate libraries: Movies, Series, Anime.
+## Services/LibraryProvisioningService.cs (Sprint 201)
+> Creates and verifies Emby virtual folder libraries for InfiniteDrive. Fully rewritten in Sprint 201 — no stubs, uses ILibraryManager.AddVirtualFolder. Idempotent — safe to call on every wizard run.
 
 ### Public Methods
-- `EnsureLibrariesProvisionedAsync()` - Checks and performs provisioning if needed
-- `ResetProvisioningFlag()` - Resets provisioning flag for testing/re-provisioning
+- `EnsureLibrariesProvisionedAsync()` — creates disk directories and Emby library entries; skips already-registered paths
+- `ProvisionOneAsync(name, contentType, path)` — internal; creates one library (movies/tvshows/mixed anime)
 
 ### Key Features
-- Creates THREE directory paths (movies/, series/, anime/)
-- Registers THREE Emby libraries (via REST API - placeholder)
-- Hides libraries for all users (placeholder)
-- Provisioning flag mechanism prevents re-application
+- Uses `ILibraryManager.AddVirtualFolder` SDK call — real Emby library registration
+- Creates disk directories if missing
+- Checks existing virtual folders to avoid duplicates
+- Anime library uses empty contentType (mixed type) when enabled
 
 ---
 
 ## Services/SetupService.cs
-> Setup wizard endpoints: directory creation, API key rotation, .strm file rewrite.
+> Setup wizard endpoints: directory creation, API key rotation, .strm file rewrite, library provisioning.
 
 ### Public Methods
+- `Post(ProvisionLibrariesRequest req)` — creates Emby library entries via LibraryProvisioningService (Sprint 201)
 - `Post(CreateDirectoriesRequest req)` — creates movies/shows/anime library directories
 - `Post(RotateApiKeyRequest req)` — rotates PluginSecret, rewrites all .strm files
 

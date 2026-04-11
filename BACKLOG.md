@@ -1,15 +1,17 @@
 # InfiniteDrive Development Backlog
 
-Versioning: `v0.{SPRINT}.{TASK}` — current version 0.40.0.0
+Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 
-**Current Status**: Sprint 160 Complete (ID Normalization + NFO Fixes) |
-                    Sprints 155-159 Complete (CooldownGate, Webhooks, User Catalogs, Stream Probe) |
-                    Sprints 140-154 Complete (Security, UX, Refactoring, Emby Alignment) |
-                    Sprint 161+ — Next sprint. Start here.
+**Current Status**: Sprint 200+201 Complete (Wizard UX Overhaul + Backend Wiring) |
+                     Sprint 160 Complete (ID Normalization + NFO Fixes) |
+                     Sprints 155-159 Complete (CooldownGate, Webhooks, User Catalogs, Stream Probe) |
+                     Sprints 140-154 Complete (Security, UX, Refactoring, Emby Alignment) |
 
 **Sprint Planning Template:** Use `.ai/SPRINT_TEMPLATE.md` when defining new sprints. |
 
 **Rename**: Project renamed from EmbyStreams to InfiniteDrive at version 0.40.0.0 (2026-04-11). Breaking change — fresh install required.
+
+**Version 0.41**: Sprints 200+201 — Wizard UX redesign + library provisioning + anime routing fix.
 
 ---
 

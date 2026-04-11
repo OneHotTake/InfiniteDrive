@@ -74,6 +74,13 @@ namespace InfiniteDrive
         [DataMember]
         public string SecondaryManifestUrl { get; set; } = string.Empty;
 
+        /// <summary>
+        /// When true, SecondaryManifestUrl is used as a fallback if the primary
+        /// manifest URL cannot be parsed. When false, SecondaryManifestUrl is ignored.
+        /// </summary>
+        [DataMember]
+        public bool EnableBackupAioStreams { get; set; } = false;
+
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  CATALOG SYNC SELECTION                                              ║
         // ╚══════════════════════════════════════════════════════════════════════╝
@@ -572,6 +579,13 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public string AioMetadataBaseUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Newline-separated list of system-wide RSS feed URLs.
+        /// Content from these feeds is visible to ALL users — admin-only setting.
+        /// </summary>
+        [DataMember]
+        public string SystemRssFeedUrls { get; set; } = string.Empty;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  FIRST-RUN WIZARD                                                    ║

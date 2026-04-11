@@ -1343,6 +1343,8 @@ namespace InfiniteDrive.Tasks
 
                 Check(config.SyncPathMovies, "movies", "Movies");
                 Check(config.SyncPathShows,  "tvshows", "TV Shows");
+                if (config.EnableAnimeLibrary)
+                    Check(config.SyncPathAnime, "mixed", "Anime");
             }
             catch (Exception ex)
             {
