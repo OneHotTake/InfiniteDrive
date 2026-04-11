@@ -43,13 +43,14 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 > Plugin configuration UI with 5-step wizard, Sources tab, and progressive disclosure.
 
 ### Structure
-- **Tab bar**: Setup, Overview, Settings, Content, Marvin (Discover/My Picks/My Lists hidden, pending Sprint 205 deletion)
+- **Tab bar**: Setup, Overview, Settings, Content, Marvin (5 tabs)
 - **Setup tab**: 5-step wizard with progress bar (Provider → Libraries → Metadata → Sources → Sync)
 - **Overview tab**: System health, sources table, resolution coverage, background tasks, debug tools (collapsible)
 - **Settings tab**: 5 flat cards (Sources, Playback & Cache, Library Paths, Security, Danger Zone) — no accordions
 - **Content tab**: Blocked Items + Content Mgmt merged (unblock table, force sync button, slot management)
 - **Marvin tab**: Marvin reconciliation engine (summon task, refresh status, enrichment summary, cooldown badge, task runner)
-- **Discover/My Picks/My Lists tabs**: Hidden pending Sprint 205 (channel must ship first)
+
+> **Note**: User content surfaces (Lists, Saved) moved to native Emby channel in `Services/InfiniteDriveChannel.cs` (Sprint 204).
 
 ### Wizard Steps
 1. **Provider**: Manifest URL + Test Connection, Base URL (auto-detected from origin)
@@ -70,7 +71,7 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 > Client-side logic for wizard navigation, tab switching, and dashboard updates.
 
 ### Key Functions
-- `showTab(view, name)` — switches between Setup/Sources/Discover/Advanced tabs
+- `showTab(view, name)` — switches between 5 tabs: Setup/Overview/Settings/Content/Marvin
 - `updateWizardProgress(view, step)` — updates progress indicator state
 - `showWizardStep(view, step)` — shows/hides wizard step content
 - `initWizardTab(view, cfg)` — populates wizard fields from config
@@ -200,6 +201,8 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 
 ## Services/UserCatalogsService.cs (Sprint 158)
 > REST API for user-owned public RSS catalogs. All endpoints require authenticated user.
+
+> **Note**: My Lists tab and UI were removed in Sprint 205. Backend endpoints remain for RSS feed syncing functionality.
 
 ### Endpoints
 - `GET /InfiniteDrive/User/Catalogs` — returns caller's active catalogs + limit
@@ -342,7 +345,9 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 ---
 
 ## Services/UserService.cs (Sprint 150)
-> User-facing REST endpoints for pin management (My Picks).
+> User-facing REST endpoints for pin management.
+
+> **Note**: My Picks tab and UI were removed in Sprint 205. User content now uses native Emby channel in `InfiniteDriveChannel.cs`. Endpoints remain available for compatibility.
 
 ### Endpoints
 - `GET /InfiniteDrive/User/MyPins` — returns user's playback and discover pins with metadata
@@ -364,6 +369,17 @@ _Updated 2026-04-11 (Sprints 200+201: Wizard UX + Backend Wiring). Covers all `.
 - `DiscoverItem` — unified response DTO combining metadata and library status
 - `MapToDiscoverItem(entry, userPinnedImdbIds?)` — per-user InLibrary when ids provided
 - `TryGetCurrentUserId()` — extracts user ID from IAuthorizationContext
+
+---
+
+## Services/InfiniteDriveChannel.cs
+> Native Emby IChannel implementation providing user-facing browse surface for Lists and Saved items. Auto-discovered by Emby via DI.
+
+### Public Methods
+- `GetChannelItems(InternalChannelItemQuery query)` — returns root folders (Lists, Saved) or list contents
+- `GetChannelItems(object searchQuery)` — searches discover catalog and returns filtered results
+- `GetChannelFeatures(CancellationToken)` — returns channel capabilities (CanSearch, CanGetMediaInfo)
+- `GetSupportedChannelMediaTypes()` — returns ["Movie", "Series"]
 
 ---
 

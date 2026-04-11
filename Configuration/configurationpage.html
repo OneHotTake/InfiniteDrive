@@ -203,9 +203,6 @@
   <button class="es-tab"        data-es-tab="settings">Settings</button>
   <button class="es-tab"        data-es-tab="content">Content</button>
   <button class="es-tab"        data-es-tab="marvin">Marvin</button>
-  <button class="es-tab"        data-es-tab="discover" style="display:none">Discover</button>
-  <button class="es-tab"        data-es-tab="mypicks" style="display:none">My Picks</button>
-  <button class="es-tab"        data-es-tab="mylists" style="display:none">My Lists</button>
 </div>
 
 <!-- ════════════════════════════ TAB 1 — Setup (Wizard) ════════════════════════════ -->
@@ -868,51 +865,6 @@
 </div><!-- /overview tab -->
 
 
-<!-- ════════════════════════════ TAB 3 — Discover ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-discover">
-
-  <!-- Hero search bar -->
-  <div style="margin-bottom:1.5em">
-    <div class="es-discover-search-wrap">
-      <span class="es-discover-search-icon">🔍</span>
-      <input id="es-discover-q" type="text" is="emby-input"
-             placeholder="Search movies, shows, anime…  e.g. Oppenheimer, Breaking Bad"
-             autocomplete="off" />
-    </div>
-    <div class="es-discover-filters" id="es-discover-filters">
-      <button class="es-discover-filter-btn active" data-es-discover-type="">All</button>
-      <button class="es-discover-filter-btn" data-es-discover-type="movie">Movies</button>
-      <button class="es-discover-filter-btn" data-es-discover-type="series">Series</button>
-    </div>
-    <div class="es-discover-status" id="es-discover-status"></div>
-  </div>
-
-  <!-- Results grid -->
-  <div class="es-discover-grid" id="es-discover-grid"></div>
-
-  <!-- Loading state -->
-  <div class="es-discover-loading" id="es-discover-loading" style="display:none">
-    <div style="font-size:1.5em;margin-bottom:.4em">⏳</div>
-    <div>Searching the sources…</div>
-  </div>
-
-  <!-- Empty state -->
-  <div class="es-discover-empty" id="es-discover-empty" style="display:none">
-    <div class="es-discover-empty-icon">🎬</div>
-    <div style="font-size:.95em;margin-bottom:.25em">No results found</div>
-    <div style="font-size:.82em">Try a different search term or check your AIOStreams connection.</div>
-  </div>
-
-  <!-- Not configured state -->
-  <div id="es-discover-unconfigured" style="display:none">
-    <div class="es-alert es-alert-warn" style="margin-top:1em">
-      <strong>AIOStreams not configured.</strong>
-      Go to the <a data-es-tab="setup" style="cursor:pointer;color:inherit;text-decoration:underline">Setup</a>
-      tab to connect your AIOStreams provider first.
-    </div>
-  </div>
-
-</div><!-- /discover tab -->
 
 <!-- ════════════════════════════ TAB 4 — Marvin ════════════════════════════ -->
 <div class="es-tab-content" id="es-tab-content-marvin">
@@ -1438,56 +1390,7 @@
 
 </div><!-- /advanced tab -->
 
-<!-- ════════════════════════════ TAB — My Picks ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-mypicks">
 
-  <div class="es-card">
-    <h2 style="margin-top:0">My Picks</h2>
-    <p class="es-hint">Items you've added from Discover or played recently. Remove items you're done with — they'll be cleaned up automatically.</p>
-
-    <div style="margin-bottom:1.5em">
-      <h3 style="margin-bottom:.5em">Recently Played</h3>
-      <div id="es-playback-pins-list"></div>
-    </div>
-
-    <div style="margin-bottom:1.5em">
-      <h3 style="margin-bottom:.5em">Added from Discover</h3>
-      <div id="es-discover-pins-list"></div>
-    </div>
-
-    <button id="es-remove-pins-btn" class="es-btn es-btn-primary" style="margin-top:.5em">
-      I'm Done With These
-    </button>
-  </div>
-
-</div>
-
-<!-- ════════════════════════════ TAB — My Lists ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-mylists">
-
-  <div class="es-card">
-    <h2 style="margin-top:0">My Lists</h2>
-    <p class="es-hint">Add a public <strong>Trakt</strong> or <strong>MDBList</strong> RSS URL and items will appear in Discover. Up to 5 lists per user.</p>
-
-    <!-- Top action: refresh all lists -->
-    <div style="margin-bottom:1.5em">
-      <button id="es-refresh-all-lists-btn" class="es-btn es-btn-primary">Refresh all my lists</button>
-      <span id="es-refresh-all-status" style="margin-left:1em;color:var(--es-muted, #888)"></span>
-    </div>
-
-    <!-- Add list -->
-    <div style="display:flex;gap:.75em;flex-wrap:wrap;margin-bottom:1.5em;align-items:center">
-      <input id="es-new-list-url" type="text" placeholder="https://trakt.tv/users/.../watchlist.rss"
-             style="flex:1;min-width:200px;padding:.5em .75em;border:1px solid var(--es-border,#ddd);border-radius:4px;background:var(--es-input-bg,#fff);color:inherit" />
-      <button id="es-add-list-btn" class="es-btn es-btn-primary">Add</button>
-    </div>
-    <p id="es-add-list-error" class="es-hint" style="color:var(--es-error,#d00);display:none"></p>
-
-    <!-- List of lists -->
-    <div id="es-user-catalogs-list"></div>
-  </div>
-
-</div>
 
 
 <!-- ══════════════════════════ TAB 3 — Content ══════════════════════════ -->
