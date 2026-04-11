@@ -1695,6 +1695,7 @@ namespace InfiniteDrive.Services
             {
                 // Auth context unavailable — fall through to deny
             }
+            request.Response.StatusCode = 403;
             return new { Error = "Forbidden", Message = "This endpoint requires administrator access." };
         }
     }

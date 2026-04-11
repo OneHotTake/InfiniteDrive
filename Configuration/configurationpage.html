@@ -261,6 +261,12 @@
         <div class="es-hint">Don't have one? <a href="https://duckkota.gitlab.io/stremio-tools/quickstart/" target="_blank" rel="noopener" style="color:var(--theme-button-background,#00a4dc)">Create with Stremio Tools →</a></div>
       </div>
 
+      <div class="inputContainer" style="margin-bottom:.4em">
+        <label class="inputLabel inputLabelUnfocused" for="wiz-aio-metadata-url">AIOMetadata URL <span style="opacity:.6;font-size:.9em">(optional)</span></label>
+        <input id="wiz-aio-metadata-url" type="url" is="emby-input" placeholder="https://yourdomain.com/aio-metadata" />
+        <div class="es-hint">If you run a separate AIOMetadata service, enter its base URL here.</div>
+      </div>
+
       <div class="es-src-row">
         <button type="button" is="emby-button" class="raised button-submit" data-es-wiz-test="aio">Test Connection</button>
         <span class="es-src-status" id="wiz-aio-status"></span>
@@ -401,7 +407,7 @@
         <input type="checkbox" is="emby-checkbox" id="wiz-use-cinemeta" checked />
         <span class="checkboxLabel">Use Cinemeta for rich metadata</span>
       </label>
-      <div class="es-hint" style="margin-left:2em">Recommended. Cinemeta provides high-quality posters, backdrops, and descriptions.</div>
+      <div class="es-hint" style="margin-left:2em">Recommended. Cinemeta is used as a fallback catalog to fill in missing titles and metadata when your AIOStreams manifest doesn't include them.</div>
     </div>
 
     <!-- AIOStreams Catalogs -->
@@ -1032,6 +1038,11 @@
             <div id="manifestHostInfo" class="es-hint" style="display: none; margin-top: 0.25em;">
                 Opens configuration on <strong id="manifestHostName"></strong>
             </div>
+        </div>
+        <div class="inputContainer" style="margin-top:.8em">
+          <label class="inputLabel inputLabelUnfocused" for="cfg-aio-metadata-url">AIOMetadata URL <span style="opacity:.6;font-size:.9em">(optional)</span></label>
+          <input id="cfg-aio-metadata-url" type="url" is="emby-input" placeholder="https://yourdomain.com/aio-metadata" />
+          <div class="es-hint">Base URL for a separate AIOMetadata service. Leave blank if not used.</div>
         </div>
         <div class="inputContainer" style="display:none">
           <label class="inputLabel inputLabelUnfocused" for="cfg-aio-fallback-urls">Fallback AIOStreams URLs (deprecated)</label>

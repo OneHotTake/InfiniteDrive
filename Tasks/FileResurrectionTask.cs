@@ -44,22 +44,17 @@ namespace InfiniteDrive.Tasks
 
         private readonly ILogger<FileResurrectionTask> _logger;
         private readonly ILibraryManager               _libraryManager;
-        private readonly Services.StrmWriterService _strmWriter;
+
+        private Services.StrmWriterService StrmWriter => Plugin.Instance!.StrmWriterService;
 
         // ── Constructor ─────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Emby injects <paramref name="libraryManager"/> and
-        /// <paramref name="loggerFactory"/> automatically.
-        /// </summary>
         public FileResurrectionTask(
-            ILibraryManager                 libraryManager,
-            ILogManager                     logManager,
-            Services.StrmWriterService     strmWriter)
+            ILibraryManager libraryManager,
+            ILogManager     logManager)
         {
             _libraryManager = libraryManager;
             _logger         = new EmbyLoggerAdapter<FileResurrectionTask>(logManager.GetLogger("InfiniteDrive"));
-            _strmWriter    = strmWriter;
         }
 
         // ── IScheduledTask ──────────────────────────────────────────────────────
@@ -170,7 +165,7 @@ namespace InfiniteDrive.Tasks
                         _                             => Models.SourceType.Aio // Default fallback
                     };
 
-                    var strmPath = await _strmWriter.WriteAsync(item, originSourceType, ownerUserId: null, cancellationToken);
+                    var strmPath = await StrmWriter.WriteAsync(item, originSourceType, ownerUserId: null, cancellationToken);
 
                     if (strmPath == null)
                     {

@@ -142,7 +142,8 @@ function (loading) {
         function chk(id, v) { var el = q(view, id); if (el) el.checked = !!v; }
 
         // Populate wizard fields from config
-        set('wiz-aio-url',        cfg.PrimaryManifestUrl || '');
+        set('wiz-aio-url',             cfg.PrimaryManifestUrl || '');
+        set('wiz-aio-metadata-url',    cfg.AioMetadataBaseUrl || '');
         set('wiz-base-path',       cfg.SyncPathBase || '/media/infinitedrive');
         set('wiz-library-name-movies', cfg.LibraryNameMovies || 'Streamed Movies');
         set('wiz-library-name-series', cfg.LibraryNameSeries || 'Streamed Series');
@@ -760,6 +761,7 @@ function (loading) {
             else el.value = v != null ? v : '';
         }
         set('cfg-manifest-url',           cfg.PrimaryManifestUrl);
+        set('cfg-aio-metadata-url',       cfg.AioMetadataBaseUrl);
         // Sprint 11: BaseSyncPath with derived subpaths
         var base = cfg.BaseSyncPath || '/media/infinitedrive';
         set('cfg-base-path', base);
@@ -1006,6 +1008,7 @@ function (loading) {
     function saveSettings(view) {
         var cfg = {
             PrimaryManifestUrl:         esVal(view, 'cfg-manifest-url'),
+            AioMetadataBaseUrl:         esVal(view, 'cfg-aio-metadata-url'),
             SecondaryManifestUrl:       '',
             SyncPathMovies:             esVal(view, 'cfg-base-path') + '/movies',
             SyncPathShows:              esVal(view, 'cfg-base-path') + '/shows',
@@ -1396,7 +1399,7 @@ function (loading) {
         }
 
         // Pass the live manifest URL so the panel works before the first save.
-        var manifestFieldId = prefix === 'wiz' ? 'es-manifest-url' : 'cfg-manifest-url';
+        var manifestFieldId = prefix === 'wiz' ? 'wiz-aio-url' : 'cfg-manifest-url';
         var liveManifestUrl = esVal(view, manifestFieldId);
         var catalogsUrl = '/InfiniteDrive/Catalogs' +
             (liveManifestUrl ? '?manifestUrl=' + encodeURIComponent(liveManifestUrl) : '');
@@ -2322,6 +2325,7 @@ function (loading) {
         // Collect wizard data
         var config = {
             PrimaryManifestUrl: url,
+            AioMetadataBaseUrl: esVal(view, 'wiz-aio-metadata-url') || '',
             SyncPathBase: esVal(view, 'wiz-base-path') || '/media/infinitedrive',
             LibraryNameMovies: esVal(view, 'wiz-library-name-movies') || 'Streamed Movies',
             LibraryNameSeries: esVal(view, 'wiz-library-name-series') || 'Streamed Series',
