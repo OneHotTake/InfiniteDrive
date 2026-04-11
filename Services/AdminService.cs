@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive;
 using InfiniteDrive.Data;
 using InfiniteDrive.Logging;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
@@ -50,6 +52,20 @@ namespace InfiniteDrive.Services
         public int Count { get; set; }
     }
 
+    [Route("/InfiniteDrive/Admin/BlockItems", "POST",
+        Summary = "Blocks items by IMDB ID: deletes .strm/.nfo, clears user saves, triggers scan")]
+    public class BlockItemsRequest : IReturn<BlockItemsResponse>
+    {
+        public List<string> ImdbIds { get; set; } = new();
+    }
+
+    public class BlockItemsResponse
+    {
+        public bool Success { get; set; }
+        public int Count { get; set; }
+        public List<string> Errors { get; set; } = new();
+    }
+
     // ── Service ──────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -61,14 +77,16 @@ namespace InfiniteDrive.Services
         private readonly ILogger<AdminService> _logger;
         private readonly DatabaseManager _db;
         private readonly IAuthorizationContext _authCtx;
+        private readonly ILibraryManager _libraryManager;
 
         public IRequest Request { get; set; } = null!;
 
-        public AdminService(ILogManager logManager, IAuthorizationContext authCtx)
+        public AdminService(ILogManager logManager, IAuthorizationContext authCtx, ILibraryManager libraryManager)
         {
             _logger  = new EmbyLoggerAdapter<AdminService>(logManager.GetLogger("InfiniteDrive"));
             _db      = Plugin.Instance.DatabaseManager;
             _authCtx = authCtx;
+            _libraryManager = libraryManager;
         }
 
         /// <summary>
@@ -131,6 +149,102 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "[AdminService] Failed to unblock items");
                 return new UnblockItemsResponse { Success = false, Count = 0 };
+            }
+        }
+
+        /// <summary>
+        /// Handles <c>POST /InfiniteDrive/Admin/BlockItems</c>.
+        /// Blocks items by IMDB ID: sets blocked flag, deletes .strm/.nfo, clears user saves, triggers scan.
+        /// </summary>
+        public async Task<object> Post(BlockItemsRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            if (req.ImdbIds == null || req.ImdbIds.Count == 0)
+                return new BlockItemsResponse { Success = false, Count = 0 };
+
+            var errors = new List<string>();
+            var count = 0;
+            var ct = CancellationToken.None;
+
+            try
+            {
+                foreach (var imdbId in req.ImdbIds)
+                {
+                    try
+                    {
+                        // 1. Block in catalog_items
+                        await _db.BlockCatalogItemByImdbIdAsync(imdbId, "admin", ct);
+
+                        // 2. Delete .strm/.nfo from catalog_item
+                        var catalogItem = await _db.GetCatalogItemByImdbIdAsync(imdbId);
+                        if (catalogItem != null)
+                        {
+                            DeleteFileIfExists(catalogItem.StrmPath, ".strm");
+                            DeleteFileIfExists(
+                                !string.IsNullOrEmpty(catalogItem.StrmPath)
+                                    ? Path.ChangeExtension(catalogItem.StrmPath, ".nfo")
+                                    : null, ".nfo");
+                        }
+
+                        // 3. Also block in media_items + clear user saves
+                        var mediaItem = await _db.GetMediaItemByPrimaryIdAsync(imdbId, ct);
+                        if (mediaItem != null)
+                        {
+                            mediaItem.Blocked = true;
+                            mediaItem.BlockedAt = DateTimeOffset.UtcNow;
+                            mediaItem.UpdatedAt = DateTimeOffset.UtcNow;
+                            await _db.UpsertMediaItemAsync(mediaItem, ct);
+
+                            await _db.DeleteAllUserSavesForItemAsync(mediaItem.Id, ct);
+                            await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
+                        }
+
+                        count++;
+                        _logger.LogInformation("[AdminService] Blocked item {ImdbId}", imdbId);
+                    }
+                    catch (Exception ex)
+                    {
+                        errors.Add($"{imdbId}: {ex.Message}");
+                        _logger.LogError(ex, "[AdminService] Failed to block item {ImdbId}", imdbId);
+                    }
+                }
+
+                // 4. Trigger library scan (fire-and-forget)
+                _ = TriggerLibraryScanAsync();
+
+                return new BlockItemsResponse
+                {
+                    Success = errors.Count == 0,
+                    Count = count,
+                    Errors = errors
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AdminService] Failed to block items");
+                return new BlockItemsResponse { Success = false, Count = count, Errors = errors };
+            }
+        }
+
+        private void DeleteFileIfExists(string? path, string label)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+            File.Delete(path);
+            _logger.LogInformation("[AdminService] Deleted {Label}: {Path}", label, path);
+        }
+
+        private async Task TriggerLibraryScanAsync()
+        {
+            try
+            {
+                _logger.LogInformation("[AdminService] Triggering Emby library scan");
+                await _libraryManager.ValidateMediaLibrary(new Progress<double>(), CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AdminService] Failed to trigger library scan");
             }
         }
     }

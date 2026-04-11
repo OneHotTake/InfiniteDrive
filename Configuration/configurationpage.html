@@ -69,29 +69,6 @@
 .es-dependent   { transition: opacity .2s; }
 .es-dependent.disabled { opacity: .38; pointer-events: none; }
 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-.es-discover-search-wrap { position: relative; margin-bottom: .75em; }
-.es-discover-search-wrap input { padding-left: 2.4em !important; font-size: 1.05em !important; border-radius: 8px !important; }
-.es-discover-search-icon { position: absolute; left: .75em; top: 50%; transform: translateY(-50%); opacity: .5; font-size: 1.1em; pointer-events: none; }
-.es-discover-filters { display: flex; gap: .4em; margin-bottom: 1em; flex-wrap: wrap; }
-.es-discover-filter-btn { padding: .3em .85em; border: 1px solid rgba(128,128,128,0.25); border-radius: 20px; background: none; color: inherit; font-size: .82em; cursor: pointer; opacity: .6; transition: all .15s; }
-.es-discover-filter-btn:hover { opacity: 1; background: rgba(128,128,128,0.1); }
-.es-discover-filter-btn.active { opacity: 1; background: var(--theme-button-background,#00a4dc); color: #fff; border-color: var(--theme-button-background,#00a4dc); }
-.es-discover-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(148px, 1fr)); gap: 1em; transition: opacity .2s; }
-.es-discover-card { border-radius: 8px; overflow: hidden; background: rgba(128,128,128,0.08); border: 1px solid rgba(128,128,128,0.15); transition: transform .15s, box-shadow .15s; }
-.es-discover-card:hover { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,.25); }
-.es-discover-poster { aspect-ratio: 2/3; width: 100%; background-size: cover; background-position: center; background-color: rgba(128,128,128,0.15); position: relative; }
-.es-discover-poster-grad { position: absolute; bottom: 0; left: 0; right: 0; background: linear-gradient(transparent, rgba(0,0,0,.7)); padding: .4em .5em .3em; }
-.es-discover-rating { color: #ffc107; font-size: .78em; font-weight: 700; }
-.es-discover-badge { position: absolute; top: .4em; right: .4em; background: rgba(40,167,69,0.92); color: #fff; padding: .15em .4em; border-radius: 3px; font-size: .68em; font-weight: 700; letter-spacing: .02em; }
-.es-discover-meta { padding: .5em .6em .55em; }
-.es-discover-title { font-weight: 600; font-size: .88em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: .2em; }
-.es-discover-sub { font-size: .76em; opacity: .5; margin-bottom: .45em; }
-/* es-discover-add-btn removed — using native Emby button */
-.es-discover-in-lib { width: 100%; background: rgba(40,167,69,0.15); color: #28a745; border: 1px solid rgba(40,167,69,0.3); padding: .3em .5em; border-radius: 4px; font-size: .78em; font-weight: 700; text-align: center; }
-.es-discover-status { font-size: .82em; opacity: .5; margin-bottom: .75em; min-height: 1.2em; }
-.es-discover-empty { text-align: center; padding: 3em 1em; opacity: .4; }
-.es-discover-empty-icon { font-size: 2.5em; margin-bottom: .4em; }
-.es-discover-loading { text-align: center; padding: 2em; opacity: .45; }
 
 /* ── New Apple-like UI classes ── */
 .es-hero { padding: 1.5em 0 2em; }
@@ -1379,7 +1356,6 @@
     <div id="es-wizard-complete-banner"></div>
     <div id="es-sync-progress"><div class="es-alert es-alert-info" id="es-sync-msg"></div><div class="es-track"><div class="es-fill" id="es-sync-bar" style="width:0%"></div></div></div>
     <div id="es-welcome-banner"></div>
-    <div id="es-discover-onboarding"></div>
     <button id="es-save-btn" data-es-action="save-and-sync"></button>
     <div id="es-catalog-panel-wiz" class="es-catalog-prog-wrap"></div>
     <div id="es-url-example"><div id="es-url-example-text"></div></div>
@@ -1397,12 +1373,21 @@
 <div class="es-tab-content" id="es-tab-content-content">
   <div class="es-card">
     <h2 style="margin-top:0">Blocked Items</h2>
-    <p class="es-hint">Items blocked after failing enrichment 3 times. Still playable but won't be retried automatically.</p>
+    <p class="es-hint">Items manually blocked by an administrator. Blocking removes the item from all user libraries.</p>
     <div id="es-blocked-items-list" style="margin-bottom:1em"></div>
     <div style="display:flex;gap:.75em;flex-wrap:wrap">
       <button id="es-unblock-selected-btn" class="es-btn es-btn-primary">Unblock Selected</button>
       <button id="es-unblock-all-btn" class="es-btn">Unblock All</button>
     </div>
+  </div>
+  <div class="es-card">
+    <h2 style="margin-top:0">Block Item</h2>
+    <p class="es-hint">Enter an IMDB ID to block an item. This will delete its files and remove it from all user libraries.</p>
+    <div style="display:flex;gap:.5em;align-items:center;flex-wrap:wrap">
+      <input type="text" id="es-block-imdb-input" placeholder="e.g. tt1160419" style="flex:1;min-width:160px;padding:.4em .6em;border:1px solid rgba(128,128,128,0.3);border-radius:4px;background:rgba(0,0,0,0.2);color:inherit" />
+      <button id="es-block-imdb-btn" class="es-btn" style="background:#dc3545;color:#fff;border-color:#dc3545">Block</button>
+    </div>
+    <div id="es-block-result" style="margin-top:.5em;font-size:.85em;min-height:1.2em"></div>
   </div>
   <div class="es-card">
     <h2 style="margin-top:0">Content Management</h2>

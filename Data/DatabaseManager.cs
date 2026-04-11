@@ -3936,11 +3936,14 @@ VALUES
             var sql = @"
 SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, catalog_source, is_in_user_library, added_at
-FROM discover_catalog";
+FROM discover_catalog
+WHERE NOT EXISTS (
+    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = discover_catalog.imdb_id AND ci.blocked_at IS NOT NULL
+)";
 
             if (mediaType != null)
             {
-                sql += " WHERE media_type = @media_type";
+                sql += " AND media_type = @media_type";
             }
 
             // Handle sorting
@@ -3968,10 +3971,13 @@ FROM discover_catalog";
 
         public Task<int> GetDiscoverCatalogCountAsync(string? mediaType)
         {
-            var sql = "SELECT COUNT(*) FROM discover_catalog";
+            var sql = @"SELECT COUNT(*) FROM discover_catalog
+WHERE NOT EXISTS (
+    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = discover_catalog.imdb_id AND ci.blocked_at IS NOT NULL
+)";
             if (mediaType != null)
             {
-                sql += " WHERE media_type = @media_type";
+                sql += " AND media_type = @media_type";
             }
 
             using var conn = OpenConnection();
@@ -3997,7 +4003,10 @@ SELECT dc.id, dc.imdb_id, dc.title, dc.year, dc.media_type, dc.poster_url, dc.ba
        dc.genres, dc.imdb_rating, dc.catalog_source, dc.is_in_user_library, dc.added_at
 FROM discover_catalog dc
 JOIN discover_catalog_fts fts ON dc.rowid = fts.rowid
-WHERE discover_catalog_fts MATCH @query";
+WHERE discover_catalog_fts MATCH @query
+  AND NOT EXISTS (
+    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = dc.imdb_id AND ci.blocked_at IS NOT NULL
+  )";
             if (mediaType != null)
                 sql += " AND dc.media_type = @media_type";
             sql += " ORDER BY dc.is_in_user_library DESC, dc.title ASC LIMIT 50";
@@ -4016,6 +4025,9 @@ SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE imdb_id = @imdb_id
+  AND NOT EXISTS (
+    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = @imdb_id AND ci.blocked_at IS NOT NULL
+  )
 LIMIT 1";
             return await QuerySingleAsync(sql, cmd =>
             {
@@ -4618,6 +4630,66 @@ LIMIT 1";
             {
                 BindText(cmd, "@Id", mediaItemId);
             }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Deletes all user save records for a given media item.
+        /// Used by admin block action to clear all per-user saves.
+        /// </summary>
+        public async Task DeleteAllUserSavesForItemAsync(string mediaItemId, CancellationToken ct = default)
+        {
+            const string sql = @"
+                DELETE FROM user_item_saves
+                WHERE media_item_id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", mediaItemId);
+            }, ct);
+        }
+
+        /// <summary>
+        /// Gets a media item by its primary ID (e.g. IMDB ID).
+        /// Used by admin block action to resolve IMDB ID → media_item.
+        /// </summary>
+        public async Task<MediaItem?> GetMediaItemByPrimaryIdAsync(string primaryId, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, primary_id_type, primary_id, media_type, title, year,
+                       status, failure_reason, saved, saved_at,
+                       blocked, blocked_at, created_at, updated_at, grace_started_at,
+                       superseded, superseded_conflict, superseded_at,
+                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       watch_progress_pct, favorited
+                FROM media_items
+                WHERE primary_id = @PrimaryId
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@PrimaryId", primaryId),
+                ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Blocks a catalog item by its IMDB ID.
+        /// Sets blocked_at and blocked_by, clearing nfo_status.
+        /// </summary>
+        public async Task BlockCatalogItemByImdbIdAsync(string imdbId, string blockedBy, CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET blocked_at  = datetime('now'),
+                    blocked_by  = @blocked_by,
+                    updated_at  = datetime('now')
+                WHERE imdb_id = @imdb_id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@blocked_by", blockedBy);
+            }, ct);
+
+            _logger.LogInformation("[DatabaseManager] Blocked catalog item {ImdbId}", imdbId);
         }
 
         /// <summary>

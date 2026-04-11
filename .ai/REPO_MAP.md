@@ -1,6 +1,6 @@
 # InfiniteDrive Repository Map
 
-_Updated 2026-04-11 (Sprint 207: Per-User Saves + InfiniteDriveChannel). Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
+_Updated 2026-04-11 (Sprint 208: Admin Block Action + Dead Code Cleanup). Covers all `.cs` files in root, Services/, Data/, Models/, Tasks/, Logging/._
 
 ---
 
@@ -344,12 +344,16 @@ _Updated 2026-04-11 (Sprint 207: Per-User Saves + InfiniteDriveChannel). Covers 
 
 ---
 
-## Services/AdminService.cs (Sprint 150)
+## Services/AdminService.cs (Sprint 150, updated Sprint 208)
 > Admin-only REST endpoints for blocked catalog item management.
 
 ### Endpoints
 - `GET /InfiniteDrive/Admin/BlockedItems` — returns all admin-blocked items
 - `POST /InfiniteDrive/Admin/UnblockItems` — resets blocked items to NeedsEnrich, clears tombstone
+- `POST /InfiniteDrive/Admin/BlockItems` — blocks by IMDB ID: deletes .strm/.nfo, clears user saves, triggers scan (Sprint 208)
+
+### Dependencies (Sprint 208)
+- `ILibraryManager` — for triggering Emby library scan after block
 
 ---
 
@@ -367,6 +371,7 @@ _Updated 2026-04-11 (Sprint 207: Per-User Saves + InfiniteDriveChannel). Covers 
 ## Services/DiscoverService.cs
 > REST API handlers for the Discover browsing/search/add-to-library feature.
 > Sprint 150 H-4: All browse/search/detail handlers load per-user pin status and pass to MapToDiscoverItem.
+> Sprint 208: Browse/Search/Detail queries exclude blocked items via NOT EXISTS subquery on catalog_items.
 
 ### Public Methods
 - `Get(DiscoverBrowseRequest req)` — paginated catalog listing from local DB
