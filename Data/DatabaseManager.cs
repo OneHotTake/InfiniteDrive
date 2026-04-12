@@ -3747,7 +3747,19 @@ CREATE INDEX IF NOT EXISTS idx_materialized_base
     ON materialized_versions(is_base) WHERE is_base = 1;");
             }
 
-_logger.LogDebug("[InfiniteDrive] Schema at version {Version}", version);
+            // ── Safeguard: Ensure plugin_metadata table exists (Sprint 102A+) ──
+            if (!TableExists(conn, "plugin_metadata"))
+            {
+                _logger.LogInformation("[InfiniteDrive] plugin_metadata table missing — creating");
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS plugin_metadata (
+    key   TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);");
+            }
+
+            _logger.LogDebug("[InfiniteDrive] Schema at version {Version}", version);
         }
 
         /// <summary>
