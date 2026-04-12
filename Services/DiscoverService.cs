@@ -276,6 +276,9 @@ namespace InfiniteDrive.Services
         /// <summary>IMDb rating (0-10).</summary>
         public double? ImdbRating { get; set; }
 
+        /// <summary>MPAA/TV rating (e.g., "PG-13", "R", "TV-MA").</summary>
+        public string? Certification { get; set; }
+
         /// <summary><c>true</c> if already in user's Emby library.</summary>
         public bool InLibrary { get; set; }
 
@@ -335,7 +338,9 @@ namespace InfiniteDrive.Services
                 var offset = Math.Max(req.Offset, 0);
 
                 var entries = await _db.GetDiscoverCatalogAsync(limit, offset);
-                var items = entries.Select(e => MapToDiscoverItem(e, null)).ToList();
+                var maxRating = GetUserMaxParentalRating();
+                var filtered = ApplyParentalFilter(entries, maxRating);
+                var items = filtered.Select(e => MapToDiscoverItem(e, null)).ToList();
                 var total = await _db.GetDiscoverCatalogCountAsync();
 
                 return new DiscoverBrowseResponse
@@ -371,7 +376,9 @@ namespace InfiniteDrive.Services
 
                 // Step 1: Search local FTS5 index
                 var localEntries = await _db.SearchDiscoverCatalogAsync(req.Query, req.Type);
-                var localItems = localEntries.Select(e => MapToDiscoverItem(e, null)).ToList();
+                var maxRating = GetUserMaxParentalRating();
+                var filtered = ApplyParentalFilter(localEntries, maxRating);
+                var localItems = filtered.Select(e => MapToDiscoverItem(e, null)).ToList();
 
                 // Step 2: Determine if we should do a live AIOStreams search
                 var shouldLiveSearch = req.Live || localItems.Count < 5;
@@ -670,7 +677,15 @@ namespace InfiniteDrive.Services
                 }
 
                 var entry = await _db.GetDiscoverCatalogEntryByImdbIdAsync(req.ImdbId);
-                var item = entry != null ? MapToDiscoverItem(entry, null) : null;
+                if (entry == null)
+                {
+                    return new DiscoverDetailResponse { Item = null };
+                }
+
+                // Apply parental filter
+                var maxRating = GetUserMaxParentalRating();
+                var filtered = ApplyParentalFilter(new List<DiscoverCatalogEntry> { entry }, maxRating);
+                var item = filtered.Count > 0 ? MapToDiscoverItem(filtered[0], null) : null;
 
                 return new DiscoverDetailResponse { Item = item };
             }
@@ -987,6 +1002,7 @@ namespace InfiniteDrive.Services
                 Overview = entry.Overview,
                 Genres = entry.Genres,
                 ImdbRating = entry.ImdbRating,
+                Certification = entry.Certification,
                 InLibrary = inLibrary,
                 EmbyItemId = embyItemId,
                 CatalogSource = entry.CatalogSource
@@ -1218,15 +1234,31 @@ namespace InfiniteDrive.Services
         /// </summary>
         private List<DiscoverCatalogEntry> ApplyParentalFilter(List<DiscoverCatalogEntry> items, int maxRating)
         {
-            // Filter out items that exceed user's parental rating ceiling
-            // Unknown/unrated items (999) are treated as restricted
+            // Unrestricted user: never block anything
             if (maxRating >= 999)
-            {
                 return items;
-            }
 
-            // No RatingLabel column in discover_catalog — pass through until rating data is available
-            return items;
+            var config = Plugin.Instance?.Configuration;
+            var blockUnrated = config?.BlockUnratedForRestricted ?? false;
+
+            return items.Where(item =>
+            {
+                var itemRating = ParseRating(item.Certification);
+
+                // Rated item: block if exceeds user's ceiling
+                if (itemRating < 999)
+                {
+                    return itemRating <= maxRating;
+                }
+
+                // Unrated item for restricted user: check server toggle
+                if (itemRating >= 999)
+                {
+                    return !blockUnrated; // Show only if NOT blocking unrated
+                }
+
+                return true;
+            }).ToList();
         }
 
         /// <summary>

@@ -74,6 +74,45 @@ http://localhost:8096/web/configurationpage?name=InfiniteDrive
 
 ---
 
+## User Interface
+
+InfiniteDrive provides a user-facing **Discover UI** accessible via Emby's web interface.
+
+### Access
+
+- **Web:** Available at `/web/configurationpage?name=InfiniteDiscover` or via the admin plugin menu
+- **Mobile apps:** Not supported — use web browser for full Discover experience
+
+### Features
+
+**Discover Tab:**
+- Browse the full streaming catalog with posters, ratings, and parental filtering
+- Search for movies and shows by title (with auto-debounce)
+- View detailed information including synopsis, genres, and certifications
+- Add items to your library with one click
+
+**My Picks Tab:**
+- View all items you've saved to your library
+- Remove items with a single click
+- Quick access to item details
+
+**My Lists Tab:**
+- Subscribe to public Trakt and MDBList RSS feeds
+- View your custom lists with item counts and sync status
+- Refresh lists individually or all at once
+- Remove lists you no longer need
+
+### Parental Controls
+
+The Discover UI respects Emby's parental rating system:
+- Items above your configured rating limit are hidden
+- Unrated content can be hidden via admin settings
+- Filtering is enforced server-side for security
+
+For detailed documentation, see [USER_DISCOVER_UI.md](docs/USER_DISCOVER_UI.md).
+
+---
+
 ## Architecture
 
 ```

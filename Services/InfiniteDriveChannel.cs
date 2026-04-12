@@ -18,7 +18,12 @@ namespace InfiniteDrive.Services
     /// <summary>
     /// Emby channel exposing user's Lists and Saved items.
     /// Auto-discovered by Emby — no Plugin.cs registration needed.
+    ///
+    /// DEPRECATED: Use the user-facing Discover page (/web/configurationpage?name=InfiniteDiscover) instead.
+    /// This channel provides read-only folder browsing with no interactive capabilities.
+    /// Left in place for backward compatibility, but users should use the Discover UI.
     /// </summary>
+    [Obsolete("Use the user-facing Discover page instead. This channel provides only read-only browsing.", error: false)]
     public class InfiniteDriveChannel : IChannel
     {
         private readonly Microsoft.Extensions.Logging.ILogger _logger;

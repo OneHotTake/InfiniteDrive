@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>InfiniteDrive Discover</title>
+</head>
+<body>
+<div id="InfiniteDiscoverPage" data-role="page" class="page type-interior userPage"
+     data-require="emby-input,emby-button,emby-select,emby-scrollpanel"
+     data-controller="__plugin/InfiniteDiscoverJS">
+  <div class="content-primary">
+
+    <div class="id-header">
+      <h1 class="sectionTitle">Discover</h1>
+      <div class="id-user-info">
+        <span id="id-welcome">Welcome back</span>
+      </div>
+    </div>
+
+    <!-- Tab Navigation -->
+    <div class="id-tabs">
+      <button class="id-tab active" data-tab="discover">Discover</button>
+      <button class="id-tab" data-tab="picks">My Picks</button>
+      <button class="id-tab" data-tab="lists">My Lists</button>
+    </div>
+
+    <!-- Tab Content Containers -->
+    <div class="id-tab-content">
+      <div id="id-tab-discover" class="id-tab-panel active">
+        <!-- Search Bar -->
+        <div class="id-search">
+          <input type="search" id="id-search-input" placeholder="Search movies and shows..." />
+          <button id="id-search-btn" class="raised button-submit">Search</button>
+        </div>
+        <!-- Browse Grid -->
+        <div id="id-discover-grid" class="id-grid"></div>
+        <!-- Pagination -->
+        <div id="id-pagination" class="id-pagination"></div>
+        <!-- Loading Spinner -->
+        <div id="id-loading" class="id-loading" style="display:none">
+          <div class="spinner"></div>
+          <span>Loading...</span>
+        </div>
+        <!-- Empty State -->
+        <div id="id-empty-discover" class="id-empty" style="display:none">
+          <p>No items found. Try a different search or adjust your filters.</p>
+        </div>
+      </div>
+
+      <div id="id-tab-picks" class="id-tab-panel">
+        <div id="id-picks-grid" class="id-grid"></div>
+        <div id="id-picks-empty" class="id-empty" style="display:none">
+          <p>You haven't saved any items yet.</p>
+          <button id="id-browse-discover" class="raised button-submit">Browse Discover</button>
+        </div>
+        <div id="id-picks-loading" class="id-loading" style="display:none">
+          <div class="spinner"></div>
+          <span>Loading your picks...</span>
+        </div>
+      </div>
+
+      <div id="id-tab-lists" class="id-tab-panel">
+        <div class="id-lists-toolbar">
+          <button id="id-add-list-btn" class="raised button-submit">Add List</button>
+          <button id="id-refresh-all-btn" class="raised button">Refresh All</button>
+        </div>
+        <div id="id-lists-grid" class="id-lists-grid"></div>
+        <div id="id-lists-empty" class="id-empty" style="display:none">
+          <p>You don't have any custom lists yet.</p>
+          <p>Add a Trakt or MDBList RSS feed to get started.</p>
+          <button id="id-add-list-empty-btn" class="raised button-submit">Add Your First List</button>
+        </div>
+        <div id="id-lists-loading" class="id-loading" style="display:none">
+          <div class="spinner"></div>
+          <span>Loading your lists...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Item Detail Modal -->
+    <div id="id-detail-modal" class="id-modal" style="display:none">
+      <div class="id-modal-backdrop"></div>
+      <div class="id-modal-content">
+        <button class="id-modal-close" id="id-modal-close">×</button>
+        <div class="id-modal-body">
+          <div class="id-detail-poster">
+            <img id="id-detail-poster-img" src="" alt="" />
+          </div>
+          <div class="id-detail-info">
+            <h2 id="id-detail-title"></h2>
+            <p id="id-detail-meta"></p>
+            <p id="id-detail-overview"></p>
+            <div class="id-detail-meta-row">
+              <span id="id-detail-rating"></span>
+              <span id="id-detail-certification"></span>
+            </div>
+          </div>
+          <div class="id-modal-actions">
+            <button id="id-detail-add-btn" class="raised button-submit block">Add to Library</button>
+            <button id="id-detail-remove-btn" class="raised button-cancel block" style="display:none">Remove from Library</button>
+            <button id="id-detail-close-btn" class="raised button">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Add List Modal -->
+    <div id="id-add-list-modal" class="id-modal" style="display:none">
+      <div class="id-modal-backdrop"></div>
+      <div class="id-modal-content id-modal-content-sm">
+        <button class="id-modal-close" id="id-add-list-close">×</button>
+        <h3>Add New List</h3>
+        <div class="id-form-group">
+          <label for="id-list-name-input">List Name</label>
+          <input type="text" id="id-list-name-input" placeholder="My Awesome List" is="emby-input" />
+        </div>
+        <div class="id-form-group">
+          <label for="id-list-url-input">RSS URL (Trakt or MDBList)</label>
+          <input type="url" id="id-list-url-input" placeholder="https://trakt.tv/users/..." is="emby-input" />
+        </div>
+        <div id="id-add-list-error" class="id-error"></div>
+        <div class="id-modal-actions">
+          <button id="id-add-list-cancel" class="raised button">Cancel</button>
+          <button id="id-add-list-submit" class="raised button-submit">Add List</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="id-toast" class="id-toast" style="display:none"></div>
+
+  </div>
+</div>
+</body>
+</html>

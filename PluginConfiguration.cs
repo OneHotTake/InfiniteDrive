@@ -599,6 +599,26 @@ namespace InfiniteDrive
         public bool IsFirstRunComplete { get; set; } = false;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  PARENTAL CONTROLS (Sprint 209)                                       ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// TMDB API key for fetching content certifications (MPAA/TV ratings).
+        /// Free key from themoviedb.org → Settings → API.
+        /// Required for parental filtering. When empty, no ratings are fetched.
+        /// </summary>
+        [DataMember]
+        public string TmdbApiKey { get; set; } = string.Empty;
+
+        /// <summary>
+        /// When enabled, users with parental restrictions (max rating < 999) will NOT
+        /// see content without known MPAA/TV ratings. Unrestricted users are never affected.
+        /// Default: enabled for safety.
+        /// </summary>
+        [DataMember]
+        public bool BlockUnratedForRestricted { get; set; } = true;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  INSTANCE TYPE DETECTION                                             ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 

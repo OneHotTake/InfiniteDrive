@@ -9,7 +9,7 @@ namespace InfiniteDrive.Data
     /// </summary>
     public static class Schema
     {
-        public const int CurrentSchemaVersion = 26;
+        public const int CurrentSchemaVersion = 27;
 
         /// <summary>
         /// All v3.3 database tables with their CREATE SQL statements.
