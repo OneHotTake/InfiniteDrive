@@ -861,6 +861,11 @@ function (loading) {
         set('cfg-dont-panic',             cfg.DontPanic);
         set('cfg-plugin-secret',          cfg.PluginSecret);
 
+        // Sprint 209: Parental Controls
+        set('cfg-tmdb-api-key',           cfg.TmdbApiKey || '');
+        chk('cfg-block-unrated',         cfg.BlockUnratedForRestricted !== false);
+        updateFilterStatus(view, cfg.TmdbApiKey);
+
         // Sprint 64: Anime library config
         checkAnimePluginStatus(view);
         set('cfg-enable-anime',           cfg.EnableAnimeLibrary);
@@ -894,6 +899,29 @@ function (loading) {
                 Object.keys(lims).forEach(function(k) { if (lims[k] > 0) _catalogLimits[k] = lims[k]; });
             }
         } catch(e) {}
+    }
+
+    // ── Sprint 209: Parental Controls helpers ────────────────────────────────
+    function updateFilterStatus(view, tmdbKey) {
+        var statusEl = q(view, 'es-filter-status');
+        if (!statusEl) return;
+
+        var indicator = statusEl.querySelector('.es-status-indicator');
+        var text = statusEl.querySelector('.es-status-text');
+
+        if (tmdbKey && tmdbKey.trim().length > 0) {
+            if (indicator) {
+                indicator.className = 'es-status-indicator es-status-active';
+                indicator.textContent = '✅';
+            }
+            if (text) text.textContent = 'TMDB API key configured — parental filtering is active';
+        } else {
+            if (indicator) {
+                indicator.className = 'es-status-indicator es-status-inactive';
+                indicator.textContent = '⚠️';
+            }
+            if (text) text.textContent = 'No TMDB key configured — parental filtering is inactive';
+        }
     }
 
     // ── Sprint 64: Anime library helpers ────────────────────────────────────
@@ -1100,6 +1128,9 @@ function (loading) {
             CatalogItemLimitsJson:      getCatalogLimitsJson(),
             EnableAnimeLibrary:         esChk(view, 'cfg-enable-anime'),
             SyncPathAnime:              esVal(view, 'cfg-anime-path') || '/media/infinitedrive/anime',
+            // Sprint 209: Parental Controls
+            TmdbApiKey:                 esVal(view, 'cfg-tmdb-api-key') || '',
+            BlockUnratedForRestricted:  esChk(view, 'cfg-block-unrated'),
             IsFirstRunComplete:         _loadedConfig ? !!_loadedConfig.IsFirstRunComplete : false
         };
         // CONF-JSON: validate CatalogItemLimitsJson before saving
@@ -1852,6 +1883,17 @@ function (loading) {
         if (animeToggle) {
             animeToggle.addEventListener('change', function() {
                 toggleAnimePathVisibility(view, animeToggle.checked);
+            });
+        }
+
+        // Sprint 209: TMDB API key → update filter status
+        var tmdbKeyInput = q(view, 'cfg-tmdb-api-key');
+        if (tmdbKeyInput) {
+            tmdbKeyInput.addEventListener('input', function() {
+                updateFilterStatus(view, tmdbKeyInput.value);
+            });
+            tmdbKeyInput.addEventListener('change', function() {
+                updateFilterStatus(view, tmdbKeyInput.value);
             });
         }
 

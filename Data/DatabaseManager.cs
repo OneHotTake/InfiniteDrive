@@ -33,7 +33,7 @@ namespace InfiniteDrive.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 25;
+        private const int CurrentSchemaVersion = 27;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -3411,6 +3411,44 @@ CREATE TABLE IF NOT EXISTS user_catalogs (
                 _logger.LogInformation("[InfiniteDrive] Schema V25 migration complete");
                 version = 25;
             }
+
+            // ── V25 → V26 ─────────────────────────────────────────────────────────
+            // Sprint 207: Adds user_item_saves table for per-user save tracking.
+            if (version < 26)
+            {
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V26", version);
+                ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS user_item_saves (
+    id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id       TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    save_reason   TEXT CHECK (save_reason IN ('explicit','watched_episode','admin_override')),
+    saved_season  INTEGER,
+    saved_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (user_id, media_item_id)
+);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_user_saves_user ON user_item_saves(user_id);");
+                ExecuteInline(conn, @"
+CREATE INDEX IF NOT EXISTS idx_user_saves_item ON user_item_saves(media_item_id);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (26);");
+                _logger.LogInformation("[InfiniteDrive] Schema V26 migration complete");
+                version = 26;
+            }
+
+            // ── V26 → V27 ─────────────────────────────────────────────────────────
+            // Sprint 209: Adds certification column to discover_catalog for MPAA/TV ratings.
+            // Used for parental filtering based on User.Policy.MaxParentalRating.
+            if (version < 27)
+            {
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V27", version);
+                if (!ColumnExists(conn, "discover_catalog", "certification"))
+                    ExecuteInline(conn, "ALTER TABLE discover_catalog ADD COLUMN certification TEXT;");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (27);");
+                _logger.LogInformation("[InfiniteDrive] Schema V27 migration complete");
+                version = 27;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -3433,6 +3471,7 @@ CREATE TABLE IF NOT EXISTS discover_catalog (
     is_in_user_library  INTEGER NOT NULL DEFAULT 0,
     genres              TEXT,
     imdb_rating         REAL,
+    certification       TEXT,
     added_at            TEXT NOT NULL,
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );");
@@ -3901,10 +3940,10 @@ _logger.LogDebug("[InfiniteDrive] Schema at version {Version}", version);
             const string sql = @"
 INSERT OR REPLACE INTO discover_catalog
     (id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
-     genres, imdb_rating, catalog_source, is_in_user_library, added_at, updated_at)
+     genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at, updated_at)
 VALUES
     (@id, @imdb_id, @title, @year, @media_type, @poster_url, @backdrop_url, @overview,
-     @genres, @imdb_rating, @catalog_source, @in_library, @added_at, datetime('now'))";
+     @genres, @imdb_rating, @certification, @catalog_source, @in_library, @added_at, datetime('now'))";
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@id", entry.Id);
@@ -3920,6 +3959,7 @@ VALUES
                     cmd.BindParameters["@imdb_rating"].Bind(entry.ImdbRating.Value);
                 else
                     cmd.BindParameters["@imdb_rating"].BindNull();
+                BindNullableText(cmd, "@certification", entry.Certification);
                 BindText(cmd, "@catalog_source", entry.CatalogSource);
                 cmd.BindParameters["@in_library"].Bind(entry.IsInUserLibrary ? 1 : 0);
                 BindText(cmd, "@added_at", entry.AddedAt);
@@ -3935,7 +3975,7 @@ VALUES
         {
             var sql = @"
 SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
-       genres, imdb_rating, catalog_source, is_in_user_library, added_at
+       genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE NOT EXISTS (
     SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = discover_catalog.imdb_id AND ci.blocked_at IS NOT NULL
@@ -4000,7 +4040,7 @@ WHERE NOT EXISTS (
 
             var sql = @"
 SELECT dc.id, dc.imdb_id, dc.title, dc.year, dc.media_type, dc.poster_url, dc.backdrop_url, dc.overview,
-       dc.genres, dc.imdb_rating, dc.catalog_source, dc.is_in_user_library, dc.added_at
+       dc.genres, dc.imdb_rating, dc.certification, dc.catalog_source, dc.is_in_user_library, dc.added_at
 FROM discover_catalog dc
 JOIN discover_catalog_fts fts ON dc.rowid = fts.rowid
 WHERE discover_catalog_fts MATCH @query
@@ -4022,7 +4062,7 @@ WHERE discover_catalog_fts MATCH @query
         {
             const string sql = @"
 SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
-       genres, imdb_rating, catalog_source, is_in_user_library, added_at
+       genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE imdb_id = @imdb_id
   AND NOT EXISTS (
@@ -4060,6 +4100,52 @@ WHERE imdb_id = @imdb_id";
             }, cancellationToken);
         }
 
+        /// <summary>
+        /// Updates the certification (MPAA/TV rating) for a specific discover catalog item.
+        /// Sprint 209: Used when fetching certifications from TMDB.
+        /// </summary>
+        public async Task UpdateDiscoverCertificationAsync(string imdbId, string? certification, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+UPDATE discover_catalog
+SET certification = @certification, updated_at = datetime('now')
+WHERE imdb_id = @imdb_id";
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindNullableText(cmd, "@certification", certification);
+                BindText(cmd, "@imdb_id", imdbId);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Gets discover catalog items that need certification fetched (certification IS NULL).
+        /// Returns list of (imdb_id, tmdb_id) tuples.
+        /// Sprint 209: Used to batch-fetch certifications from TMDB.
+        /// </summary>
+        public async Task<List<(string ImdbId, string? TmdbId)>> GetDiscoverCatalogNeedingCertificationAsync(int limit, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+SELECT dc.imdb_id, ci.tmdb_id
+FROM discover_catalog dc
+LEFT JOIN catalog_items ci ON dc.imdb_id = ci.imdb_id
+WHERE dc.certification IS NULL
+LIMIT @limit";
+
+            var results = new List<(string, string?)>();
+            using var conn = OpenConnection();
+            using var cmd = conn.PrepareStatement(sql);
+            cmd.BindParameters["@limit"].Bind(limit);
+
+            foreach (var row in cmd.AsRows())
+            {
+                var imdbId = row.GetString(0);
+                var tmdbId = row.IsDBNull(1) ? null : row.GetString(1);
+                results.Add((imdbId, tmdbId));
+            }
+
+            return await Task.FromResult(results);
+        }
+
         // ── Channel-specific methods ─────────────────────────────────────────────
 
         /// <summary>
@@ -4071,7 +4157,7 @@ WHERE imdb_id = @imdb_id";
             using var conn = OpenConnection();
             var sql = @"
 SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
-       genres, imdb_rating, catalog_source, is_in_user_library, added_at
+       genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE media_type = 'movie'
 ORDER BY imdb_rating DESC, title ASC
@@ -4100,7 +4186,7 @@ LIMIT @limit OFFSET @offset";
             using var conn = OpenConnection();
             var sql = @"
 SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
-       genres, imdb_rating, catalog_source, is_in_user_library, added_at
+       genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE media_type = 'series'
 ORDER BY imdb_rating DESC, title ASC
@@ -4157,7 +4243,7 @@ LIMIT @limit OFFSET @offset";
         {
             const string sql = @"
 SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
-       genres, imdb_rating, catalog_source, is_in_user_library, added_at
+       genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE id = @id
 LIMIT 1";
@@ -4350,9 +4436,10 @@ LIMIT 1";
             Overview        = r.IsDBNull(7)  ? null : r.GetString(7),
             Genres          = r.IsDBNull(8)  ? null : r.GetString(8),
             ImdbRating      = r.IsDBNull(9)  ? null : r.GetDouble(9),
-            CatalogSource   = r.GetString(10),
-            IsInUserLibrary = r.GetInt(11) != 0,
-            AddedAt         = r.GetString(12),
+            Certification   = r.IsDBNull(10) ? null : r.GetString(10),
+            CatalogSource   = r.GetString(11),
+            IsInUserLibrary = r.GetInt(12) != 0,
+            AddedAt         = r.GetString(13),
         };
 
         #region ICatalogRepository Explicit Implementation

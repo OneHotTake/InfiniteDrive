@@ -101,6 +101,30 @@ namespace InfiniteDrive.Services
                     }
 
                     _logger.LogInformation("[Discover] Catalog sync complete: {Total} total items", totalItems);
+
+                    // Certification sync (Sprint 209: Parental Filtering)
+                    var tmdbKey = config?.TmdbApiKey;
+                    if (!string.IsNullOrEmpty(tmdbKey))
+                    {
+                        var certResolver = Plugin.Instance?.CertificationResolver;
+                        if (certResolver != null)
+                        {
+                            // Query items needing certification (limit 50 per sync run)
+                            var itemsNeedingCert = await _db.GetDiscoverCatalogNeedingCertificationAsync(50, cancellationToken);
+
+                            if (itemsNeedingCert.Count > 0)
+                            {
+                                _logger.LogInformation("[Discover] Fetching certifications for {Count} items from TMDB", itemsNeedingCert.Count);
+                                var certs = await certResolver.FetchCertificationsBatchAsync(itemsNeedingCert, cancellationToken);
+
+                                foreach (var (imdbId, certification) in certs)
+                                {
+                                    await _db.UpdateDiscoverCertificationAsync(imdbId, certification, cancellationToken);
+                                }
+                                _logger.LogInformation("[Discover] Updated {Count} certifications", certs.Count);
+                            }
+                        }
+                    }
                 }
             }
             catch (OperationCanceledException)

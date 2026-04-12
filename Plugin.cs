@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text.Json;
@@ -207,6 +208,12 @@ namespace InfiniteDrive
         public Services.IdResolverService IdResolverService { get; private set; } = null!;
 
         /// <summary>
+        /// Certification resolver for fetching MPAA/TV ratings from TMDB (Sprint 209).
+        /// Used for parental filtering in Discover browse/search.
+        /// </summary>
+        public Services.CertificationResolver CertificationResolver { get; private set; } = null!;
+
+        /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.
         /// Heavy initialization (database, repositories, PluginSecret) is deferred to
         /// InfiniteDriveInitializationService.Run() via IServerEntryPoint.
@@ -297,6 +304,15 @@ namespace InfiniteDrive
                 {
                     Name = "InfiniteDriveConfigJS",
                     EmbeddedResourcePath = "InfiniteDrive.Configuration.configurationpage.js"
+                },
+                // Sprint 210: User-facing Discover UI
+                new PluginPageInfo
+                {
+                    Name = "InfiniteDiscover",
+                    EmbeddedResourcePath = "InfiniteDrive.Configuration.discoverpage.html",
+                    IsMainConfigPage = false,
+                    EnableInMainMenu = false,
+                    DisplayName = "Discover"
                 }
             };
         }
@@ -423,6 +439,12 @@ namespace InfiniteDrive
                 // Initialise IdResolverService (Sprint 160: Robust ID Normalisation)
                 IdResolverService = new Services.IdResolverService(_logManager);
                 _logger.LogInformation("[InfiniteDrive] IdResolverService initialised");
+
+                // Initialise CertificationResolver (Sprint 209: Parental Filtering)
+                CertificationResolver = new Services.CertificationResolver(
+                    new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }),
+                    new EmbyLoggerAdapter<Services.CertificationResolver>(_logManager.GetLogger("CertificationResolver")));
+                _logger.LogInformation("[InfiniteDrive] CertificationResolver initialised");
             }
             catch (Exception ex)
             {

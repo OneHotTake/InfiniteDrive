@@ -16,6 +16,7 @@ namespace InfiniteDrive.Models
         public string? Overview { get; set; }
         public string? Genres { get; set; }                               // Comma-separated genres
         public double? ImdbRating { get; set; }                           // IMDb rating (0-10)
+        public string? Certification { get; set; }                        // MPAA/TV rating (e.g., "PG-13", "R", "TV-MA")
         public string CatalogSource { get; set; } = string.Empty;         // Source catalog ID
         public string AddedAt { get; set; } = string.Empty;               // When added to cache (ISO 8601)
         public bool IsInUserLibrary { get; set; }                         // True if user already has this item

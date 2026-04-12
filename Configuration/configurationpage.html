@@ -32,6 +32,22 @@
                opacity: .5; font-weight: 600; font-size: .8em; text-transform: uppercase; }
 .es-table td { padding: .35em .5em; border-bottom: 1px solid rgba(128,128,128,0.1); }
 .es-table tr:last-child td { border-bottom: none; }
+
+/* ── Parental Controls Styles (Sprint 209) ── */
+.es-behavior-matrix { margin: .75em 0; }
+.es-behavior-matrix table { width: 100%; border-collapse: collapse; font-size: .85em; }
+.es-behavior-matrix th { text-align: left; padding: .5em; border-bottom: 1px solid rgba(128,128,128,0.2);
+                          opacity: .5; font-weight: 600; font-size: .78em; text-transform: uppercase; }
+.es-behavior-matrix td { padding: .5em; border-bottom: 1px solid rgba(128,128,128,0.1); }
+.es-behavior-matrix tr:last-child td { border-bottom: none; }
+.es-status-success { color: #28a745; font-weight: 600; }
+.es-status-error { color: #dc3545; font-weight: 600; }
+.es-filter-status { display: flex; align-items: center; gap: .6em; padding: .7em .9em;
+                      background: rgba(128,128,128,0.08); border-radius: 6px; font-size: .88em; }
+.es-status-indicator { font-size: 1.2em; }
+.es-status-inactive { color: #ffc107; }
+.es-status-active { color: #28a745; }
+
 .mode-cached { color: #28a745; } .mode-sync { color: #17a2b8; } .mode-failed { color: #dc3545; }
 .es-catalog-panel { border: 1px solid rgba(128,128,128,0.2); border-radius: 4px; padding: .5em .65em;
                     max-height: 200px; overflow-y: auto; background: rgba(128,128,128,0.05); }
@@ -1212,7 +1228,79 @@
   </div>
 
 
-  <!-- Card 4: Security -->
+  <!-- Card 4: Parental Controls (Sprint 209) -->
+  <div class="es-card" id="cfg-section-parental">
+    <h3>Parental Controls</h3>
+
+    <div style="margin-bottom:1.2em">
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-tmdb-api-key">TMDB API Key</label>
+        <input id="cfg-tmdb-api-key" type="password" is="emby-input" placeholder="Your TMDB API key" />
+        <div class="es-hint">Required for MPAA/TV ratings. <a href="https://www.themoviedb.org/settings/api" target="_blank" style="color:var(--theme-button-background,#00a4dc)">Get free key at themoviedb.org → Settings → API</a>.</div>
+      </div>
+
+      <div class="inputContainer" style="margin-top:.8em">
+        <label class="inputLabel">Behavior Matrix</label>
+        <div class="es-behavior-matrix">
+          <table>
+            <thead>
+              <tr>
+                <th>User Type</th>
+                <th>Item Has Rating</th>
+                <th>Block Unrated = OFF</th>
+                <th>Block Unrated = ON</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Unrestricted (no limit)</td>
+                <td>Any</td>
+                <td class="es-status-success">✅ Show</td>
+                <td class="es-status-success">✅ Show</td>
+              </tr>
+              <tr>
+                <td>Restricted (max PG)</td>
+                <td>G, PG</td>
+                <td class="es-status-success">✅ Show</td>
+                <td class="es-status-success">✅ Show</td>
+              </tr>
+              <tr>
+                <td>Restricted (max PG)</td>
+                <td>PG-13, R, TV-MA</td>
+                <td class="es-status-error">❌ Block</td>
+                <td class="es-status-error">❌ Block</td>
+              </tr>
+              <tr>
+                <td>Restricted (max PG)</td>
+                <td><strong>Unrated</strong></td>
+                <td class="es-status-success">✅ Show</td>
+                <td class="es-status-error">❌ Block</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="inputContainer" style="margin-top:.8em">
+        <label class="checkboxContainer">
+          <input type="checkbox" is="emby-checkbox" id="cfg-block-unrated" />
+          <span class="checkboxLabel">Block Unrated for Restricted Users</span>
+        </label>
+        <div class="es-hint" style="margin-left:2em">When enabled, users with parental restrictions (PG, PG-13, etc.) will NOT see content without known MPAA/TV ratings. Unrestricted users (no rating limit) are never affected.</div>
+      </div>
+
+      <div class="inputContainer" style="margin-top:.8em">
+        <label class="inputLabel">Filtering Status</label>
+        <div class="es-filter-status" id="es-filter-status">
+          <span class="es-status-indicator es-status-inactive">⚠️</span>
+          <span class="es-status-text">No TMDB key configured — parental filtering is inactive</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- Card 5: Security -->
   <div class="es-card" id="cfg-section-security" style="border-color:rgba(0,164,220,0.35);background:rgba(0,164,220,0.04)">
     <h3 style="color:var(--theme-button-background,#00a4dc)">🔐 Security</h3>
 
