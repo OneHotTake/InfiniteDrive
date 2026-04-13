@@ -1,3 +1,4 @@
+using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Services;
 
 namespace InfiniteDrive.Models
@@ -6,6 +7,7 @@ namespace InfiniteDrive.Models
     /// Request model for /InfiniteDrive/Resolve endpoint.
     /// </summary>
     [Route("/InfiniteDrive/Resolve", "GET", Summary = "Resolve AIOStreams stream and return M3U8 manifest")]
+    [Unauthenticated]
     public class ResolverRequest : IReturn<object>
     {
         /// <summary>
@@ -40,7 +42,7 @@ namespace InfiniteDrive.Models
 
         /// <summary>
         /// Resolve token for authentication.
-        /// Format: {quality}:{id}:{exp}:{signature}
+        /// Format: {exp}:{signature} (opaque token, IMDB ID and quality are query params)
         /// </summary>
         public string? Token { get; set; }
     }

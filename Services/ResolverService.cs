@@ -15,29 +15,18 @@ namespace InfiniteDrive.Services
     /// Resolve endpoint service for AIOStreams stream resolution.
     /// Queries AIOStreams API, filters by quality tier, and returns M3U8 manifest.
     /// </summary>
-    public class ResolverService : IService, IRequiresRequest
+    public class ResolverService : IService
     {
         private readonly ILogger<ResolverService> _logger;
-        private readonly PluginConfiguration _config;
-        private readonly AioStreamsClient _aioClient;
         private readonly M3u8Builder _m3u8Builder;
 
-        public ResolverService(
-            ILogManager logManager,
-            PluginConfiguration config,
-            AioStreamsClient aioClient)
+        public ResolverService(ILogManager logManager)
         {
             _logger = new EmbyLoggerAdapter<ResolverService>(logManager.GetLogger("InfiniteDrive"));
-            _config = config;
-            _aioClient = aioClient;
             _m3u8Builder = new M3u8Builder();
         }
 
-        /// <inheritdoc/>
-        public IRequest Request { get; set; }
-
-        /// <inheritdoc/>
-        public IResponse Response => Request?.Response;
+        private PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         /// <summary>
         /// Handles GET /InfiniteDrive/Resolve endpoint.
@@ -62,24 +51,19 @@ namespace InfiniteDrive.Services
             }
 
             // Validate resolve token (Sprint 140A-03)
-            if (string.IsNullOrEmpty(_config.PluginSecret))
+            _logger.LogInformation("[Resolve] PluginSecret is empty: {IsEmpty}, length: {Length}",
+                string.IsNullOrEmpty(Config.PluginSecret),
+                Config.PluginSecret?.Length ?? 0);
+
+            if (string.IsNullOrEmpty(Config.PluginSecret))
             {
                 return Error(500, "server_error", "Plugin not initialized");
             }
 
-            if (!PlaybackTokenService.ValidateStreamToken(req.Token, _config.PluginSecret))
+            if (!PlaybackTokenService.ValidateStreamToken(req.Token, Config.PluginSecret))
             {
                 _logger.LogWarning("[InfiniteDrive][Resolve] Invalid or expired resolve token");
                 return Error(401, "unauthorized", "Invalid or expired token");
-            }
-
-            // Verify token matches request parameters (security check)
-            var tokenParts = req.Token?.Split(':');
-            if (tokenParts?.Length >= 3 &&
-                (tokenParts[0] != req.Quality || tokenParts[1] != req.Id))
-            {
-                _logger.LogWarning("[InfiniteDrive][Resolve] Token quality/id mismatch with request");
-                return Error(401, "unauthorized", "Token parameters don't match request");
             }
 
             // 2. Resolve stream from AIOStreams
@@ -124,12 +108,13 @@ namespace InfiniteDrive.Services
         {
             try
             {
+                using var client = new AioStreamsClient(Config, _logger);
                 AioStreamsStreamResponse? response;
 
                 if (req.IdType == "series" && req.Season.HasValue && req.Episode.HasValue)
                 {
                     // Series episode request
-                    response = await _aioClient.GetSeriesStreamsAsync(
+                    response = await client.GetSeriesStreamsAsync(
                         req.Id,
                         req.Season.Value,
                         req.Episode.Value);
@@ -137,7 +122,7 @@ namespace InfiniteDrive.Services
                 else
                 {
                     // Movie request
-                    response = await _aioClient.GetMovieStreamsAsync(req.Id);
+                    response = await client.GetMovieStreamsAsync(req.Id);
                 }
 
                 return response?.Streams ?? new List<AioStreamsStream>();
@@ -229,8 +214,8 @@ namespace InfiniteDrive.Services
                 .Select(s =>
                 {
                     // Sign stream URL
-                    var signedUrl = PlaybackTokenService.Sign(s.Url!, _config.PluginSecret, 1);
-                    var proxyUrl = $"{_config.EmbyBaseUrl.TrimEnd('/')}/InfiniteDrive/stream?url={Uri.EscapeDataString(signedUrl)}";
+                    var signedUrl = PlaybackTokenService.Sign(s.Url!, Config.PluginSecret, 1);
+                    var proxyUrl = $"{Config.EmbyBaseUrl.TrimEnd('/')}/InfiniteDrive/Stream?url={Uri.EscapeDataString(signedUrl)}";
 
                     // Get resolution from parsed metadata
                     var resolution = s.ParsedFile?.Resolution ?? string.Empty;
@@ -264,7 +249,7 @@ namespace InfiniteDrive.Services
                 })
                 .ToList();
 
-            return _m3u8Builder.CreateVariantPlaylist(_config.EmbyBaseUrl, quality, variants);
+            return _m3u8Builder.CreateVariantPlaylist(Config.EmbyBaseUrl, quality, variants);
         }
 
         /// <summary>

@@ -66,7 +66,8 @@ namespace InfiniteDrive.Services
             var baseUrl = embyBaseUrl.TrimEnd('/');
 
             // Generate resolve token (365-day validity for .strm files)
-            var token = PlaybackTokenService.GenerateResolveToken(slotKey, titleId, config.PluginSecret, 365 * 24);
+            // Token is opaque - IMDB ID and quality are passed as query parameters
+            var token = PlaybackTokenService.GenerateResolveToken(config.PluginSecret, 365 * 24);
 
             // Calculate expiry timestamp for tracking
             var expiresAtUnix = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
