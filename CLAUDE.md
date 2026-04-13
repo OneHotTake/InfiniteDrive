@@ -9,6 +9,7 @@
 - Never read any other file unless the task explicitly names it.
 - Never read a file >200 lines in full. Use targeted grep/line-range.
 - Never re-read any file in the same session.
+- Never read any file under .ai/archive/ (or its subdirectories) unless CURRENT_TASK.md explicitly names the exact file for diagnosis/troubleshooting.
 - **Max 3 files touched per subtask. Max 1 working solution delivered.**
 - After every subtask: append ONE LINE status to .ai/CURRENT_TASK.md and stop.
 
@@ -39,3 +40,20 @@ dotnet build -c Release
 ./emby-reset.sh (canonical reset)
 
 High-risk files (require human review): Plugin.cs, DatabaseManager.cs, any auth/resolution code.
+
+## Sprint Planning (Token-Optimized)
+
+ALWAYS start from .ai/SPRINT_TEMPLATE.md (the new 38-line version).
+
+1. Copy to .ai/sprint-XXX.md
+2. Fill ONLY: Why (2 sentences), Tasks (FIX-XXX blocks), Verification checklist.
+3. **No research, no phases, no tables, no prose.** Research lives elsewhere.
+4. Commit the empty sprint file **before** any code work.
+5. Update .ai/SESSION_SUMMARY.md with tokens burned this sprint (estimate is fine).
+
+## Sprint Completion Ritual
+
+1. Update REPO_MAP.md and BACKLOG.md only.
+2. git add .ai/ && git commit -m "chore: end-of-sprint XXX"
+3. Push immediately. No accumulated work.
+4. Log tokens saved in .ai/SESSION_SUMMARY.md (one line).
