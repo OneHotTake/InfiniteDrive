@@ -46,6 +46,26 @@ Welcome to EmbyStreams documentation. Choose the guide that matches your needs:
 
 ---
 
+## Settings
+
+Plugin configuration uses Emby's native declarative UI system (IHasUIPages). All settings tabs render with Emby's standard look and feel — no custom HTML/JS required.
+
+**7 configuration tabs:**
+
+| Tab | Purpose |
+|-----|---------|
+| Health | Live dashboard with connection status, coverage, API budget, recent plays |
+| Providers | AIOStreams manifest URLs, connection test |
+| Libraries | Storage paths, metadata preferences, library provisioning |
+| Sources | Catalog sync settings, cache tuning, proxy mode |
+| Security | Plugin secret rotation, signature validity |
+| Parental Controls | TMDB API key, unrated content filter |
+| Repair | Diagnostic triggers, destructive actions (with confirmation) |
+
+The Health tab refreshes server-side — clicking "Refresh Status" fetches live data from the plugin and returns a fresh view. No client-side polling.
+
+---
+
 ## 🔧 For Developers
 
 **If you're contributing to EmbyStreams:**
@@ -115,4 +135,4 @@ Welcome to EmbyStreams documentation. Choose the guide that matches your needs:
 
 ---
 
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-04-13

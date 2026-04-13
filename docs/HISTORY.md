@@ -14,6 +14,30 @@ This document tracks all releases, completed sprints, and future roadmap. For cu
 
 ## Release Changelog
 
+### [0.22.0] - 2026-04-13
+
+**Settings UI Overhaul — Native Declarative Plugin UI**
+
+Major settings UI overhaul: Migrated 7 configuration tabs to the modern IHasUIPages declarative system (Emby 4.10+). Eliminates previous DOM stacking issues, provides native styling, server-side Health dashboard with live refresh, and type-safe configuration handling.
+
+#### Added
+- Native Emby Plugin UI via `IHasUIPages` + `IHasTabbedUIPages` — 7 declarative config tabs
+- Health tab with server-side refresh pattern — live status dashboard, no client polling
+- Built-in confirmation prompts on destructive Repair actions (purge, nuclear reset)
+- Type-safe config round-trip via `EditableOptionsBase` models with `ApplyTo()` pattern
+- `UI/` namespace: InfiniteDriveController, TabPageController, InfiniteDrivePageView, and 7 tab models
+
+#### Fixed
+- Content stacking / DOM reuse issue when navigating back to settings — architecturally resolved
+- JS syntax error in configurationpage.js line 340
+- Null-guard on IMDB hyperlinks in Health recent plays list
+- Error handling in RunCommand for failed refreshes and commands
+
+#### Technical Details
+- Hybrid `IHasUIPages` + `IHasWebPages` coexistence — Discover tab remains on legacy system
+- View factory pattern: each tab switch creates a fresh model from current config
+- `GenericItemList` for dynamic data: source sync states, client profiles, recent plays, provider health
+
 ### [0.21.0] - 2026-03-30
 
 **Sprint 54 — Native IChannel Search & Browse**
