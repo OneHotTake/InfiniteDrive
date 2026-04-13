@@ -337,7 +337,7 @@ function (loading) {
         cfg.MetadataLanguage             = (view.querySelector('#lib-meta-lang')    || {}).value || 'en';
         cfg.MetadataCertificationCountry = (view.querySelector('#lib-meta-country') || {}).value || 'US';
         cfg.MetadataImageLanguage        = (view.querySelector('#lib-meta-img-lang')|| {}).value || 'en';
-        cfg.WriteNfoFiles = !!(view.querySelector('#lib-write-nfo') || {}).checked);
+        cfg.WriteNfoFiles = !!((view.querySelector('#lib-write-nfo') || {}).checked);
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
                 _loadedConfig = cfg;
