@@ -22,7 +22,7 @@ namespace InfiniteDrive.Data
 
         public VersionSlotRepository(string dbDirectory, ILogger logger)
         {
-            _dbPath = System.IO.Path.Combine(dbDirectory, "embystreams.db");
+            _dbPath = System.IO.Path.Combine(dbDirectory, "infinitedrive.db");
             _logger = logger;
         }
 

@@ -528,8 +528,10 @@ namespace InfiniteDrive.Tasks
             var tmdbId = meta.TmdbId ?? meta.TmdbIdAlt;
             int? year  = ParseYear(meta.ReleaseInfo);
 
+            var now = DateTime.UtcNow.ToString("o");
             return new CatalogItem
             {
+                Id          = GenerateDeterministicId(imdbId, "aiostreams"),
                 ImdbId       = imdbId,
                 TmdbId       = tmdbId,
                 UniqueIdsJson = BuildUniqueIdsJson(imdbId, tmdbId, null),
@@ -539,6 +541,8 @@ namespace InfiniteDrive.Tasks
                 Source       = "aiostreams",
                 SourceListId = catalog.Id,
                 CatalogType  = rawType,
+                AddedAt      = now,
+                UpdatedAt    = now,
                 // Sprint 147: Set ItemState to Queued for RefreshTask to process
                 ItemState    = ItemState.Queued,
             };
@@ -573,6 +577,22 @@ namespace InfiniteDrive.Tasks
         /// </summary>
         internal static int? ParseYear(string? releaseInfo)
             => Services.YearParser.Parse(releaseInfo);
+
+        /// <summary>
+        /// Generates a deterministic ID based on imdb_id and source.
+        /// This ensures the same item always gets the same ID, preventing
+        /// UNIQUE constraint violations during upsert operations.
+        /// </summary>
+        internal static string GenerateDeterministicId(string imdbId, string source)
+        {
+            // Use a hash of (imdb_id + source) to create a deterministic ID
+            // Format: {first 8 chars of hash}-{imdb_id}
+            using var hash = System.Security.Cryptography.MD5.Create();
+            var input = $"{imdbId}:{source}";
+            var hashBytes = hash.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            var hashString = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 8);
+            return $"{hashString}-{imdbId}";
+        }
 
         /// <summary>
         /// Returns true when a catalog can only be queried with a mandatory search

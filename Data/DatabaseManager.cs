@@ -131,6 +131,7 @@ namespace InfiniteDrive.Data
                     unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
                     title         = excluded.title,
                     year          = excluded.year,
+                    media_type    = excluded.media_type,
                     seasons_json  = COALESCE(excluded.seasons_json, catalog_items.seasons_json),
                     strm_path     = COALESCE(excluded.strm_path,    catalog_items.strm_path),
                     local_path    = COALESCE(catalog_items.local_path,   excluded.local_path),
@@ -157,13 +158,21 @@ namespace InfiniteDrive.Data
                 BindNullableText(cmd, "@unique_ids_json", item.UniqueIdsJson);
                 BindText(cmd, "@title",          item.Title);
                 BindNullableInt(cmd,  "@year",           item.Year);
-                BindText(cmd, "@media_type",     item.MediaType);
+                // Validate media_type - must be one of: movie, series, anime, episode, other
+                var rawMediaType = item.MediaType;
+                var validMediaType = string.IsNullOrEmpty(rawMediaType) ? "movie" : rawMediaType;
+                if (validMediaType != "movie" && validMediaType != "series" && validMediaType != "anime" && validMediaType != "episode" && validMediaType != "other")
+                {
+                    _logger.LogWarning("[InfiniteDrive] Invalid MediaType '{RawMediaType}' for item {ImdbId}, defaulting to 'movie'", rawMediaType, item.ImdbId);
+                    validMediaType = "movie";
+                }
+                BindText(cmd, "@media_type",     validMediaType);
                 BindText(cmd, "@source",         item.Source);
                 BindNullableText(cmd, "@source_list_id", item.SourceListId);
                 BindNullableText(cmd, "@seasons_json",   item.SeasonsJson);
                 BindNullableText(cmd, "@strm_path",      item.StrmPath);
-                BindText(cmd, "@added_at",       item.AddedAt);
-                BindText(cmd, "@updated_at",     item.UpdatedAt);
+                BindText(cmd, "@added_at",       string.IsNullOrEmpty(item.AddedAt) ? DateTime.UtcNow.ToString("o") : item.AddedAt);
+                BindText(cmd, "@updated_at",     string.IsNullOrEmpty(item.UpdatedAt) ? DateTime.UtcNow.ToString("o") : item.UpdatedAt);
                 BindNullableText(cmd, "@removed_at",     item.RemovedAt);
                 BindNullableText(cmd, "@local_path",     item.LocalPath);
                 BindNullableText(cmd, "@local_source",   item.LocalSource);
@@ -217,7 +226,7 @@ namespace InfiniteDrive.Data
                        source, source_list_id, seasons_json, strm_path,
                        added_at, updated_at, removed_at,
                        local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
+                       item_state, pin_source, pinned_at, nfo_status,
                        retry_count, next_retry_at,
                        blocked_at, blocked_by, first_added_by_user_id,
                        tvdb_id, raw_meta_json, catalog_type
@@ -668,13 +677,14 @@ namespace InfiniteDrive.Data
         /// </summary>
         public async Task PersistMetadataAsync(string key, string value, CancellationToken cancellationToken = default)
         {
+            var safeValue = string.IsNullOrEmpty(value) ? "" : value;
             await ExecuteWriteAsync(
                 "INSERT INTO plugin_metadata (key, value, updated_at) VALUES (@key, @value, @updatedAt) " +
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;",
                 cmd =>
                 {
                     BindText(cmd, "@key", key);
-                    BindText(cmd, "@value", value);
+                    BindText(cmd, "@value", safeValue);
                     BindText(cmd, "@updatedAt", DateTimeOffset.UtcNow.ToString("o"));
                 },
                 cancellationToken);
@@ -4310,34 +4320,34 @@ LIMIT 1";
             Id                = r.GetString(0),
             ImdbId            = r.GetString(1),
             TmdbId            = r.IsDBNull(2)  ? null : r.GetString(2),
-            Title             = r.GetString(3),
-            Year              = r.IsDBNull(4)  ? null : r.GetInt(4),
-            MediaType         = r.GetString(5),
-            Source            = r.GetString(6),
-            SourceListId      = r.IsDBNull(7)  ? null : r.GetString(7),
-            SeasonsJson       = r.IsDBNull(8)  ? null : r.GetString(8),
-            StrmPath          = r.IsDBNull(9)  ? null : r.GetString(9),
-            AddedAt           = r.GetString(10),
-            UpdatedAt         = r.GetString(11),
-            RemovedAt         = r.IsDBNull(12) ? null : r.GetString(12),
-            LocalPath         = r.IsDBNull(13) ? null : r.GetString(13),
-            LocalSource       = r.IsDBNull(14) ? null : r.GetString(14),
-            ResurrectionCount = r.IsDBNull(15) ? 0    : r.GetInt(15),
-            ItemState         = r.IsDBNull(16) ? ItemState.Catalogued : (ItemState)r.GetInt(16),
-            PinSource         = r.IsDBNull(17) ? null : r.GetString(17),
-            PinnedAt          = r.IsDBNull(18) ? null : r.GetString(18),
-            UniqueIdsJson     = r.IsDBNull(19) ? null : r.GetString(19),
-            NfoStatus         = r.IsDBNull(20) ? null : r.GetString(20),
-            RetryCount        = r.IsDBNull(21) ? 0    : r.GetInt(21),
-            NextRetryAt       = r.IsDBNull(22) ? (long?)null : r.GetInt64(22),
-            StrmTokenExpiresAt = r.IsDBNull(23) ? (long?)null : r.GetInt64(23),
-            BlockedAt         = r.IsDBNull(24) ? null : r.GetString(24),
-            BlockedBy         = r.IsDBNull(25) ? null : r.GetString(25),
-            FirstAddedByUserId = r.IsDBNull(26) ? null : r.GetString(26),
+            Title             = r.GetString(4),
+            Year              = r.IsDBNull(5)  ? null : r.GetInt(5),
+            MediaType         = r.GetString(6),
+            Source            = r.GetString(7),
+            SourceListId      = r.IsDBNull(8)  ? null : r.GetString(8),
+            SeasonsJson       = r.IsDBNull(9)  ? null : r.GetString(9),
+            StrmPath          = r.IsDBNull(10) ? null : r.GetString(10),
+            AddedAt           = r.GetString(11),
+            UpdatedAt         = r.GetString(12),
+            RemovedAt         = r.IsDBNull(13) ? null : r.GetString(13),
+            LocalPath         = r.IsDBNull(14) ? null : r.GetString(14),
+            LocalSource       = r.IsDBNull(15) ? null : r.GetString(15),
+            ResurrectionCount = r.IsDBNull(16) ? 0    : r.GetInt(16),
+            ItemState         = r.IsDBNull(17) ? ItemState.Catalogued : (ItemState)r.GetInt(17),
+            PinSource         = r.IsDBNull(18) ? null : r.GetString(18),
+            PinnedAt          = r.IsDBNull(19) ? null : r.GetString(19),
+            UniqueIdsJson     = r.IsDBNull(20) ? null : r.GetString(20),
+            NfoStatus         = r.IsDBNull(21) ? null : r.GetString(21),
+            RetryCount        = r.IsDBNull(22) ? 0    : r.GetInt(22),
+            NextRetryAt       = r.IsDBNull(23) ? (long?)null : r.GetInt64(23),
+            StrmTokenExpiresAt = r.IsDBNull(24) ? (long?)null : r.GetInt64(24),
+            BlockedAt         = r.IsDBNull(25) ? null : r.GetString(25),
+            BlockedBy         = r.IsDBNull(26) ? null : r.GetString(26),
+            FirstAddedByUserId = r.IsDBNull(27) ? null : r.GetString(27),
             // Sprint 160: IdResolverService columns
-            TvdbId           = r.IsDBNull(27) ? null : r.GetString(27),
-            RawMetaJson      = r.IsDBNull(28) ? null : r.GetString(28),
-            CatalogType       = r.IsDBNull(29) ? null : r.GetString(29),
+            TvdbId           = r.IsDBNull(28) ? null : r.GetString(28),
+            RawMetaJson      = r.IsDBNull(29) ? null : r.GetString(29),
+            CatalogType      = r.IsDBNull(30) ? null : r.GetString(30),
         };
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry

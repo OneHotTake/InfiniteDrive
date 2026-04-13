@@ -23,7 +23,7 @@ namespace InfiniteDrive.Tasks
     /// source of truth.
     ///
     /// <para><b>DEPRECATED (Sprint 66):</b> This task has been consolidated into
-    /// <see cref="MarvinTask"/>. Use the Doctor task instead for all catalog
+    /// <see cref="MarvinTask"/>. Use the MarvinTask instead for all catalog
     /// reconciliation operations. Episode expansion is now handled by
     /// <see cref="SeriesPreExpansionService"/> during catalog sync.</para>
     ///

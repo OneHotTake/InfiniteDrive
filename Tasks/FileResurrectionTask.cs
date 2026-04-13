@@ -18,7 +18,7 @@ namespace InfiniteDrive.Tasks
     /// since disappeared, and rebuilds them as plugin-managed .strm files.
     ///
     /// <para><b>DEPRECATED (Sprint 66):</b> This task has been consolidated into
-    /// <see cref="MarvinTask"/>. Use the Doctor task instead for all catalog
+    /// <see cref="MarvinTask"/>. Use the MarvinTask instead for all catalog
     /// reconciliation operations.</para>
     ///
     /// This is the "file resurrection" safety net: if a user's local copy of a

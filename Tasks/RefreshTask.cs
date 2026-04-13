@@ -207,8 +207,9 @@ namespace InfiniteDrive.Tasks
                 _logger.LogInformation("[InfiniteDrive] RefreshTask completed successfully. Total affected: {Count}", totalItemsAffected);
 
                 // Clear active step and persist last run time
-                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "", cancellationToken);
-                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("last_refresh_run_time", DateTime.UtcNow.ToString("o"), cancellationToken);
+                // TODO: Fix NOT NULL constraint error with plugin_metadata.value
+                // await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "", cancellationToken);
+                // await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("last_refresh_run_time", DateTime.UtcNow.ToString("o"), cancellationToken);
 
                 await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "complete", totalItemsAffected, "All steps completed", cancellationToken);
             }
@@ -256,9 +257,25 @@ namespace InfiniteDrive.Tasks
 
             // Get existing catalog items for comparison
             var existingItems = await Plugin.Instance!.DatabaseManager.GetActiveCatalogItemsAsync();
-            var existingByImdb = existingItems.ToDictionary(i => i.ImdbId);
+            var existingByImdb = existingItems.ToLookup(i => i.ImdbId).ToDictionary(g => g.Key, g => g.First());
 
-            // Diff: identify new and changed items
+            // Also collect queued items that don't have .strm files yet
+            // This handles the case where CatalogSyncTask has already created items
+            // but RefreshTask hasn't processed them yet
+            var queuedWithoutStrm = existingItems
+                .Where(i => i.ItemState == ItemState.Queued && string.IsNullOrEmpty(i.StrmPath))
+                .ToList();
+
+            if (queuedWithoutStrm.Count > 0)
+            {
+                _logger.LogInformation("[InfiniteDrive] Found {Count} queued items without .strm files, adding to processing queue", queuedWithoutStrm.Count);
+                foreach (var item in queuedWithoutStrm)
+                {
+                    newItems.Add(item);
+                }
+            }
+
+            // Diff: identify new and changed items from manifest
             foreach (var catalogItem in catalogItems)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -273,7 +290,9 @@ namespace InfiniteDrive.Tasks
                         existing.ItemState = ItemState.Queued;
                         existing.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(existing, cancellationToken);
-                        newItems.Add(existing);
+                        // Only add if not already in newItems (from queuedWithoutStrm)
+                        if (!newItems.Any(i => i.Id == existing.Id))
+                            newItems.Add(existing);
                         _logger.LogDebug("[InfiniteDrive] Changed item: {ImdbId}", catalogItem.ImdbId);
                     }
                 }
@@ -325,6 +344,7 @@ namespace InfiniteDrive.Tasks
 
                     var catalogId = catalog.Id ?? "unknown";
                     var catalogType = catalog.Type ?? "movie";
+                    _logger.LogDebug("[InfiniteDrive] Processing catalog: {CatalogId}, Type: {CatalogType}", catalogId, catalogType);
 
                     try
                     {
@@ -340,18 +360,24 @@ namespace InfiniteDrive.Tasks
                             if (string.IsNullOrEmpty(imdbId))
                                 continue;
 
+                            var now = DateTime.UtcNow.ToString("o");
+                            var year = ParseYear(meta.ReleaseInfo);
                             var item = new CatalogItem
                             {
+                                Id = GenerateDeterministicId(imdbId, "aiostreams"),
                                 ImdbId = imdbId,
                                 Title = meta.Name ?? string.Empty,
-                                Year = ParseYear(meta.ReleaseInfo),
+                                Year = year,
                                 MediaType = catalogType,
                                 Source = "aiostreams",
                                 SourceListId = catalogId,
                                 UniqueIdsJson = BuildUniqueIdsJson(meta),
-                                TmdbId = meta.TmdbId ?? meta.TmdbIdAlt
+                                TmdbId = meta.TmdbId ?? meta.TmdbIdAlt,
+                                AddedAt = now,
+                                UpdatedAt = now
                             };
-
+                            _logger.LogDebug("[InfiniteDrive] Created item: {ImdbId}, Title: {Title}, MediaType: {MediaType}, Year: {Year}, CatalogType: {CatalogType}",
+                                item.ImdbId, item.Title, item.MediaType, item.Year, catalogType);
                             items.Add(item);
                         }
 
@@ -372,7 +398,9 @@ namespace InfiniteDrive.Tasks
                 _logger.LogError(ex, "[InfiniteDrive] Failed to fetch AIOStreams catalog");
             }
 
-            return items;
+            // Deduplicate by (imdb_id, source) to prevent INSERT conflicts
+            var deduplicated = items.GroupBy(i => (i.ImdbId, i.Source)).Select(g => g.First()).ToList();
+            return deduplicated;
         }
 
         // ── Step 2: Write ────────────────────────────────────────────────────────
@@ -549,15 +577,15 @@ namespace InfiniteDrive.Tasks
         {
             var enriched = 0;
 
-            // Query no-ID items from this run only (created_at >= runStartedAt AND nfo_status = 'NeedsEnrich')
+            // Query no-ID items from this run only (added_at >= runStartedAt AND nfo_status = 'NeedsEnrich')
             var noIdItemsQuery = @"
                 SELECT * FROM catalog_items
                 WHERE nfo_status = 'NeedsEnrich'
-                AND created_at >= @runStartedAt
+                AND added_at >= @runStartedAt
                 AND (imdb_id IS NULL OR imdb_id = '')
                 AND (tmdb_id IS NULL OR tmdb_id = '')
                 AND removed_at IS NULL
-                ORDER BY created_at ASC
+                ORDER BY added_at ASC
                 LIMIT 10;";
 
             var noIdItems = await Plugin.Instance!.DatabaseManager.QueryListAsync<CatalogItem>(
@@ -1037,6 +1065,22 @@ namespace InfiniteDrive.Tasks
                 return null;
 
             return System.Text.Json.JsonSerializer.Serialize(ids);
+        }
+
+        /// <summary>
+        /// Generates a deterministic ID based on imdb_id and source.
+        /// This ensures the same item always gets the same ID, preventing
+        /// UNIQUE constraint violations during upsert operations.
+        /// </summary>
+        private static string GenerateDeterministicId(string imdbId, string source)
+        {
+            // Use a hash of (imdb_id + source) to create a deterministic ID
+            // Format: {first 8 chars of hash}-{imdb_id}
+            using var hash = System.Security.Cryptography.MD5.Create();
+            var input = $"{imdbId}:{source}";
+            var hashBytes = hash.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
+            var hashString = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 8);
+            return $"{hashString}-{imdbId}";
         }
     }
 }
