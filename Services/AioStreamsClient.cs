@@ -614,8 +614,8 @@ namespace InfiniteDrive.Services
             // Attempt to parse the primary manifest URL.
             var (baseUrl, uuid, token) = TryParseManifestUrl(config.PrimaryManifestUrl);
 
-            // Fall back to secondary manifest URL only if the user has enabled it.
-            if (string.IsNullOrWhiteSpace(baseUrl) && config.EnableBackupAioStreams)
+            // Fall back to secondary manifest URL if configured (URL presence is the toggle).
+            if (string.IsNullOrWhiteSpace(baseUrl) && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                 (baseUrl, uuid, token) = TryParseManifestUrl(config.SecondaryManifestUrl);
 
             // Build the base Stremio path segment.

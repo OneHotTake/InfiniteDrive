@@ -4780,6 +4780,54 @@ LIMIT 1";
         }
 
         /// <summary>
+        /// Gets a media item by its internal UUID (media_items.id).
+        /// Used by AdminService when blocking/searching by internal ID.
+        /// </summary>
+        public async Task<MediaItem?> GetMediaItemByIdAsync(string id, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, primary_id_type, primary_id, media_type, title, year,
+                       status, failure_reason, saved, saved_at,
+                       blocked, blocked_at, created_at, updated_at, grace_started_at,
+                       superseded, superseded_conflict, superseded_at,
+                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       watch_progress_pct, favorited
+                FROM media_items
+                WHERE id = @Id
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@Id", id),
+                ReadMediaItem);
+        }
+
+        /// <summary>
+        /// Searches media items by title, returning non-blocked items only.
+        /// Used by AdminService for the block search UI.
+        /// </summary>
+        public async Task<List<MediaItem>> SearchMediaItemsByTitleAsync(string query, int limit, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                SELECT id, primary_id_type, primary_id, media_type, title, year,
+                       status, failure_reason, saved, saved_at,
+                       blocked, blocked_at, created_at, updated_at, grace_started_at,
+                       superseded, superseded_conflict, superseded_at,
+                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       watch_progress_pct, favorited
+                FROM media_items
+                WHERE title LIKE @Query
+                  AND blocked = 0
+                ORDER BY title
+                LIMIT @Limit;";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindText(cmd, "@Query", $"%{query}%");
+                BindInt(cmd, "@Limit", limit);
+            }, ReadMediaItem);
+        }
+
+        /// <summary>
         /// Blocks a catalog item by its IMDB ID.
         /// Sets blocked_at and blocked_by, clearing nfo_status.
         /// </summary>

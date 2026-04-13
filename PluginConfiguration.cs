@@ -381,6 +381,14 @@ namespace InfiniteDrive
         [DataMember]
         public string PluginSecret { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Unix timestamp (seconds) of the last PluginSecret rotation.
+        /// 0 = never rotated (auto-generated on first load).
+        /// Updated by SetupService.RotateApiKey after successful two-phase rotation.
+        /// </summary>
+        [DataMember]
+        public long PluginSecretRotatedAt { get; set; } = 0;
+
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  MULTI-PROVIDER PRIORITY                                             ║
         // ╚══════════════════════════════════════════════════════════════════════╝
