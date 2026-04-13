@@ -312,18 +312,21 @@ function (loading) {
     function showTab(view, name) {
         var tabMap = {
             'setup': 'setup',
+            'sources': 'overview',
             'overview': 'overview',
             'health': 'overview',
             'settings': 'settings',
-            'content': 'content',
+            'repair': 'marvin',
             'marvin': 'marvin',
             'improbability': 'marvin',
+            'content': 'content',
+            'advanced': 'advanced',
             'blocked': 'content',
             'content-mgmt': 'content'
         };
         var mappedName = tabMap[name] || name;
 
-        ['setup','overview','settings','content','marvin'].forEach(function(t) {
+        ['setup','overview','settings','content','marvin','advanced'].forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
             if (c) c.classList.toggle('active', mappedName === t);
         });
@@ -351,8 +354,9 @@ function (loading) {
             if (_dashInterval) { clearInterval(_dashInterval); _dashInterval = null; }
         }
         if (name === 'settings' && _loadedConfig) { populateSettings(view, _loadedConfig); }
+        if (name === 'advanced' && _loadedConfig) { populateSettings(view, _loadedConfig); }
         if (name === 'setup' && _loadedConfig) { initWizardTab(view, _loadedConfig); }
-        if (name === 'overview') { refreshSourcesTab(view); }
+        if (name === 'overview' || name === 'sources' || name === 'health') { refreshSourcesTab(view); }
         if (name === 'blocked') { loadBlockedItems(view); }
         if (name === 'content-mgmt') { loadContentMgmtSources(view); }
     }
