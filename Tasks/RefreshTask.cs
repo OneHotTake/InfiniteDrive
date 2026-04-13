@@ -1016,14 +1016,14 @@ namespace InfiniteDrive.Tasks
 
         private static string GetEmbyBaseUrl(PluginConfiguration config)
         {
-            // Build Emby base URL for resolve tokens
-            // Extract base URL from manifest URL
-            if (!string.IsNullOrEmpty(config.PrimaryManifestUrl))
+            // Use configured Emby base URL for resolve tokens
+            // This ensures .strm files point to the local Emby server for proxying
+            if (!string.IsNullOrEmpty(config.EmbyBaseUrl))
             {
-                var uri = new Uri(config.PrimaryManifestUrl);
-                return $"{uri.Scheme}://{uri.Host}";
+                return config.EmbyBaseUrl.TrimEnd('/');
             }
 
+            // Fallback to localhost if not configured
             return "http://localhost:8096";
         }
 
