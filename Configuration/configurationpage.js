@@ -10,8 +10,6 @@ function (loading) {
     var _searchTimer        = null;
     var _catalogLimits      = {};
     var _loadedConfig       = null;
-    var _wizardStep         = 1;
-    var _wizardCatalogs     = [];
     var _unsavedChanges     = false;
     var _authExpired        = false;
 
@@ -87,184 +85,6 @@ function (loading) {
         return Math.floor(diff/86400) + 'd ago';
     }
 
-    // ── Wizard navigation ─────────────────────────────────────────────────────
-    function updateWizardProgress(view, step) {
-        var indicators = view.querySelectorAll('.es-wizard-step-indicator');
-        for (var i = 0; i < indicators.length; i++) {
-            var stepNum = parseInt(indicators[i].getAttribute('data-es-wizard-step'), 10);
-            indicators[i].classList.remove('active', 'completed');
-            if (stepNum === step) {
-                indicators[i].classList.add('active');
-            } else if (stepNum < step) {
-                indicators[i].classList.add('completed');
-            }
-        }
-    }
-
-    function showWizardStep(view, step) {
-        // Remove active class from all wizard step contents
-        var contents = view.querySelectorAll('.es-wizard-step-content');
-        for (var i = 0; i < contents.length; i++) {
-            contents[i].classList.remove('active');
-        }
-
-        // Add active class to target step
-        var target = view.querySelector('[data-es-wizard-content="' + step + '"]');
-        if (!target) {
-            return;
-        }
-        target.classList.add('active');
-
-        // Update navigation buttons
-        var backBtn = view.querySelector('[data-es-wiz-back]');
-        var nextBtn = view.querySelector('[data-es-wiz-next]');
-        if (backBtn) {
-            backBtn.style.display = step === 1 ? 'none' : 'block';
-            if (step > 1) backBtn.setAttribute('data-es-wiz-back', step - 1);
-        }
-        if (nextBtn) {
-            if (step === 5) {
-                nextBtn.style.display = 'none';
-            } else {
-                nextBtn.style.display = 'block';
-                nextBtn.removeAttribute('disabled');
-                nextBtn.setAttribute('data-es-wiz-next', step + 1);
-                // Apple-style nav: step 3 shows "Finish & Sync" instead of "Next →"
-                if (step === 3) {
-                    nextBtn.textContent = 'Finish & Sync';
-                    nextBtn.setAttribute('data-es-wiz-finish', 'true');
-                    nextBtn.removeAttribute('data-es-wiz-next');
-                } else {
-                    nextBtn.textContent = 'Next \u2192';
-                    nextBtn.removeAttribute('data-es-wiz-finish');
-                    nextBtn.setAttribute('data-es-wiz-next', step + 1);
-                }
-            }
-        }
-
-        _wizardStep = step;
-        updateWizardProgress(view, step);
-    }
-
-    function initWizardTab(view, cfg) {
-        if (!cfg) return;
-        function set(id, v) { var el = q(view, id); if (el && v != null) el.value = v; }
-        function chk(id, v) { var el = q(view, id); if (el) el.checked = !!v; }
-
-        // Populate wizard fields from config
-        set('wiz-aio-url',              cfg.PrimaryManifestUrl || '');
-        set('wiz-aio-backup-url',       cfg.SecondaryManifestUrl || '');
-        set('wiz-aio-metadata-url',     cfg.AioMetadataBaseUrl || '');
-        set('wiz-rss-feeds',            cfg.SystemRssFeedUrls || '');
-        set('wiz-base-path',            cfg.SyncPathBase || '/media/infinitedrive');
-        set('wiz-library-name-movies',   cfg.LibraryNameMovies || 'Streamed Movies');
-        set('wiz-library-name-series',  cfg.LibraryNameSeries || 'Streamed Series');
-        set('wiz-library-name-anime',   cfg.LibraryNameAnime || 'Streamed Anime');
-        set('wiz-meta-lang',            cfg.MetadataLanguage || 'en');
-        set('wiz-meta-country',         cfg.MetadataCountry || 'US');
-        set('wiz-meta-img-lang',        cfg.ImageLanguage || 'en');
-        set('wiz-emby-base-url',        cfg.EmbyBaseUrl || window.location.origin);
-        chk('wiz-enable-anime',         cfg.EnableAnimeLibrary || false);
-        chk('wiz-use-cinemeta',         cfg.EnableCinemetaCatalog != null ? cfg.EnableCinemetaCatalog : true);
-        chk('wiz-enable-backup-aio',    cfg.EnableBackupAioStreams || false);
-
-        // Show inferred Emby URL hint
-        var inferredEl = q(view, 'wiz-emby-url-inferred');
-        if (inferredEl) inferredEl.textContent = window.location.origin;
-
-        // Backup AIOStreams toggle visibility
-        var backupChk = q(view, 'wiz-enable-backup-aio');
-        var backupFields = q(view, 'wiz-backup-aio-fields');
-        function syncBackupVisibility() {
-            if (backupFields) backupFields.style.display = backupChk && backupChk.checked ? 'block' : 'none';
-        }
-        if (backupChk) {
-            // Use both 'change' and 'click' events for emby-checkbox compatibility
-            backupChk.addEventListener('change', syncBackupVisibility);
-            backupChk.addEventListener('click', syncBackupVisibility);
-            // Initial sync
-            syncBackupVisibility();
-            // Also sync after a short delay to handle web component initialization
-            setTimeout(syncBackupVisibility, 50);
-        }
-
-        // Anime library checkbox - enable/disable library name input
-        var animeChk = q(view, 'wiz-enable-anime');
-        var animeInput = q(view, 'wiz-library-name-anime');
-        function syncAnimeState() {
-            if (animeChk && animeInput) {
-                animeInput.disabled = !animeChk.checked;
-                animeInput.style.opacity = animeChk.checked ? '1' : '0.5';
-            }
-        }
-        if (animeChk) {
-            animeChk.addEventListener('change', syncAnimeState);
-            animeChk.addEventListener('click', syncAnimeState);
-            // Initial sync
-            syncAnimeState();
-            // Also sync after a short delay to handle web component initialization
-            setTimeout(syncAnimeState, 50);
-        }
-
-        // Reset test success when URL changes
-        var urlField = q(view, 'wiz-aio-url');
-        if (urlField) {
-            urlField.addEventListener('input', function() {
-                _wizardTestSuccess = false;
-            });
-        }
-
-        // Show completion screen if first run is complete
-        if (cfg.IsFirstRunComplete) {
-            var completeDiv = q(view, 'es-wizard-complete');
-            var wizardNav = q(view, 'es-wizard-nav');
-            var wizardProgress = q(view, '.es-wizard-progress');
-            if (completeDiv) completeDiv.style.display = 'block';
-            if (wizardNav) wizardNav.style.display = 'none';
-            if (wizardProgress) wizardProgress.style.display = 'none';
-            loadCompletionStats(view);
-        } else {
-            showWizardStep(view, 1);
-        }
-    }
-
-    function wizBack(view, step) {
-        // Stop catalog poll timer when navigating back
-        if (_catalogPollTimer) { clearInterval(_catalogPollTimer); _catalogPollTimer = null; }
-        showWizardStep(view, step);
-    }
-
-    function updateWizardSummary(view) {
-        var basePath = esVal(view, 'wiz-base-path') || '/media/infinitedrive';
-        if (!basePath) basePath = '/media/infinitedrive';
-
-        setText(view, 'wiz-summary-movies', basePath + '/catalog/movies');
-        setText(view, 'wiz-summary-series', basePath + '/catalog/shows');
-
-        var enableAnime = esChk(view, 'wiz-enable-anime');
-        var animeRow = q(view, 'wiz-summary-anime-row');
-        if (enableAnime) {
-            if (animeRow) animeRow.style.display = 'block';
-            setText(view, 'wiz-summary-anime', basePath + '/anime');
-        } else {
-            if (animeRow) animeRow.style.display = 'none';
-        }
-    }
-
-    function loadCompletionStats(view) {
-        esFetch('/InfiniteDrive/Status')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.CatalogItemCount) setText(view, 'es-complete-catalog', data.CatalogItemCount);
-                if (data.StrmFileCount) setText(view, 'es-complete-strm', data.StrmFileCount);
-                // Use SyncStates instead of CatalogSources (API change compatibility)
-                if (data.SyncStates && data.SyncStates.length) {
-                    setText(view, 'es-complete-sources', data.SyncStates.length);
-                }
-            })
-            .catch(function() {});
-    }
-
     // ── Sources tab ───────────────────────────────────────────────────────────
     function refreshSourcesTab(view) {
         var tbody = q(view, 'es-sources-body');
@@ -278,7 +98,7 @@ function (loading) {
                 // Use SyncStates instead of CatalogSources (API change compatibility)
                 var sources = data.SyncStates || [];
                 if (!sources.length) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">No sources configured yet. Complete the Setup Wizard first.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">No sources configured yet.</td></tr>';
                     return;
                 }
 
@@ -310,55 +130,399 @@ function (loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        var tabMap = {
-            'setup': 'setup',
-            'sources': 'overview',
-            'overview': 'overview',
-            'health': 'overview',
-            'settings': 'settings',
-            'repair': 'marvin',
-            'marvin': 'marvin',
-            'improbability': 'marvin',
-            'content': 'content',
-            'advanced': 'advanced',
-            'blocked': 'content',
-            'content-mgmt': 'content'
-        };
-        var mappedName = tabMap[name] || name;
+        var tabs = ['providers','libraries','sources','security','parental','health','repair'];
 
-        ['setup','overview','settings','content','marvin','advanced'].forEach(function(t) {
+        tabs.forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
-            if (c) c.classList.toggle('active', mappedName === t);
+            if (c) c.classList.toggle('active', t === name);
         });
         var btns = view.querySelectorAll('[data-es-tab]');
         for (var i = 0; i < btns.length; i++) {
-            btns[i].classList.toggle('active', btns[i].getAttribute('data-es-tab') === mappedName);
+            btns[i].classList.toggle('active', btns[i].getAttribute('data-es-tab') === name);
         }
-        if (name === 'improbability' || name === 'marvin') {
-            loadImprobabilityStatus(view);
-        } else if (name === 'settings') {
-            // v0.65.5: Fix System Status Offline Bug — save config before switching to settings
-            if (_loadedConfig && _unsavedChanges) {
-                ApiClient.updatePluginConfiguration(pluginId, _loadedConfig)
-                    .then(function() {
-                        _unsavedChanges = false;
-                        refreshDashboard(view);
-                    })
-                    .catch(function() {});
-            } else {
-                refreshDashboard(view);
-            }
-            setDashboardView(view, 'quick');
-            if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 10000);
-        } else {
+
+        // Float save visibility
+        var floatSave = view.querySelector('#es-float-save');
+        if (floatSave) {
+            floatSave.style.display = (name === 'libraries' || name === 'parental') ? 'block' : 'none';
+        }
+
+        // Tab-specific load actions
+        if (name === 'providers')  { loadProvidersTab(view); }
+        if (name === 'libraries')  { populateLibrariesTab(view, _loadedConfig); }
+        if (name === 'sources')    { loadCatalogs(view, 'src'); }
+        if (name === 'health')     { refreshDashboard(view);
+                                          if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 10000); }
+        if (name === 'repair')     { loadImprobabilityStatus(view); }
+        if (name === 'parental')   { loadBlockedItems(view); }
+        if (name !== 'health') {
             if (_dashInterval) { clearInterval(_dashInterval); _dashInterval = null; }
         }
-        if (name === 'settings' && _loadedConfig) { populateSettings(view, _loadedConfig); }
-        if (name === 'advanced' && _loadedConfig) { populateSettings(view, _loadedConfig); }
-        if (name === 'setup' && _loadedConfig) { initWizardTab(view, _loadedConfig); }
-        if (name === 'overview' || name === 'sources' || name === 'health') { refreshSourcesTab(view); }
-        if (name === 'blocked') { loadBlockedItems(view); }
-        if (name === 'content-mgmt') { loadContentMgmtSources(view); }
+    }
+
+    // ── Sources tab ───────────────────────────────────────────────────────────
+    function loadProvidersTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = _loadedConfig;
+
+        // Reconstruct manifest URL for display
+        var aioUrl = cfg.AioStreamsUrl || '';
+        var uuid   = cfg.AioStreamsUuid  || '';
+        var token  = cfg.AioStreamsToken || '';
+        var displayUrl = (aioUrl && uuid && token)
+            ? aioUrl + '/stremio/' + uuid + '/' + token + '/manifest.json'
+            : (aioUrl || '');
+
+        var urlEl = view.querySelector('#prov-aio-url');
+        if (urlEl && !urlEl._userEditing) urlEl.value = displayUrl;
+
+        var backupEl = view.querySelector('#prov-backup-url');
+        if (backupEl && !backupEl._userEditing)
+            backupEl.value = cfg.SecondaryManifestUrl || '';
+
+        var metaEl = view.querySelector('#prov-meta-url');
+        if (metaEl) metaEl.value = cfg.AioMetadataBaseUrl || '';
+
+        var metaChk = view.querySelector('#prov-meta-enabled');
+        if (metaChk) metaChk.checked = !!(cfg.AioMetadataBaseUrl);
+
+        var cineChk = view.querySelector('#prov-cinemeta-enabled');
+        if (cineChk) cineChk.checked =
+            cfg.EnableCinemetaCatalog != null ? cfg.EnableCinemetaCatalog : true;
+
+        var metaFields = view.querySelector('#prov-meta-fields');
+        if (metaFields) metaFields.style.display =
+            (cfg.AioMetadataBaseUrl) ? 'block' : 'none';
+
+        // Edit buttons — set href from Status response
+        esFetch('/InfiniteDrive/Status').then(function(r) { return r.json(); })
+            .then(function(data) {
+                var editBtn = view.querySelector('#prov-aio-edit-btn');
+                if (editBtn) {
+                    if (data.ManifestConfigureUrl) {
+                        editBtn.style.display = '';
+                        editBtn._configureUrl  = data.ManifestConfigureUrl;
+                    } else {
+                        editBtn.style.display = 'none';
+                    }
+                }
+                // Status pills
+                updateStatusPills(view, data);
+                // Getting Started card
+                evaluateGettingStarted(view, _loadedConfig);
+            }).catch(function() {});
+
+        // Display "last rotated" timestamp
+        var agoEl = view.querySelector('#sec-rotated-ago');
+        if (agoEl) {
+            var rotatedAt = _loadedConfig && _loadedConfig.PluginSecretRotatedAt;
+            agoEl.textContent = rotatedAt
+                ? fmtRelative(new Date(rotatedAt * 1000))
+                : 'never';
+        }
+    }
+
+    function evaluateGettingStarted(view, cfg) {
+        var card = view.querySelector('#es-card-getting-started');
+        if (!card) return;
+
+        var step1 = !!(cfg.AioStreamsUrl);
+        var step2 = !!(cfg.BaseSyncPath && cfg.EmbyBaseUrl);
+        var step3 = !!(cfg.AioStreamsCatalogIds || cfg.EnableAioStreamsCatalog);
+
+        if (step1 && step2 && step3) {
+            card.innerHTML =
+                '<div style="display:flex;align-items:center;justify-content:space-between">'
+              + '<span>✅ Setup complete — InfiniteDrive is configured and syncing.</span>'
+              + '<a class="es-link-btn" href="#" data-es-tab="providers">Review Guide</a>'
+              + '</div>';
+            return;
+        }
+
+        function stepHtml(num, label, done, tabTarget) {
+            if (done) {
+                return '<div style="padding:.35em 0">✅ ' + num + '. ' + label + '</div>';
+            }
+            return '<div style="padding:.35em 0">'
+                 + num + '. ' + label + '  '
+                 + '<a class="es-link-btn" href="#" data-es-tab="' + tabTarget + '">'
+                 + '→ Go to ' + tabTarget.charAt(0).toUpperCase() + tabTarget.slice(1) + ' tab'
+                 + '</a></div>';
+        }
+
+        card.innerHTML =
+            '<div class="es-card-title">Getting Started</div>'
+          + stepHtml(1, 'Connect AIOStreams Manifest', step1, 'providers')
+          + stepHtml(2, 'Configure Libraries &amp; Servers', step2, 'libraries')
+          + stepHtml(3, 'Choose Sources', step3, 'sources')
+          + '<p class="es-hint" style="margin-top:.75em">'
+          + 'Once complete, your library will begin populating automatically.</p>';
+    }
+
+    function updateStatusPills(view, data) {
+        var pillAio    = view.querySelector('#es-pill-aio');
+        var pillBackup = view.querySelector('#es-pill-backup');
+        if (!pillAio) return;
+
+        var aioOnline = !!(data && data.AioStreamsOnline);
+        pillAio.textContent = 'AIO ' + (aioOnline ? '✅' : '🔴');
+        pillAio.className = 'es-status-pill ' + (aioOnline ? 'es-pill-ok' : 'es-pill-err');
+
+        if (data && data.BackupConfigured) {
+            if (pillBackup) {
+                pillBackup.style.display = '';
+                var backupOnline = !!(data.BackupAioStreamsOnline);
+                pillBackup.textContent = 'Backup ' + (backupOnline ? '✅' : '🔴');
+                pillBackup.className = 'es-status-pill ' + (backupOnline ? 'es-pill-ok' : 'es-pill-err');
+            }
+        } else {
+            if (pillBackup) pillBackup.style.display = 'none';
+        }
+    }
+
+    function updateDerivedPaths(view, base) {
+        var el = view.querySelector('#lib-derived-paths');
+        if (!el) return;
+        var baseClean = base ? base.replace(/\/+$/, '') : '/media/infinitedrive';
+        el.textContent = baseClean + '/movies\n' + baseClean + '/shows\n' + baseClean + '/anime';
+    }
+
+    function populateLibrariesTab(view, cfg) {
+        if (!cfg) return;
+        function set(id, v) { var el = view.querySelector('#'+id); if (el) el.value = v || ''; }
+        var base = cfg.BaseSyncPath || '/media/infinitedrive';
+        set('lib-base-path', base);
+        updateDerivedPaths(view, base);
+        set('lib-name-movies', cfg.LibraryNameMovies || 'Streamed Movies');
+        set('lib-name-series', cfg.LibraryNameSeries || 'Streamed Series');
+        set('lib-name-anime',  cfg.LibraryNameAnime  || 'Streamed Anime');
+        set('lib-emby-url',    cfg.EmbyBaseUrl || window.location.origin);
+
+        // Metadata summary vs override
+        var lang    = cfg.MetadataLanguage || 'en';
+        var country = cfg.MetadataCertificationCountry || 'US';
+        var imgLang = cfg.MetadataImageLanguage || 'en';
+        var summaryEl = view.querySelector('#lib-meta-summary');
+        var langNames = { en:'English', fr:'French', de:'German', es:'Spanish',
+                          it:'Italian', ja:'Japanese', pt:'Portuguese',
+                          ru:'Russian', zh:'Chinese', ko:'Korean', pl:'Polish', nl:'Dutch' };
+        var countryNames = { US:'United States', GB:'United Kingdom', CA:'Canada',
+                             AU:'Australia', FR:'France', DE:'Germany', JP:'Japan', KR:'South Korea' };
+        if (summaryEl) summaryEl.textContent =
+            'Language: ' + (langNames[lang] || lang) +
+            '  •  Country: ' + (countryNames[country] || country) +
+            '  •  Artwork: ' + (langNames[imgLang] || imgLang);
+
+        // Populate dropdowns (even if hidden)
+        set('lib-meta-lang',    lang);
+        set('lib-meta-country', country);
+        set('lib-meta-img-lang', imgLang);
+
+        var nfoEl = view.querySelector('#lib-write-nfo');
+        if (nfoEl) nfoEl.checked = !!cfg.WriteNfoFiles;
+    }
+
+    function saveLibrariesTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        var base = (view.querySelector('#lib-base-path') || {}).value || '/media/infinitedrive';
+        cfg.BaseSyncPath        = base;
+        cfg.SyncPathMovies      = base + '/movies';
+        cfg.SyncPathShows       = base + '/shows';
+        cfg.SyncPathAnime       = base + '/anime';
+        cfg.LibraryNameMovies   = (view.querySelector('#lib-name-movies') || {}).value || 'Streamed Movies';
+        cfg.LibraryNameSeries   = (view.querySelector('#lib-name-series') || {}).value || 'Streamed Series';
+        cfg.LibraryNameAnime    = (view.querySelector('#lib-name-anime')  || {}).value || 'Streamed Anime';
+        cfg.EmbyBaseUrl         = (view.querySelector('#lib-emby-url')    || {}).value || window.location.origin;
+        cfg.MetadataLanguage             = (view.querySelector('#lib-meta-lang')    || {}).value || 'en';
+        cfg.MetadataCertificationCountry = (view.querySelector('#lib-meta-country') || {}).value || 'US';
+        cfg.MetadataImageLanguage        = (view.querySelector('#lib-meta-img-lang')|| {}).value || 'en';
+        cfg.WriteNfoFiles = !!(view.querySelector('#lib-write-nfo') || {}).checked);
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'}).catch(function(){});
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    function rotateSecret(view) {
+        if (!confirm('Rotate signing secret?\n\nThis rebuilds all .strm files with a new key.\nYour library remains fully playable throughout.')) return;
+        var bar = view.querySelector('#sec-rotate-bar');
+        var msg = view.querySelector('#sec-rotate-msg');
+        var prog = view.querySelector('#sec-rotate-progress');
+        if (prog) prog.style.display = 'block';
+        if (msg) msg.textContent = 'Starting rotation…';
+
+        esFetch('/InfiniteDrive/Setup/RotateApiKey', {method:'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.Success) throw new Error(data.Error || 'Rotation failed');
+                // Poll progress
+                var poll = setInterval(function() {
+                    esFetch('/InfiniteDrive/Setup/RotationStatus')
+                        .then(function(r) { return r.json(); })
+                        .then(function(s) {
+                            var pct = s.FilesTotal > 0
+                                ? Math.round((s.FilesWritten / s.FilesTotal) * 100) : 0;
+                            if (bar) bar.style.width = pct + '%';
+                            if (msg) msg.textContent = 'Rebuilding stream files… ' +
+                                s.FilesWritten + ' of ' + s.FilesTotal;
+                            if (!s.IsRotating) {
+                                clearInterval(poll);
+                                if (bar) bar.style.width = '100%';
+                                if (msg) msg.textContent = '✅ Done. All stream files updated.';
+                                // Update "last rotated" display
+                                var agoEl = view.querySelector('#sec-rotated-ago');
+                                if (agoEl) agoEl.textContent = 'just now';
+                                setTimeout(function() {
+                                    if (prog) prog.style.display = 'none';
+                                }, 4000);
+                            }
+                        }).catch(function() { clearInterval(poll); });
+                }, 1500);
+            })
+            .catch(function(err) {
+                if (msg) msg.textContent = '❌ Rotation failed. Existing stream files are unchanged. ' +
+                    (err && err.message || '');
+            });
+    }
+
+    function searchBlockItems(view) {
+        var input = view.querySelector('#par-block-search');
+        var resultsEl = view.querySelector('#par-search-results');
+        if (!input || !resultsEl) return;
+        var query = (input.value || '').trim();
+        if (!query) return;
+
+        resultsEl.style.display = 'block';
+        resultsEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Searching…</p>';
+
+        esFetch('/InfiniteDrive/Admin/SearchItems?q=' + encodeURIComponent(query) + '&limit=5')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.Items || !data.Items.length) {
+                    resultsEl.innerHTML = '<p class="es-hint">No results found in your InfiniteDrive library.</p>';
+                    return;
+                }
+                var html = '<div style="border:1px solid rgba(128,128,128,0.2);border-radius:6px;overflow:hidden">';
+                data.Items.forEach(function(item) {
+                    var icon = item.MediaType === 'movie' ? '🎬' : (item.MediaType === 'anime' ? '🎌' : '📺');
+                    var extId = item.DisplayExternalId
+                        ? '<span style="opacity:.45;font-size:.8em;margin-left:.5em"'
+                          + esc(item.DisplayExternalIdType) + ':' + esc(item.DisplayExternalId) + '</span>'
+                        : '';
+                    html += '<div style="display:flex;align-items:center;justify-content:space-between;'
+                          + 'padding:.55em .75em;border-bottom:1px solid rgba(128,128,128,0.1)">'
+                          + '<span>' + icon + '  <strong>' + esc(item.Title) + '</strong>'
+                          + (item.Year ? ' (' + item.Year + ')' : '')
+                          + extId + '</span>'
+                          + '<button type="button" is="emby-button" class="raised button"'
+                          + ' style="font-size:.8em;padding:.25em .7em"'
+                          + ' data-es-action="par-block-item"'
+                          + ' data-item-id="' + esc(item.Id) + '"'
+                          + ' data-item-title="' + esc(item.Title) + '">'
+                          + 'Block</button>'
+                          + '</div>';
+                });
+                html += '</div>';
+                resultsEl.innerHTML = html;
+            })
+            .catch(function(err) {
+                resultsEl.innerHTML = '<p style="color:#dc3545;font-size:.85em">Search failed: ' + esc(err.message) + '</p>';
+            });
+    }
+
+    function blockItemById(view, internalId, title) {
+        if (!confirm('Block "' + title + '"?\n\nThis removes the item\'s stream files immediately.')) return;
+
+        esFetch('/InfiniteDrive/Admin/BlockItems', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ItemIds: [internalId] })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.Success) {
+                // Update the search result row inline — no full reload
+                var btn = view.querySelector('[data-item-id="' + internalId + '"]');
+                if (btn) {
+                    var row = btn.parentElement;
+                    if (row) row.innerHTML = row.innerHTML.replace(
+                        /<button[^>]*data-item-id="[^"]*"[^>]*>Block<\/button>/,
+                        '<span style="color:#28a745;font-size:.8em">✅ Blocked</span>'
+                    );
+                }
+                // Refresh the blocked items list
+                loadBlockedItems(view);
+            } else {
+                Dashboard.alert('Block failed: ' + (data.Error || 'unknown error'));
+            }
+        })
+        .catch(function() {
+            Dashboard.alert('Block request failed. Check server logs.');
+        });
+    }
+
+    function initFloatSave(view) {
+        var btn = view.querySelector('#es-float-save-btn');
+        if (!btn || btn._esBound) return;
+        btn._esBound = true;
+        btn.addEventListener('click', function() {
+            var activeTab = view.querySelector('[data-es-tab].active');
+            var tab = activeTab ? activeTab.getAttribute('data-es-tab') : '';
+            if (tab === 'libraries') saveLibrariesTab(view);
+            if (tab === 'parental')  saveParentalTab(view);
+        });
+    }
+
+    function markDirty(view) {
+        _unsavedChanges = true;
+        var btn = view.querySelector('#es-float-save-btn');
+        if (btn && btn.textContent.indexOf('•') === -1) btn.textContent = 'Save Settings •';
+    }
+
+    function showFloatSaveConfirm(view) {
+        _unsavedChanges = false;
+        var btn  = view.querySelector('#es-float-save-btn');
+        var conf = view.querySelector('#es-float-save-confirm');
+        if (btn)  btn.textContent = 'Save Settings';
+        if (conf) {
+            conf.style.display = 'inline';
+            setTimeout(function() { conf.style.display = 'none'; }, 3000);
+        }
+    }
+
+    function openProviderEdit(view, configureUrl) {
+        if (!configureUrl) return;
+        ApiClient.getCurrentUser().then(function(user) {
+            var username = (user && user.Name) ? user.Name : '';
+            var msg = 'Opening AIOStreams configuration.\n'
+                    + (username ? 'Sign in as: ' + username + '\n' : '')
+                    + '\n' + configureUrl;
+            if (confirm(msg + '\n\nOpen in new tab?')) {
+                window.open(configureUrl, '_blank', 'noopener');
+            }
+        }).catch(function() {
+            window.open(configureUrl, '_blank', 'noopener');
+        });
+    }
+
+    function saveParentalTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        cfg.TmdbApiKey              = (view.querySelector('#cfg-tmdb-api-key') || {}).value || '';
+        cfg.BlockUnratedForRestricted = !!(view.querySelector('#cfg-block-unrated') || {}).checked;
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                updateFilterStatus(view, cfg.TmdbApiKey);
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
 
     // ── Sources tab ───────────────────────────────────────────────────────────
@@ -532,33 +696,6 @@ function (loading) {
         q(view, 'es-view-debug').classList.toggle('active', viewType === 'debug');
     }
 
-    // ── Wizard ────────────────────────────────────────────────────────────────
-    var _wizardTestSuccess = false;
-
-    function wizNext(view, step) {
-        // Validate and save data from current step before moving to next
-        if (step === 2) {
-            // Validate step 1 data (provider URL) before proceeding to step 2
-            var url = esVal(view, 'wiz-aio-url');
-            if (!url || url === 'https://' || url === 'http://') {
-                alert('Please enter a valid AIOStreams manifest URL and click Test Connection first.');
-                return;
-            }
-            // Check if test connection succeeded
-            if (!_wizardTestSuccess) {
-                alert('Please click Test Connection and wait for it to succeed before continuing.');
-                return;
-            }
-        }
-
-        if (step === 3) {
-            // Auto-load catalogs when entering step 3 — no button required
-            loadCatalogs(view, 'wiz');
-        }
-
-        showWizardStep(view, step);
-    }
-
     // ── Manifest URL auto-parse ───────────────────────────────────────────────
     function parseManifestUrl(url, view, prefix) {
         var resultEl = q(view, prefix + '-manifest-parse-result');
@@ -702,8 +839,6 @@ function (loading) {
                     resultEl.className = 'es-alert es-alert-success';
                     resultEl.textContent = '✓ Connected in ' + (data.LatencyMs || '?') + ' ms'
                         + (data.AddonName ? ' — ' + data.AddonName : '');
-                    var card = q(view, 'es-wiz-catalog-addon-card');
-                    if (card) card.style.display = data.IsStreamOnly ? 'block' : 'none';
                 } else {
                     resultEl.className = 'es-alert es-alert-error';
                     resultEl.innerHTML = makeErrorGuidance(data.Message || 'Connection failed');
@@ -786,16 +921,24 @@ function (loading) {
                     if (warningEl) warningEl.style.display = 'none';
                 }
 
-                populateWizard(view, cfg);
-                populateSettings(view, cfg);
-                initSourcesTab(view, cfg);
-                initWizardTab(view, cfg);
-                // Default to setup; if already configured show setup
-                if (cfg.IsFirstRunComplete) {
-                    showTab(view, 'setup');
-                }
-                // Show admin-only tabs for admin users
-                ApiClient.getCurrentUser().then(function(user) {
+                // Auto-fill metadata from server config if not overridden
+                ApiClient.getServerConfiguration().then(function(serverCfg) {
+                    if (!cfg.MetadataLanguage)
+                        cfg.MetadataLanguage = serverCfg.PreferredMetadataLanguage || 'en';
+                    if (!cfg.MetadataCertificationCountry)
+                        cfg.MetadataCertificationCountry = serverCfg.MetadataCountryCode || 'US';
+                    if (!cfg.MetadataImageLanguage)
+                        cfg.MetadataImageLanguage = serverCfg.PreferredMetadataLanguage || 'en';
+                    _loadedConfig = cfg;
+                    showTab(view, 'providers');
+                    loading.hide();
+                }).catch(function() {
+                    showTab(view, 'providers');
+                    loading.hide();
+                });
+            })
+            .catch(function() { loading.hide(); });
+    }
                     if (user && user.Policy && user.Policy.IsAdministrator) {
                         view.querySelectorAll('.es-admin-tab').forEach(function(t) {
                             t.style.display = '';
@@ -805,31 +948,6 @@ function (loading) {
                 loading.hide();
             })
             .catch(function() { loading.hide(); });
-    }
-
-    function populateWizard(view, cfg) {
-        function set(id, v) { var el = q(view, id); if (el && v != null) el.value = v; }
-        function chk(id, v) { var el = q(view, id); if (el) el.checked = !!v; }
-        set('es-manifest-url', cfg.PrimaryManifestUrl);
-        // Sprint 14: Discover channel toggle
-        chk('es-enable-discover',      cfg.EnableDiscoverChannel != null ? cfg.EnableDiscoverChannel : true);
-        // Sprint 11: Single BaseSyncPath — derive subpaths
-        var base = cfg.BaseSyncPath || '/media/infinitedrive';
-        set('es-base-path', base);
-        var movies = base + '/movies';
-        var shows  = base + '/shows';
-        var elM = q(view, 'es-derived-movies');
-        var elS = q(view, 'es-derived-shows');
-        if (elM) elM.textContent = movies;
-        if (elS) elS.textContent = shows;
-        set('es-emby-base',    cfg.EmbyBaseUrl || window.location.origin);
-        set('es-emby-apikey',  cfg.EmbyApiKey || '');
-        set('es-meta-lang-dropdown',       cfg.MetadataLanguage            || 'en');
-        set('es-meta-country-dropdown',    cfg.MetadataCertificationCountry || 'US');
-        set('es-meta-img-lang-dropdown',   cfg.MetadataImageLanguage        || 'en');
-        chk('es-enable-aio',           cfg.EnableAioStreamsCatalog);
-        loadCatalogLimits(cfg);
-        if (cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl) loadCatalogs(view, 'wiz');
     }
 
     function populateSettings(view, cfg) {
@@ -1036,43 +1154,16 @@ function (loading) {
                 esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'}).catch(function(){});
             })
             .then(function() {
-                // After wizard save, re-fetch full config so Settings tab shows all fields
+                // Re-fetch full config so tabs show all fields
                 ApiClient.getPluginConfiguration(pluginId)
                     .then(function(fullCfg) {
                         _loadedConfig = fullCfg;
                     })
                     .catch(function() {
-                        // If re-fetch fails, keep wizard config but warn
-                        console.warn('[InfiniteDrive] Failed to re-fetch full config after wizard save');
+                        console.warn('[InfiniteDrive] Failed to re-fetch full config');
                     });
             })
             .catch(function() { if (btn) btn.disabled = false; });
-    }
-
-    function animateSyncProgress(view) {
-        var bar = q(view, 'es-sync-bar'), msg = q(view, 'es-sync-msg');
-        // Sprint 14: UX-PROGRESS-DELIGHT — enthusiastic progress messages
-        var steps = [
-            [10,'💾 Saving your configuration…'],
-            [30,'🔍 Fetching AIOStreams manifest…'],
-            [50,'✍️ Writing .strm files to your library…'],
-            [75,'📚 Organizing your sources…'],
-            [90,'🔎 Triggering Emby library scan…'],
-            [100,'🎉 All set! Your library is being built…']
-        ];
-        var i = 0;
-        var iv = setInterval(function() {
-            if (i >= steps.length) { clearInterval(iv); return; }
-            if (bar) bar.style.width = steps[i][0] + '%';
-            if (msg) { msg.textContent = steps[i][1]; if (steps[i][0] === 100) msg.className = 'es-alert es-alert-success'; }
-            if (steps[i][0] === 100) {
-                var banner = q(view, 'es-wizard-complete-banner');
-                if (banner) banner.style.display = 'block';
-                var welcome = q(view, 'es-welcome-banner');
-                if (welcome) welcome.style.display = 'block';
-            }
-            i++;
-        }, 1800);
     }
 
     // ── Auto-create Emby libraries on first run ────────────────────────────────────
@@ -1304,7 +1395,7 @@ function (loading) {
         setText(view, 'es-health-prefixes', d.AioStreamsStreamPrefixes || '');
 
         setBadge(view, 'es-health-configured', d.IsConfigured ? 'ok' : 'warn',
-            d.IsConfigured ? 'Yes' : 'No — complete the wizard');
+            d.IsConfigured ? 'Yes' : 'No — configure providers');
 
         var c = d.Cache || {};
         setText(view, 'es-stat-valid',        c.ValidUnexpired != null ? c.ValidUnexpired : '—');
@@ -1536,7 +1627,7 @@ function (loading) {
         }
 
         // Pass the live manifest URL so the panel works before the first save.
-        var manifestFieldId = prefix === 'wiz' ? 'wiz-aio-url' : 'cfg-manifest-url';
+        var manifestFieldId = prefix === 'src' ? 'src-catalog-manifest-url' : 'cfg-manifest-url';
         var liveManifestUrl = esVal(view, manifestFieldId);
         var catalogsUrl = '/InfiniteDrive/Catalogs' +
             (liveManifestUrl ? '?manifestUrl=' + encodeURIComponent(liveManifestUrl) : '');
@@ -1893,9 +1984,47 @@ function (loading) {
     // ── Init — bind all listeners ──────────────────────────────────────────────
     function initView(view) {
 
+        // Sprint 215: Initialize float save button
+        initFloatSave(view);
+
         // Manifest URL auto-parse (input events — not affected by custom element upgrade)
         bindManifestField(view, 'es-manifest-url', 'es');
         bindManifestField(view, 'cfg-manifest-url', 'cfg');
+
+        // Sprint 215: Wire dirty state to library and parental tab inputs
+        ['lib-base-path','lib-name-movies','lib-name-series','lib-name-anime',
+         'lib-emby-url','lib-meta-lang','lib-meta-country','lib-meta-img-lang',
+         'lib-write-nfo','cfg-tmdb-api-key','cfg-block-unrated'].forEach(function(id) {
+            var el = view.querySelector('#' + id);
+            if (el) el.addEventListener('change', function() { markDirty(view); });
+        });
+
+        // Sprint 215: Wire Enter key on parental block search
+        var parSearch = view.querySelector('#par-block-search');
+        if (parSearch) {
+            parSearch.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); searchBlockItems(view); }
+            });
+        }
+
+        // Sprint 215: Wire prov-meta-enabled checkbox
+        var metaChk = view.querySelector('#prov-meta-enabled');
+        var metaFields = view.querySelector('#prov-meta-fields');
+        if (metaChk && metaFields) {
+            var syncMetaFields = function() { metaFields.style.display = metaChk.checked ? 'block' : 'none'; };
+            metaChk.addEventListener('change', syncMetaFields);
+            metaChk.addEventListener('click', syncMetaFields);
+            setTimeout(syncMetaFields, 50);
+        }
+
+        // Sprint 215: Wire base path input to update derived paths
+        var libBasePath = view.querySelector('#lib-base-path');
+        if (libBasePath) {
+            libBasePath.addEventListener('input', function() {
+                var base = (libBasePath.value || '').replace(/\/+$/, '');
+                updateDerivedPaths(view, base);
+            });
+        }
 
         // Sprint 14: Show quickstart guide by default on first view (UX-ONBOARD-ZERO)
         var quickstartContent = q(view, 'es-quickstart-content');
@@ -2032,10 +2161,6 @@ function (loading) {
             for (var d = 0; d < 8 && el && el !== view; d++) {
                 if (el.getAttribute) {
                     var tab  = el.getAttribute('data-es-tab');
-                    var wn   = el.getAttribute('data-es-wiz-next');
-                    var wb   = el.getAttribute('data-es-wiz-back');
-                    var wizTest = el.getAttribute('data-es-wiz-test');
-                    var wizFinish = el.getAttribute('data-es-wiz-finish');
                     var lc   = el.getAttribute('data-es-load-catalogs');
                     var sel  = el.getAttribute('data-es-select');
                     var task = el.getAttribute('data-es-task');
@@ -2056,8 +2181,6 @@ function (loading) {
                     if (srcTestAll !== null) { e.stopPropagation(); testAllSources(view); return; }
                     if (srcSave !== null) { e.stopPropagation(); saveSourcesTab(view); return; }
                     if (accordionHdr) { e.stopPropagation(); toggleAccordion(el); return; }
-                    if (wn)   { e.stopPropagation(); wizNext(view, parseInt(wn, 10)); return; }
-                    if (wb)   { e.stopPropagation(); wizBack(view, parseInt(wb, 10)); return; }
                     if (lc)   { e.stopPropagation(); loadCatalogs(view, lc); return; }
                     if (sel)  { e.stopPropagation(); selectAllCatalogs(view, sel, el.getAttribute('data-es-select-val') === 'true'); return; }
                     if (task) { e.stopPropagation(); runTask(view, task, el); return; }
@@ -2065,8 +2188,6 @@ function (loading) {
                     if (view_type) { e.stopPropagation(); setDashboardView(view, view_type); return; }
                     if (catMove && catPrefix && catIdx) { e.stopPropagation(); moveCatalogRow(view, catPrefix, parseInt(catIdx, 10), catMove); return; }
                     if (act)  { e.stopPropagation(); dispatchAction(view, act, el); return; }
-                    if (wizTest !== null) { e.stopPropagation(); testWizardConnection(view, wizTest); return; }
-                    if (wizFinish !== null) { e.stopPropagation(); finishWizard(view); return; }
                 }
                 el = el.parentElement;
             }
@@ -2102,9 +2223,7 @@ function (loading) {
             case 'raw-streams':          fetchRawStreams(view);   break;
             case 'toggle-advanced':          toggleAdvanced(view);                    break;
             case 'toggle-debug':             toggleDebug(view);                       break;
-            case 'toggle-wiz-conn-details':  toggleConnDetails(view, 'es-wiz-conn');  break;
             case 'toggle-cfg-conn-details':  toggleConnDetails(view, 'cfg-conn');     break;
-            case 'reset-wizard-confirm': resetWizardConfirm(view); break;
             case 'purge-catalog-confirm': purgeCatalogConfirm(view); break;
             case 'purge-cancel':        purgeCatalogCancel(view); break;
             case 'purge-catalog-execute': purgeCatalogExecute(view); break;
@@ -2117,248 +2236,162 @@ function (loading) {
             case 'add-new-provider':    addNewProvider(view);    break;
             case 'reset-settings-confirm': resetSettingsConfirm(view); break;
             case 'toggle-quickstart': toggleQuickstartGuide(view); break;
-            case 'rerun-wizard': rerunWizard(view); break;
             case 'rotate-api-key': rotateApiKey(view); break;
             case 'go-dashboard':       showTab(view, 'settings'); break;
+            // Sprint 215 — New actions
+            case 'prov-refresh-all':    refreshProviders(view); break;
+            case 'prov-aio-refresh':   refreshProvider(view, 'aio'); break;
+            case 'prov-aio-edit':     openProviderEdit(view, (view.querySelector('#prov-aio-edit-btn')||{})._configureUrl); break;
+            case 'prov-backup-refresh': refreshProvider(view, 'backup'); break;
+            case 'prov-backup-edit':   openProviderEdit(view, (view.querySelector('#prov-backup-edit-btn')||{})._configureUrl); break;
+            case 'prov-meta-refresh':  refreshProvider(view, 'meta'); break;
+            case 'prov-meta-edit':     openProviderEdit(view, (view.querySelector('#prov-meta-edit-btn')||{})._configureUrl); break;
+            case 'prov-rss-save':      saveRssFeeds(view); break;
+            case 'lib-meta-override': toggleMetaOverride(view); break;
+            case 'src-refresh':         refreshSourcesTab(view); break;
+            case 'src-custom-validate': validateCustomSource(view); break;
+            case 'src-custom-add':      addCustomSource(view); break;
+            case 'sec-rotate':         rotateSecret(view); break;
+            case 'par-block-search':   searchBlockItems(view); break;
+            case 'par-block-item':      blockItemById(view, el.getAttribute('data-item-id'), el.getAttribute('data-item-title') || 'this item'); break;
         }
     }
 
-    function rerunWizard(view) {
-        // Switch to wizard tab (v0.51+: no longer supporting multiple providers)
-        showTab(view, 'setup');
-        var field = q(view, 'wiz-aio-url');
-        if (field) { field.focus(); if (field.scrollIntoView) field.scrollIntoView({behavior: 'smooth'}); }
+    // Sprint 215 — Helper functions for new actions
+    function refreshProviders(view) {
+        loadProvidersTab(view);
     }
 
-    // ── Wizard connection test ───────────────────────────────────────────────────
-    var _wizardTestRetryCount = 0;
+    function refreshProvider(view, type) {
+        var urlEl = view.querySelector('#prov-' + type + '-url');
+        var statusEl = view.querySelector('#prov-' + type + '-status');
+        if (!urlEl || !statusEl) return;
+        var url = (urlEl.value || '').trim();
+        if (!url) return;
 
-    function testWizardConnection(view, type) {
-        var isBackup = type === 'aio-backup';
-        var url = isBackup ? esVal(view, 'wiz-aio-backup-url') : esVal(view, 'wiz-aio-url');
-        var statusEl = q(view, isBackup ? 'wiz-aio-backup-status' : 'wiz-aio-status');
-        var resultEl = q(view, 'wiz-connection-result');
+        statusEl.textContent = 'Refreshing…';
+        statusEl.style.color = '';
 
-        if (!url || url === 'https://' || url === 'http://') {
-            if (statusEl) { statusEl.textContent = 'Please enter a URL'; statusEl.style.color = '#dc3545'; }
-            return;
-        }
-
-        if (statusEl) { statusEl.textContent = 'Testing…'; statusEl.style.color = ''; }
-        if (resultEl) resultEl.style.display = 'none';
-
-        // POST /InfiniteDrive/TestUrl with JSON body (not GET /TestConnection)
         esFetch('/InfiniteDrive/TestUrl', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ManifestUrl: url })
+            body: JSON.stringify({ Url: url })
         })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-                if (data.Ok) {
-                    if (statusEl) { statusEl.textContent = '✓ Connected'; statusEl.style.color = '#28a745'; }
-                    if (resultEl) {
-                        resultEl.textContent = '✓ Connected to your AIOStreams provider!';
-                        resultEl.className = 'es-alert es-alert-success';
-                        resultEl.style.display = 'block';
-                        resultEl.innerHTML = '✓ Connected to your AIOStreams provider!';
-                    }
-                    // Mark test as successful so Next button can proceed
-                    _wizardTestSuccess = true;
-                    _wizardTestRetryCount = 0;
-                    // Load catalogs after successful connection
-                    loadWizardCatalogs(view);
-                } else {
-                    var isTimeout = data.Message && (
-                        data.Message.toLowerCase().indexOf('timed out') !== -1 ||
-                        data.Message.toLowerCase().indexOf('timeout') !== -1
-                    );
-                    if (isTimeout && _wizardTestRetryCount === 0) {
-                        // Auto-retry once after 3 seconds
-                        _wizardTestRetryCount = 1;
-                        if (statusEl) { statusEl.textContent = '⏳ Retrying…'; statusEl.style.color = '#ffc107'; }
-                        if (resultEl) {
-                            resultEl.className = 'es-alert es-alert-warn';
-                            resultEl.style.display = 'block';
-                            resultEl.innerHTML = 'Connection timed out — provider may be slow to start.<br/>Retrying in <span id="wiz-retry-count">3</span>…';
-                        }
-                        var countEl = document.getElementById('wiz-retry-count');
-                        var countdown = 3;
-                        var countdownInterval = setInterval(function() {
-                            countdown--;
-                            if (countEl) countEl.textContent = countdown;
-                            if (countdown <= 0) {
-                                clearInterval(countdownInterval);
-                                testWizardConnection(view, type);
-                            }
-                        }, 1000);
-                        return;
-                    }
-                    // Show final error (after retry or if not a timeout)
-                    _wizardTestRetryCount = 0;
-                    if (statusEl) { statusEl.textContent = '✗ Failed'; statusEl.style.color = '#dc3545'; }
-                    if (resultEl) {
-                        var errorMsg = '✗ Connection failed: ' + (data.Message || 'Unknown error');
-                        if (isTimeout) {
-                            errorMsg = '✗ Connection timed out — provider may be slow to start.<br/>Please try again in a few seconds.';
-                        }
-                        resultEl.innerHTML = errorMsg;
-                        resultEl.className = 'es-alert es-alert-error';
-                        resultEl.style.display = 'block';
-                    }
-                }
-            })
-            .catch(function(err) {
-                _wizardTestRetryCount = 0;
-                if (statusEl) { statusEl.textContent = '✗ Error'; statusEl.style.color = '#dc3545'; }
-                if (resultEl) {
-                    resultEl.textContent = '✗ Connection error: ' + mapFetchError(err);
-                    resultEl.className = 'es-alert es-alert-error';
-                    resultEl.style.display = 'block';
-                }
-            });
-    }
-
-    function loadWizardCatalogs(view) {
-        var panel = q(view, 'es-catalog-panel-wiz');
-        if (!panel) return;
-
-        panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em">Loading catalogs…</span>';
-
-        // Get the manifest URL from the input field
-        var manifestUrl = esVal(view, 'wiz-aio-url');
-        var catalogsUrl = '/InfiniteDrive/Catalogs' +
-            (manifestUrl ? '?manifestUrl=' + encodeURIComponent(manifestUrl) : '');
-
-        esFetch(catalogsUrl)
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (data.Error) {
-                    panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em;color:#dc3545">' + esc(data.Error) + '</span>';
-                    return;
+                if (data.Ok) {
+                    statusEl.textContent = '✓ Connected' + (data.LatencyMs ? ' (' + data.LatencyMs + ' ms)' : '');
+                    statusEl.style.color = '#28a745';
+                } else {
+                    statusEl.textContent = '✗ ' + (data.Message || 'Could not connect');
+                    statusEl.style.color = '#dc3545';
                 }
-
-                var catalogs = data.Catalogs || [];
-                if (!catalogs.length) {
-                    panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em">No catalogs available from this provider.</span>';
-                    return;
-                }
-
-                var html = '';
-                catalogs.forEach(function(cat) {
-                    var checked = 'checked';
-                    html += '<label class="checkboxContainer" style="display:block;padding:.3em 0;font-size:.9em">' +
-                        '<input type="checkbox" is="emby-checkbox" class="es-catalog-checkbox" ' +
-                        'data-es-catalog-id="' + esc(cat.Id) + '" ' + checked + '> ' +
-                        esc(cat.Name || cat.Id || 'Unknown') +
-                        '</label>';
-                });
-                panel.innerHTML = html;
-                _wizardCatalogs = catalogs;
             })
-            .catch(function(err) {
-                panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em;color:#dc3545">Failed to load catalogs.</span>';
+            .catch(function() {
+                statusEl.textContent = '✗ Connection failed';
+                statusEl.style.color = '#dc3545';
             });
     }
 
-    // ── Wizard finish ───────────────────────────────────────────────────────────
-    function finishWizard(view) {
-        var url = esVal(view, 'wiz-aio-url');
+    function saveRssFeeds(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        cfg.SystemRssFeedUrls = (view.querySelector('#prov-rss-urls') || {}).value || '';
+        var rssName = (view.querySelector('#prov-rss-name') || {}).value || '';
+        cfg.SystemRssFeedName = rssName;
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                Dashboard.alert('RSS feeds saved.');
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    function toggleMetaOverride(view) {
+        var overrideSection = view.querySelector('#lib-meta-override-fields');
+        var overrideBtn = view.querySelector('#lib-meta-override-btn');
+        if (overrideSection && overrideBtn) {
+            var isHidden = overrideSection.style.display === 'none';
+            overrideSection.style.display = isHidden ? 'block' : 'none';
+            overrideBtn.textContent = isHidden ? 'Hide' : 'Override →';
+        }
+    }
+
+    function validateCustomSource(view) {
+        var name = (view.querySelector('#src-custom-name') || {}).value || '';
+        var url = (view.querySelector('#src-custom-url') || {}).value || '';
+        var statusEl = view.querySelector('#src-custom-status');
+        var addBtn = view.querySelector('#src-custom-add-btn');
+
         if (!url) {
-            alert('Please complete all wizard steps before finishing.');
+            if (statusEl) { statusEl.textContent = 'Enter a URL first'; statusEl.style.color = '#dc3545'; }
+            if (addBtn) addBtn.disabled = true;
             return;
         }
 
-        // Collect wizard data
-        var basePath = esVal(view, 'wiz-base-path') || '/media/infinitedrive';
-        var config = {
-            PrimaryManifestUrl: url,
-            AioMetadataBaseUrl: esVal(view, 'wiz-aio-metadata-url') || '',
-            EnableBackupAioStreams: esChk(view, 'wiz-enable-backup-aio'),
-            SecondaryManifestUrl: esChk(view, 'wiz-enable-backup-aio')
-                                       ? esVal(view, 'wiz-aio-backup-url') || ''
-                                       : '',
-            SystemRssFeedUrls: esVal(view, 'wiz-rss-feeds') || '',
-            // Derive actual path properties that LibraryProvisioningService reads
-            SyncPathMovies: basePath + '/movies',
-            SyncPathShows: basePath + '/shows',
-            SyncPathAnime: basePath + '/anime',
-            LibraryNameMovies: esVal(view, 'wiz-library-name-movies') || 'Streamed Movies',
-            LibraryNameSeries: esVal(view, 'wiz-library-name-series') || 'Streamed Series',
-            LibraryNameAnime: esVal(view, 'wiz-library-name-anime') || 'Streamed Anime',
-            EnableAnimeLibrary: esChk(view, 'wiz-enable-anime'),
-            MetadataLanguage: esVal(view, 'wiz-meta-lang') || 'en',
-            MetadataCountry: esVal(view, 'wiz-meta-country') || 'US',
-            ImageLanguage: esVal(view, 'wiz-meta-img-lang') || 'en',
-            EnableCinemetaCatalog: esChk(view, 'wiz-use-cinemeta'),
-            EmbyBaseUrl: esVal(view, 'wiz-emby-base-url') || window.location.origin,
-            IsFirstRunComplete: true
-        };
-
-        // Collect selected catalogs
-        var selectedIds = [];
-        var checkboxes = view.querySelectorAll('.es-catalog-checkbox');
-        for (var i = 0; i < checkboxes.length; i++) {
-            if (checkboxes[i].checked) {
-                selectedIds.push(checkboxes[i].getAttribute('data-es-catalog-id'));
-            }
-        }
-        config.SelectedCatalogIds = selectedIds.join(',');
-
-        // Save configuration
-        var pluginConfig = typeof ApiClient !== 'undefined' ? ApiClient.getPluginConfiguration(pluginId) : {};
-        for (var key in config) {
-            pluginConfig[key] = config[key];
+        // Basic URL validation
+        if (!/^https?:\/\/.+/.test(url)) {
+            if (statusEl) { statusEl.textContent = 'Must be a valid https:// URL'; statusEl.style.color = '#dc3545'; }
+            if (addBtn) addBtn.disabled = true;
+            return;
         }
 
-        // Show sync progress
-        var progressEl = q(view, 'es-sync-progress');
-        var msgEl = q(view, 'es-sync-msg');
-        var barEl = q(view, 'es-sync-bar');
-        var wizardNav = q(view, 'es-wizard-nav');
+        statusEl.textContent = 'Validating…';
+        statusEl.style.color = '';
 
-        if (progressEl) progressEl.style.display = 'block';
-        if (wizardNav) wizardNav.style.display = 'none';
-        if (msgEl) { msgEl.textContent = 'Saving configuration…'; msgEl.className = 'es-alert es-alert-info'; }
-        if (barEl) barEl.style.width = '10%';
-
-        ApiClient.updatePluginConfiguration(pluginId, pluginConfig)
-            .then(function() {
-                if (barEl) barEl.style.width = '30%';
-                if (msgEl) msgEl.textContent = 'Creating Emby libraries…';
-
-                // Create Emby library entries for all configured paths.
-                return esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'});
-            })
-            .then(function() {
-                if (barEl) barEl.style.width = '55%';
-                if (msgEl) msgEl.textContent = 'Starting sync…';
-
-                // Trigger catalog sync.
-                return esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'});
-            })
-            .then(function() {
-                if (barEl) barEl.style.width = '75%';
-
-                // Animate sync progress then show completion screen.
-                animateSyncProgress(view, function() {
-                    setTimeout(function() {
-                        if (progressEl) progressEl.style.display = 'none';
-                        var completeDiv = q(view, 'es-wizard-complete');
-                        if (completeDiv) {
-                            completeDiv.style.display = 'block';
-                            loadCompletionStats(view);
-                        }
-                    }, 500);
-                });
+        esFetch('/InfiniteDrive/TestUrl', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ Url: url })
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    if (statusEl) {
+                        statusEl.textContent = '✓ Valid - ' + (data.LatencyMs || 'connected');
+                        statusEl.style.color = '#28a745';
+                    }
+                    if (addBtn) {
+                        addBtn.disabled = false;
+                        addBtn._validatedUrl = url;
+                        addBtn._validatedName = name;
+                    }
+                } else {
+                    if (statusEl) {
+                        statusEl.textContent = '✗ ' + (data.Message || 'Invalid URL');
+                        statusEl.style.color = '#dc3545';
+                    }
+                    if (addBtn) addBtn.disabled = true;
+                }
             })
             .catch(function(err) {
-                if (msgEl) {
-                    msgEl.textContent = 'Error: ' + (err.message || 'Failed to save configuration');
-                    msgEl.className = 'es-alert es-alert-error';
+                if (statusEl) {
+                    statusEl.textContent = '✗ Validation failed';
+                    statusEl.style.color = '#dc3545';
                 }
-                if (wizardNav) wizardNav.style.display = 'flex';
+                if (addBtn) addBtn.disabled = true;
             });
+    }
+
+    function addCustomSource(view) {
+        var addBtn = view.querySelector('#src-custom-add-btn');
+        if (!addBtn || !addBtn._validatedUrl) return;
+
+        var name = addBtn._validatedName || 'Custom Source';
+        var url = addBtn._validatedUrl;
+        if (!confirm('Add "' + name + '" to your library?')) return;
+
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding…';
+
+        // This would require a backend endpoint to add custom sources
+        // For now, show a placeholder message
+        Dashboard.alert('Custom source feature requires backend support. URL: ' + url);
+
+        setTimeout(function() {
+            addBtn.disabled = false;
+            addBtn.textContent = 'Add to Library';
+        }, 2000);
     }
 
     // ── Quick-start guide toggle (Sprint 14: UX-ONBOARD-ZERO) ───────────────────
@@ -2442,20 +2475,6 @@ function (loading) {
 
     // ── Danger Zone handlers ──────────────────────────────────────────────────
 
-    function resetWizardConfirm(view) {
-        if (!confirm('Reset the Setup Wizard?\n\nYour settings and library will not be changed — this only re-shows the wizard on next page load.\n\n"Mostly Harmless."')) return;
-        esFetch('/InfiniteDrive/Trigger?task=reset_wizard', {method:'POST'})
-            .then(function(r) { return r.json(); })
-            .then(function(d) {
-                if (d.Status === 'ok') {
-                    Dashboard.alert('Wizard reset. Reload the plugin page to see it.');
-                } else {
-                    Dashboard.alert('Error: ' + (d.Message || 'unknown'));
-                }
-            })
-            .catch(function(err) { Dashboard.alert('Request failed: ' + err.message); });
-    }
-
     function purgeCatalogConfirm(view) {
         var el = q(view, 'es-purge-confirm');
         if (el) el.style.display = 'block';
@@ -2538,7 +2557,7 @@ function (loading) {
                             '<strong>So Long, and Thanks for All the Streams.</strong><br/>' +
                             'All data and configuration have been wiped. The Vogon ships have moved on.<br/>' +
                             '<em>Your AIOStreams instance is unaffected.</em><br/><br/>' +
-                            'Reload this page — the Setup Wizard is waiting to begin again.<br/>' +
+                            'Reload this page to configure InfiniteDrive again.<br/>' +
                             'Remember to run a Library Scan in Emby to clear orphaned entries.' +
                             '</div>';
                     }
@@ -2782,22 +2801,6 @@ function (loading) {
         if (_catalogPollTimer) { clearInterval(_catalogPollTimer); _catalogPollTimer = null; }
     }
 
-    // ── Wizard event handlers ──────────────────────────────────────────────────
-    function bindWizardHandlers(view) {
-        // Base path input for derived paths
-        var basePathInput = q(view, 'wiz-base-path');
-        if (basePathInput) {
-            basePathInput.addEventListener('input', function() {
-                var base = basePathInput.value || '/media/infinitedrive';
-                var elM = q(view, 'wiz-derived-movies');
-                var elS = q(view, 'wiz-derived-shows');
-                if (elM) elM.textContent = base + '/catalog/movies';
-                if (elS) elS.textContent = base + '/catalog/shows';
-            });
-        }
-    }
-
-
     // ── Blocked Items tab (admin) ─────────────────────────────────────────────
 
     function loadBlockedItems(view) {
@@ -2905,7 +2908,6 @@ function (loading) {
 
         // Load config on view show
         view.addEventListener('viewshow', function () {
-            bindWizardHandlers(view);
             loadConfig(view);
         });
 

@@ -2,34 +2,27 @@ SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working s
 
 ---
 status: complete
-task: Sprint 214 — Settings Redesign Backend Prerequisites
+task: Sprint 215 — Settings Redesign Frontend
 phase: Complete
 last_updated: 2026-04-13
 
 ## Summary
 
-**Sprint 214 Complete:** Settings Redesign Backend Prerequisites
-- Added PluginSecretRotatedAt to PluginConfiguration.cs (FIX-214-01)
-- Implemented two-phase safe rotation in SetupService.RotateApiKey (FIX-214-02)
-- Added GET /InfiniteDrive/Setup/RotationStatus endpoint (FIX-214-03)
-- Added GET /InfiniteDrive/Admin/SearchItems endpoint (FIX-214-04)
-- Updated POST /InfiniteDrive/Admin/BlockItems to support internal IDs (FIX-214-05)
-- Simplified EnableBackupAioStreams - URL presence is the toggle (FIX-214-06)
-- Added GetMediaItemByIdAsync to DatabaseManager.cs
-- Added SearchMediaItemsByTitleAsync to DatabaseManager.cs
+**Sprint 215 Complete:** Settings Redesign Frontend
+- Implemented new 7-tab flat Apple-style layout (FIX-215-01 through FIX-215-17)
+- New tabs: providers, libraries, sources, security, parental, health, repair
+- Removed all wizard-based UI code
+- Added Getting Started card, status pills, block search, float save, security rotation
 
 ## Files Created
 - None
 
 ## Files Modified
-- PluginConfiguration.cs: Add PluginSecretRotatedAt property
-- Services/SetupService.cs: Two-phase rotation, RotationStatus endpoint, rotation state tracking
-- Services/AdminService.cs: SearchItems endpoint, updated BlockItems for internal IDs
-- Services/AioStreamsClient.cs: URL presence-based backup toggle
-- Data/DatabaseManager.cs: GetMediaItemByIdAsync, SearchMediaItemsByTitleAsync
+- Configuration/configurationpage.html: Complete rewrite — 7-tab flat layout
+- Configuration/configurationpage.js: Added 10 new functions, updated showTab(), loadConfig(), dispatchAction(), removed 12 wizard functions
 
 ## Build Status
 ✅ Build succeeded (0 errors, 0 warnings)
 
 ## Next Actions
-None. Sprint 214 complete and ready for commit.
+None. Sprint 215 complete and ready for commit.
