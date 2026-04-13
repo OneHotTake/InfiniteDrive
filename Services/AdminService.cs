@@ -18,6 +18,29 @@ namespace InfiniteDrive.Services
 {
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
+    [Route("/InfiniteDrive/Admin/SearchItems", "GET",
+        Summary = "Search InfiniteDrive catalog by title for blocking")]
+    public class SearchItemsRequest : IReturn<SearchItemsResponse>
+    {
+        [ApiMember(Name = "q")] public string Query { get; set; } = "";
+        [ApiMember(Name = "limit")] public int Limit { get; set; } = 5;
+    }
+
+    public class SearchItemDto
+    {
+        public string Id { get; set; } = string.Empty;        // internal UUID from media_items
+        public string Title { get; set; } = string.Empty;
+        public int? Year { get; set; }
+        public string MediaType { get; set; } = string.Empty; // "movie" | "series" | "anime"
+        public string? DisplayExternalId { get; set; }      // best available external ID for display
+        public string? DisplayExternalIdType { get; set; } // type of the displayed external ID
+    }
+
+    public class SearchItemsResponse
+    {
+        public List<SearchItemDto> Items { get; set; } = new();
+    }
+
     [Route("/InfiniteDrive/Admin/BlockedItems", "GET",
         Summary = "Returns all admin-blocked catalog items")]
     public class GetBlockedItemsRequest : IReturn<GetBlockedItemsResponse> { }
@@ -53,10 +76,11 @@ namespace InfiniteDrive.Services
     }
 
     [Route("/InfiniteDrive/Admin/BlockItems", "POST",
-        Summary = "Blocks items by IMDB ID: deletes .strm/.nfo, clears user saves, triggers scan")]
+        Summary = "Blocks items by internal ID or IMDB ID: deletes .strm/.nfo, clears user saves, triggers scan")]
     public class BlockItemsRequest : IReturn<BlockItemsResponse>
     {
-        public List<string> ImdbIds { get; set; } = new();
+        public List<string>? ItemIds { get; set; }   // internal UUIDs (preferred)
+        public List<string>? ImdbIds { get; set; }   // legacy, still supported
     }
 
     public class BlockItemsResponse
@@ -125,6 +149,40 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
+        /// Handles <c>GET /InfiniteDrive/Admin/SearchItems</c>.
+        /// Searches local media_items catalog by title for blocking UI.
+        /// Only returns non-blocked InfiniteDrive-managed items.
+        /// </summary>
+        public async Task<object> Get(SearchItemsRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            try
+            {
+                var items = await _db.SearchMediaItemsByTitleAsync(req.Query, req.Limit, CancellationToken.None);
+
+                return new SearchItemsResponse
+                {
+                    Items = items.Select(i => new SearchItemDto
+                    {
+                        Id                  = i.Id,
+                        Title               = i.Title,
+                        Year                = i.Year,
+                        MediaType           = i.MediaType,
+                        DisplayExternalId    = i.PrimaryId.Value,
+                        DisplayExternalIdType = i.PrimaryId.Type.ToString().ToLowerInvariant()
+                    }).ToList()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AdminService] Failed to search items");
+                return new SearchItemsResponse { Items = new() };
+            }
+        }
+
+        /// <summary>
         /// Handles <c>POST /InfiniteDrive/Admin/UnblockItems</c>.
         /// Clears blocked_at/blocked_by and resets nfo_status to NeedsEnrich.
         /// </summary>
@@ -154,15 +212,13 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Handles <c>POST /InfiniteDrive/Admin/BlockItems</c>.
-        /// Blocks items by IMDB ID: sets blocked flag, deletes .strm/.nfo, clears user saves, triggers scan.
+        /// Blocks items by internal ID or IMDB ID: sets blocked flag, deletes .strm/.nfo, clears user saves, triggers scan.
+        /// Supports both ItemIds (internal UUIDs, preferred) and ImdbIds (legacy).
         /// </summary>
         public async Task<object> Post(BlockItemsRequest req)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
-
-            if (req.ImdbIds == null || req.ImdbIds.Count == 0)
-                return new BlockItemsResponse { Success = false, Count = 0 };
 
             var errors = new List<string>();
             var count = 0;
@@ -170,15 +226,46 @@ namespace InfiniteDrive.Services
 
             try
             {
-                foreach (var imdbId in req.ImdbIds)
+                // Prefer ItemIds (internal UUIDs), fall back to ImdbIds (legacy)
+                List<string> itemIdsToBlock = new();
+                if (req.ItemIds != null && req.ItemIds.Count > 0)
+                {
+                    itemIdsToBlock = req.ItemIds;
+                }
+                else if (req.ImdbIds != null && req.ImdbIds.Count > 0)
+                {
+                    // Legacy path: resolve ImdbIds to internal IDs first
+                    foreach (var imdbId in req.ImdbIds)
+                    {
+                        var mediaItem = await _db.GetMediaItemByPrimaryIdAsync(imdbId, ct);
+                        if (mediaItem != null)
+                            itemIdsToBlock.Add(mediaItem.Id);
+                        else
+                            errors.Add($"{imdbId}: Item not found in catalog");
+                    }
+                }
+                else
+                {
+                    return new BlockItemsResponse { Success = false, Count = 0, Errors = errors };
+                }
+
+                foreach (var itemId in itemIdsToBlock)
                 {
                     try
                     {
-                        // 1. Block in catalog_items
-                        await _db.BlockCatalogItemByImdbIdAsync(imdbId, "admin", ct);
+                        // 1. Get media item by internal UUID
+                        var mediaItem = await _db.GetMediaItemByIdAsync(itemId, ct);
+                        if (mediaItem == null)
+                        {
+                            errors.Add($"{itemId}: Media item not found");
+                            continue;
+                        }
 
-                        // 2. Delete .strm/.nfo from catalog_item
-                        var catalogItem = await _db.GetCatalogItemByImdbIdAsync(imdbId);
+                        // 2. Block in catalog_items using primary ID (IMDB value from PrimaryId)
+                        await _db.BlockCatalogItemByImdbIdAsync(mediaItem.PrimaryId.Value, "admin", ct);
+
+                        // 3. Delete .strm/.nfo from catalog_item
+                        var catalogItem = await _db.GetCatalogItemByImdbIdAsync(mediaItem.PrimaryId.Value);
                         if (catalogItem != null)
                         {
                             DeleteFileIfExists(catalogItem.StrmPath, ".strm");
@@ -188,30 +275,26 @@ namespace InfiniteDrive.Services
                                     : null, ".nfo");
                         }
 
-                        // 3. Also block in media_items + clear user saves
-                        var mediaItem = await _db.GetMediaItemByPrimaryIdAsync(imdbId, ct);
-                        if (mediaItem != null)
-                        {
-                            mediaItem.Blocked = true;
-                            mediaItem.BlockedAt = DateTimeOffset.UtcNow;
-                            mediaItem.UpdatedAt = DateTimeOffset.UtcNow;
-                            await _db.UpsertMediaItemAsync(mediaItem, ct);
+                        // 4. Block in media_items + clear user saves
+                        mediaItem.Blocked = true;
+                        mediaItem.BlockedAt = DateTimeOffset.UtcNow;
+                        mediaItem.UpdatedAt = DateTimeOffset.UtcNow;
+                        await _db.UpsertMediaItemAsync(mediaItem, ct);
 
-                            await _db.DeleteAllUserSavesForItemAsync(mediaItem.Id, ct);
-                            await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
-                        }
+                        await _db.DeleteAllUserSavesForItemAsync(mediaItem.Id, ct);
+                        await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
 
                         count++;
-                        _logger.LogInformation("[AdminService] Blocked item {ImdbId}", imdbId);
+                        _logger.LogInformation("[AdminService] Blocked item {ItemId}", itemId);
                     }
                     catch (Exception ex)
                     {
-                        errors.Add($"{imdbId}: {ex.Message}");
-                        _logger.LogError(ex, "[AdminService] Failed to block item {ImdbId}", imdbId);
+                        errors.Add($"{itemId}: {ex.Message}");
+                        _logger.LogError(ex, "[AdminService] Failed to block item {ItemId}", itemId);
                     }
                 }
 
-                // 4. Trigger library scan (fire-and-forget)
+                // 5. Trigger library scan (fire-and-forget)
                 _ = TriggerLibraryScanAsync();
 
                 return new BlockItemsResponse
