@@ -390,6 +390,38 @@ function (loading) {
             });
     }
 
+    function testTmdbKey(view) {
+        var apiKey = (view.querySelector('#cfg-tmdb-api-key') || {}).value || '';
+        var resultEl = view.querySelector('#es-tmdb-test-result');
+        if (!resultEl) return;
+
+        if (!apiKey) {
+            resultEl.textContent = '✗ Enter a key first';
+            resultEl.style.color = '#dc3545';
+            return;
+        }
+
+        resultEl.textContent = 'Testing…';
+        resultEl.style.color = '';
+
+        // Use TMDB API to validate the key
+        esFetch('https://api.themoviedb.org/3/configuration?api_key=' + encodeURIComponent(apiKey))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.images && data.images.base_url) {
+                    resultEl.textContent = '✓ Valid key';
+                    resultEl.style.color = '#28a745';
+                } else {
+                    resultEl.textContent = '✗ Invalid key';
+                    resultEl.style.color = '#dc3545';
+                }
+            })
+            .catch(function() {
+                resultEl.textContent = '✗ Validation failed';
+                resultEl.style.color = '#dc3545';
+            });
+    }
+
     function searchBlockItems(view) {
         var input = view.querySelector('#par-block-search');
         var resultsEl = view.querySelector('#par-search-results');
@@ -936,16 +968,6 @@ function (loading) {
                     showTab(view, 'providers');
                     loading.hide();
                 });
-            })
-            .catch(function() { loading.hide(); });
-    }
-                    if (user && user.Policy && user.Policy.IsAdministrator) {
-                        view.querySelectorAll('.es-admin-tab').forEach(function(t) {
-                            t.style.display = '';
-                        });
-                    }
-                }).catch(function() {});
-                loading.hide();
             })
             .catch(function() { loading.hide(); });
     }
@@ -2248,12 +2270,14 @@ function (loading) {
             case 'prov-meta-edit':     openProviderEdit(view, (view.querySelector('#prov-meta-edit-btn')||{})._configureUrl); break;
             case 'prov-rss-save':      saveRssFeeds(view); break;
             case 'lib-meta-override': toggleMetaOverride(view); break;
-            case 'src-refresh':         refreshSourcesTab(view); break;
+            case 'src-refresh':         loadCatalogs(view, 'src'); break;
             case 'src-custom-validate': validateCustomSource(view); break;
             case 'src-custom-add':      addCustomSource(view); break;
             case 'sec-rotate':         rotateSecret(view); break;
             case 'par-block-search':   searchBlockItems(view); break;
             case 'par-block-item':      blockItemById(view, el.getAttribute('data-item-id'), el.getAttribute('data-item-title') || 'this item'); break;
+            case 'test-tmdb-key':     testTmdbKey(view); break;
+            case 'float-save':         saveLibrariesTab(view); break;
         }
     }
 

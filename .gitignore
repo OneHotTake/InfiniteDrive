@@ -13,6 +13,7 @@ TestConfig.local.json
 testdata/
 node_modules/
 test-results/
+Tests/
 
 # Binaries and installers
 *.deb
