@@ -66,6 +66,21 @@
       <Private>false</Private>
     </Reference>
 
+    <Reference Include="Emby.Web.GenericEdit">
+      <HintPath>libs/Emby.Web.GenericEdit.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <Reference Include="Emby.Web.GenericUI">
+      <HintPath>libs/Emby.Web.GenericUI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <Reference Include="Emby.Media.Model">
+      <HintPath>libs/Emby.Media.Model.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
     <!--
       MEL abstractions for ILogger / ILogger<T> / ILoggerFactory.
       Emby 4.8+ uses MEL internally; these interfaces are injected by the
