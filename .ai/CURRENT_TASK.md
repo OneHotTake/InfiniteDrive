@@ -1,3 +1,6 @@
+SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working solution
+
+
 ---
 status: complete
 task: Sprint 210 — User Discover UI (Proper) + Sprint 209 — Parental Filtering
