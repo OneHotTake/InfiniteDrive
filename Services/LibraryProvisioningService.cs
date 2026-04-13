@@ -43,11 +43,13 @@ namespace InfiniteDrive.Services
             _logger.LogInformation("[InfiniteDrive] Ensuring libraries are provisioned…");
 
             await ProvisionOneAsync(
+                config,
                 config.LibraryNameMovies ?? "Streamed Movies",
                 "movies",
                 config.SyncPathMovies);
 
             await ProvisionOneAsync(
+                config,
                 config.LibraryNameSeries ?? "Streamed Series",
                 "tvshows",
                 config.SyncPathShows);
@@ -55,6 +57,7 @@ namespace InfiniteDrive.Services
             if (config.EnableAnimeLibrary && !string.IsNullOrWhiteSpace(config.SyncPathAnime))
             {
                 await ProvisionOneAsync(
+                    config,
                     config.LibraryNameAnime ?? "Streamed Anime",
                     "",
                     config.SyncPathAnime);
@@ -63,7 +66,7 @@ namespace InfiniteDrive.Services
             _logger.LogInformation("[InfiniteDrive] Library provisioning complete");
         }
 
-        private async Task ProvisionOneAsync(string name, string contentType, string? path)
+        private async Task ProvisionOneAsync(PluginConfiguration config, string name, string contentType, string? path)
         {
             if (string.IsNullOrWhiteSpace(path)) return;
 
@@ -100,20 +103,35 @@ namespace InfiniteDrive.Services
 
             try
             {
-                var options = new LibraryOptions
+                var libraryOptions = new LibraryOptions
                 {
                     ContentType = contentType,
                     PathInfos = new[]
                     {
                         new MediaPathInfo { Path = path }
-                    }
+                    },
+                    // Critical: Disable chapter image extraction to avoid debrid blocking
+                    // Emby will scan the entire .strm file to extract chapters, which triggers
+                    // the debrid service and can lead to IP bans
+                    EnableChapterImageExtraction = false,
+                    ExtractChapterImagesDuringLibraryScan = false,
+                    AutoGenerateChapters = false,
+
+                    // Set metadata preferences from plugin configuration
+                    PreferredMetadataLanguage = config.MetadataLanguage ?? "en",
+                    PreferredImageLanguage = config.ImageLanguage ?? "en",
+                    MetadataCountryCode = config.MetadataCountryCode ?? "US",
+
+                    // Enable embedded titles
+                    EnableEmbeddedTitles = true
                 };
 
-                _libraryManager.AddVirtualFolder(name, options, refreshLibrary: false);
+                _libraryManager.AddVirtualFolder(name, libraryOptions, refreshLibrary: false);
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] Created Emby library '{Name}' (type='{Type}') at {Path}",
-                    name, string.IsNullOrEmpty(contentType) ? "mixed" : contentType, path);
+                    "[InfiniteDrive] Created Emby library '{Name}' (type='{Type}') at {Path} with metadata language {Lang}",
+                    name, string.IsNullOrEmpty(contentType) ? "mixed" : contentType, path,
+                    config.MetadataLanguage ?? "en");
             }
             catch (Exception ex)
             {

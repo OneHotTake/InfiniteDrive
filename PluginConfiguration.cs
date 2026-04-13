@@ -206,7 +206,23 @@ namespace InfiniteDrive
         [DataMember]
         public string SyncPathAnime { get; set; } = "/media/infinitedrive/anime";
 
-        
+        /// <summary>Preferred metadata language for Emby libraries. Default: "en".</summary>
+        [DataMember]
+        public string MetadataLanguage { get; set; } = "en";
+
+        /// <summary>Country code for metadata (e.g., "US", "GB"). Default: "US".</summary>
+        [DataMember]
+        public string MetadataCountryCode { get; set; } = "US";
+
+        /// <summary>Preferred image/artwork language. Default: "en".</summary>
+        [DataMember]
+        public string ImageLanguage { get; set; } = "en";
+
+        /// <summary>Preferred subtitle languages (comma-separated). Default: "en".</summary>
+        [DataMember]
+        public string SubtitleDownloadLanguages { get; set; } = "en";
+
+
         /// <summary>Skip episodes that haven't aired yet. Default: true.</summary>
         [DataMember]
         public bool SkipFutureEpisodes { get; set; } = true;

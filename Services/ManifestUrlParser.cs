@@ -183,6 +183,8 @@ namespace InfiniteDrive.Services
                 if (!uri.IsDefaultPort)
                     baseUrl += $":{uri.Port}";
 
+                // Configure URL is simply /stremio/configure (no userId/configToken needed)
+                // The user's browser session handles authentication
                 return new ManifestUrlComponents
                 {
                     Host = uri.Host,
@@ -191,7 +193,7 @@ namespace InfiniteDrive.Services
                     UserId = userId,
                     ConfigToken = configToken,
                     BaseUrl = baseUrl,
-                    ConfigureUrl = $"{baseUrl}/stremio/configure/{userId}/{configToken}"
+                    ConfigureUrl = $"{baseUrl}/stremio/configure"
                 };
             }
             catch
