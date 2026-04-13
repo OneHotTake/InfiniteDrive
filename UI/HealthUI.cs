@@ -325,13 +325,14 @@ namespace InfiniteDrive.UI
                         var latency = p.TryGetProperty("LatencyMs", out var lm) && lm.ValueKind == JsonValueKind.Number ? lm.GetInt32() : (int?)null;
                         var playedAt = GetString(p, "PlayedAt");
 
+                        var imdbId = GetString(p, "ImdbId");
                         RecentPlaysList.Add(new GenericListItem
                         {
                             PrimaryText = $"{title}{epStr}",
                             SecondaryText = $"{mode} | {quality ?? "—"} | {client ?? "—"} | {latency?.ToString() ?? "—"} ms | {FormatTimestamp(playedAt)}",
                             Status = mode == "cached" ? ItemStatus.Succeeded : mode == "failed" ? ItemStatus.Failed : ItemStatus.Warning,
-                            HyperLink = $"https://www.imdb.com/title/{GetString(p, "ImdbId")}",
-                            HyperLinkTargetExternal = true
+                            HyperLink = !string.IsNullOrEmpty(imdbId) ? $"https://www.imdb.com/title/{imdbId}" : null,
+                            HyperLinkTargetExternal = !string.IsNullOrEmpty(imdbId)
                         });
                     }
                 }
