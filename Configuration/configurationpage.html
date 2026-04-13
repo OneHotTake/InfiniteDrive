@@ -192,10 +192,12 @@
 <!-- ── Tab bar ── -->
 <div class="es-tabs">
   <button class="es-tab active" data-es-tab="setup">Setup <span class="es-version" id="es-plugin-version">…</span></button>
-  <button class="es-tab"        data-es-tab="overview">Overview</button>
-  <button class="es-tab"        data-es-tab="settings">Settings</button>
+  <button class="es-tab"        data-es-tab="sources">External Sources</button>
+  <button class="es-tab"        data-es-tab="settings">Server Settings</button>
+  <button class="es-tab"        data-es-tab="health">System Health</button>
+  <button class="es-tab"        data-es-tab="repair">Repair</button>
   <button class="es-tab"        data-es-tab="content">Content</button>
-  <button class="es-tab"        data-es-tab="marvin">Marvin</button>
+  <button class="es-tab"        data-es-tab="advanced">Advanced</button>
 </div>
 
 <!-- ════════════════════════════ TAB 1 — Setup (Wizard) ════════════════════════════ -->
@@ -576,8 +578,8 @@
 
   <!-- Hero header -->
   <div class="es-hero">
-    <h1 class="es-hero-title">System Overview</h1>
-    <p class="es-hero-body">Monitor plugin status, sync progress, and catalog coverage.</p>
+    <h1 class="es-hero-title">Dashboard</h1>
+    <p class="es-hero-body">Monitor plugin status, sync progress, and system health.</p>
   </div>
 
   <!-- Sources Table -->
@@ -859,11 +861,12 @@
 
 
 
-<!-- ════════════════════════════ TAB 4 — Marvin ════════════════════════════ -->
+<!-- ════════════════════════════ TAB 4 — Marvin (Repair) ════════════════════════════ -->
 <div class="es-tab-content" id="es-tab-content-marvin">
   <!-- Hero header -->
   <div class="es-hero">
-    <h1 class="es-hero-title">DON'T PANIC</h1>
+    <h1 class="es-hero-title">Repair</h1>
+    <p class="es-hero-body">Summon Marvin to fix metadata, broken .strm files, and enrichment issues.</p>
   </div>
 
   <!-- Two-worker status -->
@@ -954,7 +957,7 @@
       </div>
       <div class="inputContainer" style="margin-top: 0.5em;">
         <button type="button" id="btnEditManifest" class="raised button-submit" style="display: none; align-items: center; gap: 0.5em;">
-          <span>Edit AIOStreams Manifest</span>
+          <span>Open AIOStreams Config</span>
           <span class="material-icons" style="font-size: 1.1em;">open_in_new</span>
         </button>
         <div id="manifestHostInfo" class="es-hint" style="display: none; margin-top: 0.25em;">
@@ -1421,6 +1424,132 @@
   <div id="es-validate-result-settings" style="margin-top:-.6em;margin-bottom:.8em;display:none"></div>
 
 </div><!-- /settings tab -->
+
+
+
+<!-- ════════════════════════════ TAB — Advanced ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-advanced">
+
+  <div class="es-card">
+    <h3>Sync Schedule</h3>
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Sync Schedule</h4>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-sync-interval">Source sync interval (hours)</label>
+        <input id="cfg-sync-interval" type="number" is="emby-input" min="1" max="168" placeholder="24" />
+        <div class="es-hint">Hours between re-fetching a source. Default: 24.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-sync-hour">Daily sync hour (UTC 0–23)</label>
+        <input id="cfg-sync-hour" type="number" is="emby-input" min="-1" max="23" placeholder="3" />
+        <div class="es-hint">Hour of day (UTC) for automatic daily sync. Default: 3. Set −1 to disable and use <a href="/web/#/scheduledtasks.html" target="_blank" style="color:var(--theme-button-background,#00a4dc)">Emby task scheduler</a> instead.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-item-cap">Source item cap</label>
+        <input id="cfg-item-cap" type="number" is="emby-input" min="50" max="5000" placeholder="500" />
+        <div class="es-hint">Max items fetched per source per sync. Default: 500.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="es-card">
+    <h3>Playback & Cache</h3>
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Cache & Resolution</h4>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-cache-lifetime">Cache lifetime (minutes)</label>
+        <input id="cfg-cache-lifetime" type="number" is="emby-input" min="60" max="1440" placeholder="360" />
+        <div class="es-hint">How long a resolved stream URL stays valid. Default: 360 (6 hours).</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-sync-resolve-timeout">Stream resolve timeout (seconds)</label>
+        <input id="cfg-sync-resolve-timeout" type="number" is="emby-input" min="5" max="300" placeholder="30" />
+        <div class="es-hint">Max time to wait for stream resolution. Default: 30.</div>
+      </div>
+      <div class="inputContainer">
+        <label class="inputLabel inputLabelUnfocused" for="cfg-proxy-mode">Proxy Mode</label>
+        <select id="cfg-proxy-mode" is="emby-select">
+          <option value="auto">Auto (recommended)</option>
+          <option value="redirect">Redirect (HTTP 302)</option>
+          <option value="proxy">Proxy (passthrough)</option>
+        </select>
+        <div class="es-hint">How streams are served to clients. Auto is best for most devices.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="es-card">
+    <h3>Reset Options</h3>
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Reset Wizard</h4>
+      <p class="es-hint">Re-shows the Setup Wizard. Your settings and library are untouched.</p>
+      <button type="button" is="emby-button" class="raised button" data-es-action="reset-wizard-confirm">Reset Wizard</button>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div style="margin-bottom:1.2em">
+      <h4 style="font-size:.95em;margin:0 0 .5em">Purge Source Data</h4>
+      <p class="es-hint">Wipes all catalog items, .strm files and sync state from disk. Resolution cache is preserved.</p>
+      <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-confirm">Purge Source Data</button>
+      <div id="es-purge-confirm" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.25);border-radius:6px;padding:.8em;margin-top:.65em">
+        <div style="font-size:.9em;font-weight:600;color:#dc3545;margin-bottom:.4em">⚠ Are you sure?</div>
+        <p style="font-size:.85em;margin:0 0 .6em">All .strm files will be deleted from disk and source data wiped from the database. You'll need to run a Source Sync to rebuild. Your stream resolution cache is kept.</p>
+        <div class="es-btn-row">
+          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-execute">Yes, Purge Source Data</button>
+          <button type="button" is="emby-button" class="raised button" data-es-action="purge-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
+
+    <div>
+      <h4 style="font-size:.95em;margin:0 0 .5em;color:#dc3545">Reset Plugin</h4>
+      <p class="es-hint">Wipes <strong>everything</strong> — database, .strm files, <em>and</em> all configuration. Cannot be undone.</p>
+      <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step1">Reset Plugin</button>
+      <div id="es-nuclear-step1" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.3);border-radius:6px;padding:.9em;margin-top:.5em">
+        <div style="font-size:1.1em;font-weight:900;color:#dc3545;letter-spacing:.05em;margin-bottom:.5em">⚠ STOP. READ THIS.</div>
+        <p style="font-size:.88em;line-height:1.6;margin:0 0 .5em">You are about to reset <strong>InfiniteDrive completely</strong>. This will <strong>delete every trace of InfiniteDrive from your system</strong>:</p>
+        <ul style="font-size:.85em;line-height:1.8;margin:.25em 0 .5em 1.2em;padding:0">
+          <li>All source items, stream candidates, and resolution cache</li>
+          <li>All sync state, playback history, and client profiles</li>
+          <li>Every .strm and .nfo file written to your movie and shows folders</li>
+          <li><strong>Every configuration field</strong> — URLs, API keys, paths, everything</li>
+        </ul>
+        <p style="font-size:.85em;margin:0 0 .65em">Your AIOStreams instance itself is unaffected. Emby library entries pointing to .strm files may need a manual library scan to clear. <em style="color:#dc3545;font-weight:600">This action cannot be undone.</em></p>
+        <div class="es-btn-row">
+          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step2">I understand — continue →</button>
+          <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel</button>
+        </div>
+      </div>
+      <div id="es-nuclear-step2" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.4);border-radius:6px;padding:.9em;margin-top:.5em">
+        <div style="font-size:1em;font-weight:800;color:#dc3545;margin-bottom:.5em">ONE MORE WARNING.</div>
+        <p style="font-size:.88em;line-height:1.55;margin:0 0 .6em">There is no undo button. No backup. No safety net. This is a <strong>one-way operation</strong>.</p>
+        <p style="font-size:.88em;margin:0 0 .6em">To confirm, type <code style="font-size:1em;font-weight:700;letter-spacing:.05em">RESET</code> below:</p>
+        <div style="display:flex;gap:.6em;align-items:center;flex-wrap:wrap">
+          <input id="es-nuclear-confirm-input" type="text" is="emby-input" placeholder="type RESET" autocomplete="off" style="width:140px;flex:0 0 auto;font-family:monospace;text-transform:uppercase" />
+          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-execute">EXECUTE — Reset Plugin</button>
+          <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel</button>
+        </div>
+        <div id="es-nuclear-confirm-error" style="display:none;color:#dc3545;font-size:.82em;margin-top:.35em"></div>
+      </div>
+      <div id="es-nuclear-done" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Save buttons at bottom of Advanced -->
+  <div class="es-btn-row" style="margin-top:1.5em">
+    <button type="button" is="emby-button" class="raised button-submit" data-es-action="save-settings">Save Settings</button>
+  </div>
+  <div id="es-save-result" style="margin-top:-.6em;margin-bottom:.8em;display:none"></div>
+
+</div><!-- /advanced tab -->
+
+
 
 
   <!-- Hidden wizard wizard fields needed by existing save logic -->
