@@ -102,7 +102,7 @@ namespace InfiniteDrive.Services
         private const string TaskFileResurrection     = "file_resurrection";
         private const string TaskLibraryReadoption    = "library_readoption";
         private const string TaskEpisodeExpand        = "episode_expand";
-        // Doctor task removed in Sprint 147 - replaced by MarvinTask + RefreshTask
+        // Old Doctor task removed in Sprint 147 - replaced by MarvinTask + RefreshTask
         private const string TaskCollectionSync       = "collection_sync"; // Sprint 100C-02: Collection sync task
         private const string TaskClearClientProfiles  = "clear_client_profiles";
         private const string TaskForceSyncReset       = "force_sync";   // A7: bypass interval guard

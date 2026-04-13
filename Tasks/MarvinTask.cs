@@ -129,7 +129,7 @@ namespace InfiniteDrive.Tasks
                 // Persist last run time
                 progress?.Report(0.95);
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync(
-                    "last_deepclean_run_time",
+                    "last_marvin_run_time",
                     DateTime.UtcNow.ToString("o"),
                     cancellationToken);
 

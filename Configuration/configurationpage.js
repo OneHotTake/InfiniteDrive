@@ -178,7 +178,33 @@ function (loading) {
         function syncBackupVisibility() {
             if (backupFields) backupFields.style.display = backupChk && backupChk.checked ? 'block' : 'none';
         }
-        if (backupChk) { backupChk.addEventListener('change', syncBackupVisibility); syncBackupVisibility(); }
+        if (backupChk) {
+            // Use both 'change' and 'click' events for emby-checkbox compatibility
+            backupChk.addEventListener('change', syncBackupVisibility);
+            backupChk.addEventListener('click', syncBackupVisibility);
+            // Initial sync
+            syncBackupVisibility();
+            // Also sync after a short delay to handle web component initialization
+            setTimeout(syncBackupVisibility, 50);
+        }
+
+        // Anime library checkbox - enable/disable library name input
+        var animeChk = q(view, 'wiz-enable-anime');
+        var animeInput = q(view, 'wiz-library-name-anime');
+        function syncAnimeState() {
+            if (animeChk && animeInput) {
+                animeInput.disabled = !animeChk.checked;
+                animeInput.style.opacity = animeChk.checked ? '1' : '0.5';
+            }
+        }
+        if (animeChk) {
+            animeChk.addEventListener('change', syncAnimeState);
+            animeChk.addEventListener('click', syncAnimeState);
+            // Initial sync
+            syncAnimeState();
+            // Also sync after a short delay to handle web component initialization
+            setTimeout(syncAnimeState, 50);
+        }
 
         // Reset test success when URL changes
         var urlField = q(view, 'wiz-aio-url');
@@ -231,8 +257,9 @@ function (loading) {
             .then(function(data) {
                 if (data.CatalogItemCount) setText(view, 'es-complete-catalog', data.CatalogItemCount);
                 if (data.StrmFileCount) setText(view, 'es-complete-strm', data.StrmFileCount);
-                if (data.CatalogSources && data.CatalogSources.length) {
-                    setText(view, 'es-complete-sources', data.CatalogSources.length);
+                // Use SyncStates instead of CatalogSources (API change compatibility)
+                if (data.SyncStates && data.SyncStates.length) {
+                    setText(view, 'es-complete-sources', data.SyncStates.length);
                 }
             })
             .catch(function() {});
@@ -248,18 +275,27 @@ function (loading) {
         esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (!data.CatalogSources || !data.CatalogSources.length) {
+                // Use SyncStates instead of CatalogSources (API change compatibility)
+                var sources = data.SyncStates || [];
+                if (!sources.length) {
                     tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">No sources configured yet. Complete the Setup Wizard first.</td></tr>';
                     return;
                 }
 
                 var html = '';
-                data.CatalogSources.forEach(function(src) {
-                    var statusBadge = src.LastReachableAt ? '<span class="es-badge es-badge-ok">Active</span>' : '<span class="es-badge es-badge-warn">Not reachable</span>';
+                sources.forEach(function(src) {
+                    // Use LastReachedAt instead of LastReachableAt (API change compatibility)
+                    var statusBadge = src.LastReachedAt ? '<span class="es-badge es-badge-ok">Active</span>' : '<span class="es-badge es-badge-warn">Not reachable</span>';
                     var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
+                    // Type is inferred from SourceKey since it's not in the API
+                    var type = 'source';
+                    if (src.SourceKey.indexOf(':movie:') !== -1) type = 'movie';
+                    else if (src.SourceKey.indexOf(':series:') !== -1) type = 'series';
+                    else if (src.SourceKey.indexOf(':anime:') !== -1) type = 'anime';
+
                     html += '<tr>' +
                         '<td>' + esc(src.SourceKey || 'Unknown') + '</td>' +
-                        '<td>' + esc(src.Type || 'source') + '</td>' +
+                        '<td>' + esc(type) + '</td>' +
                         '<td>' + statusBadge + '</td>' +
                         '<td>' + lastSync + '</td>' +
                         '<td>' + (src.ItemCount || 0) + '</td>' +
@@ -720,14 +756,15 @@ function (loading) {
             .then(function(cfg) {
                 _loadedConfig = cfg;
 
-                // v0.65.1: Base URL auto-detect
+                // v0.65.1: Base URL auto-detect and warning
+                var warningEl = q(view, 'es-base-url-warning');
+                var suggestedEl = q(view, 'es-base-url-suggested');
+
                 if (!cfg.EmbyBaseUrl || cfg.EmbyBaseUrl === 'http://127.0.0.1:8096' || cfg.EmbyBaseUrl === 'http://localhost:8096') {
                     cfg.EmbyBaseUrl = window.location.origin;
                     // Auto-save the corrected URL
                     ApiClient.updatePluginConfiguration(pluginId, cfg)
                         .then(function() {
-                            var warningEl = q(view, 'es-base-url-warning');
-                            var suggestedEl = q(view, 'es-base-url-suggested');
                             if (warningEl && suggestedEl) {
                                 suggestedEl.textContent = cfg.EmbyBaseUrl;
                                 warningEl.style.display = 'block';
@@ -736,12 +773,13 @@ function (loading) {
                         .catch(function() {});
                 } else if (cfg.EmbyBaseUrl && (cfg.EmbyBaseUrl.indexOf('localhost') !== -1 || cfg.EmbyBaseUrl.indexOf('127.0.0.1') !== -1)) {
                     // Show warning if still using localhost
-                    var warningEl = q(view, 'es-base-url-warning');
-                    var suggestedEl = q(view, 'es-base-url-suggested');
                     if (warningEl && suggestedEl) {
                         suggestedEl.textContent = window.location.origin;
                         warningEl.style.display = 'block';
                     }
+                } else {
+                    // Hide warning if URL is valid (not localhost)
+                    if (warningEl) warningEl.style.display = 'none';
                 }
 
                 populateWizard(view, cfg);
@@ -808,7 +846,15 @@ function (loading) {
         function syncCfgBackup() {
             if (backupFields) backupFields.style.display = backupChk && backupChk.checked ? 'block' : 'none';
         }
-        if (backupChk) { backupChk.addEventListener('change', syncCfgBackup); syncCfgBackup(); }
+        if (backupChk) {
+            // Use both 'change' and 'click' events for emby-checkbox compatibility
+            backupChk.addEventListener('change', syncCfgBackup);
+            backupChk.addEventListener('click', syncCfgBackup);
+            // Initial sync
+            syncCfgBackup();
+            // Also sync after a short delay to handle web component initialization
+            setTimeout(syncCfgBackup, 50);
+        }
         // Sprint 11: BaseSyncPath with derived subpaths
         var base = cfg.BaseSyncPath || '/media/infinitedrive';
         set('cfg-base-path', base);
@@ -1144,6 +1190,11 @@ function (loading) {
             .then(function() {
                 _loadedConfig = cfg;
                 Dashboard.processPluginConfigurationUpdateResult();
+                // Re-provision libraries on settings save to keep them in sync
+                return esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'});
+            })
+            .then(function() {
+                // Libraries provisioned successfully
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
@@ -2170,25 +2221,36 @@ function (loading) {
 
         panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em">Loading catalogs…</span>';
 
-        esFetch('/InfiniteDrive/Status')
+        // Get the manifest URL from the input field
+        var manifestUrl = esVal(view, 'wiz-aio-url');
+        var catalogsUrl = '/InfiniteDrive/Catalogs' +
+            (manifestUrl ? '?manifestUrl=' + encodeURIComponent(manifestUrl) : '');
+
+        esFetch(catalogsUrl)
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (!data.CatalogSources || !data.CatalogSources.length) {
+                if (data.Error) {
+                    panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em;color:#dc3545">' + esc(data.Error) + '</span>';
+                    return;
+                }
+
+                var catalogs = data.Catalogs || [];
+                if (!catalogs.length) {
                     panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em">No catalogs available from this provider.</span>';
                     return;
                 }
 
                 var html = '';
-                data.CatalogSources.forEach(function(src) {
+                catalogs.forEach(function(cat) {
                     var checked = 'checked';
                     html += '<label class="checkboxContainer" style="display:block;padding:.3em 0;font-size:.9em">' +
                         '<input type="checkbox" is="emby-checkbox" class="es-catalog-checkbox" ' +
-                        'data-es-catalog-id="' + esc(src.SourceKey) + '" ' + checked + '> ' +
-                        esc(src.SourceKey || 'Unknown') +
+                        'data-es-catalog-id="' + esc(cat.Id) + '" ' + checked + '> ' +
+                        esc(cat.Name || cat.Id || 'Unknown') +
                         '</label>';
                 });
                 panel.innerHTML = html;
-                _wizardCatalogs = data.CatalogSources;
+                _wizardCatalogs = catalogs;
             })
             .catch(function(err) {
                 panel.innerHTML = '<span style="display:block;padding:.5em;opacity:.6;font-size:.85em;color:#dc3545">Failed to load catalogs.</span>';
@@ -2204,6 +2266,7 @@ function (loading) {
         }
 
         // Collect wizard data
+        var basePath = esVal(view, 'wiz-base-path') || '/media/infinitedrive';
         var config = {
             PrimaryManifestUrl: url,
             AioMetadataBaseUrl: esVal(view, 'wiz-aio-metadata-url') || '',
@@ -2212,7 +2275,10 @@ function (loading) {
                                        ? esVal(view, 'wiz-aio-backup-url') || ''
                                        : '',
             SystemRssFeedUrls: esVal(view, 'wiz-rss-feeds') || '',
-            SyncPathBase: esVal(view, 'wiz-base-path') || '/media/infinitedrive',
+            // Derive actual path properties that LibraryProvisioningService reads
+            SyncPathMovies: basePath + '/movies',
+            SyncPathShows: basePath + '/shows',
+            SyncPathAnime: basePath + '/anime',
             LibraryNameMovies: esVal(view, 'wiz-library-name-movies') || 'Streamed Movies',
             LibraryNameSeries: esVal(view, 'wiz-library-name-series') || 'Streamed Series',
             LibraryNameAnime: esVal(view, 'wiz-library-name-anime') || 'Streamed Anime',
@@ -2522,16 +2588,16 @@ function (loading) {
             var deepCleanStatus = q(view, 'es-deepclean-status');
             var deepCleanLastRun = q(view, 'es-deepclean-last-run');
 
-            if (status.DeepCleanHasRun && status.DeepCleanLastRunAt) {
-                var deepCleanHoursAgo = hoursAgo(status.DeepCleanLastRunAt);
-                if (deepCleanHoursAgo < 36) {
+            if (status.MarvinHasRun && status.MarvinLastRunAt) {
+                var marvinHoursAgo = hoursAgo(status.MarvinLastRunAt);
+                if (marvinHoursAgo < 36) {
                     deepCleanDot.textContent = '🟢';
-                } else if (deepCleanHoursAgo < 54) {
+                } else if (marvinHoursAgo < 54) {
                     deepCleanDot.textContent = '🟡';
                 } else {
                     deepCleanDot.textContent = '🔴';
                 }
-                deepCleanLastRun.textContent = 'Last run: ' + formatTimeAgo(status.DeepCleanLastRunAt);
+                deepCleanLastRun.textContent = 'Last run: ' + formatTimeAgo(status.MarvinLastRunAt);
             } else {
                 deepCleanDot.textContent = '⚪';
                 deepCleanLastRun.textContent = 'Not yet run';
@@ -2687,12 +2753,15 @@ function (loading) {
         esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (!data.CatalogSources || !data.CatalogSources.length) {
+                // Use SyncStates instead of CatalogSources (API change compatibility)
+                var sources = data.SyncStates || [];
+                if (!sources.length) {
                     el.innerHTML = '<span style="opacity:.5">No sources configured yet.</span>';
                     return;
                 }
-                el.innerHTML = data.CatalogSources.map(function(src) {
-                    var ok = src.LastReachableAt ? '🟢' : '🔴';
+                el.innerHTML = sources.map(function(src) {
+                    // Use LastReachedAt instead of LastReachableAt (API change compatibility)
+                    var ok = src.LastReachedAt ? '🟢' : '🔴';
                     var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'never';
                     return '<div style="padding:.3em 0">' + ok + ' <strong>' + esc(src.SourceKey || '?') + '</strong>'
                         + ' &mdash; ' + (src.ItemCount || 0) + ' items, synced ' + lastSync + '</div>';

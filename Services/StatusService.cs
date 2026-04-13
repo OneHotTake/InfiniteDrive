@@ -194,10 +194,10 @@ namespace InfiniteDrive.Services
         public int RefreshItemsProcessed { get; set; }
 
         /// <summary>True if MarvinTask has run at least once since server start.</summary>
-        public bool DeepCleanHasRun { get; set; }
+        public bool MarvinHasRun { get; set; }
 
         /// <summary>ISO-8601 UTC timestamp of last MarvinTask completion.</summary>
-        public string? DeepCleanLastRunAt { get; set; }
+        public string? MarvinLastRunAt { get; set; }
 
         /// <summary>Number of items with nfo_status = 'NeedsEnrich'.</summary>
         public int NeedsEnrichCount { get; set; }
@@ -209,7 +209,7 @@ namespace InfiniteDrive.Services
         public string? RefreshHealth { get; set; }
 
         /// <summary>Health of MarvinTask: "green", "yellow", or "red" based on 2×/3× interval thresholds.</summary>
-        public string? DeepCleanHealth { get; set; }
+        public string? MarvinHealth { get; set; }
 
         // ── End Sprint 146 ───────────────────────────────────────────────────────
 
@@ -608,9 +608,14 @@ namespace InfiniteDrive.Services
                 response.RefreshItemsProcessed = int.TryParse(refreshItemsProcessed, out var processedCount) ? processedCount : 0;
 
                 // Read MarvinTask metadata
-                var lastDeepCleanRun = db.GetMetadata("last_deepclean_run_time");
-                response.DeepCleanHasRun = !string.IsNullOrEmpty(lastDeepCleanRun);
-                response.DeepCleanLastRunAt = lastDeepCleanRun;
+                var lastMarvinRun = db.GetMetadata("last_marvin_run_time");
+                if (string.IsNullOrEmpty(lastMarvinRun))
+                {
+                    // Fallback to old metadata key for backward compatibility
+                    lastMarvinRun = db.GetMetadata("last_deepclean_run_time");
+                }
+                response.MarvinHasRun = !string.IsNullOrEmpty(lastMarvinRun);
+                response.MarvinLastRunAt = lastMarvinRun;
 
                 // Count NeedsEnrich and Blocked items
                 var needsEnrichQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'NeedsEnrich' AND removed_at IS NULL;";
@@ -629,14 +634,14 @@ namespace InfiniteDrive.Services
                                            : "green";
                 }
 
-                if (!string.IsNullOrEmpty(lastDeepCleanRun)
-                    && DateTime.TryParse(lastDeepCleanRun, null, System.Globalization.DateTimeStyles.RoundtripKind, out var deepCleanLastRun))
+                if (!string.IsNullOrEmpty(lastMarvinRun)
+                    && DateTime.TryParse(lastMarvinRun, null, System.Globalization.DateTimeStyles.RoundtripKind, out var marvinLastRun))
                 {
-                    var deepCleanAge = DateTime.UtcNow - deepCleanLastRun;
-                    var deepCleanInterval = TimeSpan.FromHours(18);
-                    response.DeepCleanHealth = deepCleanAge > deepCleanInterval * 3 ? "red"
-                                             : deepCleanAge > deepCleanInterval * 2 ? "yellow"
-                                             : "green";
+                    var marvinAge = DateTime.UtcNow - marvinLastRun;
+                    var marvinInterval = TimeSpan.FromHours(18);
+                    response.MarvinHealth = marvinAge > marvinInterval * 3 ? "red"
+                                          : marvinAge > marvinInterval * 2 ? "yellow"
+                                          : "green";
                 }
             }
             catch (Exception ex)
@@ -906,7 +911,16 @@ namespace InfiniteDrive.Services
     /// </summary>
     [Route("/InfiniteDrive/Catalogs", "GET",
         Summary = "Returns catalog definitions discovered from the AIOStreams manifest")]
-    public class CatalogsRequest : IReturn<object> { }
+    public class CatalogsRequest : IReturn<object>
+    {
+        /// <summary>
+        /// Optional manifest URL override. When provided, this URL is used instead of
+        /// the saved configuration. Used by the wizard before config is saved.
+        /// </summary>
+        [ApiMember(Name = "ManifestUrl", Description = "Override manifest URL (used by wizard before config is saved)",
+            DataType = "string", ParameterType = "query", IsRequired = false)]
+        public string? ManifestUrl { get; set; }
+    }
 
     /// <summary>
     /// One catalog entry returned by <see cref="CatalogService"/>.
@@ -954,7 +968,7 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>Handles <c>GET /InfiniteDrive/Catalogs</c>.</summary>
-        public async Task<object> Get(CatalogsRequest _)
+        public async Task<object> Get(CatalogsRequest request)
         {
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
@@ -962,12 +976,14 @@ namespace InfiniteDrive.Services
             if (config == null)
                 return new CatalogsResponse { Error = "Plugin not initialised" };
 
-            // In v0.51+, only AIOStreams catalogs are supported.
-            if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl)
-                && string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            // Prefer the live URL from the wizard, fall back to saved config
+            var aioUrl = request.ManifestUrl
+                ?? config.PrimaryManifestUrl
+                ?? config.SecondaryManifestUrl;
+
+            if (string.IsNullOrWhiteSpace(aioUrl))
                 return new CatalogsResponse { Error = "AIOStreams manifest URL not configured" };
 
-            var aioUrl = config.PrimaryManifestUrl ?? config.SecondaryManifestUrl;
             var aioResult = await FetchCatalogsFromAddonAsync(
                 aioUrl,
                 null,
