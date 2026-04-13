@@ -162,28 +162,25 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Generates a short-lived resolve token for /InfiniteDrive/Resolve endpoint.
-        /// Format: {quality}:{imdbId}:{exp}:{signature}
+        /// Format: {exp}:{signature}
+        /// Token is opaque - IMDB ID and quality are passed as query parameters.
         /// </summary>
-        /// <param name="quality">Quality label (e.g. "4k", "1080p", "720p").</param>
-        /// <param name="imdbId">IMDB ID of the item to resolve.</param>
         /// <param name="pluginSecret">HMAC key from PluginConfiguration.PluginSecret.</param>
         /// <param name="validityHours">Optional validity period; defaults to 1 hour.</param>
         /// <returns>Resolve token string.</returns>
         public static string GenerateResolveToken(
-            string quality,
-            string imdbId,
             string pluginSecret,
             int validityHours = 1)
         {
             var exp = DateTimeOffset.UtcNow.AddHours(validityHours).ToUnixTimeSeconds();
-            var message = $"{quality}:{imdbId}:{exp}";
-            var sig = ComputeHmacSimple(message, pluginSecret);
-            return $"{message}:{sig}";
+            var sig = ComputeHmacSimple(exp.ToString(), pluginSecret);
+            return $"{exp}:{sig}";
         }
 
         /// <summary>
         /// Validates a stream token returned by GenerateResolveToken().
-        /// Format: {quality}:{imdbId}:{exp}:{signature}
+        /// Format: {exp}:{signature}
+        /// Token is opaque - IMDB ID and quality are passed as query parameters.
         /// </summary>
         /// <param name="token">The stream token to validate.</param>
         /// <param name="pluginSecret">HMAC key from PluginConfiguration.PluginSecret.</param>
@@ -194,10 +191,10 @@ namespace InfiniteDrive.Services
                 return false;
 
             var parts = token.Split(':');
-            if (parts.Length != 4)
+            if (parts.Length != 2)
                 return false;
 
-            if (!long.TryParse(parts[2], out long exp))
+            if (!long.TryParse(parts[0], out long exp))
                 return false;
 
             // Check expiration
@@ -205,11 +202,10 @@ namespace InfiniteDrive.Services
                 return false;
 
             // Verify signature
-            var message = $"{parts[0]}:{parts[1]}:{parts[2]}";
-            var expectedSignature = ComputeHmacSimple(message, pluginSecret);
+            var expectedSignature = ComputeHmacSimple(parts[0], pluginSecret);
 
             return CryptographicOperations.FixedTimeEquals(
-                System.Text.Encoding.UTF8.GetBytes(parts[3] ?? string.Empty),
+                System.Text.Encoding.UTF8.GetBytes(parts[1] ?? string.Empty),
                 System.Text.Encoding.UTF8.GetBytes(expectedSignature));
         }
 

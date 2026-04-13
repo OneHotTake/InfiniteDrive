@@ -17,11 +17,12 @@ namespace InfiniteDrive.Services
     /// Stream endpoint request model.
     /// </summary>
     [Route("/InfiniteDrive/Stream", "GET", Summary = "Proxies HLS manifests and redirects to CDN")]
+    [Unauthenticated]
     public class StreamEndpointRequest : IReturn<object>
     {
         /// <summary>
         /// Short-lived stream token for authenticating requests.
-        /// Format: {quality}:{imdbId}:{exp}:{signature}
+        /// Format: {url}|{timestamp}|{signature}
         /// </summary>
         public string? Token { get; set; }
 
@@ -40,29 +41,19 @@ namespace InfiniteDrive.Services
     public class StreamEndpointService : IService, IRequiresRequest
     {
         private readonly ILogger<StreamEndpointService> _logger;
-        private readonly PluginConfiguration _config;
 
-        public StreamEndpointService(ILogManager logManager, PluginConfiguration config)
+        public StreamEndpointService(ILogManager logManager)
         {
             _logger = new EmbyLoggerAdapter<StreamEndpointService>(logManager.GetLogger("InfiniteDrive"));
-            _config = config;
         }
 
-        // ── IService ─────────────────────────────────────────────────────────────
+        private PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
         /// <inheritdoc/>
-        public string Name => "InfiniteDrive Stream Endpoint";
+        public IRequest Request { get; set; } = null!;
 
         /// <inheritdoc/>
-        public string Key => "InfiniteDriveStream";
-
-        // ── IRequiresRequest ──────────────────────────────────────────────────
-
-        /// <inheritdoc/>
-        public IRequest Request { get; set; }
-
-        /// <inheritdoc/>
-        public IResponse Response => Request?.Response;
+        public IResponse Response => Request?.Response!;
 
         // ── Main handler ─────────────────────────────────────────────────────
 
@@ -87,27 +78,37 @@ namespace InfiniteDrive.Services
         /// </summary>
         private async Task<object> HandleAsync(StreamEndpointRequest req, bool isHead)
         {
-            // 1. Validate token
-            if (string.IsNullOrEmpty(_config.PluginSecret))
+            // 1. Validate PluginSecret
+            if (string.IsNullOrEmpty(Config.PluginSecret))
             {
                 return Error(500, "server_error", "Plugin not initialized");
             }
 
-            if (!PlaybackTokenService.ValidateStreamToken(req.Token, _config.PluginSecret))
-            {
-                _logger.LogWarning("[InfiniteDrive][Stream] Invalid or expired stream token");
-                return Error(401, "unauthorized", "Invalid or expired token");
-            }
-
-            // 2. Decode upstream URL
+            // 2. Decode and validate signed URL
             if (string.IsNullOrEmpty(req.Url))
             {
                 return Error(400, "bad_request", "url parameter is required");
             }
 
-            string upstreamUrl;
-            try { upstreamUrl = Uri.UnescapeDataString(req.Url); }
+            string signedUrl;
+            try { signedUrl = Uri.UnescapeDataString(req.Url); }
             catch { return Error(400, "bad_request", "Invalid URL encoding"); }
+
+            // Validate signature and extract upstream URL
+            if (!PlaybackTokenService.Verify(signedUrl, Config.PluginSecret))
+            {
+                _logger.LogWarning("[InfiniteDrive][Stream] Invalid or expired stream signature");
+                return Error(401, "unauthorized", "Invalid or expired signature");
+            }
+
+            // Extract upstream URL from signed format: {url}|{timestamp}|{signature}
+            var parts = signedUrl.Split('|');
+            if (parts.Length != 3)
+            {
+                return Error(400, "bad_request", "Invalid signed URL format");
+            }
+
+            string upstreamUrl = parts[0];
 
             if (!Uri.TryCreate(upstreamUrl, UriKind.Absolute, out var uri)
                 || (uri.Scheme != "http" && uri.Scheme != "https"))
@@ -137,7 +138,7 @@ namespace InfiniteDrive.Services
 
                 // 4b. Rewrite HLS URLs and return
                 string? upstreamBaseUrl = GetBaseUrl(upstreamUrl);
-                string rewritten = RewriteHlsUrls(upstreamContent, upstreamBaseUrl, _config.EmbyBaseUrl, _config.PluginSecret);
+                string rewritten = RewriteHlsUrls(upstreamContent, upstreamBaseUrl, Config.EmbyBaseUrl, Config.PluginSecret);
 
                 return new
                 {
@@ -208,7 +209,7 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Builds a proxy URL through /InfiniteDrive/Stream with a signed token.
-        /// Format: {embyBaseUrl}/InfiniteDrive/stream?url={signedUrl}
+        /// Format: {embyBaseUrl}/InfiniteDrive/Stream?url={signedUrl}
         /// where signedUrl = {url}|{timestamp}|{signature}
         /// </summary>
         private static string BuildProxyUrl(string embyBaseUrl, string secret, string upstreamUrl)
@@ -216,7 +217,7 @@ namespace InfiniteDrive.Services
             // Sign the upstream URL with timestamp and HMAC signature
             var signedUrl = PlaybackTokenService.Sign(upstreamUrl, secret, 1); // 1 hour expiry
 
-            return $"{embyBaseUrl.TrimEnd('/')}/InfiniteDrive/stream?url={Uri.EscapeDataString(signedUrl)}";
+            return $"{embyBaseUrl.TrimEnd('/')}/InfiniteDrive/Stream?url={Uri.EscapeDataString(signedUrl)}";
         }
 
         /// <summary>

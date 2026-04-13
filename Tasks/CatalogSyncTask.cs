@@ -525,6 +525,11 @@ namespace InfiniteDrive.Tasks
             if (mediaType == null)
                 return null;
 
+            // Filter out DUPE entries - these are placeholder/duplicate entries from AIOStreams
+            var title = meta.Name ?? "Unknown";
+            if (title.StartsWith("#DUPE#", StringComparison.OrdinalIgnoreCase))
+                return null;
+
             var tmdbId = meta.TmdbId ?? meta.TmdbIdAlt;
             int? year  = ParseYear(meta.ReleaseInfo);
 

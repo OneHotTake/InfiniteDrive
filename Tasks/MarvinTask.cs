@@ -288,7 +288,7 @@ namespace InfiniteDrive.Tasks
                          AND (tmdb_id IS NULL OR tmdb_id = '') THEN 0
                         ELSE 1
                     END ASC,
-                    created_at ASC
+                    added_at ASC
                 LIMIT 42;"; // 42: max enrichment items per Marvin cycle — balanced to avoid long I/O stalls
 
             var needsEnrichItems = await db.QueryListAsync<EnrichedItem>(
