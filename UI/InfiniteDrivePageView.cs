@@ -54,10 +54,24 @@ namespace InfiniteDrive.UI
             // Server-side view refresh: return a completely new view with fresh data
             if (commandId == "refresh" && _onRefresh != null)
             {
-                return await _onRefresh().ConfigureAwait(false);
+                try
+                {
+                    return await _onRefresh().ConfigureAwait(false);
+                }
+                catch
+                {
+                    return this; // return current view on refresh failure
+                }
             }
 
-            var result = await _onCommand(commandId).ConfigureAwait(false);
+            try
+            {
+                await _onCommand(commandId).ConfigureAwait(false);
+            }
+            catch
+            {
+                // swallow — command handlers return status strings, not exceptions
+            }
             return this;
         }
 
