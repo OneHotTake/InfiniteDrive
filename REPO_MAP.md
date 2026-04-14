@@ -22,3 +22,7 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Settings Redesign: wizard-based UI → flat 7-tab Apple-style layout
 - New tabs: providers, libraries, sources, security, parental, health, repair
 - All wizard code removed from configurationpage.js
+
+## Sprint 216 Complete (2026-04-14)
+- Anime catalog routing fix: accept kitsu: IDs, force anime mediaType for anime catalogs
+- 1 file changed: Tasks/CatalogSyncTask.cs
