@@ -223,6 +223,16 @@ namespace InfiniteDrive.Services
 
         /// <summary>True when 3+ 429s in the last hour on a shared instance.</summary>
         public bool SuggestPrivateInstance { get; set; }
+
+        // ── Sprint 220: Series Gap Detection ─────────────────────────────────────
+
+        /// <summary>Summary of the last series gap scan run.</summary>
+        public GapScanSummary? SeriesGapSummary { get; set; }
+
+        // ── Sprint 222: Episode Sync Stats ────────────────────────────────────
+
+        /// <summary>Summary of the last catalog-first episode sync run.</summary>
+        public EpisodeSyncSummary? EpisodeSyncSummary { get; set; }
     }
 
     /// <summary>Connection status for an upstream service.</summary>
@@ -239,6 +249,29 @@ namespace InfiniteDrive.Services
 
         /// <summary>Latency in milliseconds, or -1 if not measured.</summary>
         public int LatencyMs { get; set; } = -1;
+    }
+
+    /// <summary>Summary of the last series gap scan.</summary>
+    public class GapScanSummary
+    {
+        public int TotalSeriesScanned { get; set; }
+        public int CompleteSeriesCount { get; set; }
+        public int SeriesWithGaps { get; set; }
+        public int TotalMissingEpisodes { get; set; }
+        public string? LastScanAt { get; set; }
+        public string? LastRepairAt { get; set; }
+        public int EpisodesRepairedLastRun { get; set; }
+        public int EpisodesRepairedTotal { get; set; }
+    }
+
+    /// <summary>Summary of the last catalog-first episode sync run.</summary>
+    public class EpisodeSyncSummary
+    {
+        public string? LastSyncAt { get; set; }
+        public int SeriesProcessed { get; set; }
+        public int EpisodesWritten { get; set; }
+        public int EpisodesRemoved { get; set; }
+        public int VerificationMismatches { get; set; }
     }
 
     /// <summary>API budget summary for today.</summary>
@@ -659,6 +692,37 @@ namespace InfiniteDrive.Services
                 response.CooldownUntil = gate.GlobalCooldownUntil > DateTimeOffset.MinValue
                     ? gate.GlobalCooldownUntil.ToString("o") : null;
                 response.SuggestPrivateInstance = gate.SuggestPrivateInstance;
+            }
+
+            // ── Sprint 220: Series gap scan summary ──────────────────────────
+            var gapSnapshot = SeriesGapDetector.LastSnapshot;
+            if (gapSnapshot.LastScanAt.HasValue)
+            {
+                response.SeriesGapSummary = new GapScanSummary
+                {
+                    TotalSeriesScanned   = gapSnapshot.TotalSeriesScanned,
+                    CompleteSeriesCount  = gapSnapshot.CompleteSeriesCount,
+                    SeriesWithGaps       = gapSnapshot.SeriesWithGaps,
+                    TotalMissingEpisodes = gapSnapshot.TotalMissingEpisodes,
+                    LastScanAt           = gapSnapshot.LastScanAt.Value.ToString("o"),
+                    LastRepairAt         = SeriesGapRepairService.LastRepairAt?.ToString("o"),
+                    EpisodesRepairedLastRun = SeriesGapRepairService.EpisodesRepairedLastRun,
+                    EpisodesRepairedTotal  = SeriesGapRepairService.EpisodesRepairedTotal
+                };
+            }
+
+            // ── Sprint 222: Episode sync summary ──────────────────────────────
+            var syncResult = SeriesPreExpansionService.LastSyncResult;
+            if (syncResult != null)
+            {
+                response.EpisodeSyncSummary = new EpisodeSyncSummary
+                {
+                    LastSyncAt              = syncResult.SyncedAt?.ToString("o"),
+                    SeriesProcessed         = syncResult.SeriesProcessed,
+                    EpisodesWritten         = syncResult.EpisodesWritten,
+                    EpisodesRemoved         = syncResult.EpisodesRemoved,
+                    VerificationMismatches  = 0
+                };
             }
 
             return response;

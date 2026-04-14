@@ -158,24 +158,42 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Deletes the .strm file.
+        /// Deletes the .strm file (movies) or entire series folder (series/anime).
         /// Note: Emby library item removal is handled separately.
         /// </summary>
         private void RemoveStrmFileAsync(MediaItem item)
         {
             var strmPath = GetStrmPath(item);
-            if (string.IsNullOrEmpty(strmPath) || !File.Exists(strmPath))
-            {
+            if (string.IsNullOrEmpty(strmPath))
                 return;
+
+            // ── Sprint 222: Full series folder removal ────────────────────────
+            var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+
+            if (isSeries && Directory.Exists(strmPath))
+            {
+                try
+                {
+                    // Delete entire series folder (all seasons, all .strm + .nfo)
+                    Directory.Delete(strmPath, recursive: true);
+                    _logger.LogInformation("[RemovalService] Deleted series folder: {Path}", strmPath);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[RemovalService] Failed to delete series folder for item {ItemId}", item.Id);
+                }
             }
+
+            // ── Movie: single .strm file ──────────────────────────────────────
+            if (!File.Exists(strmPath))
+                return;
 
             try
             {
                 File.Delete(strmPath);
                 _logger.LogDebug("[RemovalService] Deleted .strm file: {Path}", strmPath);
-
-                // Note: Emby will automatically remove the library item when the .strm file is deleted
-                // during the next library scan
             }
             catch (Exception ex)
             {
