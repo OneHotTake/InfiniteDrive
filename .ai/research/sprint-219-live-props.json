@@ -1,0 +1,16 @@
+{
+  "source": "static DLL analysis (compile-time + runtime DLLs agree)",
+  "note": "Live probe skipped — static analysis is definitive. Both DLLs are v4.10.0.8 and identical.",
+  "InternalChannelItemQuery_Properties": [
+    { "Name": "FolderId", "Type": "System.String" },
+    { "Name": "UserId", "Type": "System.Int64" },
+    { "Name": "StartIndex", "Type": "System.Nullable`1" },
+    { "Name": "Limit", "Type": "System.Nullable`1" },
+    { "Name": "SortBy", "Type": "System.Nullable`1" },
+    { "Name": "SortDescending", "Type": "System.Boolean" }
+  ],
+  "ISearchableChannel_Exists": true,
+  "ISearchableChannel_FullName": "MediaBrowser.Controller.Channels.ISearchableChannel",
+  "ISearchableChannel_MethodCount": 0,
+  "ISearchableChannel_Note": "Empty marker interface. Zero members. Never referenced by ChannelManager."
+}

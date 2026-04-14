@@ -1,0 +1,56 @@
+# Sprint 219 — DLL Inspection Results
+
+## DLL Sources (all agree)
+- libs/MediaBrowser.Controller.dll v4.10.0.8 (compile-time, project reference)
+- NuGet MediaBrowser.Server.Core 4.9.1.90 (package reference, same types)
+- Runtime: ~/Projects/emby/emby-beta/opt/emby-server/system/ v4.10.0.8
+
+## IChannel Interface
+```
+String Name { get; }
+String Description { get; }
+ChannelParentalRating ParentalRating { get; }
+Task<ChannelItemResult> GetChannelItems(InternalChannelItemQuery query, CancellationToken ct)
+Task<Stream> GetChannelImage(ImageType type, CancellationToken ct)
+IEnumerable<ImageType> GetSupportedChannelImages()
+```
+
+## ISearchableChannel Interface
+- EXISTS as public interface in MediaBrowser.Controller.Channels
+- **EMPTY** — 0 methods, 0 properties, 0 inherited interfaces
+- This is a MARKER interface only
+
+## InternalChannelItemQuery Properties
+```
+String FolderId { get; set; }
+Int64 UserId { get; set; }
+Nullable<> StartIndex { get; set; }
+Nullable<> Limit { get; set; }
+Nullable<> SortBy { get; set; }
+Boolean SortDescending { get; set; }
+```
+**NO SearchTerm property.** SearchTerm lives on InternalItemsQuery (general query), NOT InternalChannelItemQuery.
+
+## InternalChannelFeatures Properties
+```
+List<ChannelMediaType> MediaTypes
+List<ChannelMediaContentType> ContentTypes
+Nullable<> MaxPageSize
+List<ChannelItemSortField> DefaultSortFields
+Boolean SupportsSortOrderToggle
+Nullable<> AutoRefreshLevels
+Nullable<> DailyDownloadLimit
+Boolean SupportsContentDownloading
+```
+No "SupportsSearch" or similar.
+
+## ChannelManager (Emby.Server.Implementations)
+Found in Emby.Server.Implementations.dll. Full method list:
+- NO methods contain "Search" in their name
+- `strings` grep for "ISearchableChannel" returns ZERO results
+- The interface is DEFINED in the SDK but NEVER USED by the server
+- GetChannelItems takes (IChannel, String externalFolderId, ...) — only folder routing, no search
+- GetChannelItemsInternal takes InternalItemsQuery (has SearchTerm) but only passes FolderId to the channel
+
+## Conclusion
+IChannel search is IMPOSSIBLE. The SDK defines ISearchableChannel but Emby's server never reads it.

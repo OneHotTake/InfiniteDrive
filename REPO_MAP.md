@@ -27,3 +27,8 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Anime catalog routing fix: accept kitsu: IDs, force anime mediaType for anime catalogs
 - Research sprint: 41 silent drop paths inventoried, schema gaps documented, plugin comparison done
 - See BACKLOG.md "Sprint 216" for full research findings and Sprint 217 recommendations
+
+## Sprint 219 Complete (2026-04-14)
+- IChannel SDK Reality Check (research): ISearchableChannel is dead marker interface, no search path exists
+- Browse-only IChannel confirmed possible via FolderId routing
+- See .ai/research/sprint-219-findings.md for full findings

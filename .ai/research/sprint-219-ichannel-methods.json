@@ -1,0 +1,42 @@
+{
+  "source": "static DLL analysis (compile-time + runtime DLLs agree)",
+  "IChannel_Methods": [
+    {
+      "Name": "get_Name",
+      "Parameters": [],
+      "ReturnType": "System.String"
+    },
+    {
+      "Name": "get_Description",
+      "Parameters": [],
+      "ReturnType": "System.String"
+    },
+    {
+      "Name": "get_ParentalRating",
+      "Parameters": [],
+      "ReturnType": "MediaBrowser.Controller.Channels.ChannelParentalRating"
+    },
+    {
+      "Name": "GetChannelItems",
+      "Parameters": [
+        { "Name": "query", "Type": "MediaBrowser.Controller.Channels.InternalChannelItemQuery" },
+        { "Name": "cancellationToken", "Type": "System.Threading.CancellationToken" }
+      ],
+      "ReturnType": "System.Threading.Tasks.Task`1"
+    },
+    {
+      "Name": "GetChannelImage",
+      "Parameters": [
+        { "Name": "type", "Type": "MediaBrowser.Controller.Entities.ImageType" },
+        { "Name": "cancellationToken", "Type": "System.Threading.CancellationToken" }
+      ],
+      "ReturnType": "System.Threading.Tasks.Task`1"
+    },
+    {
+      "Name": "GetSupportedChannelImages",
+      "Parameters": [],
+      "ReturnType": "System.Collections.Generic.IEnumerable`1"
+    }
+  ],
+  "Note": "Single GetChannelItems overload. No search-specific overload exists."
+}

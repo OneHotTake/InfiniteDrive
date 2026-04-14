@@ -2,34 +2,25 @@ SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working s
 
 ---
 status: complete
-task: Sprint 218 — Series Episode Pre-Expansion Fix
+task: Sprint 219 — IChannel SDK Reality Check (Research)
 phase: Complete
 last_updated: 2026-04-14
 
 ## Summary
 
-**Fixed critical episode expansion bug.** Series/anime items only produced a single `.strm` file instead of per-episode files because `SeriesPreExpansionService` was never wired into the pipeline.
+**IChannel search is IMPOSSIBLE.** Definitive SDK analysis proves ISearchableChannel is a dead marker interface (zero members, zero server references). InternalChannelItemQuery has no SearchTerm. ChannelManager has zero search methods.
 
-### Fix (3 files)
-1. **Services/SeriesPreExpansionService.cs** — Fixed anime path routing, NFO root element (`<episodedetails>`), non-IMDB ID handling
-2. **Tasks/RefreshTask.cs** — Wired `SeriesPreExpansionService` into `WriteStepAsync`; series/anime items now expand to per-episode .strm + .nfo
-3. **Tasks/EpisodeExpandTask.cs** — Fixed same NFO root element bug
+### Findings (research only, no code changes)
+1. `ISearchableChannel` exists but is empty — never used by Emby server
+2. `InternalChannelItemQuery` has 6 props: FolderId, UserId, StartIndex, Limit, SortBy, SortDescending — NO search
+3. `IChannel.GetChannelItems` has a single overload, no search variant
+4. `ChannelManager` in `Emby.Server.Implementations` has zero methods containing "Search"
+5. Browse-only IChannel IS possible via FolderId routing
 
-### Build: 0 errors, 0 warnings
+### Deliverables
+- `.ai/research/sprint-219-dll-inspection.txt` — raw DLL analysis
+- `.ai/research/sprint-219-live-props.json` — InternalChannelItemQuery properties
+- `.ai/research/sprint-219-ichannel-methods.json` — IChannel method signatures
+- `.ai/research/sprint-219-findings.md` — final findings with go/no-go
 
----
-status: complete
-task: Sprint 217 — Anime NFO Enrichment & Silent-Drop Hardening
-phase: Complete
-last_updated: 2026-04-14
-
-## Summary
-
-**Enriched NFO files for anime plugin matching and hardened silent drop paths.**
-
-### Changes (3 files)
-1. **Services/SeriesPreExpansionService.cs** — tvshow.nfo now includes all provider IDs (kitsu, anilist, mal, tmdb, tvdb) as `<uniqueid>` tags, CDATA-wrapped plot, genres, status, premiered, and `<displayorder>absolute</displayorder>` for anime series. Removed stale series overview from episode NFOs.
-2. **Tasks/CatalogSyncTask.cs** — Extended dedup to match by TMDB ID cross-reference (FIX-217-05). Anime always wins on dedup merge (FIX-217-06). Added structured logging at all silent drop points (FIX-217-07). Preserves raw meta JSON on sync (FIX-217-08).
-3. **Data/DatabaseManager.cs** — raw_meta_json column already existed from V25; no migration needed.
-
-### Build: 0 errors, 0 warnings
+### Next: Sprint 220 — browse-only InfiniteDriveChannel + Sprint 221 — Discover web UI deeplink for search
