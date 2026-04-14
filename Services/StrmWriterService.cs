@@ -112,6 +112,100 @@ namespace InfiniteDrive.Services
             return strmPath;
         }
 
+        /// <summary>
+        /// Writes a single episode .strm + .nfo for a series repair.
+        /// Derives the show root from <paramref name="seriesItem"/>'s existing <c>StrmPath</c>.
+        /// Idempotent — returns existing path if file already on disk.
+        /// </summary>
+        public string? WriteEpisodeStrm(
+            CatalogItem seriesItem,
+            int seasonNumber,
+            int episodeNumber,
+            string? episodeTitle)
+        {
+            if (string.IsNullOrEmpty(seriesItem.StrmPath))
+            {
+                _logger.LogWarning("[InfiniteDrive] StrmWriterService: cannot repair episode — strm_path is null for {ImdbId}", seriesItem.ImdbId);
+                return null;
+            }
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return null;
+
+            // Derive show root: walk up from .../Show Name/Season XX/file.strm
+            var seasonDir = Path.GetDirectoryName(seriesItem.StrmPath);
+            if (seasonDir == null) return null;
+            var showDir = Path.GetDirectoryName(seasonDir);
+            if (showDir == null) return null;
+
+            // If the existing path isn't in a Season XX folder (edge case), use its parent
+            var seasonName = Path.GetFileName(seasonDir);
+            if (!seasonName.StartsWith("Season ", StringComparison.OrdinalIgnoreCase))
+            {
+                // StrmPath is directly in show dir — use showDir as base
+                showDir = seasonDir;
+                seasonDir = Path.Combine(showDir, $"Season {seasonNumber:D2}");
+            }
+            else
+            {
+                // Ensure we target the correct season folder
+                seasonDir = Path.Combine(showDir, $"Season {seasonNumber:D2}");
+            }
+
+            Directory.CreateDirectory(seasonDir);
+
+            var fileName = $"{SanitisePath(seriesItem.Title)} S{seasonNumber:D2}E{episodeNumber:D2}.strm";
+            var filePath = Path.Combine(seasonDir, fileName);
+
+            if (File.Exists(filePath))
+                return filePath; // idempotent
+
+            var url = BuildSignedStrmUrl(config, seriesItem.ImdbId, "series", seasonNumber, episodeNumber);
+            WriteStrmFile(filePath, url);
+
+            // Write episode NFO if enabled
+            if (config.EnableNfoHints)
+                WriteEpisodeNfo(seriesItem, seasonNumber, episodeNumber, episodeTitle, filePath);
+
+            _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode {FilePath}", filePath);
+            return filePath;
+        }
+
+        /// <summary>
+        /// Writes a minimal episodedetails NFO for a repaired episode.
+        /// </summary>
+        private void WriteEpisodeNfo(
+            CatalogItem seriesItem,
+            int seasonNumber,
+            int episodeNumber,
+            string? episodeTitle,
+            string strmPath)
+        {
+            try
+            {
+                var nfoPath = Path.ChangeExtension(strmPath, ".nfo");
+                using var writer = new StreamWriter(nfoPath, false, new UTF8Encoding(false));
+                writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
+                writer.WriteLine("<episodedetails>");
+                writer.WriteLine($"  <title>{EncodeXml(episodeTitle ?? $"Episode {episodeNumber}")}</title>");
+                writer.WriteLine($"  <season>{seasonNumber}</season>");
+                writer.WriteLine($"  <episode>{episodeNumber}</episode>");
+                writer.WriteLine($"  <showtitle>{EncodeXml(seriesItem.Title)}</showtitle>");
+                if (!string.IsNullOrEmpty(seriesItem.ImdbId))
+                    writer.WriteLine($"  <uniqueid type=\"imdb\">{seriesItem.ImdbId}</uniqueid>");
+                if (!string.IsNullOrEmpty(seriesItem.TmdbId))
+                    writer.WriteLine($"  <uniqueid type=\"tmdb\">{seriesItem.TmdbId}</uniqueid>");
+                if (!string.IsNullOrEmpty(seriesItem.TvdbId))
+                    writer.WriteLine($"  <uniqueid type=\"tvdb\">{seriesItem.TvdbId}</uniqueid>");
+                writer.WriteLine("</episodedetails>");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] StrmWriterService: failed to write episode NFO for {ImdbId} S{S}E{E}",
+                    seriesItem.ImdbId, seasonNumber, episodeNumber);
+            }
+        }
+
         // ── Private: .strm file I/O ──────────────────────────────────────────────
 
         private void WriteStrmFile(string path, string url)

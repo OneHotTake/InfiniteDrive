@@ -111,6 +111,8 @@ namespace InfiniteDrive.Services
         private const string TaskPurgeCatalog         = "purge_catalog";  // wipe catalog + .strm files
         private const string TaskResetAll             = "reset_all";      // nuclear clean slate
         private const string TaskResetWizard          = "reset_wizard";   // re-show first-run wizard
+        private const string TaskSeriesGapScan        = "series_gap_scan";
+        private const string TaskSeriesGapRepair      = "series_gap_repair";
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -185,6 +187,22 @@ namespace InfiniteDrive.Services
                 case TaskCollectionSync:
                     FireAndForget(ct => new CollectionSyncTask(_logManager, _libraryManager)
                         .Execute(ct, new Progress<double>()), TaskCollectionSync);
+                    break;
+
+                case TaskSeriesGapScan:
+                    _logger.LogWarning("[Trigger] SeriesGapScan is deprecated — superseded by catalog-first episode sync (Sprint 222)");
+                    #pragma warning disable CS0618
+                    FireAndForget(ct => new SeriesGapScanTask(_logManager)
+                        .Execute(ct, new Progress<double>()), TaskSeriesGapScan);
+                    #pragma warning restore CS0618
+                    break;
+
+                case TaskSeriesGapRepair:
+                    _logger.LogWarning("[Trigger] SeriesGapRepair is deprecated — superseded by catalog-first episode sync (Sprint 222)");
+                    #pragma warning disable CS0618
+                    FireAndForget(ct => new SeriesGapRepairTask(_logManager)
+                        .Execute(ct, new Progress<double>()), TaskSeriesGapRepair);
+                    #pragma warning restore CS0618
                     break;
 
                 case TaskClearClientProfiles:

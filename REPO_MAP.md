@@ -32,3 +32,21 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - IChannel SDK Reality Check (research): ISearchableChannel is dead marker interface, no search path exists
 - Browse-only IChannel confirmed possible via FolderId routing
 - See .ai/research/sprint-219-findings.md for full findings
+
+## Sprint 220 Complete (2026-04-14)
+- Series gap detection via Emby TV REST endpoints (GetSeasons/GetEpisodes/GetMissing)
+- New: Services/EmbyTvApiClient.cs, Services/SeriesGapDetector.cs, Tasks/SeriesGapScanTask.cs
+- Modified: DatabaseManager (GetIndexedSeriesAsync), TriggerService (series_gap_scan), StatusService (SeriesGapSummary), SeriesPreExpansionService (deferred gap scan)
+- Adapted: queries media_items (has emby_item_id) not catalog_items as sprint assumed
+
+## Sprint 221 Complete (2026-04-14)
+- Series gap repair: writes missing .strm + .nfo files for detected gaps
+- New: Services/SeriesGapRepairService.cs, Tasks/SeriesGapRepairTask.cs
+- Modified: StrmWriterService (WriteEpisodeStrm + WriteEpisodeNfo), SeriesGapDetector (autoRepair hook), DatabaseManager (GetSeriesWithGapsAsync), TriggerService (series_gap_repair), StatusService (repair stats)
+- Fixed: seasons_json now includes missingEpisodeNumbers from Sprint 220's detector
+
+## Sprint 222 Complete (2026-04-14)
+- Catalog-first episode sync: Videos[] stored in catalog_items, diff-based add/remove of episodes
+- New: Services/EpisodeDiffService.cs, Services/EpisodeRemovalService.cs
+- Modified: SeriesPreExpansionService (VideosJson storage + SyncSeriesEpisodesAsync diff), DatabaseManager (videos_json column), RemovalService (full series folder delete), StatusService (EpisodeSyncSummary), TriggerService (deprecation warnings)
+- Deprecated: SeriesGapScanTask, SeriesGapRepairTask marked [Obsolete]
