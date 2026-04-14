@@ -3630,37 +3630,19 @@ CREATE TABLE IF NOT EXISTS version_slots (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );");
-                // Seed using parameterized INSERT per row (same pattern as V22 migration)
-                var safeguardSlots = new (string Key, string Label, string Resolution, string VideoCodecs, string HdrClasses, string AudioPreferences, int Enabled, int IsDefault, int SortOrder)[]
-                {
-                    ("hd_broad", "HD · Broad", "1080p", "h264", "", "dd_plus_51,dd_51,aac_stereo", 1, 1, 0),
-                    ("best_available", "Best Available", "highest", "any", "any", "atmos,dd_plus_71,dd_plus_51,dd_51", 0, 0, 1),
-                    ("4k_dv", "4K · Dolby Vision", "2160p", "hevc,av1", "dv", "atmos,dd_plus_71,dd_plus_51", 0, 0, 2),
-                    ("4k_hdr", "4K · HDR", "2160p", "hevc,av1", "hdr10", "atmos,dd_plus_51,dd_51", 0, 0, 3),
-                    ("4k_sdr", "4K · SDR", "2160p", "hevc,av1", "", "dd_plus_51,dd_51,aac", 0, 0, 4),
-                    ("hd_efficient", "HD · Efficient", "1080p", "hevc", "", "dd_plus_51,aac_stereo", 0, 0, 5),
-                    ("compact", "Compact", "720p", "h264", "", "aac,dd", 0, 0, 6),
-                };
-                const string safeguardInsertSql = @"
-INSERT OR IGNORE INTO version_slots
-    (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order)
-VALUES
-    (@slot_key, @label, @resolution, @video_codecs, @hdr_classes, @audio_preferences, @enabled, @is_default, @sort_order);";
-                foreach (var slot in safeguardSlots)
-                {
-                    using var stmt = conn.PrepareStatement(safeguardInsertSql);
-                    stmt.BindParameters["@slot_key"].Bind(slot.Key);
-                    stmt.BindParameters["@label"].Bind(slot.Label);
-                    stmt.BindParameters["@resolution"].Bind(slot.Resolution);
-                    stmt.BindParameters["@video_codecs"].Bind(slot.VideoCodecs);
-                    stmt.BindParameters["@hdr_classes"].Bind(slot.HdrClasses);
-                    stmt.BindParameters["@audio_preferences"].Bind(slot.AudioPreferences);
-                    stmt.BindParameters["@enabled"].Bind(slot.Enabled);
-                    stmt.BindParameters["@is_default"].Bind(slot.IsDefault);
-                    stmt.BindParameters["@sort_order"].Bind(slot.SortOrder);
-                    while (stmt.MoveNext()) { }
-                }
+                // Seed using ExecuteInline per row (same as V22 migration)
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_broad', 'HD · Broad', '1080p', 'h264', '', 'dd_plus_51,dd_51,aac_stereo', 1, 1, 0);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('best_available', 'Best Available', 'highest', 'any', 'any', 'atmos,dd_plus_71,dd_plus_51,dd_51', 0, 0, 1);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_dv', '4K · Dolby Vision', '2160p', 'hevc,av1', 'dv', 'atmos,dd_plus_71,dd_plus_51', 0, 0, 2);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_hdr', '4K · HDR', '2160p', 'hevc,av1', 'hdr10', 'atmos,dd_plus_51,dd_51', 0, 0, 3);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_sdr', '4K · SDR', '2160p', 'hevc,av1', '', 'dd_plus_51,dd_51,aac', 0, 0, 4);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_efficient', 'HD · Efficient', '1080p', 'hevc', '', 'dd_plus_51,aac_stereo', 0, 0, 5);");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('compact', 'Compact', '720p', 'h264', '', 'aac,dd', 0, 0, 6);");
+                _logger.LogInformation("[InfiniteDrive] Seeded 7 version slots (hd_broad enabled + default)");
             }
+
+            // Always ensure hd_broad exists as the default enabled slot
+            ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_broad', 'HD · Broad', '1080p', 'h264', '', 'dd_plus_51,dd_51,aac_stereo', 1, 1, 0);");
 
             if (!TableExists(conn, "candidates"))
             {
