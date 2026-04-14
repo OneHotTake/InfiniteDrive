@@ -491,7 +491,12 @@ namespace InfiniteDrive.Tasks
             }
 
             if (string.IsNullOrEmpty(primaryId))
+            {
+                logger.LogDebug(
+                    "[InfiniteDrive] Drop: no primary ID for '{Title}' (meta.id={MetaId}, catalog={Catalog})",
+                    meta.Name ?? "Unknown", meta.Id ?? "null", catalog.Name ?? catalog.Id);
                 return null;
+            }
 
             // ── FIX-216-02: Force anime mediaType for anime catalogs ────────────
             // Items from anime catalogs always route to the anime directory,
@@ -535,12 +540,20 @@ namespace InfiniteDrive.Tasks
             }
 
             if (mediaType == null)
+            {
+                logger.LogDebug(
+                    "[InfiniteDrive] Drop: no mediaType for '{Title}' (anime catalog, anime disabled?)",
+                    meta.Name ?? "Unknown");
                 return null;
+            }
 
             // Filter out DUPE entries - these are placeholder/duplicate entries from AIOStreams
             var title = meta.Name ?? "Unknown";
             if (title.StartsWith("#DUPE#", StringComparison.OrdinalIgnoreCase))
+            {
+                logger.LogDebug("[InfiniteDrive] Drop: DUPE entry '{Title}'", title);
                 return null;
+            }
 
             var tmdbId = meta.TmdbId ?? meta.TmdbIdAlt;
             int? year  = ParseYear(meta.ReleaseInfo);
@@ -558,6 +571,7 @@ namespace InfiniteDrive.Tasks
                 Source       = "aiostreams",
                 SourceListId = catalog.Id,
                 CatalogType  = isAnimeCatalog ? "anime" : (meta.Type?.ToLowerInvariant() ?? catalog.Type?.ToLowerInvariant()),
+                RawMetaJson  = JsonSerializer.Serialize(meta),
                 AddedAt      = now,
                 UpdatedAt    = now,
                 // Sprint 147: Set ItemState to Queued for RefreshTask to process
@@ -1174,7 +1188,30 @@ namespace InfiniteDrive.Tasks
             {
                 if (string.IsNullOrEmpty(item.ImdbId)) continue;
                 var key = $"{item.ImdbId}|{item.Source}";
+
+                // FIX-217-05: Also dedup by TMDB ID when available — anime items
+                // may have kitsu:XXX as ImdbId but share tmdb_id with a regular catalog entry
+                var tmdbKey = !string.IsNullOrEmpty(item.TmdbId) ? $"tmdb:{item.TmdbId}|{item.Source}" : null;
+
+                if (seen.TryGetValue(key, out var existing))
+                {
+                    // FIX-217-06: Anime always wins — if either is anime, keep anime
+                    if (string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase))
+                        seen[key] = item;
+                    continue;
+                }
+
+                if (tmdbKey != null && seen.TryGetValue(tmdbKey, out _))
+                {
+                    // Same TMDB ID from same source — anime wins
+                    if (string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase))
+                        seen[tmdbKey] = item;
+                    continue;
+                }
+
                 seen[key] = item;
+                if (tmdbKey != null)
+                    seen[tmdbKey] = item;
             }
             return new List<CatalogItem>(seen.Values);
         }
