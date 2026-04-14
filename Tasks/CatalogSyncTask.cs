@@ -475,53 +475,65 @@ namespace InfiniteDrive.Tasks
         internal static CatalogItem? MapMetaToItem(
             AioStreamsMeta meta, AioStreamsCatalogDef catalog, ILogger logger)
         {
+            // ── FIX-216-01: Anime items use kitsu:/anilist: IDs without IMDB ───
+            var isAnimeCatalog = string.Equals(catalog.Type, "anime", StringComparison.OrdinalIgnoreCase);
+
             // Resolve IMDB ID — AIOStreams may use the IMDB ID directly as 'id'
             // or put it in a separate imdb_id field.
             var imdbId = ResolveImdbId(meta.ImdbId ?? meta.Id);
-            if (string.IsNullOrEmpty(imdbId))
-                return null;
 
-            // Prefer the item's own type field — this is set correctly even when the
-            // catalog uses a custom type (Marvel, StarWars, DC, etc.).
-            // Fall back to the catalog type for standard single-type catalogs.
-            // ── FIX-100B-01: Anime type in catalog type switch ────────────────────
-            var rawType = (meta.Type?.ToLowerInvariant())
-                       ?? (catalog.Type?.ToLowerInvariant());
-            var animeEnabled = Plugin.Instance?.Configuration?.EnableAnimeLibrary ?? false;
-
-            // FIX-100B-01: Skip channel/tv with log, skip unknown types with warning
-            string? mediaType;
-            switch (rawType)
+            // For anime catalogs, accept non-IMDB IDs (kitsu:XXXXX, anilist:XXXXX, etc.)
+            // when no IMDB cross-reference exists.
+            var primaryId = imdbId;
+            if (string.IsNullOrEmpty(primaryId) && isAnimeCatalog && !string.IsNullOrEmpty(meta.Id))
             {
-                case "channel":
-                case "tv":
-                    logger.LogInformation(
-                        "[InfiniteDrive] Skipping item '{Title}' - catalog type '{Type}' is not supported",
-                        meta.Name ?? "Unknown", rawType);
-                    return null;
-
-                case "movie":
-                    mediaType = "movie";
-                    break;
-
-                case "series":
-                    mediaType = "series";
-                    break;
-
-                case "anime":
-                    mediaType = animeEnabled ? "anime" : null;
-                    break;
-
-                default:
-                    logger.LogWarning(
-                        "[InfiniteDrive] Skipping item '{Title}' - unknown catalog type '{Type}'",
-                        meta.Name ?? "Unknown", rawType);
-                    return null;
+                primaryId = meta.Id; // e.g. "kitsu:46474"
             }
 
-            // Custom catalog types (Marvel, StarWars, DC) contain mixed movies and
-            // series. If meta.Type is not set or not a recognised value, the item
-            // cannot be placed into an Emby library — skip it.
+            if (string.IsNullOrEmpty(primaryId))
+                return null;
+
+            // ── FIX-216-02: Force anime mediaType for anime catalogs ────────────
+            // Items from anime catalogs always route to the anime directory,
+            // regardless of their per-item type (series/movie).
+            var animeEnabled = Plugin.Instance?.Configuration?.EnableAnimeLibrary ?? false;
+
+            string? mediaType;
+            if (isAnimeCatalog)
+            {
+                mediaType = animeEnabled ? "anime" : null;
+            }
+            else
+            {
+                // Non-anime: use the item's own type, falling back to catalog type.
+                var rawType = (meta.Type?.ToLowerInvariant())
+                           ?? (catalog.Type?.ToLowerInvariant());
+
+                switch (rawType)
+                {
+                    case "channel":
+                    case "tv":
+                        logger.LogInformation(
+                            "[InfiniteDrive] Skipping item '{Title}' - catalog type '{Type}' is not supported",
+                            meta.Name ?? "Unknown", rawType);
+                        return null;
+
+                    case "movie":
+                        mediaType = "movie";
+                        break;
+
+                    case "series":
+                        mediaType = "series";
+                        break;
+
+                    default:
+                        logger.LogWarning(
+                            "[InfiniteDrive] Skipping item '{Title}' - unknown catalog type '{Type}'",
+                            meta.Name ?? "Unknown", rawType);
+                        return null;
+                }
+            }
+
             if (mediaType == null)
                 return null;
 
@@ -536,16 +548,16 @@ namespace InfiniteDrive.Tasks
             var now = DateTime.UtcNow.ToString("o");
             return new CatalogItem
             {
-                Id          = GenerateDeterministicId(imdbId, "aiostreams"),
-                ImdbId       = imdbId,
+                Id          = GenerateDeterministicId(primaryId, "aiostreams"),
+                ImdbId       = primaryId,
                 TmdbId       = tmdbId,
-                UniqueIdsJson = BuildUniqueIdsJson(imdbId, tmdbId, null),
+                UniqueIdsJson = BuildUniqueIdsJson(primaryId, tmdbId, null),
                 Title        = meta.Name ?? "Unknown",
                 Year         = year,
                 MediaType    = mediaType,
                 Source       = "aiostreams",
                 SourceListId = catalog.Id,
-                CatalogType  = rawType,
+                CatalogType  = isAnimeCatalog ? "anime" : (meta.Type?.ToLowerInvariant() ?? catalog.Type?.ToLowerInvariant()),
                 AddedAt      = now,
                 UpdatedAt    = now,
                 // Sprint 147: Set ItemState to Queued for RefreshTask to process

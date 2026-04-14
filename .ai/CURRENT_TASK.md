@@ -2,9 +2,24 @@ SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working s
 
 ---
 status: complete
-task: Full E2E Functional Test + Bug Fix
+task: Sprint 216 — Anime Catalog Routing Fix
 phase: Complete
 last_updated: 2026-04-14
+
+## Summary
+
+**Fixed anime catalog routing.** Two bugs: 81% of anime items were silently dropped (no IMDB ID), and surviving items routed to shows/movies instead of anime directory.
+
+### Root Causes (from interactive debug session with live manifest)
+1. **Anime items use `kitsu:XXXXX` IDs, not IMDB.** `ResolveImdbId()` returned empty for non-IMDB IDs → `MapMetaToItem` returned null → item dropped. Only 19/100 items had IMDB cross-refs.
+2. **Anime items have `type: "series"`/`"movie"`, not `"anime"`.** The catalog-level type is `"anime"` but per-item type is standard. The code preferred `meta.Type` over `catalog.Type`, so items from anime catalogs never hit the anime routing branch.
+
+### Fix (1 file: Tasks/CatalogSyncTask.cs)
+- When `catalog.Type == "anime"` and item has no IMDB, accept `meta.Id` (e.g. `kitsu:46474`) as primary ID
+- When `catalog.Type == "anime"`, force `mediaType = "anime"` regardless of item-level type
+- `StrmWriterService`, `StreamIdParser`, `IdResolverService` already handle kitsu: IDs natively
+
+### Build: 0 errors, 0 warnings
 
 ## Summary
 

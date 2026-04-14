@@ -1,6 +1,6 @@
 # Sprint 216 — Anime Catalog Routing Fix
 
-**Status:** Active | **Risk:** MED | **Depends:** Sprint 215 | **Target:** v0.22.1
+**Status:** Complete | **Risk:** MED | **Depends:** Sprint 215 | **Target:** v0.22.1
 
 ## Why (2 sentences max)
 81% of anime items are silently dropped because they use `kitsu:XXXXX` IDs without IMDB cross-refs.
