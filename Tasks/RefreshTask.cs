@@ -45,6 +45,7 @@ namespace InfiniteDrive.Tasks
         private readonly ILogger<RefreshTask>           _logger;
         private readonly ILibraryManager               _libraryManager;
         private readonly VersionMaterializer?           _materializer;
+        private SeriesPreExpansionService?              _expansionService;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
 
@@ -57,6 +58,9 @@ namespace InfiniteDrive.Tasks
             _logger         = new EmbyLoggerAdapter<RefreshTask>(logManager.GetLogger("InfiniteDrive"));
             _libraryManager = libraryManager;
             _materializer   = new VersionMaterializer(_logger);
+
+            // SeriesPreExpansionService — created lazily when config is available
+            _expansionService = null; // initialized on first use via EnsureExpansionService()
         }
 
         // ── IScheduledTask ───────────────────────────────────────────────────────
@@ -425,9 +429,51 @@ namespace InfiniteDrive.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Build folder name
+                // Build folder name and base path (shared by series expansion and movie write)
                 var folderName = BuildFolderName(item);
                 var basePath = GetLibraryPath(config, item.MediaType);
+
+                // ── Series/anime: expand to per-episode .strm files ────────────
+                var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+
+                if (isSeries)
+                {
+                    var expansion = EnsureExpansionService();
+                    if (expansion != null)
+                    {
+                        _logger.LogInformation(
+                            "[InfiniteDrive] Expanding series: {ImdbId} ({Title})",
+                            item.ImdbId, item.Title);
+
+                        var expanded = await expansion.ExpandSeriesFromMetadataAsync(item, config, cancellationToken);
+
+                        // Update item state even if expansion used fallback defaults
+                        item.ItemState = ItemState.Written;
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+
+                        // Set StrmPath to the series folder for downstream hint step
+                        item.StrmPath = Path.Combine(basePath, folderName);
+                        item.LocalPath = item.StrmPath;
+                        item.LocalSource = "strm";
+
+                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                        written++;
+
+                        _logger.LogInformation(
+                            "[InfiniteDrive] Series expansion {Result} for {ImdbId} ({Title})",
+                            expanded ? "succeeded" : "used defaults", item.ImdbId, item.Title);
+                        continue;
+                    }
+
+                    // Expansion service unavailable — fall through to single-strm write
+                    _logger.LogWarning(
+                        "[InfiniteDrive] SeriesPreExpansionService unavailable for {ImdbId}, writing single .strm",
+                        item.ImdbId);
+                }
+
+                // ── Movies (or series fallback): write single .strm per slot ─────
+
                 var folderPath = Path.Combine(basePath, folderName);
 
                 Directory.CreateDirectory(folderPath);
@@ -497,6 +543,19 @@ namespace InfiniteDrive.Tasks
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+
+                // Skip hint for series/anime items — SeriesPreExpansionService already
+                // wrote tvshow.nfo + per-episode NFOs during WriteStepAsync
+                var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+                if (isSeries && !string.IsNullOrEmpty(item.StrmPath)
+                    && File.Exists(Path.Combine(item.StrmPath, "tvshow.nfo")))
+                {
+                    item.NfoStatus = "Expanded";
+                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                    hinted++;
+                    continue;
+                }
 
                 var folderName = BuildFolderName(item);
                 var folderPath = item.StrmPath ?? folderName;
@@ -994,6 +1053,36 @@ namespace InfiniteDrive.Tasks
         }
 
         // ── Helper methods ───────────────────────────────────────────────────────
+
+        private SeriesPreExpansionService? EnsureExpansionService()
+        {
+            if (_expansionService != null)
+                return _expansionService;
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+                return null;
+
+            var (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
+
+            // Fall back to secondary manifest URL if primary failed
+            if (string.IsNullOrWhiteSpace(baseUrl) && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+                (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
+
+            if (string.IsNullOrWhiteSpace(baseUrl))
+                return null;
+
+            // Build stremio base (same logic as AioStreamsClient.BuildStremioBase)
+            var stremioBase = string.Equals(uuid, "DIRECT", StringComparison.Ordinal)
+                ? baseUrl.TrimEnd('/')
+                : $"{baseUrl.TrimEnd('/')}/stremio" +
+                  (!string.IsNullOrWhiteSpace(uuid) ? $"/{uuid}" : "") +
+                  (!string.IsNullOrWhiteSpace(token) ? $"/{token}" : "");
+
+            var provider = new StremioMetadataProvider(stremioBase, _logger);
+            _expansionService = new SeriesPreExpansionService(_libraryManager, _logger, provider);
+            return _expansionService;
+        }
 
         private static string BuildFolderName(CatalogItem item)
         {

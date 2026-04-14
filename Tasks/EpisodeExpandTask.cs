@@ -363,12 +363,12 @@ namespace InfiniteDrive.Tasks
         {
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            sb.AppendLine($"<episodedata lockdata=\"false\">");
+            sb.AppendLine($"<episodedetails lockdata=\"false\">");
             sb.AppendLine($"  <title>Episode {epNum}</title>");
             sb.AppendLine($"  <season>{seasonNum}</season>");
             sb.AppendLine($"  <episode>{epNum}</episode>");
             sb.AppendLine($"  <showtitle>{System.Security.SecurityElement.Escape(seriesTitle)}</showtitle>");
-            sb.AppendLine("</episodedata>");
+            sb.AppendLine("</episodedetails>");
 
             await File.WriteAllTextAsync(nfoPath, sb.ToString(), Encoding.UTF8);
         }
