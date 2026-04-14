@@ -64,9 +64,12 @@ namespace InfiniteDrive.Services
                     return await WriteDefaultEpisodesAsync(item, config, cancellationToken);
                 }
 
-                // Create series folder structure
+                // Create series folder structure — route anime to anime library, series to shows library
+                var basePath = string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase)
+                    ? config.SyncPathAnime
+                    : config.SyncPathShows;
                 var seriesPath = Path.Combine(
-                    config.SyncPathShows,
+                    basePath,
                     StrmWriterService.SanitisePathPublic(BuildFolderName(fullMeta.GetName(), fullMeta.GetYear(), item.ImdbId)));
 
                 Directory.CreateDirectory(seriesPath);
@@ -118,8 +121,7 @@ namespace InfiniteDrive.Services
                         }
 
                         // Create .strm file with signed URL
-                        var stremioEpisodeId = $"{item.ImdbId}:{seasonNum}:{epNum}";
-                        var strmContent = BuildStrmContent(stremioEpisodeId, config);
+                        var strmContent = BuildStrmContent(item.ImdbId ?? item.Id, seasonNum, epNum, config);
 
                         var sanitisedName = StrmWriterService.SanitisePathPublic(fullMeta.GetName());
                         var fileName = $"{sanitisedName} S{seasonNum:D2}E{epNum:D2}.strm";
@@ -177,9 +179,12 @@ namespace InfiniteDrive.Services
                 "[InfiniteDrive] SeriesPreExpansion: Writing default episodes for {ImdbId} - {Seasons}s × {Episodes}ep",
                 item.ImdbId, numSeasons, numEpisodes);
 
-            // Create series folder
+            // Create series folder — route anime to anime library, series to shows library
+            var basePath = string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase)
+                ? config.SyncPathAnime
+                : config.SyncPathShows;
             var seriesPath = Path.Combine(
-                config.SyncPathShows,
+                basePath,
                 StrmWriterService.SanitisePathPublic(BuildFolderName(item.Title, item.Year, item.ImdbId)));
 
             Directory.CreateDirectory(seriesPath);
@@ -198,8 +203,7 @@ namespace InfiniteDrive.Services
                     cancellationToken.ThrowIfCancellationRequested();
 
                     // G3: Each episode .strm must include season+episode in signed URL
-                    var stremioEpisodeId = $"{item.ImdbId}:{season}:{episode}";
-                    var strmContent = BuildStrmContent(stremioEpisodeId, config);
+                    var strmContent = BuildStrmContent(item.ImdbId ?? item.Id, season, episode, config);
 
                     var sanitisedName = StrmWriterService.SanitisePathPublic(item.Title);
                     var fileName = $"{sanitisedName} S{season:D2}E{episode:D2}.strm";
@@ -236,7 +240,7 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Build .strm file content. Uses signed URLs when available, falls back to legacy Play endpoint.
         /// </summary>
-        private static string BuildStrmContent(string stremioEpisodeId, PluginConfiguration config)
+        private static string BuildStrmContent(string id, int season, int episode, PluginConfiguration config)
         {
             // Ensure PluginSecret is initialized before accessing Configuration
             Plugin.Instance?.EnsureInitialization();
@@ -245,19 +249,14 @@ namespace InfiniteDrive.Services
 
             if (!string.IsNullOrEmpty(secret))
             {
-                // Signed URL - same as CatalogSyncTask uses
-                var parts = stremioEpisodeId.Split(':');
-                var imdbId = parts[0];
-                var season = int.Parse(parts[1]);
-                var episode = int.Parse(parts[2]);
-
                 return PlaybackTokenService.GenerateSignedUrl(
-                    config.EmbyBaseUrl, imdbId, "series", season, episode,
+                    config.EmbyBaseUrl, id, "series", season, episode,
                     secret,
                     TimeSpan.FromDays(config.SignatureValidityDays > 0 ? config.SignatureValidityDays : 365));
             }
 
             // Fallback: legacy Play endpoint with episode_id parameter
+            var stremioEpisodeId = $"{id}:{season}:{episode}";
             var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
             return $"{baseUrl}/InfiniteDrive/Play?episode_id={Uri.EscapeDataString(stremioEpisodeId)}";
         }
@@ -311,7 +310,7 @@ namespace InfiniteDrive.Services
 
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            sb.AppendLine($"<episodedata lockdata=\"false\">");
+            sb.AppendLine($"<episodedetails lockdata=\"false\">");
 
             // Episode title
             if (!string.IsNullOrEmpty(episode.Name))
@@ -342,7 +341,7 @@ namespace InfiniteDrive.Services
             if (!string.IsNullOrEmpty(seriesMeta.Title))
                 sb.AppendLine($"  <showtitle>{System.Security.SecurityElement.Escape(seriesMeta.Title)}</showtitle>");
 
-            sb.AppendLine("</episodedata>");
+            sb.AppendLine("</episodedetails>");
 
             await File.WriteAllTextAsync(nfoPath, sb.ToString(), Encoding.UTF8, cancellationToken);
         }
