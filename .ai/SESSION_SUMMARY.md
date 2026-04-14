@@ -1,5 +1,25 @@
 # Session Summary
 
+## 2026-04-14 — Sprint 216 Research Completion
+
+### Task
+Completed all 5 research tasks for Sprint 216 (anime catalog routing). Code fix was already committed in prior session.
+
+### Delegation
+4 Haiku agents in parallel: anime drop conditions, silent drop audit, DB schema analysis, Emby plugin comparison. 1 Sonnet synthesis.
+
+### Findings Summary
+- 41 silent drop paths inventoried (3 CRITICAL, 4 WARNING, 34 OK)
+- Schema v27 has NO raw JSON storage column (RawMetaJson property is dead code)
+- Anime NFO only includes IMDB/TMDB; anime provider IDs invisible to Emby scrapers
+- Dedup only works for IMDB IDs; anime items bypass dedup
+- Sprint 217 recommendations compiled in BACKLOG.md
+
+### Token Estimate
+~15K input, ~8K output (Haiku agents); ~3K input, ~2K output (synthesis) ≈ ~28K total
+
+---
+
 ## 2026-04-13 — Sprint 215 Implementation
 
 ### Task

@@ -1466,3 +1466,88 @@ When a catalog item arrives without a `tt`-style IMDb ID, aggressively attempt t
 ### Out of Scope
 - Title+year fuzzy matching across catalogs with no ID overlap (future sprint)
 - TMDB API key management (use AIOStreams/AIOMetadata as proxies instead)
+
+---
+
+## Sprint 216 — Anime Catalog Routing Research
+
+**Status:** Complete — Research sprint. Code fix already committed (1667ab1).
+
+### Code Fix Delivered (commit 1667ab1)
+- Accept `kitsu:` IDs when `catalog.Type == "anime"` and no IMDB cross-ref exists
+- Force `mediaType = "anime"` for items from anime catalogs regardless of item-level type
+- 1 file changed: `Tasks/CatalogSyncTask.cs`
+
+### RESEARCH-216-01: Anime Drop Conditions — Validated
+
+**Confirmed drop conditions in CatalogSyncTask.cs:**
+1. **Missing primary ID** (line ~402) — FIXED: anime catalogs now accept kitsu: as primary
+2. **channel/tv catalog types** (lines ~517-519) — Intentional block, logged
+3. **Unknown catalog types** (lines ~531-533) — Intentional, logged as Warning
+4. **Null mediaType** (line ~538) — Defensive guard
+5. **#DUPE# prefix** (line ~542-543) — Intentional dedup
+
+**NFO hierarchy:** IMDB/TMDB IDs only in NFO `<uniqueid>` tags. Anime IDs (AniList, Kitsu, MAL) stored in `unique_ids_json` DB column only — invisible to Emby metadata scrapers.
+
+**Dedup:** Only works for IMDB-based items. Anime items with non-IMDB IDs bypass dedup entirely → potential duplicates.
+
+### RESEARCH-216-02: Silent Drop Inventory (41 paths)
+
+**CRITICAL (3):**
+- `CatalogSyncTask.MapMetaToItem` — items without primary ID dropped (FIXED for anime)
+- `CatalogSyncTask.MediaType` — channel/tv catalogs dropped entirely
+- `MetadataFallbackTask` — items without NFO path dropped
+
+**WARNING (4):**
+- `CatalogSyncTask` default case — unknown types silently skipped
+- `StrmWriterService` — missing movie/show path returns null without logging
+- `StreamEndpointService` — URL decode failures unlogged
+- `UserCatalogsService` — fetch failures return null unlogged
+
+**OK (34):** Intentional filters (URL validation, episode numbers, catalog type filtering, etc.)
+
+**Key gap:** No raw JSON is preserved at any drop point. All 41 paths lose the original provider data.
+
+### RESEARCH-216-03: Database Schema & Raw JSON Storage
+
+**Schema v27 — 15 tables.** Key tables: `media_items`, `media_item_ids`, `source_memberships`, `candidates`, `version_slots`.
+
+**Critical finding: NO raw JSON storage column exists.** The `CatalogItem.RawMetaJson` property exists in code but has no backing column. Original provider responses are lost during sync.
+
+**Schema supports anime IDs:** `media_item_ids` table has `id_type` column accepting 'tmdb','imdb','tvdb','anilist','anidb','kitsu'.
+
+**Sample queries:**
+```sql
+-- Find all items with kitsu IDs
+SELECT mi.title, mi.primary_id, miid.id_value FROM media_items mi
+JOIN media_item_ids miid ON mi.id = miid.media_item_id WHERE miid.id_type = 'kitsu';
+
+-- Find anime-typed items
+SELECT id, primary_id, title, media_type FROM media_items WHERE media_type = 'anime';
+```
+
+**Recommended schema change:** Add `raw_meta_json TEXT` column to `media_items` (V28 migration).
+
+### RESEARCH-216-04: Emby Anime Plugin Comparison
+
+| Plugin | Folder Logic | ID Tolerance | NFO Strategy | Dedup | Silent Drops |
+|--------|-------------|-------------|-------------|-------|-------------|
+| Shoko | Separate anime library | High (AniDB, MAL, Kitsu, AniList) | Full XML with all IDs | AniDB ID based | Minimal logging |
+| InfiniteDrive | Optional `/anime/` folder | Medium (prefers IMDb) | IMDB/TMDB only | IMDB only | Being improved |
+| Emby native | No anime type | None | None | Standard | N/A |
+
+**Top 5 best practices to adopt:**
+1. Add anime provider IDs (AniDB, MAL, Kitsu) to NFO `<uniqueid>` tags
+2. Add anime-specific NFO metadata (`<type>anime</type>`, `<animated>true</animated>`)
+3. Store raw provider JSON for debugging (V28 migration)
+4. Extend dedup to work with non-IMDB IDs
+5. Add anime-specific logging throughout pipeline
+
+### Sprint 217 Recommendations (Priority Order)
+
+1. **P0: Add raw_meta_json column** — V28 migration, store on every sync. Enables debugging.
+2. **P1: NFO anime IDs** — Write kitsu/anilist/mal IDs to NFO `<uniqueid>` tags for Emby metadata matching.
+3. **P1: Non-IMDB dedup** — Extend DeduplicateItems to key on canonical ID type, not just IMDB.
+4. **P2: Anime logging** — Dedicated `[InfiniteDrive:Anime]` log prefix, log every anime item with all IDs.
+5. **P2: Silent drop metrics** — Counter for each drop reason, surfaced in Health tab.
+6. **P3: Metadata fallback chain** — Anime-specific APIs → AIOStreams → Cinemeta → TMDB.

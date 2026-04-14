@@ -25,4 +25,5 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 
 ## Sprint 216 Complete (2026-04-14)
 - Anime catalog routing fix: accept kitsu: IDs, force anime mediaType for anime catalogs
-- 1 file changed: Tasks/CatalogSyncTask.cs
+- Research sprint: 41 silent drop paths inventoried, schema gaps documented, plugin comparison done
+- See BACKLOG.md "Sprint 216" for full research findings and Sprint 217 recommendations
