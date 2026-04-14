@@ -274,25 +274,64 @@ namespace InfiniteDrive.Services
             if (File.Exists(nfoPath))
                 return; // Don't overwrite existing NFO
 
+            var esc = System.Security.SecurityElement.Escape;
             var sb = new StringBuilder();
             sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
             sb.AppendLine("<tvshow>");
-            sb.AppendLine($"  <title>{System.Security.SecurityElement.Escape(meta.GetName())}</title>");
+            sb.AppendLine($"  <title>{esc(meta.GetName())}</title>");
 
             var year = meta.GetYear();
             if (year.HasValue)
                 sb.AppendLine($"  <year>{year.Value}</year>");
 
-            sb.AppendLine($"  <imdbid>{catalogItem.ImdbId}</imdbid>");
+            if (meta.Released.HasValue)
+                sb.AppendLine($"  <premiered>{meta.Released.Value:yyyy-MM-dd}</premiered>");
+            else if (meta.FirstAired.HasValue)
+                sb.AppendLine($"  <premiered>{meta.FirstAired.Value:yyyy-MM-dd}</premiered>");
 
+            // ── Provider IDs (uniqueid tags for anime plugin matching) ────────
+            if (!string.IsNullOrWhiteSpace(catalogItem.ImdbId))
+                sb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{esc(catalogItem.ImdbId)}</uniqueid>");
+
+            var tmdb = meta.GetTmdbId() ?? catalogItem.TmdbId;
+            if (!string.IsNullOrWhiteSpace(tmdb))
+                sb.AppendLine($"  <uniqueid type=\"tmdb\">{esc(tmdb)}</uniqueid>");
+
+            if (!string.IsNullOrWhiteSpace(catalogItem.TvdbId))
+                sb.AppendLine($"  <uniqueid type=\"tvdb\">{esc(catalogItem.TvdbId)}</uniqueid>");
+
+            if (!string.IsNullOrWhiteSpace(meta.KitsuId))
+                sb.AppendLine($"  <uniqueid type=\"kitsu\">{esc(meta.KitsuId)}</uniqueid>");
+
+            if (!string.IsNullOrWhiteSpace(meta.AniListId))
+                sb.AppendLine($"  <uniqueid type=\"anilist\">{esc(meta.AniListId)}</uniqueid>");
+
+            if (!string.IsNullOrWhiteSpace(meta.MalId))
+                sb.AppendLine($"  <uniqueid type=\"mal\">{esc(meta.MalId)}</uniqueid>");
+
+            // Legacy tags for Emby compatibility
+            if (!string.IsNullOrWhiteSpace(catalogItem.ImdbId))
+                sb.AppendLine($"  <imdbid>{esc(catalogItem.ImdbId)}</imdbid>");
+            if (!string.IsNullOrWhiteSpace(tmdb))
+                sb.AppendLine($"  <tmdbid>{esc(tmdb)}</tmdbid>");
+
+            // ── Rich metadata ────────────────────────────────────────────────
             if (!string.IsNullOrWhiteSpace(meta.Overview))
-                sb.AppendLine($"  <overview>{System.Security.SecurityElement.Escape(meta.Overview)}</overview>");
+                sb.AppendLine($"  <plot><![CDATA[{meta.Overview}]]></plot>");
 
             if (meta.Genres?.Count > 0)
             {
                 foreach (var genre in meta.Genres)
-                    sb.AppendLine($"  <genre>{System.Security.SecurityElement.Escape(genre)}</genre>");
+                    sb.AppendLine($"  <genre>{esc(genre)}</genre>");
             }
+
+            if (!string.IsNullOrWhiteSpace(meta.Status))
+                sb.AppendLine($"  <status>{esc(meta.Status)}</status>");
+
+            // ── Anime-specific fields ─────────────────────────────────────────
+            var isAnime = string.Equals(catalogItem.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+            if (isAnime)
+                sb.AppendLine("  <displayorder>absolute</displayorder>");
 
             sb.AppendLine("</tvshow>");
 
@@ -308,24 +347,22 @@ namespace InfiniteDrive.Services
             if (episode.Season == null || episode.Episode == null)
                 return;
 
+            var esc = System.Security.SecurityElement.Escape;
             var sb = new System.Text.StringBuilder();
             sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
             sb.AppendLine($"<episodedetails lockdata=\"false\">");
 
             // Episode title
             if (!string.IsNullOrEmpty(episode.Name))
-                sb.AppendLine($"  <title>{System.Security.SecurityElement.Escape(episode.Name)}</title>");
+                sb.AppendLine($"  <title>{esc(episode.Name)}</title>");
 
             // Episode number and season
             sb.AppendLine($"  <season>{episode.Season}</season>");
             sb.AppendLine($"  <episode>{episode.Episode}</episode>");
 
-            // ── FIX-101A-05: Absolute episode number ───────────────────────────
-            // Add displayepisodenumber for anime episodes with absolute numbering
+            // Absolute episode number for anime
             if (episode.AbsoluteEpisodeNumber.HasValue)
-            {
                 sb.AppendLine($"  <displayepisodenumber>{episode.AbsoluteEpisodeNumber.Value}</displayepisodenumber>");
-            }
 
             // Air date
             if (episode.Released.HasValue)
@@ -333,13 +370,9 @@ namespace InfiniteDrive.Services
             else if (episode.FirstAired.HasValue)
                 sb.AppendLine($"  <aired>{episode.FirstAired.Value:yyyy-MM-dd}</aired>");
 
-            // Plot - use series overview if available
-            if (!string.IsNullOrEmpty(seriesMeta.Overview))
-                sb.AppendLine($"  <plot>{System.Security.SecurityElement.Escape(seriesMeta.Overview)}</plot>");
-
             // Series title (for context)
             if (!string.IsNullOrEmpty(seriesMeta.Title))
-                sb.AppendLine($"  <showtitle>{System.Security.SecurityElement.Escape(seriesMeta.Title)}</showtitle>");
+                sb.AppendLine($"  <showtitle>{esc(seriesMeta.Title)}</showtitle>");
 
             sb.AppendLine("</episodedetails>");
 
