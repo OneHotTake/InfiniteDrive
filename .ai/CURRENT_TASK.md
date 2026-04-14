@@ -2,8 +2,8 @@ SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working s
 
 ---
 status: complete
-task: Sprint 216 — Anime Catalog Routing Fix
-phase: Complete
+task: Sprint 216 — Anime Catalog Routing Fix + Research Sprint
+phase: Complete (code + all 5 research tasks)
 last_updated: 2026-04-14
 
 ## Summary
