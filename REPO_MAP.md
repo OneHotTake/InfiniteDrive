@@ -79,3 +79,13 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - S355: ResolutionResult — structured failure enum (Success/Throttled/ContentMissing/ProviderDown) replaces null returns in StreamResolutionHelper + ResolverService.
 - S356: NfoWriterService — centralized NFO authority with Seed + Enriched quality levels. Deleted 10 private NFO writers, 3 manual XML escapers. All use SecurityElement.Escape. Skipped deletion of 4 active tasks (not obsolete).
 - S357: StatusService decomposition — 2655-line file split into StatusService.cs (812) + Api/CatalogEndpoints.cs (520) + Api/DiagnosticsEndpoints.cs (1020) + Api/SearchEndpoints.cs (334).
+
+## Sprints 360–362 Complete (2026-04-15)
+- S360: ManifestState container — Plugin.Manifest replaces 3 statics + 4 static methods. Models/ManifestState.cs new.
+- S361: PipelinePhaseTracker — Plugin.Pipeline shared in-memory snapshot. Models/PipelinePhaseTracker.cs new. RefreshTask wired.
+- S362: Pipeline visibility — HealthResponse.ActivePipeline, MarvinTask + CatalogSyncTask wired. DiagnosticsEndpoints exposes current phase.
+
+## Documentation Audit Complete (2026-04-15)
+- Created architecture/ with 6 exhaustive technical docs (OVERVIEW, SERVICES, CONTROL_FLOW, STATE_MANAGEMENT, DTO_SCHEMAS, TASKS)
+- Updated 6 newdocs/ files to fix drift from Sprints 354-362
+- Audited 46 docs files total: 40 drift findings cataloged and resolved

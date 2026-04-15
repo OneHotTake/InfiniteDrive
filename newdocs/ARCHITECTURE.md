@@ -70,6 +70,8 @@ All inherit `IService` + `IRequiresRequest` from `MediaBrowser.Model.Services`:
 |---------|---------------|
 | `StrmWriterService` | Unified `.strm` write path (Sprint 156) |
 | `NfoWriterService` | Centralized NFO authority (Sprint 356): seed, enriched, episode, identity hint |
+| `NamingPolicyService` | Single naming authority for folder names and path sanitisation (Sprint 354) |
+| `MetadataEnrichmentService` | Shared retry/backoff logic for metadata enrichment (Sprint 359): 4h→24h→block at 3 retries, 2s rate limit |
 | `CatalogDiscoverService` | Fetches catalog items from AIOStreams + Cinemeta |
 | `IdResolverService` | Normalizes IMDb/TMDB/TVDB IDs via source `/meta` endpoint |
 | `StreamProbeService` | HEAD → GET-range probe: 500ms/probe, 1.5s total budget |
@@ -118,6 +120,8 @@ All inherit `IService` + `IRequiresRequest` from `MediaBrowser.Model.Services`:
 
 ### Concurrency Guards
 - `Plugin.SyncLock` (SemaphoreSlim 1,1): only one catalog sync or Marvin task runs at a time
+- `Plugin.Manifest` (`ManifestState`): single authority for manifest status (`ManifestStatusState` enum) and 12-hour staleness TTL
+- `Plugin.Pipeline` (`PipelinePhaseTracker`): real-time task/phase visibility for diagnostics; tasks report `SetPhase()` at boundaries, `Clear()` on exit
 - `DatabaseManager._dbWriteGate`: SQLite WAL writer serialization
 - `RateLimiter`: per-client resolve rate limits
 
@@ -145,10 +149,11 @@ All inherit `IService` + `IRequiresRequest` from `MediaBrowser.Model.Services`:
 4. **Centralized Metadata:** All XML generation via `NfoWriterService` for consistent escaping.
 5. **No Service Locator:** New logic favors constructor injection over `Plugin.Instance` where possible.
 6. **Circuit Breaker:** `ResolverHealthTracker` trips at 5 consecutive failures, diverts to secondary manifest.
-7. **Manifest TTL:** Status tracked as ok/stale/error; stale after 12 hours, forcing refresh.
+7. **Manifest TTL:** `Plugin.Manifest` tracks status as `ManifestStatusState` enum (Error/NotConfigured/Stale/Ok); stale after 12 hours via `CheckStale()`. Exposed in Health endpoint.
 8. **Slot Floor:** `hd_broad` slot is permanent — cannot be disabled.
 9. **Probe Before Serve:** `StreamProbeService` validates CDN URLs before returning to players.
 10. **DB Write Serialization:** `_dbWriteGate` prevents "database is locked" errors under concurrent access.
+11. **Pipeline Visibility:** `Plugin.Pipeline` provides real-time task/phase snapshot; exposed via `HealthResponse.ActivePipeline`.
 
 ---
 

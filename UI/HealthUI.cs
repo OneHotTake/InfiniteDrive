@@ -190,7 +190,7 @@ namespace InfiniteDrive.UI
                 ManifestStatusItem = new StatusItem
                 {
                     Caption = "Manifest",
-                    StatusText = manifestStatus ?? Plugin.GetManifestStatus().ToString()
+                    StatusText = manifestStatus ?? Plugin.Manifest.Status.ToString()
                 };
 
                 // Item counts

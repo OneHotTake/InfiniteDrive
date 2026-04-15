@@ -49,7 +49,7 @@ Plugin configuration uses Emby's native declarative UI system (IHasUIPages). All
 
 | Tab | Purpose |
 |-----|---------|
-| Health | Live dashboard with connection status, coverage, API budget, recent plays |
+| Health | Live dashboard with connection status, active pipeline phase, coverage, API budget, recent plays |
 | Providers | AIOStreams manifest URLs, connection test |
 | Libraries | Storage paths, metadata preferences, library provisioning |
 | Sources | Catalog sync settings, cache tuning, proxy mode |
@@ -88,6 +88,7 @@ The Health tab refreshes server-side — clicking "Refresh Status" fetches live 
 | **features/discover.md** | Users & Developers | Discover UI details |
 | **SECURITY.md** | Everyone | HMAC auth, PluginSecret, threat model |
 | **ARCHITECTURE.md** | Developers | Service layer, data flow, guardrails |
+| **../architecture/** | Developers | Exhaustive technical reference: services, control flows, state management, DTOs, tasks |
 | **LIFECYCLE.md** | Developers | Content stage progression |
 | **VERSIONED_PLAYBACK.md** | Developers | Slot definitions, rehydration |
 | **../README.md** | Users | Product overview |

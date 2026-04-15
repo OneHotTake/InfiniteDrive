@@ -46,6 +46,8 @@ Emby injects `ILogManager` into all services. All other dependencies are instant
 
 - **HttpClient:** `SocketsHttpHandler` with `PooledConnectionLifetime = 5 min`
 - **Concurrency:** `Plugin.SyncLock` SemaphoreSlim (1,1) — only one catalog sync or Marvin task at a time
+- **Manifest State:** `Plugin.Manifest` (`ManifestState`) — single authority for manifest status (`ManifestStatusState` enum: Error/NotConfigured/Stale/Ok) and staleness (12-hour TTL via `CheckStale()`)
+- **Pipeline Visibility:** `Plugin.Pipeline` (`PipelinePhaseTracker`) — real-time task phase tracking. Tasks report `SetPhase(taskName, phaseName)` at boundaries, `Clear()` on completion. Exposed via `HealthResponse.ActivePipeline`.
 - **DB writes:** Serialized via `DatabaseManager._dbWriteGate` (WAL constraint)
 - **No open file handles:** All file I/O goes through `StrmWriterService`; no service holds persistent file streams
 
@@ -58,6 +60,7 @@ Emby injects `ILogManager` into all services. All other dependencies are instant
 5. **Rate limiter** — `RateLimiter` enforces per-client resolve limits; excess → 429
 6. **IMDB ID validation** — `IdResolverService` validates ID format before resolution
 7. **DB write gate** — `DatabaseManager._dbWriteGate` prevents "database is locked" under concurrent access
-8. **Manifest TTL** — Status tracked as ok/stale/error; stale after 12 hours
+8. **Manifest TTL** — `Plugin.Manifest` tracks status as `ManifestStatusState` enum (Error/NotConfigured/Stale/Ok); stale after 12 hours via `CheckStale()`
 9. **CooldownGate** — Profile-aware HTTP throttling; replaces scattered `Task.Delay`
 10. **Version slot floor** — `hd_broad` cannot be disabled; always present
+11. **Pipeline Visibility** — `Plugin.Pipeline` provides real-time task/phase snapshot; exposed in Health endpoint

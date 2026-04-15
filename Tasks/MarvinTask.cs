@@ -114,18 +114,22 @@ namespace InfiniteDrive.Tasks
             try
             {
                 // Phase 1: Validation pass
+                Plugin.Pipeline.SetPhase("Marvin", "Validation");
                 progress?.Report(0.2);
                 await ValidationPassAsync(cancellationToken);
 
                 // Phase 2: Enrichment trickle
+                Plugin.Pipeline.SetPhase("Marvin", "Enrichment");
                 progress?.Report(0.5);
                 await EnrichmentTrickleAsync(cancellationToken);
 
                 // Phase 3: Token renewal
+                Plugin.Pipeline.SetPhase("Marvin", "TokenRenewal");
                 progress?.Report(0.8);
                 await TokenRenewalAsync(cancellationToken);
 
                 // Phase 4: Save maintenance
+                Plugin.Pipeline.SetPhase("Marvin", "SaveMaintenance");
                 progress?.Report(0.85);
                 await SaveMaintenancePassAsync(cancellationToken);
 
@@ -146,6 +150,10 @@ namespace InfiniteDrive.Tasks
             {
                 _logger.LogError(ex, "[InfiniteDrive] MarvinTask failed");
                 throw;
+            }
+            finally
+            {
+                Plugin.Pipeline.Clear();
             }
         }
 

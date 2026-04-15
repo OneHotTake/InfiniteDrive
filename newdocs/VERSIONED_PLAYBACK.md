@@ -161,7 +161,7 @@ Each `.nfo` is written by `NfoWriterService`:
 - `<uniqueid type="tmdb">xxx</uniqueid>`
 - No plot, poster, or cast data
 
-### Enriched NFO (written by MarvinTask / MetadataFallbackTask)
+### Enriched NFO (written by MetadataEnrichmentService via MarvinTask / RefreshTask)
 - title, year, plot, genres, cast, director
 - TMDB / IMDb IDs
 - `<streamdetails>` block (synthetic, for Emby display polish)

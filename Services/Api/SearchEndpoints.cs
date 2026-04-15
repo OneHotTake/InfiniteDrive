@@ -203,12 +203,12 @@ namespace InfiniteDrive.Services
                 {
                     Status = "error",
                     ManifestStatus = ManifestStatusState.Error,
-                    ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                    ManifestLastFetched = Plugin.Manifest.FetchedAt.ToString("o"),
                 };
             }
 
             // Sprint 102A-01: Check if manifest is stale before fetching
-            Plugin.CheckManifestStale();
+            Plugin.Manifest.CheckStale();
 
             _logger.LogInformation("[InfiniteDrive] RefreshManifest: Force-refreshing manifest from {Url}",
                 config.PrimaryManifestUrl);
@@ -223,18 +223,18 @@ namespace InfiniteDrive.Services
                 {
                     _logger.LogWarning("[InfiniteDrive] RefreshManifest: Failed to fetch manifest");
                     // Sprint 102A-01: Set status to error on fetch failure
-                    Plugin.SetManifestStatus(ManifestStatusState.Error);
+                    Plugin.Manifest.Status = ManifestStatusState.Error;
                     return new RefreshManifestResponse
                     {
                         Status = "error",
-                        ManifestStatus = Plugin.GetManifestStatus(),
-                        ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                        ManifestStatus = Plugin.Manifest.Status,
+                        ManifestLastFetched = Plugin.Manifest.FetchedAt.ToString("o"),
                     };
                 }
 
                 // Update manifest fetch timestamp and set status to ok
-                Plugin.ManifestFetchedAt = DateTimeOffset.UtcNow;
-                Plugin.SetManifestStatus(ManifestStatusState.Ok);
+                Plugin.Manifest.FetchedAt = DateTimeOffset.UtcNow;
+                Plugin.Manifest.Status = ManifestStatusState.Ok;
 
                 // Extract summary info from manifest
                 var resourceTypes = new List<string>();
@@ -269,8 +269,8 @@ namespace InfiniteDrive.Services
                 return new RefreshManifestResponse
                 {
                     Status = "ok",
-                    ManifestStatus = Plugin.GetManifestStatus(),
-                    ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                    ManifestStatus = Plugin.Manifest.Status,
+                    ManifestLastFetched = Plugin.Manifest.FetchedAt.ToString("o"),
                     CatalogCount = catalogCount,
                     ResourceTypes = resourceTypes,
                     IdPrefixes = idPrefixes,
@@ -280,12 +280,12 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "[InfiniteDrive] RefreshManifest: Exception during manifest refresh");
                 // Sprint 102A-01: Set status to error on exception
-                Plugin.SetManifestStatus(ManifestStatusState.Error);
+                Plugin.Manifest.Status = ManifestStatusState.Error;
                 return new RefreshManifestResponse
                 {
                     Status = "error",
-                    ManifestStatus = Plugin.GetManifestStatus(),
-                    ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o"),
+                    ManifestStatus = Plugin.Manifest.Status,
+                    ManifestLastFetched = Plugin.Manifest.FetchedAt.ToString("o"),
                 };
             }
         }
