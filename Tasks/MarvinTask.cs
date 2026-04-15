@@ -175,6 +175,13 @@ namespace InfiniteDrive.Tasks
                 {
                     state.Current = Models.ActiveProvider.Primary;
                     _logger.LogInformation("[Failover] Primary restored");
+
+                    // Persist restored state so it survives restart
+                    try
+                    {
+                        await Plugin.Instance!.DatabaseManager.SetActiveProviderAsync("Primary");
+                    }
+                    catch { /* best effort */ }
                 }
             }
             catch

@@ -361,11 +361,8 @@ namespace InfiniteDrive.Services
                 return sb.ToString();
             }
 
-            // Fallback: legacy authenticated endpoint (requires X-Emby-Token)
-            var fallbackUrl = config.EmbyBaseUrl.TrimEnd('/');
-            if (season.HasValue && episode.HasValue)
-                return $"{fallbackUrl}/InfiniteDrive/Play?imdb={imdbId}&season={season}&episode={episode}";
-            return $"{fallbackUrl}/InfiniteDrive/Play?imdb={imdbId}";
+            // PluginSecret is required — fail closed rather than generating dead-end URLs
+            throw new InvalidOperationException("PluginSecret not configured — cannot sign .strm URL");
         }
 
         /// <summary>Removes filesystem-unsafe characters from a path segment.</summary>
