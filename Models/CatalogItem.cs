@@ -170,5 +170,14 @@ namespace InfiniteDrive.Models
 
         /// <summary>True if this item has been blocked by an admin.</summary>
         public bool Blocked => !string.IsNullOrEmpty(BlockedAt);
+
+        // ── Sprint 301: Episode Expansion Tracking ──────────────────────────────
+
+        /// <summary>
+        /// True if all episode .strm files have been written for this series/anime.
+        /// Used to prevent series from appearing in Emby library until complete.
+        /// Null for movies or when expansion hasn't started.
+        /// </summary>
+        public bool? EpisodesExpanded { get; set; }
     }
 }

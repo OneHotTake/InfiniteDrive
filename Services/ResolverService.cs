@@ -36,18 +36,18 @@ namespace InfiniteDrive.Services
             // 1. Validate input
             if (string.IsNullOrEmpty(req.Id))
             {
-                return Error(400, "bad_request", "id parameter is required");
+                return Error(ResolverError.InvalidToken); // 400 - bad request
             }
 
             if (string.IsNullOrEmpty(req.Quality))
             {
-                return Error(400, "bad_request", "quality parameter is required");
+                return Error(ResolverError.InvalidToken); // 400 - bad request
             }
 
             // Validate quality tier
             if (!M3u8Builder.TierMetadata.ContainsKey(req.Quality))
             {
-                return Error(400, "bad_request", $"invalid quality tier: {req.Quality}");
+                return Error(ResolverError.InvalidToken); // 400 - bad request
             }
 
             // Validate resolve token (Sprint 140A-03)
@@ -57,29 +57,35 @@ namespace InfiniteDrive.Services
 
             if (string.IsNullOrEmpty(Config.PluginSecret))
             {
-                return Error(500, "server_error", "Plugin not initialized");
+                return Error(ResolverError.AllResolversDown); // 500 - server error
             }
 
             if (!PlaybackTokenService.ValidateStreamToken(req.Token, Config.PluginSecret))
             {
                 _logger.LogWarning("[InfiniteDrive][Resolve] Invalid or expired resolve token");
-                return Error(401, "unauthorized", "Invalid or expired token");
+                return Error(ResolverError.InvalidToken);
             }
 
             // 2. Resolve stream from AIOStreams
-            var streams = await ResolveStreamsAsync(req);
+            var (streams, resolverError) = await ResolveStreamsAsync(req);
+            if (resolverError.HasValue)
+            {
+                // Upstream error (rate limit, connection failure, etc.)
+                return Error(resolverError.Value);
+            }
+
             if (streams == null || streams.Count == 0)
             {
                 _logger.LogWarning("[InfiniteDrive][Resolve] No streams found for {Id}", req.Id);
-                return Error(404, "not_found", "No streams available");
+                return Error(ResolverError.NoStreamsExist);
             }
 
-            // 3. Filter by quality tier
-            var filtered = FilterStreamsByTier(streams, req.Quality);
+            // 3. Filter by quality tier with fallback chain
+            var (filtered, usedFallback) = FilterStreamsWithFallback(streams, req.Quality, req.Id);
             if (filtered.Count == 0)
             {
-                _logger.LogWarning("[InfiniteDrive][Resolve] No streams match tier {Quality} for {Id}", req.Quality, req.Id);
-                return Error(404, "not_found", $"No streams available for quality {req.Quality}");
+                _logger.LogWarning("[InfiniteDrive][Resolve] No streams found for {Id}", req.Id);
+                return Error(ResolverError.QualityMismatch);
             }
 
             // 4. Probe top candidates and reorder — dead URLs sink to back of list.
@@ -103,8 +109,9 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Resolves streams from AIOStreams API.
+        /// Returns (streams, error) tuple where error is null on success.
         /// </summary>
-        private async Task<List<AioStreamsStream>> ResolveStreamsAsync(ResolverRequest req)
+        private async Task<(List<AioStreamsStream> streams, ResolverError? error)> ResolveStreamsAsync(ResolverRequest req)
         {
             try
             {
@@ -125,12 +132,21 @@ namespace InfiniteDrive.Services
                     response = await client.GetMovieStreamsAsync(req.Id);
                 }
 
-                return response?.Streams ?? new List<AioStreamsStream>();
+                var streams = response?.Streams ?? new List<AioStreamsStream>();
+                return (streams, null);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[InfiniteDrive][Resolve] Failed to resolve streams for {Id}", req.Id);
-                return new List<AioStreamsStream>();
+                // Detect rate limit by exception type
+                if (ex.GetType().Name.Contains("RateLimit"))
+                {
+                    _logger.LogWarning("[InfiniteDrive][Resolve] Rate limited for {Id}", req.Id);
+                    return (new List<AioStreamsStream>(), ResolverError.RateLimited);
+                }
+                // Total resolution failure - all resolvers exhausted
+                _logger.LogError("[InfiniteDrive][Resolve] TOTAL RESOLUTION FAILURE for {Id} - primary resolver unreachable, no secondary fallback available", req.Id);
+                return (new List<AioStreamsStream>(), ResolverError.AllResolversDown);
             }
         }
 
@@ -175,17 +191,47 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Filters streams by quality tier.
+        /// Filters streams by quality tier with fallback chain: 4k_hdr → 4k_sdr → hd_broad → sd_broad → any
+        /// Returns filtered streams and whether fallback was used.
         /// </summary>
-        private List<AioStreamsStream> FilterStreamsByTier(List<AioStreamsStream> streams, string requestedTier)
+        private (List<AioStreamsStream> streams, bool usedFallback) FilterStreamsWithFallback(
+            List<AioStreamsStream> streams,
+            string requestedTier,
+            string mediaId)
         {
-            return streams
-                .Where(s =>
-                {
-                    var tier = M3u8Builder.MapStreamToTier(s);
-                    return tier == requestedTier;
-                })
+            var tierChain = new[] { "4k_hdr", "4k_sdr", "hd_broad", "sd_broad" };
+            var requestedIndex = Array.IndexOf(tierChain, requestedTier);
+
+            // Try requested tier first
+            var filtered = streams
+                .Where(s => M3u8Builder.MapStreamToTier(s) == requestedTier)
                 .ToList();
+
+            if (filtered.Count > 0)
+            {
+                return (filtered, false);
+            }
+
+            // Fallback down the chain
+            for (int i = requestedIndex + 1; i < tierChain.Length; i++)
+            {
+                var fallbackTier = tierChain[i];
+                var tierStreams = streams
+                    .Where(s => M3u8Builder.MapStreamToTier(s) == fallbackTier)
+                    .ToList();
+
+                if (tierStreams.Count > 0)
+                {
+                    var tierMeta = M3u8Builder.TierMetadata.GetValueOrDefault(fallbackTier);
+                    _logger.LogInformation("[InfiniteDrive][Resolve] Quality fallback for {MediaId}: {Requested} → {Actual} ({DisplayName})",
+                        mediaId, requestedTier, fallbackTier, tierMeta?.DisplayName ?? fallbackTier);
+                    return (tierStreams, true);
+                }
+            }
+
+            // Final fallback: return all streams (best effort)
+            _logger.LogWarning("[InfiniteDrive][Resolve] No quality matches for {MediaId}, returning all streams as fallback", mediaId);
+            return (streams, true);
         }
 
         /// <summary>
@@ -268,15 +314,31 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Error response helper.
+        /// Error response helper with structured error codes.
+        /// Maps ResolverError enum to HTTP status codes and messages.
         /// </summary>
-        private static object Error(int statusCode, string errorCode, string message)
+        private static object Error(ResolverError error)
         {
             return new
             {
-                StatusCode = statusCode,
-                ErrorCode = errorCode,
-                ErrorMessage = message
+                StatusCode = error switch
+                {
+                    ResolverError.InvalidToken => 401,
+                    ResolverError.NoStreamsExist or ResolverError.QualityMismatch => 404,
+                    ResolverError.PrimaryResolverDown or ResolverError.AllResolversDown or ResolverError.RateLimited => 503,
+                    _ => 500
+                },
+                ErrorCode = error.ToString().ToLowerInvariant(),
+                ErrorMessage = error switch
+                {
+                    ResolverError.InvalidToken => ResolverErrorMessages.InvalidToken,
+                    ResolverError.NoStreamsExist => ResolverErrorMessages.NoStreamsExist,
+                    ResolverError.QualityMismatch => ResolverErrorMessages.QualityMismatch,
+                    ResolverError.PrimaryResolverDown => ResolverErrorMessages.PrimaryResolverDown,
+                    ResolverError.AllResolversDown => ResolverErrorMessages.AllResolversDown,
+                    ResolverError.RateLimited => ResolverErrorMessages.RateLimited,
+                    _ => "Unknown error"
+                }
             };
         }
     }

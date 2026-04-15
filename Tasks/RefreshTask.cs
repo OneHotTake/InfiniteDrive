@@ -448,8 +448,25 @@ namespace InfiniteDrive.Tasks
 
                         var expanded = await expansion.ExpandSeriesFromMetadataAsync(item, config, cancellationToken);
 
-                        // Update item state even if expansion used fallback defaults
-                        item.ItemState = ItemState.Written;
+                        // Sprint 301: Only mark series as expanded if expansion succeeded
+                        // Series won't be promoted to Visible until all episodes are written
+                        if (expanded)
+                        {
+                            item.EpisodesExpanded = true;
+                            item.ItemState = ItemState.Written;
+                            _logger.LogInformation(
+                                "[InfiniteDrive] Series expansion succeeded for {ImdbId} ({Title}) - all episodes written",
+                                item.ImdbId, item.Title);
+                        }
+                        else
+                        {
+                            item.EpisodesExpanded = false;
+                            item.ItemState = ItemState.Queued; // Keep in Queued to retry later
+                            _logger.LogWarning(
+                                "[InfiniteDrive] Series expansion failed for {ImdbId} ({Title}) - will retry",
+                                item.ImdbId, item.Title);
+                        }
+
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
 
                         // Set StrmPath to the series folder for downstream hint step
@@ -459,10 +476,6 @@ namespace InfiniteDrive.Tasks
 
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                         written++;
-
-                        _logger.LogInformation(
-                            "[InfiniteDrive] Series expansion {Result} for {ImdbId} ({Title})",
-                            expanded ? "succeeded" : "used defaults", item.ImdbId, item.Title);
                         continue;
                     }
 
@@ -854,9 +867,20 @@ namespace InfiniteDrive.Tasks
                     _logger.LogDebug("[InfiniteDrive] Notify: Queued library scan for {Count} items", writtenItems.Count);
 
                     // Transition all Written items to Notified state
+                    // Sprint 301: Series must have EpisodesExpanded = true before being notified
                     foreach (var item in writtenItems)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
+
+                        // Skip series/anime items that haven't completed episode expansion
+                        bool isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase) ||
+                                       string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+                        if (isSeries && item.EpisodesExpanded != true)
+                        {
+                            _logger.LogDebug("[InfiniteDrive] Notify: Skipping {ImdbId} ({Title}) - episodes not fully expanded yet",
+                                item.ImdbId, item.Title);
+                            continue;
+                        }
 
                         item.ItemState = ItemState.Notified;
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
@@ -897,6 +921,16 @@ namespace InfiniteDrive.Tasks
 
                 if (string.IsNullOrEmpty(item.StrmPath))
                     continue;
+
+                // Sprint 301: Skip series/anime that haven't completed episode expansion
+                bool isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase) ||
+                               string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+                if (isSeries && item.EpisodesExpanded != true)
+                {
+                    _logger.LogDebug("[InfiniteDrive] Verify: Skipping {ImdbId} ({Title}) - episodes not fully expanded yet",
+                        item.ImdbId, item.Title);
+                    continue;
+                }
 
                 // Verify that .strm files exist on disk and were written recently
                 // If files exist and item has been Notified for at least one cycle,
