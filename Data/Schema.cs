@@ -6,10 +6,11 @@ namespace InfiniteDrive.Data
     /// v3.3 database schema definitions.
     /// This is a breaking change from v20 with full database reset required.
     /// Key changes: MediaId system, ItemStatus lifecycle, Sources model, Saved/Blocked states.
+    /// Sprint 302: Schema V30 adds last_verified_at column for Marvin sync safety.
     /// </summary>
     public static class Schema
     {
-        public const int CurrentSchemaVersion = 27;
+        public const int CurrentSchemaVersion = 30;
 
         /// <summary>
         /// All v3.3 database tables with their CREATE SQL statements.
