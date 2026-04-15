@@ -375,7 +375,13 @@ namespace InfiniteDrive.Services
             var sb = new StringBuilder(input.Length);
             foreach (var ch in input)
                 sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
-            return sb.ToString().Trim();
+
+            // Sprint 303-04: Block path traversal
+            var result = sb.ToString().Trim();
+            if (result.Contains(".."))
+                throw new InvalidOperationException($"Path traversal detected in input: '{input}'");
+
+            return result;
         }
 
         /// <summary>

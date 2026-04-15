@@ -20,7 +20,7 @@ namespace InfiniteDrive.Services
     /// Used by ResolverService to verify that a candidate stream URL
     /// actually responds before serving it to the user.
     ///
-    /// <para>Probes use HEAD requests with a 500ms timeout, falling back to
+    /// <para>Probes use HEAD requests with a 2s timeout, falling back to
     /// GET with Range: bytes=0-1023 if the server returns 405 Method Not Allowed.</para>
     /// </summary>
     public sealed class StreamProbeService
@@ -56,9 +56,9 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogDebug("[StreamProbe] Probing {Url}", url);
 
-                // Try HEAD first with 500ms timeout
+                // Try HEAD first with 2s timeout
                 using var headCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                headCts.CancelAfter(500);
+                headCts.CancelAfter(2000);
 
                 using var headRequest = new HttpRequestMessage(HttpMethod.Head, url);
                 using var headResponse = await _sharedHttp.SendAsync(headRequest, headCts.Token);
@@ -110,7 +110,7 @@ namespace InfiniteDrive.Services
             try
             {
                 using var rangeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                rangeCts.CancelAfter(500);
+                rangeCts.CancelAfter(2000);
 
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 1023);

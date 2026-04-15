@@ -988,7 +988,11 @@ namespace InfiniteDrive.Services
                     if (match != null)
                         embyItemId = match.Id.ToString("N");
                 }
-                catch { /* non-critical — skip */ }
+                catch (Exception ex)
+                {
+                    // Non-critical failure to look up Emby item - log and continue
+                    _logger.LogDebug(ex, "[InfiniteDrive] DiscoverService: Failed to look up Emby item for {ImdbId}", entry.ImdbId);
+                }
             }
 
             return new DiscoverItem
