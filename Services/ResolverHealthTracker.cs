@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
+using InfiniteDrive.Data;
 using Microsoft.Extensions.Logging;
 
 namespace InfiniteDrive.Services
@@ -12,6 +15,7 @@ namespace InfiniteDrive.Services
     public class ResolverHealthTracker
     {
         private readonly ILogger _logger;
+        private readonly DatabaseManager? _db;
         private readonly object _lock = new();
         private readonly Dictionary<string, ResolverState> _states = new();
 
@@ -25,9 +29,10 @@ namespace InfiniteDrive.Services
             TimeSpan.FromMinutes(5) // Cap at 5 minutes
         };
 
-        public ResolverHealthTracker(ILogger logger)
+        public ResolverHealthTracker(ILogger logger, DatabaseManager? db = null)
         {
             _logger = logger;
+            _db = db;
         }
 
         /// <summary>
@@ -40,11 +45,14 @@ namespace InfiniteDrive.Services
                 if (_states.TryGetValue(resolverName, out var state))
                 {
                     state.ConsecutiveFailures = 0;
+                    state.CircuitState = CircuitState.Closed;
+                    state.BackoffIndex = 0;
                     _logger.LogDebug(
-                        "[CircuitBreaker] Resolver {Resolver} recovered, closing circuit",
+                        "[CircuitBreaker] Resolver {Resolver} recovered, circuit closed",
                         resolverName);
                 }
             }
+            _ = PersistStateAsync();
         }
 
         /// <summary>
@@ -53,6 +61,7 @@ namespace InfiniteDrive.Services
         /// </summary>
         public bool RecordFailure(string resolverName)
         {
+            bool opened;
             lock (_lock)
             {
                 if (!_states.TryGetValue(resolverName, out var state))
@@ -82,11 +91,15 @@ namespace InfiniteDrive.Services
                         "[CircuitBreaker] Circuit opened for {Resolver} (failures={Failures}, backoff={Backoff}s + {Jitter}ms)",
                         resolverName, state.ConsecutiveFailures, backoff.TotalSeconds, jitter);
 
-                    return true;
+                    opened = true;
                 }
-
-                return false;
+                else
+                {
+                    opened = false;
+                }
             }
+            _ = PersistStateAsync();
+            return opened;
         }
 
         /// <summary>
@@ -130,6 +143,62 @@ namespace InfiniteDrive.Services
             }
 
             return false;
+        }
+
+        private async Task PersistStateAsync()
+        {
+            if (_db == null) return;
+            try
+            {
+                var snapshot = new Dictionary<string, object>();
+                lock (_lock)
+                {
+                    foreach (var kvp in _states)
+                    {
+                        snapshot[kvp.Key] = new
+                        {
+                            CircuitState = (int)kvp.Value.CircuitState,
+                            CircuitOpenUntil = kvp.Value.CircuitOpenUntil.ToString("o"),
+                            kvp.Value.ConsecutiveFailures,
+                            kvp.Value.BackoffIndex
+                        };
+                    }
+                }
+                var json = JsonSerializer.Serialize(snapshot);
+                await _db.SetCircuitBreakerStateAsync(json);
+            }
+            catch { /* best effort */ }
+        }
+
+        public void RestoreState()
+        {
+            if (_db == null) return;
+            try
+            {
+                var json = _db.GetCircuitBreakerState();
+                if (string.IsNullOrEmpty(json)) return;
+
+                var doc = JsonDocument.Parse(json);
+                foreach (var prop in doc.RootElement.EnumerateObject())
+                {
+                    var state = new ResolverState();
+                    if (prop.Value.TryGetProperty("CircuitState", out var csEl))
+                        state.CircuitState = (CircuitState)csEl.GetInt32();
+                    if (prop.Value.TryGetProperty("CircuitOpenUntil", out var coEl))
+                        state.CircuitOpenUntil = DateTime.Parse(coEl.GetString()!);
+                    if (prop.Value.TryGetProperty("ConsecutiveFailures", out var cfEl))
+                        state.ConsecutiveFailures = cfEl.GetInt32();
+                    if (prop.Value.TryGetProperty("BackoffIndex", out var biEl))
+                        state.BackoffIndex = biEl.GetInt32();
+
+                    lock (_lock) { _states[prop.Name] = state; }
+                }
+                _logger.LogInformation("[CircuitBreaker] Restored circuit state from database ({Count} entries)", _states.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[CircuitBreaker] Could not restore circuit state");
+            }
         }
 
         private enum CircuitState

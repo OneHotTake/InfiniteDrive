@@ -470,8 +470,25 @@ namespace InfiniteDrive
 
                 // Initialise ResolverHealthTracker (Sprint 310: Shared singleton)
                 ResolverHealthTracker = new Services.ResolverHealthTracker(
-                    new EmbyLoggerAdapter<Services.ResolverHealthTracker>(_logManager.GetLogger("ResolverHealthTracker")));
+                    new EmbyLoggerAdapter<Services.ResolverHealthTracker>(_logManager.GetLogger("ResolverHealthTracker")),
+                    DatabaseManager);
+                ResolverHealthTracker.RestoreState();
                 _logger.LogInformation("[InfiniteDrive] ResolverHealthTracker initialised");
+
+                // Sprint 350: Restore active provider state from database
+                try
+                {
+                    var savedProvider = DatabaseManager.GetActiveProvider();
+                    if (savedProvider == "Secondary")
+                    {
+                        ActiveProviderState.Current = Models.ActiveProvider.Secondary;
+                        _logger.LogInformation("[InfiniteDrive] Restored ActiveProvider=Secondary from database");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[InfiniteDrive] Could not restore active provider state");
+                }
             }
             catch (Exception ex)
             {

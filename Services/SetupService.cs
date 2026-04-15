@@ -163,6 +163,17 @@ namespace InfiniteDrive.Services
 
             try
             {
+                // Validate paths against traversal attacks
+                if (!IsPathSafe(request.MoviesPath) || !IsPathSafe(request.ShowsPath) || !IsPathSafe(request.AnimePath))
+                {
+                    _logger.LogError("[Setup] Invalid path detected — possible path traversal attempt");
+                    return new CreateDirectoriesResponse
+                    {
+                        Success = false,
+                        Message = "Invalid directory path"
+                    };
+                }
+
                 // Create movies directory
                 if (!string.IsNullOrWhiteSpace(request.MoviesPath))
                 {
@@ -415,6 +426,30 @@ namespace InfiniteDrive.Services
             {
                 return null;
             }
+        }
+
+        private static bool IsPathSafe(string? path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return true; // empty paths are skipped, not unsafe
+
+            if (path.Contains(".."))
+                return false;
+
+            try
+            {
+                var normalized = Path.GetFullPath(path);
+                // Reject if GetFullPath changes the path significantly (indicates traversal)
+                if (!normalized.StartsWith(path.TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase)
+                    && !path.TrimEnd('/', '\\').StartsWith(normalized.TrimEnd('/', '\\'), StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+
+            return true;
         }
     }
 }

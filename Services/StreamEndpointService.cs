@@ -129,19 +129,34 @@ namespace InfiniteDrive.Services
 
             if (isM3U8)
             {
-                // 4a. Fetch upstream M3U8
-                string upstreamContent;
-                try
+                // 4a. Fetch upstream M3U8 with retry on transient failures
+                string upstreamContent = "";
+                bool fetched = false;
+                for (int attempt = 0; attempt < 2; attempt++)
                 {
-                    using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-                    using var response = await httpClient.GetAsync(upstreamUrl);
-                    response.EnsureSuccessStatusCode();
-                    upstreamContent = await response.Content.ReadAsStringAsync();
+                    try
+                    {
+                        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(attempt == 0 ? 30 : 15) };
+                        using var response = await httpClient.GetAsync(upstreamUrl);
+                        response.EnsureSuccessStatusCode();
+                        upstreamContent = await response.Content.ReadAsStringAsync();
+                        fetched = true;
+                        break;
+                    }
+                    catch (HttpRequestException ex) when (attempt == 0)
+                    {
+                        _logger.LogWarning(ex, "[Stream] M3U8 fetch attempt {Attempt} failed for {Url}, retrying", attempt + 1, upstreamUrl);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[Stream] M3U8 fetch failed for {Url}", upstreamUrl);
+                    }
                 }
-                catch (Exception ex)
+
+                if (!fetched)
                 {
-                    _logger.LogWarning(ex, "[InfiniteDrive][Stream] Failed to fetch upstream M3U8: " + upstreamUrl);
-                    return Error(502, "upstream_error", "Failed to fetch upstream manifest");
+                    _logger.LogWarning("[Stream] All M3U8 fetch attempts failed for {Url}", upstreamUrl);
+                    return Error(502, "upstream_unavailable", "Stream temporarily unavailable - try again");
                 }
 
                 // 4b. Rewrite HLS URLs and return

@@ -35,9 +35,7 @@ namespace InfiniteDrive.Services
             int validityHours = DefaultExpirationHours)
         {
             if (string.IsNullOrEmpty(pluginSecret))
-            {
-                return url; // Return unsigned if no secret configured
-            }
+                throw new InvalidOperationException("PluginSecret not configured - cannot sign URLs");
 
             var timestamp = DateTimeOffset.UtcNow.AddHours(validityHours).ToUnixTimeSeconds();
             var message = $"{url}|{timestamp}";
@@ -56,7 +54,7 @@ namespace InfiniteDrive.Services
         public static bool Verify(string signedUrl, string pluginSecret)
         {
             if (string.IsNullOrEmpty(pluginSecret))
-                return true; // Allow unsigned if no secret configured
+                return false; // Fail closed - no secret = no valid signatures
 
             var parts = signedUrl.Split('|');
             if (parts.Length != 3) return false;

@@ -90,8 +90,15 @@ namespace InfiniteDrive.Services
 
                     // Write resolution_cache + stream_candidates atomically
                     var entry = BuildEntryFromCandidates(candidates, req, config, "tier0");
-                    await db.UpsertResolutionResultAsync(entry, candidates);
-                    await db.IncrementApiCallCountAsync();
+                    try
+                    {
+                        await db.UpsertResolutionResultAsync(entry, candidates);
+                        await db.IncrementApiCallCountAsync();
+                    }
+                    catch (Exception dbEx)
+                    {
+                        logger.LogError(dbEx, "[InfiniteDrive] Failed to cache resolution for {Imdb} — resolution succeeded but not cached", req.Imdb);
+                    }
 
                     healthTracker?.RecordSuccess(providerKey);
 
@@ -103,6 +110,12 @@ namespace InfiniteDrive.Services
                         {
                             state!.Current = Models.ActiveProvider.Secondary;
                             logger.LogWarning("[Failover] Primary unavailable, switched to Secondary");
+
+                            // Persist failover state for restart recovery
+                            _ = System.Threading.Tasks.Task.Run(async () => {
+                                try { await Plugin.Instance!.DatabaseManager.SetActiveProviderAsync("Secondary"); }
+                                catch { /* best effort */ }
+                            });
                         }
                     }
 

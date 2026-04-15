@@ -1,6 +1,7 @@
 using System;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Logging;
@@ -74,6 +75,11 @@ namespace InfiniteDrive.Services
 
             if (lower.StartsWith("tt", StringComparison.Ordinal))
             {
+                if (!Regex.IsMatch(manifestId, @"^tt\d{7,8}$", RegexOptions.IgnoreCase))
+                {
+                    _logger.LogWarning("[IdResolver] Invalid IMDB ID format: {Id}", manifestId);
+                    return new ResolvedIds(manifestId, null, null, null, null, null);
+                }
                 imdbId = manifestId;
                 _logger.LogDebug("[IdResolver] Fast path: {Id} is already a tt ID", manifestId);
                 return new ResolvedIds(manifestId, imdbId, tmdbId, tvdbId, aniDbId, null);

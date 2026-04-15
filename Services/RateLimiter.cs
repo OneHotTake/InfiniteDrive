@@ -155,21 +155,8 @@ namespace InfiniteDrive.Services
         /// </summary>
         public static string? GetClientIp(IRequest request)
         {
-            // Try X-Forwarded-For (take first IP)
-            var forwarded = request.Headers["X-Forwarded-For"];
-            if (!string.IsNullOrEmpty(forwarded))
-            {
-                var firstIp = forwarded.Split(',')[0].Trim();
-                if (!string.IsNullOrEmpty(firstIp))
-                    return firstIp;
-            }
-
-            // Try X-Real-IP
-            var realIp = request.Headers["X-Real-IP"];
-            if (!string.IsNullOrEmpty(realIp))
-                return realIp;
-
-            // Fall back to remote IP
+            // Only trust forwarded headers if behind a known proxy
+            // Direct RemoteIp is always authoritative when not proxied
             return request.RemoteIp?.ToString();
         }
     }
