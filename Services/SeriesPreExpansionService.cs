@@ -466,10 +466,8 @@ namespace InfiniteDrive.Services
                     TimeSpan.FromDays(config.SignatureValidityDays > 0 ? config.SignatureValidityDays : 365));
             }
 
-            // Fallback: legacy Play endpoint with episode_id parameter
-            var stremioEpisodeId = $"{id}:{season}:{episode}";
-            var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
-            return $"{baseUrl}/InfiniteDrive/Play?episode_id={Uri.EscapeDataString(stremioEpisodeId)}";
+            // PluginSecret is required — fail closed rather than generating dead-end URLs
+            throw new InvalidOperationException("PluginSecret not configured — cannot sign episode .strm URL");
         }
 
         /// <summary>

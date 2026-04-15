@@ -171,7 +171,7 @@ namespace InfiniteDrive.Services
                 var (imdb, season, episode) = ParseStrmUrl(strmUrl);
 
                 if (string.IsNullOrEmpty(imdb)) return;
-                if (strmUrl.IndexOf("/InfiniteDrive/Play", StringComparison.OrdinalIgnoreCase) < 0) return;
+                if (!IsInfiniteDriveUrl(strmUrl)) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
@@ -218,7 +218,7 @@ namespace InfiniteDrive.Services
                 var (imdb, season, episode) = ParseStrmUrl(strmUrl);
 
                 if (string.IsNullOrEmpty(imdb)) return;
-                if (strmUrl.IndexOf("/InfiniteDrive/Play", StringComparison.OrdinalIgnoreCase) < 0) return;
+                if (!IsInfiniteDriveUrl(strmUrl)) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
@@ -502,6 +502,11 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Parses the IMDB ID, season, and episode from an InfiniteDrive .strm URL.
         /// </summary>
+        private static bool IsInfiniteDriveUrl(string url)
+        {
+            return url.Contains("/InfiniteDrive/", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static (string imdb, int? season, int? episode) ParseStrmUrl(string url)
         {
             var q = url.IndexOf('?');
@@ -519,7 +524,8 @@ namespace InfiniteDrive.Services
                 var key = part.Substring(0, eq);
                 var val = part.Substring(eq + 1);
 
-                if (key.Equals("imdb",    StringComparison.OrdinalIgnoreCase)) imdb = val;
+                if (key.Equals("imdb",    StringComparison.OrdinalIgnoreCase)
+                    || key.Equals("id", StringComparison.OrdinalIgnoreCase)) imdb = val;
                 else if (key.Equals("season",  StringComparison.OrdinalIgnoreCase)
                     && int.TryParse(val, out var s)) season = s;
                 else if (key.Equals("episode", StringComparison.OrdinalIgnoreCase)
