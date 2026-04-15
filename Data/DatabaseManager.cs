@@ -787,6 +787,27 @@ namespace InfiniteDrive.Data
             return null;
         }
 
+        // Sprint 350: provider state persistence helpers
+        public async Task SetActiveProviderAsync(string provider, CancellationToken ct = default)
+        {
+            await PersistMetadataAsync("active_provider", provider, ct);
+        }
+
+        public string? GetActiveProvider()
+        {
+            return GetMetadata("active_provider");
+        }
+
+        public async Task SetCircuitBreakerStateAsync(string json, CancellationToken ct = default)
+        {
+            await PersistMetadataAsync("circuit_breaker_state", json, ct);
+        }
+
+        public string? GetCircuitBreakerState()
+        {
+            return GetMetadata("circuit_breaker_state");
+        }
+
         public async Task<List<CatalogItem>> GetItemsMissingStrmAsync()
         {
             const string sql = @"

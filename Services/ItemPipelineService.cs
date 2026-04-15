@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Data;
 using InfiniteDrive.Models;
+using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
 namespace InfiniteDrive.Services
@@ -14,6 +15,7 @@ namespace InfiniteDrive.Services
     public class ItemPipelineService
     {
         private readonly ILogger<ItemPipelineService> _logger;
+        private readonly ILogManager _logManager;
         private readonly DatabaseManager _db;
         private readonly StreamResolver _streamResolver;
         private readonly MetadataHydrator _metadataHydrator;
@@ -21,12 +23,14 @@ namespace InfiniteDrive.Services
 
         public ItemPipelineService(
             ILogger<ItemPipelineService> logger,
+            ILogManager logManager,
             DatabaseManager db,
             StreamResolver streamResolver,
             MetadataHydrator metadataHydrator,
             DigitalReleaseGateService digitalReleaseGate)
         {
             _logger = logger;
+            _logManager = logManager;
             _db = db;
             _streamResolver = streamResolver;
             _metadataHydrator = metadataHydrator;
@@ -215,18 +219,29 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Writes .strm file for a media item.
         /// </summary>
-        private Task WriteStrmFileAsync(MediaItem item, CancellationToken ct)
+        private async Task WriteStrmFileAsync(MediaItem item, CancellationToken ct)
         {
-            // This is a placeholder - actual implementation would use:
-            // - Plugin.Instance.Configuration.EmbyBaseUrl
-            // - Plugin.Instance.Configuration.PluginSecret
-            // - PlaybackTokenService to generate signed URLs
-            // - File I/O to write to item.StrmPath
+            var catalogItem = await _db.GetCatalogItemByImdbIdAsync(item.PrimaryId.Value);
+            if (catalogItem == null)
+            {
+                _logger.LogWarning("[ItemPipeline] No catalog item found for {MediaId}", item.PrimaryId);
+                return;
+            }
 
-            _logger.LogInformation("[ItemPipeline] Would write .strm file for {MediaId}",
-                item.PrimaryId.ToString());
+            var strmWriter = new StrmWriterService(_logManager, _db);
+            var strmPath = await strmWriter.WriteAsync(catalogItem, SourceType.Aio, null, ct);
 
-            return Task.CompletedTask;
+            if (strmPath != null)
+            {
+                item.StrmPath = strmPath;
+                _logger.LogInformation("[ItemPipeline] Wrote .strm file for {MediaId}: {Path}",
+                    item.PrimaryId, strmPath);
+            }
+            else
+            {
+                _logger.LogWarning("[ItemPipeline] Failed to write .strm file for {MediaId}",
+                    item.PrimaryId);
+            }
         }
 
         /// <summary>

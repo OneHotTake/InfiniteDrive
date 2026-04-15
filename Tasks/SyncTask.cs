@@ -71,7 +71,7 @@ namespace InfiniteDrive.Tasks
                 var fetcher = new ManifestFetcher(aioClient, db, new EmbyLoggerAdapter<ManifestFetcher>(log.GetLogger("InfiniteDrive")));
                 var filter = new ManifestFilter(releaseGate, db, new EmbyLoggerAdapter<ManifestFilter>(log.GetLogger("InfiniteDrive")));
                 var diff = new ManifestDiff(db, new EmbyLoggerAdapter<ManifestDiff>(log.GetLogger("InfiniteDrive")));
-                var pipeline = new ItemPipelineService(new EmbyLoggerAdapter<ItemPipelineService>(log.GetLogger("InfiniteDrive")), db, streamResolver, metadataHydrator, releaseGate);
+                var pipeline = new ItemPipelineService(new EmbyLoggerAdapter<ItemPipelineService>(log.GetLogger("InfiniteDrive")), log, db, streamResolver, metadataHydrator, releaseGate);
 
                 // Step 1: Fetch manifest
                 _logger.LogInformation("[SyncTask] Fetching manifest...");

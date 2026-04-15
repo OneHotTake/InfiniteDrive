@@ -267,10 +267,10 @@ namespace InfiniteDrive.Services
 
                 return false;
             }
-            catch
+            catch (Exception ex)
             {
-                // Verification failed — give benefit of the doubt
-                return true;
+                _logger.LogWarning(ex, "[GapRepair] Verification failed — failing closed");
+                return false;
             }
         }
 

@@ -44,9 +44,9 @@ namespace InfiniteDrive.Services
                 }
                 else if (item.MediaType.Equals("series", StringComparison.OrdinalIgnoreCase))
                 {
-                    // For series, we need to resolve each episode
-                    // For now, just return empty list - will be implemented in sprint 112
-                    _logger.LogDebug("[StreamResolver] Series resolution not yet implemented");
+                    // Series requires per-episode resolution (season/episode) which MediaItem doesn't carry.
+                    // Series playback goes through ResolverService → ResolverRequest (has Season/Episode fields).
+                    _logger.LogDebug("[StreamResolver] Series items resolved via ResolverService, not StreamResolver");
                     return new List<StreamCandidate>();
                 }
                 else

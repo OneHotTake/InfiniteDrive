@@ -84,7 +84,7 @@ namespace InfiniteDrive.Services
             {
                 try
                 {
-                    if (!string.IsNullOrEmpty(source.Url))
+                    if (string.IsNullOrEmpty(source.Url))
                     {
                         _logger.LogWarning("[ManifestFetcher] Source {Name} has no URL, skipping", source.Name);
                         continue;

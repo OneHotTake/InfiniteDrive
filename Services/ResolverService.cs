@@ -249,9 +249,9 @@ namespace InfiniteDrive.Services
                 }
                 catch (OperationCanceledException)
                 {
-                    // Budget exhausted — give benefit of the doubt to remaining
+                    // Budget exhausted for this probe — move to next, don't kill remaining
                     dead.Add(stream);
-                    break;
+                    continue;
                 }
             }
 

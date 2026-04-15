@@ -69,3 +69,6 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Removed dead LastKnownServerAddress config field
 - Cleaned misleading debrid fallback comments (InfoHash is active AIOStreams code)
 - Verification: zero matches for FileResurrection, DirectDebrid, DirectStreamUrl in source
+
+## Sprint 350 Complete (2026-04-15)
+- 14 critical audit fixes: ManifestFetcher showstopper, circuit breaker close/persist, PluginSecret fail-closed, probe continue, gap repair fail-closed, path traversal guard, ItemPipeline .strm write impl, provider+circuit state persistence, IMDB ID validation, rate limiter hardening, M3U8 retry, DB write resilience
