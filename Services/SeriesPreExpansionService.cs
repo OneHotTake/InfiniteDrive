@@ -324,6 +324,25 @@ namespace InfiniteDrive.Services
                 // Diff against stored Videos[]
                 var diff = EpisodeDiffService.DiffEpisodes(item.VideosJson, fullMeta.Videos);
 
+                // Sprint 301-04: Deletion safety guard - abort if removing >50% of episodes
+                var oldEpisodeCount = fullMeta.Videos?.Count(v => v.Season.HasValue && (v.Episode.HasValue || v.Number.HasValue)) ?? 0;
+                if (oldEpisodeCount >= 5 && diff.RemovedEpisodes.Count > oldEpisodeCount / 2)
+                {
+                    _logger.LogError(
+                        "[EpisodeSync] {Title}: Deletion guard triggered - refusing to remove {RemoveCount} of {OldCount} episodes (>50%). Aborting sync.",
+                        item.Title, diff.RemovedEpisodes.Count, oldEpisodeCount);
+                    // Set item to NeedsReview state
+                    var db = Plugin.Instance?.DatabaseManager;
+                    if (db != null)
+                    {
+                        item.ItemState = ItemState.NeedsEnrich;
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                        item.NfoStatus = "deletion_guard_triggered";
+                        await db.UpsertCatalogItemAsync(item, cancellationToken);
+                    }
+                    return 0;
+                }
+
                 _logger.LogInformation(
                     "[EpisodeSync] {Title}: +{Added} added, -{Removed} removed, {Unchanged} unchanged",
                     item.Title, diff.AddedEpisodes.Count, diff.RemovedEpisodes.Count, diff.UnchangedCount);

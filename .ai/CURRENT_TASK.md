@@ -1,10 +1,10 @@
 SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working solution
 
 ---
-status: complete
-task: Sprint 221 — Series Gap Repair: Write Missing Episode .strm Files
-phase: Complete
-last_updated: 2026-04-14
+status: in_progress
+task: Sprint 302 — Reliability & Resilience
+phase: Task 302-01: Per-Resolver Circuit Breaker
+last_updated: 2026-04-15
 
 ## Summary
 

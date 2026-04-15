@@ -117,7 +117,7 @@ namespace InfiniteDrive.Data
                      local_path, local_source, item_state, pin_source, pinned_at,
                      nfo_status, retry_count, next_retry_at,
                      blocked_at, blocked_by, first_added_by_user_id,
-                     tvdb_id, raw_meta_json, catalog_type, videos_json)
+                     tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded)
                 VALUES
                     (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                      @source, @source_list_id, @seasons_json, @strm_path,
@@ -125,7 +125,7 @@ namespace InfiniteDrive.Data
                      @local_path, @local_source, @item_state, @pin_source, @pinned_at,
                      @nfo_status, @retry_count, @next_retry_at,
                      @blocked_at, @blocked_by, @first_added_by_user_id,
-                     @tvdb_id, @raw_meta_json, @catalog_type, @videos_json)
+                     @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded)
                 ON CONFLICT(imdb_id, source) DO UPDATE SET
                     tmdb_id       = excluded.tmdb_id,
                     unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -149,7 +149,8 @@ namespace InfiniteDrive.Data
                     tvdb_id        = COALESCE(catalog_items.tvdb_id,       excluded.tvdb_id),
                     catalog_type   = COALESCE(catalog_items.catalog_type,  excluded.catalog_type),
                     raw_meta_json  = excluded.raw_meta_json,
-                    videos_json    = COALESCE(excluded.videos_json, catalog_items.videos_json);";
+                    videos_json    = COALESCE(excluded.videos_json, catalog_items.videos_json),
+                    episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded);";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -193,6 +194,7 @@ namespace InfiniteDrive.Data
                 BindNullableText(cmd, "@raw_meta_json", item.RawMetaJson);
                 BindNullableText(cmd, "@catalog_type", item.CatalogType);
                 BindNullableText(cmd, "@videos_json", item.VideosJson);
+                BindNullableInt(cmd, "@episodes_expanded", item.EpisodesExpanded.HasValue ? (item.EpisodesExpanded.Value ? 1 : 0) : null);
             });
         }
 
@@ -231,7 +233,7 @@ namespace InfiniteDrive.Data
                        item_state, pin_source, pinned_at, nfo_status,
                        retry_count, next_retry_at,
                        blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json
+                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
                 FROM catalog_items
                 WHERE removed_at IS NULL
                   AND blocked_at IS NULL;";
@@ -252,7 +254,7 @@ namespace InfiniteDrive.Data
                        item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
                        retry_count, next_retry_at,
                        blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json
+                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
                 FROM catalog_items
                 WHERE imdb_id = @imdb_id AND removed_at IS NULL
                 LIMIT 1;";
@@ -278,7 +280,7 @@ namespace InfiniteDrive.Data
                        local_path, local_source, resurrection_count,
                        item_state, pin_source, pinned_at,
                        nfo_status, retry_count, next_retry_at,
-                       blocked_at, blocked_by
+                       blocked_at, blocked_by, episodes_expanded
                 FROM catalog_items
                 WHERE item_state = @state AND removed_at IS NULL
                 LIMIT @limit;";
@@ -354,7 +356,7 @@ namespace InfiniteDrive.Data
                 SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
                        source, source_list_id, seasons_json, strm_path,
                        added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count
+                       local_path, local_source, resurrection_count, episodes_expanded
                 FROM catalog_items
                 WHERE imdb_id = @imdb_id AND removed_at IS NULL
                 LIMIT 1;";
@@ -375,7 +377,7 @@ namespace InfiniteDrive.Data
                 SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
                        source, source_list_id, seasons_json, strm_path,
                        added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count
+                       local_path, local_source, resurrection_count, episodes_expanded
                 FROM catalog_items
                 WHERE source = @source AND removed_at IS NULL;";
 
@@ -3524,6 +3526,16 @@ CREATE INDEX IF NOT EXISTS idx_user_saves_item ON user_item_saves(media_item_id)
                 _logger.LogInformation("[InfiniteDrive] Schema V28 migration complete");
                 version = 28;
             }
+
+            if (version < 29)
+            {
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V29", version);
+                if (!ColumnExists(conn, "catalog_items", "episodes_expanded"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN episodes_expanded INTEGER;");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (29);");
+                _logger.LogInformation("[InfiniteDrive] Schema V29 migration complete");
+                version = 29;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -4396,6 +4408,8 @@ LIMIT 1";
             RawMetaJson      = r.IsDBNull(29) ? null : r.GetString(29),
             CatalogType      = r.IsDBNull(30) ? null : r.GetString(30),
             VideosJson       = r.IsDBNull(31) ? null : r.GetString(31),
+            // Sprint 301: Episode expansion tracking
+            EpisodesExpanded = r.IsDBNull(32) ? (bool?)null : r.GetInt(32) == 1,
         };
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry
