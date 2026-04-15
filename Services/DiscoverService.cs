@@ -1061,10 +1061,10 @@ namespace InfiniteDrive.Services
                     };
                     var resolved = await StreamResolutionHelper.SyncResolveViaProvidersAsync(
                         playReq, config, db, _logger, Plugin.Instance?.ResolverHealthTracker, CancellationToken.None);
-                    if (resolved != null)
+                    if (resolved.Status == ResolutionStatus.Success && resolved.Entry != null)
                     {
                         candidates = await db.GetStreamCandidatesAsync(req.ImdbId, req.Season, req.Episode);
-                        cached = resolved;
+                        cached = resolved.Entry;
                     }
                 }
 

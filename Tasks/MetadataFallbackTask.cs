@@ -169,9 +169,38 @@ namespace InfiniteDrive.Tasks
 
                     // Sprint 101A-02: Use typed metadata deserialization
                     var typedMeta = meta.Value.ToAioMetaResponse();
-                    var written = typedMeta != null
-                        ? WriteFullNfoTyped(nfoPath, item, typedMeta)
-                        : WriteFullNfo(nfoPath, item, meta.Value);
+                    AioMeta? aioMeta = typedMeta?.GetMetadata();
+
+                    // Fallback: construct AioMeta from raw JSON if typed deserialization failed
+                    if (aioMeta == null)
+                    {
+                        var metaObj = meta.Value.ValueKind == JsonValueKind.Object
+                            && meta.Value.TryGetProperty("meta", out var inner)
+                            ? inner : meta.Value;
+                        aioMeta = new AioMeta
+                        {
+                            Name = GetString(metaObj, "name") ?? item.Title,
+                            Year = GetInt(metaObj, "year") ?? item.Year,
+                            Description = GetString(metaObj, "description"),
+                            Poster = GetString(metaObj, "poster"),
+                            Background = GetString(metaObj, "background"),
+                            ImdbRating = GetString(metaObj, "imdbRating"),
+                            Runtime = GetString(metaObj, "runtime"),
+                            TmdbId = GetString(metaObj, "tmdbId") ?? item.TmdbId,
+                            Genres = GetStringArray(metaObj, "genres").ToList(),
+                            Cast = GetStringArray(metaObj, "cast").Take(10).ToList(),
+                            Director = GetString(metaObj, "director"),
+                            OriginalTitle = GetString(metaObj, "originalTitle"),
+                        };
+                    }
+
+                    var written = false;
+                    try
+                    {
+                        NfoWriterService.WriteEnrichedNfo(nfoPath, item, aioMeta);
+                        written = true;
+                    }
+                    catch { /* NfoWriterService handles errors internally */ }
 
                     if (written)
                     {
@@ -253,170 +282,6 @@ namespace InfiniteDrive.Tasks
         }
 
         /// <summary>
-        /// Writes a full Kodi-format .nfo file from the Cinemeta meta response.
-        /// Always overwrites — MetadataFallbackTask is authoritative for enriched nfos.
-        /// </summary>
-        /// <returns><c>true</c> if the file was written successfully.</returns>
-        private static bool WriteFullNfo(string nfoPath, CatalogItem item, JsonElement meta)
-        {
-            try
-            {
-                // The Cinemeta response wraps everything in a "meta" object.
-                var metaObj = meta.ValueKind == JsonValueKind.Object
-                    && meta.TryGetProperty("meta", out var inner)
-                    ? inner
-                    : meta;
-
-                var title       = GetString(metaObj, "name") ?? item.Title;
-                var year        = GetInt(metaObj, "year") ?? item.Year;
-                var description = GetString(metaObj, "description");
-                var poster      = GetString(metaObj, "poster");
-                var background  = GetString(metaObj, "background");
-                var rating      = GetString(metaObj, "imdbRating");
-                var runtime     = GetString(metaObj, "runtime");
-                var tmdbId      = GetString(metaObj, "tmdbId") ?? item.TmdbId;
-                var genres      = GetStringArray(metaObj, "genres");
-                var cast        = GetStringArray(metaObj, "cast").Take(10).ToList();
-                var director    = GetString(metaObj, "director");
-
-                var isMovie = item.MediaType == "movie";
-                var root = isMovie ? "movie" : "tvshow";
-
-                var sb = new StringBuilder();
-                sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-                sb.AppendLine($"<{root}>");
-                sb.AppendLine($"  <title>{XmlEscape(title)}</title>");
-                if (year.HasValue)
-                    sb.AppendLine($"  <year>{year.Value}</year>");
-
-                // ── FIX-101A-04: OriginalTitle and SortTitle ─────────────────────
-                // Add originaltitle and sorttitle for anime items
-                if (item.MediaType == "anime" || !isMovie)
-                {
-                    // Try to get originaltitle from metadata
-                    var originalTitle = GetString(metaObj, "originalTitle") ?? title;
-                    if (!string.IsNullOrEmpty(originalTitle))
-                        sb.AppendLine($"  <originaltitle>{XmlEscape(originalTitle)}</originaltitle>");
-
-                    // Generate sorttitle by stripping articles
-                    var sortTitle = BuildSortTitle(title);
-                    if (!string.IsNullOrEmpty(sortTitle))
-                        sb.AppendLine($"  <sorttitle>{XmlEscape(sortTitle)}</sorttitle>");
-                }
-
-                if (!string.IsNullOrEmpty(description))
-                    sb.AppendLine($"  <plot>{XmlEscape(description)}</plot>");
-                sb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{item.ImdbId}</uniqueid>");
-                if (!string.IsNullOrEmpty(tmdbId))
-                    sb.AppendLine($"  <uniqueid type=\"tmdb\">{tmdbId}</uniqueid>");
-                if (!string.IsNullOrEmpty(rating))
-                    sb.AppendLine($"  <rating>{XmlEscape(rating)}</rating>");
-                if (!string.IsNullOrEmpty(runtime))
-                    sb.AppendLine($"  <runtime>{XmlEscape(runtime)}</runtime>");
-                foreach (var genre in genres)
-                    sb.AppendLine($"  <genre>{XmlEscape(genre)}</genre>");
-                if (!string.IsNullOrEmpty(poster))
-                    sb.AppendLine($"  <thumb aspect=\"poster\">{XmlEscape(poster)}</thumb>");
-                if (!string.IsNullOrEmpty(background))
-                    sb.AppendLine($"  <fanart><thumb>{XmlEscape(background)}</thumb></fanart>");
-                if (!string.IsNullOrEmpty(director))
-                    sb.AppendLine($"  <director>{XmlEscape(director)}</director>");
-                foreach (var actor in cast)
-                    sb.AppendLine($"  <actor><name>{XmlEscape(actor)}</name></actor>");
-                sb.AppendLine($"</{root}>");
-
-                Directory.CreateDirectory(Path.GetDirectoryName(nfoPath)!);
-                File.WriteAllText(nfoPath, sb.ToString(), Encoding.UTF8);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Writes a full Kodi-format .nfo file using typed AioMetaResponse.
-        /// Sprint 101A-02: AIOMetadata deserialization.
-        /// Always overwrites — MetadataFallbackTask is authoritative for enriched nfos.
-        /// </summary>
-        /// <returns><c>true</c> if the file was written successfully.</returns>
-        private static bool WriteFullNfoTyped(string nfoPath, CatalogItem item, AioMetaResponse metaResponse)
-        {
-            try
-            {
-                var meta = metaResponse.GetMetadata();
-                if (meta == null) return false;
-
-                var title = meta.Name ?? item.Title;
-                var year = meta.Year ?? item.Year;
-                var description = meta.Description;
-                var poster = meta.Poster;
-                var background = meta.Background;
-                var rating = meta.ImdbRating;
-                var runtime = meta.Runtime;
-                var tmdbId = meta.TmdbId ?? item.TmdbId;
-                var genres = meta.Genres ?? new List<string>();
-                var cast = meta.Cast?.Take(10).ToList() ?? new List<string>();
-                var director = meta.Director;
-
-                var isMovie = item.MediaType == "movie";
-                var root = isMovie ? "movie" : "tvshow";
-
-                var sb = new StringBuilder();
-                sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-                sb.AppendLine($"<{root}>");
-                sb.AppendLine($"  <title>{XmlEscape(title)}</title>");
-                if (year.HasValue)
-                    sb.AppendLine($"  <year>{year.Value}</year>");
-
-                // ── FIX-101A-04: OriginalTitle and SortTitle ─────────────────────
-                // Add originaltitle and sorttitle for anime items
-                if (item.MediaType == "anime" || !isMovie)
-                {
-                    // Use OriginalTitle from metadata or fall back to title
-                    var originalTitle = meta.OriginalTitle ?? title;
-                    if (!string.IsNullOrEmpty(originalTitle))
-                        sb.AppendLine($"  <originaltitle>{XmlEscape(originalTitle)}</originaltitle>");
-
-                    // Generate sorttitle by stripping articles
-                    var sortTitle = BuildSortTitle(title);
-                    if (!string.IsNullOrEmpty(sortTitle))
-                        sb.AppendLine($"  <sorttitle>{XmlEscape(sortTitle)}</sorttitle>");
-                }
-
-                if (!string.IsNullOrEmpty(description))
-                    sb.AppendLine($"  <plot>{XmlEscape(description)}</plot>");
-                sb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{item.ImdbId}</uniqueid>");
-                if (!string.IsNullOrEmpty(tmdbId))
-                    sb.AppendLine($"  <uniqueid type=\"tmdb\">{tmdbId}</uniqueid>");
-                if (!string.IsNullOrEmpty(rating))
-                    sb.AppendLine($"  <rating>{XmlEscape(rating)}</rating>");
-                if (!string.IsNullOrEmpty(runtime))
-                    sb.AppendLine($"  <runtime>{XmlEscape(runtime)}</runtime>");
-                foreach (var genre in genres)
-                    sb.AppendLine($"  <genre>{XmlEscape(genre)}</genre>");
-                if (!string.IsNullOrEmpty(poster))
-                    sb.AppendLine($"  <thumb aspect=\"poster\">{XmlEscape(poster)}</thumb>");
-                if (!string.IsNullOrEmpty(background))
-                    sb.AppendLine($"  <fanart><thumb>{XmlEscape(background)}</thumb></fanart>");
-                if (!string.IsNullOrEmpty(director))
-                    sb.AppendLine($"  <director>{XmlEscape(director)}</director>");
-                foreach (var actor in cast)
-                    sb.AppendLine($"  <actor><name>{XmlEscape(actor)}</name></actor>");
-                sb.AppendLine($"</{root}>");
-
-                Directory.CreateDirectory(Path.GetDirectoryName(nfoPath)!);
-                File.WriteAllText(nfoPath, sb.ToString(), Encoding.UTF8);
-                return true;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
         /// Asks Emby to refresh the library folder containing the .nfo so the
         /// enriched metadata is picked up without a full scan.
         /// </summary>
@@ -474,35 +339,5 @@ namespace InfiniteDrive.Tasks
                     list.Add(el.GetString() ?? string.Empty);
             return list;
         }
-
-        /// <summary>
-        /// Builds a sort title by stripping leading articles (The, A, An).
-        /// Sprint 101A-04: OriginalTitle and SortTitle in all NFO paths.
-        /// </summary>
-        private static string? BuildSortTitle(string? title)
-        {
-            if (string.IsNullOrEmpty(title)) return null;
-
-            var trimmed = title.Trim();
-
-            // Strip leading articles
-            var articles = new[] { "The ", "A ", "An " };
-            foreach (var article in articles)
-            {
-                if (trimmed.StartsWith(article, StringComparison.OrdinalIgnoreCase))
-                {
-                    return trimmed.Substring(article.Length).Trim();
-                }
-            }
-
-            return trimmed;
-        }
-
-        private static string XmlEscape(string s)
-            => s.Replace("&", "&amp;")
-                .Replace("<", "&lt;")
-                .Replace(">", "&gt;")
-                .Replace("\"", "&quot;")
-                .Replace("'", "&apos;");
     }
 }

@@ -115,9 +115,9 @@ namespace InfiniteDrive.Services
 
             var metadata = TierMetadata.GetValueOrDefault(quality, TierMetadata["sd_broad"]);
 
-            // Sort variants by source priority
+            // Sort variants by bandwidth descending (HLS spec: highest quality first)
             var sortedVariants = variants
-                .OrderBy(v => v.SourceName)
+                .OrderByDescending(v => v.Bandwidth)
                 .ThenBy(v => v.DisplayName)
                 .ToList();
 

@@ -279,32 +279,21 @@ namespace InfiniteDrive.Services
         {
             var tierChain = new[] { "4k_hdr", "4k_sdr", "hd_broad", "sd_broad" };
             var requestedIndex = Array.IndexOf(tierChain, requestedTier);
+            if (requestedIndex < 0) requestedIndex = 0;
 
-            // Try requested tier first
+            // Ceiling behavior: include all tiers from requested ceiling down
             var filtered = streams
-                .Where(s => M3u8Builder.MapStreamToTier(s) == requestedTier)
+                .Where(s =>
+                {
+                    var streamTier = M3u8Builder.MapStreamToTier(s);
+                    var streamIndex = Array.IndexOf(tierChain, streamTier);
+                    return streamIndex >= requestedIndex;
+                })
                 .ToList();
 
             if (filtered.Count > 0)
             {
                 return (filtered, false);
-            }
-
-            // Fallback down the chain
-            for (int i = requestedIndex + 1; i < tierChain.Length; i++)
-            {
-                var fallbackTier = tierChain[i];
-                var tierStreams = streams
-                    .Where(s => M3u8Builder.MapStreamToTier(s) == fallbackTier)
-                    .ToList();
-
-                if (tierStreams.Count > 0)
-                {
-                    var tierMeta = M3u8Builder.TierMetadata.GetValueOrDefault(fallbackTier);
-                    _logger.LogInformation("[InfiniteDrive][Resolve] Quality fallback for {MediaId}: {Requested} → {Actual} ({DisplayName})",
-                        mediaId, requestedTier, fallbackTier, tierMeta?.DisplayName ?? fallbackTier);
-                    return (tierStreams, true);
-                }
             }
 
             // Final fallback: return all streams (best effort)
@@ -317,15 +306,15 @@ namespace InfiniteDrive.Services
         /// </summary>
         private List<AioStreamsStream> SelectTopStreams(List<AioStreamsStream> streams)
         {
-            // Group by source (addon)
-            var grouped = streams
-                .GroupBy(s => M3u8Builder.GetSourceName(s))
-                .Select(g => g.OrderByDescending(s => s.ParsedFile?.Resolution ?? string.Empty).FirstOrDefault())
-                .Where(s => s != null)
-                .Cast<AioStreamsStream>()
+            // Group by tier, take top 3 per tier sorted by resolution descending
+            var selected = streams
+                .GroupBy(s => M3u8Builder.MapStreamToTier(s))
+                .SelectMany(g => g
+                    .OrderByDescending(s => s.ParsedFile?.Resolution ?? string.Empty)
+                    .Take(3))
                 .ToList();
 
-            return grouped;
+            return selected;
         }
 
         /// <summary>

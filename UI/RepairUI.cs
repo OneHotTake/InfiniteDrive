@@ -130,7 +130,7 @@ namespace InfiniteDrive.UI
             ManifestStatus = new StatusItem
             {
                 Caption = "Manifest",
-                StatusText = Plugin.GetManifestStatus()
+                StatusText = Plugin.GetManifestStatus().ToString()
             };
         }
 

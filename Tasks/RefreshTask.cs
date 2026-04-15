@@ -35,11 +35,6 @@ namespace InfiniteDrive.Tasks
         // Batch cap read from CooldownProfile.EnrichmentPerRun (Sprint 155)
         private int NotifyLimit => Plugin.Instance?.CooldownGate?.Profile.EnrichmentPerRun ?? 42;
 
-        // Sentinel unix timestamp used when an item should never be retried automatically.
-        // Year 2100 is effectively "never" — reviewed only if an admin manually unblocks.
-        private static readonly long NeverRetryUnixSeconds =
-            new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeSeconds();
-
         // ── Fields ───────────────────────────────────────────────────────────────
 
         private readonly ILogger<RefreshTask>           _logger;
@@ -430,7 +425,7 @@ namespace InfiniteDrive.Tasks
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Build folder name and base path (shared by series expansion and movie write)
-                var folderName = BuildFolderName(item);
+                var folderName = NamingPolicyService.BuildFolderName(item);
                 var basePath = GetLibraryPath(config, item.MediaType);
 
                 // ── Series/anime: expand to per-episode .strm files ────────────
@@ -570,7 +565,7 @@ namespace InfiniteDrive.Tasks
                     continue;
                 }
 
-                var folderName = BuildFolderName(item);
+                var folderName = NamingPolicyService.BuildFolderName(item);
                 var folderPath = item.StrmPath ?? folderName;
                 var baseName = Path.GetFileNameWithoutExtension(folderName);
 
@@ -605,29 +600,9 @@ namespace InfiniteDrive.Tasks
                     var rootElement = item.MediaType == "movie" ? "movie" : "tvshow";
                     var fileName = (_materializer ?? throw new InvalidOperationException("Materializer not initialized")).GetFileName(baseName, slot, defaultSlot, ".nfo");
                     var fullPath = Path.Combine(folderPath, fileName);
-                    var tmpPath = fullPath + ".tmp";
 
-                    try
-                    {
-                        var nfoSb = new StringBuilder();
-                        nfoSb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-                        nfoSb.AppendLine($"<{rootElement} lockdata=\"false\">");
-                        nfoSb.AppendLine($"  <uniqueid type=\"{uniqueidType}\" default=\"true\">");
-                        nfoSb.AppendLine($"    {uniqueidValue}");
-                        nfoSb.AppendLine("  </uniqueid>");
-                        nfoSb.AppendLine($"</{rootElement}>");
-
-                        await File.WriteAllTextAsync(tmpPath, nfoSb.ToString(), new UTF8Encoding(false));
-                        File.Move(tmpPath, fullPath, overwrite: true);
-                        _logger.LogDebug("[InfiniteDrive] Wrote Identity Hint .nfo: {Path}", fullPath);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .nfo: {Path}", fullPath);
-                        if (File.Exists(tmpPath))
-                            File.Delete(tmpPath);
-                        continue;
-                    }
+                    NfoWriterService.WriteIdentityHintNfo(fullPath, uniqueidType, uniqueidValue, rootElement);
+                    _logger.LogDebug("[InfiniteDrive] Wrote Identity Hint .nfo: {Path}", fullPath);
                 }
 
                 // Update NFO status
@@ -647,7 +622,7 @@ namespace InfiniteDrive.Tasks
         /// </summary>
         private async Task<int> EnrichStepAsync(DateTime runStartedAt, CancellationToken cancellationToken)
         {
-            var enriched = 0;
+            var db = Plugin.Instance!.DatabaseManager;
 
             // Query no-ID items from this run only (added_at >= runStartedAt AND nfo_status = 'NeedsEnrich')
             var noIdItemsQuery = @"
@@ -660,7 +635,7 @@ namespace InfiniteDrive.Tasks
                 ORDER BY added_at ASC
                 LIMIT 10;";
 
-            var noIdItems = await Plugin.Instance!.DatabaseManager.QueryListAsync<CatalogItem>(
+            var noIdItems = await db.QueryListAsync<CatalogItem>(
                 noIdItemsQuery,
                 cmd => cmd.BindParameters["@runStartedAt"].Bind(runStartedAt.ToString("o")),
                 row => new CatalogItem
@@ -698,150 +673,28 @@ namespace InfiniteDrive.Tasks
             var aioClient = new AioMetadataClient(Plugin.Instance!.Configuration, _logger);
             aioClient.Cooldown = Plugin.Instance?.CooldownGate;
 
-            // Process each item
-            foreach (var item in noIdItems)
+            // Map CatalogItems to EnrichmentRequests (passing CatalogItem for direct NFO write)
+            var requests = noIdItems.Select(ci => new EnrichmentRequest
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                Id = ci.Id,
+                ImdbId = ci.ImdbId,
+                Title = ci.Title,
+                Year = ci.Year,
+                RetryCount = ci.RetryCount,
+                NextRetryAt = ci.NextRetryAt,
+                CatalogItem = ci
+            }).ToList();
 
-                try
-                {
-                    // Fetch metadata from AIOMetadata (title-based search for no-ID items)
-                    var metadata = await aioClient.FetchByTitleAsync(item.Title, item.Year, cancellationToken);
-                    if (metadata != null)
-                    {
-                        // Success: write enriched NFO
-                        await WriteEnrichedNfoAsync(item, metadata, cancellationToken);
+            var result = await MetadataEnrichmentService.EnrichBatchAsync(
+                requests,
+                (req, ct) => aioClient.FetchByTitleAsync(req.Title, req.Year, ct),
+                db, _logger, cancellationToken);
 
-                        // Update status
-                        item.NfoStatus = "Enriched";
-                        item.RetryCount = 0;
-                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+            _logger.LogInformation(
+                "[InfiniteDrive] RefreshTask: Enriched {Enriched} no-ID items ({Blocked} blocked, {Skipped} skipped)",
+                result.EnrichedCount, result.BlockedCount, result.SkippedCount);
 
-                        enriched++;
-                        _logger.LogDebug("[InfiniteDrive] RefreshTask: Enriched {Title} ({Year})", item.Title, item.Year);
-                    }
-                    else
-                    {
-                        // Failure: increment retry_count, set backoff
-                        item.RetryCount++;
-                        var nextRetrySeconds = item.RetryCount switch
-                        {
-                            1 => DateTimeOffset.UtcNow.AddHours(4).ToUnixTimeSeconds(),
-                            2 => DateTimeOffset.UtcNow.AddHours(24).ToUnixTimeSeconds(),
-                            _ => NeverRetryUnixSeconds // Blocked — admin must manually unblock
-                        };
-
-                        item.NextRetryAt = nextRetrySeconds;
-                        item.NfoStatus = item.RetryCount >= 3 ? "Blocked" : "NeedsEnrich";
-                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-
-                        _logger.LogDebug("[InfiniteDrive] RefreshTask: Enrich failed for {Title} ({Year}), retry {Count}", item.Title, item.Year, item.RetryCount);
-                    }
-
-                    // Throttle: 2 seconds between calls
-                    await Task.Delay(2000, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    // Propagate cancellation — do not swallow
-                    throw;
-                }
-                catch (System.Net.Http.HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))
-                {
-                    // Rate-limited — stop enrichment loop for this run, retry next cycle
-                    _logger.LogWarning("[InfiniteDrive] RefreshTask: Enrich rate-limited (429). Stopping enrichment for this cycle.");
-                    break;
-                }
-                catch (IOException ex)
-                {
-                    // Disk I/O failure writing NFO — stop enrichment, likely a persistent problem
-                    _logger.LogError(ex, "[InfiniteDrive] RefreshTask: Enrich I/O failure for {Title} ({Year}). Stopping enrichment.", item.Title, item.Year);
-                    break;
-                }
-                catch (System.Text.Json.JsonException ex)
-                {
-                    // Bad metadata response — skip this item and continue
-                    _logger.LogWarning(ex, "[InfiniteDrive] RefreshTask: Enrich bad metadata for {Title} ({Year}), skipping.", item.Title, item.Year);
-                }
-                catch (Exception ex)
-                {
-                    // Unknown transient error — log and continue to next item
-                    _logger.LogWarning(ex, "[InfiniteDrive] RefreshTask: Enrich failed for {Title} ({Year})", item.Title, item.Year);
-                }
-            }
-
-            _logger.LogInformation("[InfiniteDrive] RefreshTask: Enriched {Count} no-ID items", enriched);
-            return enriched;
-        }
-
-        private async Task<int> WriteEnrichedNfoAsync(CatalogItem item, AioMetadataClient.EnrichedMetadata meta, CancellationToken cancellationToken)
-        {
-            if (string.IsNullOrEmpty(item.StrmPath))
-                return 0;
-
-            var folderPath = item.StrmPath!;
-            var isSeries = item.MediaType == "series" || item.MediaType == "anime";
-            var rootElement = isSeries ? "tvshow" : "movie";
-
-            var nfoSb = new StringBuilder();
-            nfoSb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            nfoSb.AppendLine($"<{rootElement}>");
-
-            nfoSb.AppendLine($"  <title>{SecurityElement.Escape(meta.Name)}</title>");
-
-            if (meta.Year.HasValue)
-                nfoSb.AppendLine($"  <year>{meta.Year.Value}</year>");
-
-            if (!string.IsNullOrEmpty(meta.Description))
-                nfoSb.AppendLine($"  <plot>{SecurityElement.Escape(meta.Description)}</plot>");
-
-            // Write uniqueid - prefer IMDB, fall back to TMDB
-            if (!string.IsNullOrEmpty(meta.ImdbId))
-                nfoSb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{SecurityElement.Escape(meta.ImdbId)}</uniqueid>");
-            else if (!string.IsNullOrEmpty(meta.TmdbId))
-                nfoSb.AppendLine($"  <uniqueid type=\"tmdb\" default=\"true\">{SecurityElement.Escape(meta.TmdbId)}</uniqueid>");
-
-            // Write genres
-            if (meta.Genres != null && meta.Genres.Count > 0)
-            {
-                foreach (var genre in meta.Genres)
-                nfoSb.AppendLine($"  <genre>{SecurityElement.Escape(genre)}</genre>");
-            }
-
-            nfoSb.AppendLine($"</{rootElement}>");
-
-            // Write .nfo for each version slot
-            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
-            if (!slots.Any())
-                return 0;
-
-            var baseName = item.Title;
-
-            foreach (var slot in slots)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var fileName = $"{baseName}{(slot.IsDefault ? "" : $"_{slot.SlotKey}")}.nfo";
-                var fullPath = Path.Combine(folderPath, fileName);
-                var tmpPath = fullPath + ".tmp";
-
-                try
-                {
-                    await File.WriteAllTextAsync(tmpPath, nfoSb.ToString(), new UTF8Encoding(false));
-                    File.Move(tmpPath, fullPath, overwrite: true);
-                    _logger.LogDebug("[InfiniteDrive] Wrote enriched .nfo: {Path}", fullPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to write enriched .nfo: {Path}", fullPath);
-                    if (File.Exists(tmpPath))
-                        File.Delete(tmpPath);
-                }
-            }
-
-            return slots.Count;
+            return result.EnrichedCount;
         }
 
         private async Task<int> NotifyStepAsync(CancellationToken cancellationToken)
@@ -1116,14 +969,6 @@ namespace InfiniteDrive.Tasks
             var provider = new StremioMetadataProvider(stremioBase, _logger);
             _expansionService = new SeriesPreExpansionService(_libraryManager, _logger, provider);
             return _expansionService;
-        }
-
-        private static string BuildFolderName(CatalogItem item)
-        {
-            if (!string.IsNullOrEmpty(item.TmdbId))
-                return $"{item.Title} ({item.Year}) [tmdbid={item.TmdbId}]";
-            else
-                return $"{item.Title} ({item.Year}) [imdbid-{item.ImdbId}]";
         }
 
         private static string GetLibraryPath(PluginConfiguration config, string mediaType)

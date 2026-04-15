@@ -131,14 +131,14 @@ namespace InfiniteDrive.Services
                     }
 
                     // Build base path: {syncPath}/{FolderName}
-                    var folderName = Services.StrmWriterService.SanitisePathPublic(
+                    var folderName = Services.NamingPolicyService.SanitisePath(
                         $"{item.Title ?? "Unknown"} ({item.Year})");
 
                     if (!string.IsNullOrEmpty(item.ImdbId) && item.ImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
                         folderName += $" [imdbid-{item.ImdbId}]";
 
                     var basePath = Path.Combine(syncPath, folderName);
-                    var baseName = Services.StrmWriterService.SanitisePathPublic(
+                    var baseName = Services.NamingPolicyService.SanitisePath(
                         item.Title ?? "Unknown");
 
                     // Build .strm URL with resolve token

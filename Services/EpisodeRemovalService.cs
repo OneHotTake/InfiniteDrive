@@ -50,7 +50,7 @@ namespace InfiniteDrive.Services
                 return Task.FromResult(0);
             }
 
-            var sanitisedTitle = StrmWriterService.SanitisePathPublic(series.Title);
+            var sanitisedTitle = NamingPolicyService.SanitisePath(series.Title);
             var episodes = removedEpisodes.Select(e => (e.Season, e.Episode)).ToList();
 
             // Count files before delete for reporting
