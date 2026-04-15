@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -171,15 +172,49 @@ namespace InfiniteDrive.Services
                 };
             }
 
-            // 5. Binary streaming (redirect to CDN)
-            _logger.LogInformation("[InfiniteDrive][Stream] Redirecting to CDN: " + upstreamUrl);
-            Request.Response.Redirect(upstreamUrl);
-            return new
+            // 5. Binary streaming — proxy through server to hide client IP from debrid providers
+            _logger.LogInformation("[InfiniteDrive][Stream] Proxying binary stream: " + upstreamUrl);
+            try
             {
-                ContentType = "application/vnd.apple.mpegurl",
-                Content = Array.Empty<byte>(),
-                StatusCode = 302
-            };
+                var httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+
+                // Forward Range header for seeking support
+                var rangeHeader = Request.Headers["Range"];
+                if (!string.IsNullOrEmpty(rangeHeader))
+                    httpClient.DefaultRequestHeaders.Add("Range", rangeHeader);
+
+                var upstreamResp = await httpClient.GetAsync(upstreamUrl, HttpCompletionOption.ResponseHeadersRead);
+
+                if (!upstreamResp.IsSuccessStatusCode)
+                {
+                    _logger.LogWarning("[Stream] Upstream returned {Status} for {Url}", (int)upstreamResp.StatusCode, upstreamUrl);
+                    upstreamResp.Dispose();
+                    httpClient.Dispose();
+                    return Error(502, "upstream_error", $"Upstream returned {(int)upstreamResp.StatusCode}");
+                }
+
+                var contentType = upstreamResp.Content.Headers.ContentType?.MediaType ?? "video/mp4";
+                var contentLength = upstreamResp.Content.Headers.ContentLength;
+
+                Request.Response.ContentType = contentType;
+                Request.Response.StatusCode = (int)upstreamResp.StatusCode;
+
+                if (contentLength.HasValue)
+                    Request.Response.AddHeader("Content-Length", contentLength.Value.ToString());
+
+                if (upstreamResp.Content.Headers.ContentRange != null)
+                    Request.Response.AddHeader("Content-Range", upstreamResp.Content.Headers.ContentRange.ToString());
+
+                var upstreamStream = await upstreamResp.Content.ReadAsStreamAsync();
+
+                // Wrap stream so HttpClient/HttpResponseMessage are disposed after streaming completes
+                return new ProxyStream(httpClient, upstreamResp, upstreamStream);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Stream] Binary proxy failed for {Url}", upstreamUrl);
+                return Error(502, "upstream_unavailable", "Stream temporarily unavailable - try again");
+            }
         }
 
         // ── HLS manifest rewriting ───────────────────────────────────────
@@ -277,6 +312,52 @@ namespace InfiniteDrive.Services
                 ErrorCode = errorCode,
                 ErrorMessage = message
             };
+        }
+
+        /// <summary>
+        /// Wrapper stream that owns the HttpClient and HttpResponseMessage.
+        /// Ensures they are disposed after the framework finishes reading the stream.
+        /// </summary>
+        private sealed class ProxyStream : Stream
+        {
+            private readonly HttpClient _client;
+            private readonly HttpResponseMessage _response;
+            private readonly Stream _inner;
+            private bool _disposed;
+
+            public ProxyStream(HttpClient client, HttpResponseMessage response, Stream inner)
+            {
+                _client = client;
+                _response = response;
+                _inner = inner;
+            }
+
+            public override bool CanRead => !_disposed && _inner.CanRead;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => _inner.Length;
+            public override long Position { get => _inner.Position; set => throw new NotSupportedException(); }
+
+            public override void Flush() => _inner.Flush();
+
+            public override int Read(byte[] buffer, int offset, int count)
+                => _inner.Read(buffer, offset, count);
+
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                if (!_disposed)
+                {
+                    _disposed = true;
+                    try { _inner.Dispose(); } catch { }
+                    try { _response.Dispose(); } catch { }
+                    try { _client.Dispose(); } catch { }
+                }
+                base.Dispose(disposing);
+            }
         }
     }
 }
