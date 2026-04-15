@@ -1,4 +1,4 @@
-# InfiniteDrive
+# Emby Infinite(Infinity)Drive
 
 🚀 **DON'T PANIC**
 
