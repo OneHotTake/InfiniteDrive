@@ -39,46 +39,6 @@ namespace InfiniteDrive.Services
         public int? Episode { get; set; }
     }
 
-    /// <summary>
-    /// Request object for getting direct stream URLs (no proxy tokens).
-    /// </summary>
-    [Route("/InfiniteDrive/Discover/DirectStreamUrl", "GET",
-        Summary = "Get direct CDN URL for streaming (no tokens)")]
-    public class DiscoverDirectStreamRequest : IReturn<DiscoverDirectStreamResponse>
-    {
-        /// <summary>IMDb ID of the item to resolve (required).</summary>
-        [ApiMember(Name = "imdb", Description = "IMDb ID (e.g., tt0133093)", DataType = "string", ParameterType = "query")]
-        public string ImdbId { get; set; } = "";
-
-        /// <summary>Season number (for TV series).</summary>
-        [ApiMember(Name = "season", Description = "Season number", DataType = "int", ParameterType = "query")]
-        public int? Season { get; set; }
-
-        /// <summary>Episode number (for TV series).</summary>
-        [ApiMember(Name = "episode", Description = "Episode number", DataType = "int", ParameterType = "query")]
-        public int? Episode { get; set; }
-    }
-
-    /// <summary>
-    /// Response from <c>GET /InfiniteDrive/Discover/DirectStreamUrl</c>.
-    /// </summary>
-    public class DiscoverDirectStreamResponse
-    {
-        /// <summary>Whether stream resolution was successful.</summary>
-        public bool Success { get; set; }
-
-        /// <summary>Error message if resolution failed.</summary>
-        public string? Error { get; set; }
-
-        /// <summary>Direct CDN URL for streaming.</summary>
-        public string? StreamUrl { get; set; }
-
-        /// <summary>Quality tier of the stream.</summary>
-        public string? QualityTier { get; set; }
-
-        /// <summary>Emby web URL for the item (for reference).</summary>
-        public string? EmbyUrl { get; set; }
-    }
 
     /// <summary>
     /// Response from <c>GET /InfiniteDrive/Discover/TestStreamResolution</c>.
@@ -1100,7 +1060,7 @@ namespace InfiniteDrive.Services
                         Episode = req.Episode
                     };
                     var resolved = await StreamResolutionHelper.SyncResolveViaProvidersAsync(
-                        playReq, config, db, _logger, CancellationToken.None);
+                        playReq, config, db, _logger, Plugin.Instance?.ResolverHealthTracker, CancellationToken.None);
                     if (resolved != null)
                     {
                         candidates = await db.GetStreamCandidatesAsync(req.ImdbId, req.Season, req.Episode);
@@ -1142,90 +1102,6 @@ namespace InfiniteDrive.Services
                     Error = "An internal error occurred. Check server logs.",
                     ProxyToken = null,
                     StreamUrl = null
-                };
-            }
-        }
-
-        /// <summary>
-        /// Handles <c>GET /InfiniteDrive/Discover/DirectStreamUrl</c>.
-        /// Returns a direct CDN URL without proxy tokens for Emby to play.
-        /// </summary>
-        public async Task<object> Get(DiscoverDirectStreamRequest req)
-        {
-            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
-            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
-            if (deny != null) return deny;
-
-            try
-            {
-                if (string.IsNullOrWhiteSpace(req.ImdbId))
-                {
-                    return new DiscoverDirectStreamResponse
-                    {
-                        Success = false,
-                        Error = "ImdbId is required",
-                        StreamUrl = null,
-                        QualityTier = null
-                    };
-                }
-
-                _logger.LogInformation("[Discover] Getting direct stream URL for {ImdbId}", req.ImdbId);
-
-                var config = Plugin.Instance?.Configuration;
-                var db = Plugin.Instance?.DatabaseManager;
-                if (config == null || db == null)
-                {
-                    return new DiscoverDirectStreamResponse
-                    {
-                        Success = false,
-                        Error = "Plugin not initialized",
-                        StreamUrl = null,
-                        QualityTier = null
-                    };
-                }
-
-                var streamUrl = await StreamResolutionHelper.GetStreamUrlAsync(
-                    req.ImdbId,
-                    req.Season,
-                    req.Episode,
-                    config,
-                    db,
-                    _logger,
-                    CancellationToken.None);
-
-                if (string.IsNullOrEmpty(streamUrl))
-                {
-                    return new DiscoverDirectStreamResponse
-                    {
-                        Success = false,
-                        Error = "No stream available",
-                        StreamUrl = null,
-                        QualityTier = null
-                    };
-                }
-
-                var port = ParsePort(config.EmbyBaseUrl) ?? 8096;
-                var embyUrl = $"http://127.0.0.1:{port}/web/#/details/{req.ImdbId}";
-
-                _logger.LogInformation("[Discover] Direct stream URL retrieved for {ImdbId}", req.ImdbId);
-
-                return new DiscoverDirectStreamResponse
-                {
-                    Success = true,
-                    StreamUrl = streamUrl,
-                    QualityTier = "unknown", // Could be enhanced to get actual quality
-                    EmbyUrl = embyUrl
-                };
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[Discover] Error getting direct stream URL for {ImdbId}", req.ImdbId ?? "null");
-                return new DiscoverDirectStreamResponse
-                {
-                    Success = false,
-                    Error = "An internal error occurred. Check server logs.",
-                    StreamUrl = null,
-                    QualityTier = null
                 };
             }
         }

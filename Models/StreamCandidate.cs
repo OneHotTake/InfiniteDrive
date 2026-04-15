@@ -90,11 +90,6 @@ namespace InfiniteDrive.Models
         /// <summary>
         /// SHA1 info-hash of the source torrent (40-char hex), when available.
         /// Populated from <c>AioStreamsStream.InfoHash</c> for debrid streams.
-        ///
-        /// Used by the direct debrid fallback path (Sprint 14) to check instant
-        /// availability and re-generate a fresh CDN URL when AIOStreams is unreachable
-        /// and all cached URLs have expired.
-        ///
         /// Null for usenet, HTTP, or streams where AIOStreams does not supply a hash.
         /// </summary>
         public string? InfoHash { get; set; }

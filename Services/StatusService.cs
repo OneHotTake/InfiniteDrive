@@ -108,8 +108,7 @@ namespace InfiniteDrive.Services
         public int StrmItemCount { get; set; }
 
         /// <summary>
-        /// Total number of times <c>FileResurrectionTask</c> has rebuilt a
-        /// .strm after the user's original library file went missing.
+        /// Total number of times a missing library file has been replaced by a .strm.
         /// </summary>
         public int ResurrectionCount { get; set; }
 

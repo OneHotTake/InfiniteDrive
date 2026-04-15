@@ -38,6 +38,10 @@ namespace InfiniteDrive.Services
         private static int _episodesRepairedLastRun;
         private static int _episodesRepairedTotal;
 
+        // Sprint 311: upstream verification caps
+        private const int MaxUpstreamVerifyPerRun = 50;
+        private static readonly TimeSpan UpstreamVerifyDelay = TimeSpan.FromMilliseconds(100);
+
         public static DateTime? LastRepairAt { get { lock (_statsLock) return _lastRepairAt; } }
         public static int EpisodesRepairedLastRun { get { lock (_statsLock) return _episodesRepairedLastRun; } }
         public static int EpisodesRepairedTotal { get { lock (_statsLock) return _episodesRepairedTotal; } }
@@ -171,6 +175,7 @@ namespace InfiniteDrive.Services
             }
 
             int written = 0, skipped = 0, failed = 0;
+            int upstreamChecked = 0;
 
             foreach (var season in seasons)
             {
@@ -181,8 +186,24 @@ namespace InfiniteDrive.Services
                 {
                     ct.ThrowIfCancellationRequested();
 
+                    if (written >= MaxUpstreamVerifyPerRun)
+                    {
+                        _logger.LogInformation("[GapRepair] Hit episode verification cap ({Cap})", MaxUpstreamVerifyPerRun);
+                        goto done;
+                    }
+
                     try
                     {
+                        // Sprint 311: Verify upstream has streams before writing .strm
+                        if (!await VerifyUpstreamHasStreamsAsync(item.ImdbId, season.Season, epNum))
+                        {
+                            _logger.LogDebug("[GapRepair] Skipping S{S}E{E} — no upstream streams", season.Season, epNum);
+                            skipped++;
+                            await Task.Delay(UpstreamVerifyDelay, ct);
+                            continue;
+                        }
+
+                        upstreamChecked++;
                         var path = _strmWriter.WriteEpisodeStrm(item, season.Season, epNum, null);
                         if (path == null)
                             failed++;
@@ -192,7 +213,7 @@ namespace InfiniteDrive.Services
                             written++;
 
                         // Rate-limit between writes
-                        await Task.Delay(50, ct);
+                        await Task.Delay(UpstreamVerifyDelay, ct);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
@@ -204,7 +225,53 @@ namespace InfiniteDrive.Services
                 }
             }
 
+        done:
             return (written, skipped, failed);
+        }
+
+        /// <summary>
+        /// Sprint 311: Verifies upstream AIOStreams has streams for an episode before writing .strm.
+        /// Returns true if streams exist, false if no streams or error.
+        /// </summary>
+        private async Task<bool> VerifyUpstreamHasStreamsAsync(string imdbId, int season, int episode)
+        {
+            try
+            {
+                var config = Plugin.Instance?.Configuration;
+                if (config == null) return true; // Can't verify — proceed anyway
+
+                var providers = new List<(string url, string uuid, string token)>();
+
+                if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+                {
+                    var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
+                    if (!string.IsNullOrWhiteSpace(url))
+                        providers.Add((url, uuid ?? "", token ?? ""));
+                }
+
+                if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+                {
+                    var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
+                    if (!string.IsNullOrWhiteSpace(url))
+                        providers.Add((url, uuid ?? "", token ?? ""));
+                }
+
+                foreach (var (url, uuid, token) in providers)
+                {
+                    using var client = new AioStreamsClient(url, uuid, token, _logger);
+                    using var cts = new CancellationTokenSource(5000);
+                    var response = await client.GetSeriesStreamsAsync(imdbId, season, episode, cts.Token);
+                    if (response?.Streams != null && response.Streams.Count > 0)
+                        return true;
+                }
+
+                return false;
+            }
+            catch
+            {
+                // Verification failed — give benefit of the doubt
+                return true;
+            }
         }
 
         /// <summary>

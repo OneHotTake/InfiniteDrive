@@ -26,7 +26,8 @@ namespace InfiniteDrive.Services
         {
             _logger = new EmbyLoggerAdapter<ResolverService>(logManager.GetLogger("InfiniteDrive"));
             _m3u8Builder = new M3u8Builder();
-            _healthTracker = new ResolverHealthTracker(_logger);
+            _healthTracker = Plugin.Instance?.ResolverHealthTracker
+                ?? new ResolverHealthTracker(_logger);
             _rateLimiter = new RateLimiter(rateLimiterLogger, Array.Empty<string>());
         }
 
@@ -78,30 +79,12 @@ namespace InfiniteDrive.Services
                 return Error(ResolverError.InvalidToken);
             }
 
-            // 2. Resolve stream from AIOStreams
-            // Sprint 302-01: Check circuit breaker before attempting resolution
-            const string resolverName = "aiostreams_primary";
-            if (_healthTracker.ShouldSkip(resolverName))
-            {
-                _logger.LogWarning(
-                    "[InfiniteDrive][Resolve] Skipping {Resolver} - circuit is open",
-                    resolverName);
-                return Error(ResolverError.PrimaryResolverDown);
-            }
-
+            // 2. Resolve stream from AIOStreams (with provider fallback)
             var (streams, resolverError) = await ResolveStreamsAsync(req);
             if (resolverError.HasValue)
             {
-                // Upstream error (rate limit, connection failure, etc.)
-                if (resolverError == ResolverError.PrimaryResolverDown)
-                {
-                    _healthTracker.RecordFailure(resolverName);
-                }
                 return Error(resolverError.Value);
             }
-
-            // Record success for circuit breaker
-            _healthTracker.RecordSuccess(resolverName);
 
             if (streams == null || streams.Count == 0)
             {
@@ -137,46 +120,103 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Resolves streams from AIOStreams API.
+        /// Resolves streams from AIOStreams API with provider fallback (primary → secondary).
         /// Returns (streams, error) tuple where error is null on success.
+        /// Sprint 310: Unifies with StreamResolutionHelper provider iteration pattern.
         /// </summary>
         private async Task<(List<AioStreamsStream> streams, ResolverError? error)> ResolveStreamsAsync(ResolverRequest req)
         {
-            try
-            {
-                using var client = new AioStreamsClient(Config, _logger);
-                AioStreamsStreamResponse? response;
+            var providers = GetProvidersToTry();
 
-                if (req.IdType == "series" && req.Season.HasValue && req.Episode.HasValue)
+            foreach (var provider in providers)
+            {
+                var providerKey = provider.DisplayName ?? "unknown";
+
+                // Circuit breaker check
+                if (_healthTracker.ShouldSkip(providerKey))
                 {
-                    // Series episode request
-                    response = await client.GetSeriesStreamsAsync(
-                        req.Id,
-                        req.Season.Value,
-                        req.Episode.Value);
-                }
-                else
-                {
-                    // Movie request
-                    response = await client.GetMovieStreamsAsync(req.Id);
+                    _logger.LogDebug("[InfiniteDrive][Resolve] Skipping {Name} — circuit open", providerKey);
+                    continue;
                 }
 
-                var streams = response?.Streams ?? new List<AioStreamsStream>();
-                return (streams, null);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[InfiniteDrive][Resolve] Failed to resolve streams for {Id}", req.Id);
-                // Detect rate limit by exception type
-                if (ex.GetType().Name.Contains("RateLimit"))
+                try
                 {
-                    _logger.LogWarning("[InfiniteDrive][Resolve] Rate limited for {Id}", req.Id);
-                    return (new List<AioStreamsStream>(), ResolverError.RateLimited);
+                    using var client = new AioStreamsClient(
+                        provider.Url, provider.Uuid, provider.Token, _logger);
+                    AioStreamsStreamResponse? response;
+
+                    if (req.IdType == "series" && req.Season.HasValue && req.Episode.HasValue)
+                        response = await client.GetSeriesStreamsAsync(req.Id, req.Season.Value, req.Episode.Value);
+                    else
+                        response = await client.GetMovieStreamsAsync(req.Id);
+
+                    var streams = response?.Streams ?? new List<AioStreamsStream>();
+                    if (streams.Count > 0)
+                    {
+                        _healthTracker.RecordSuccess(providerKey);
+                        return (streams, null);
+                    }
                 }
-                // Total resolution failure - all resolvers exhausted
-                _logger.LogError("[InfiniteDrive][Resolve] TOTAL RESOLUTION FAILURE for {Id} - primary resolver unreachable, no secondary fallback available", req.Id);
-                return (new List<AioStreamsStream>(), ResolverError.AllResolversDown);
+                catch (Exception ex)
+                {
+                    _healthTracker.RecordFailure(providerKey);
+                    _logger.LogError(ex, "[InfiniteDrive][Resolve] Provider {Name} failed for {Id}", providerKey, req.Id);
+
+                    if (ex.GetType().Name.Contains("RateLimit"))
+                        return (new List<AioStreamsStream>(), ResolverError.RateLimited);
+                }
             }
+
+            _logger.LogError("[InfiniteDrive][Resolve] All providers exhausted for {Id}", req.Id);
+            return (new List<AioStreamsStream>(), ResolverError.AllResolversDown);
+        }
+
+        /// <summary>
+        /// Builds the ordered list of providers to try for stream resolution.
+        /// </summary>
+        private List<ProviderInfo> GetProvidersToTry()
+        {
+            var providers = new List<ProviderInfo>();
+
+            if (!string.IsNullOrWhiteSpace(Config.PrimaryManifestUrl))
+            {
+                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(Config.PrimaryManifestUrl);
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    providers.Add(new ProviderInfo
+                    {
+                        DisplayName = "Primary",
+                        Url = url,
+                        Uuid = uuid ?? string.Empty,
+                        Token = token ?? string.Empty
+                    });
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(Config.SecondaryManifestUrl))
+            {
+                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(Config.SecondaryManifestUrl);
+                if (!string.IsNullOrWhiteSpace(url))
+                {
+                    providers.Add(new ProviderInfo
+                    {
+                        DisplayName = "Secondary",
+                        Url = url,
+                        Uuid = uuid ?? string.Empty,
+                        Token = token ?? string.Empty
+                    });
+                }
+            }
+
+            return providers;
+        }
+
+        private class ProviderInfo
+        {
+            public string DisplayName { get; set; } = string.Empty;
+            public string Url { get; set; } = string.Empty;
+            public string Uuid { get; set; } = string.Empty;
+            public string Token { get; set; } = string.Empty;
         }
 
         /// <summary>
