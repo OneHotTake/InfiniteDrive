@@ -79,7 +79,13 @@ namespace InfiniteDrive.Services
                 return Error(ResolverError.InvalidToken);
             }
 
-            // 2. Resolve stream from AIOStreams (with provider fallback)
+            // 2. Cache-first: try cached candidates before hitting AIOStreams
+            var db = Plugin.Instance?.DatabaseManager;
+            var cachedPlaylist = await TryServeFromCacheAsync(db, req);
+            if (cachedPlaylist != null)
+                return cachedPlaylist;
+
+            // 3. Cache miss — resolve live from AIOStreams (with provider fallback)
             var (streams, resolverError) = await ResolveStreamsAsync(req);
             if (resolverError.HasValue)
             {
@@ -92,7 +98,7 @@ namespace InfiniteDrive.Services
                 return Error(ResolverError.NoStreamsExist);
             }
 
-            // 3. Filter by quality tier with fallback chain
+            // 4. Filter by quality tier with fallback chain
             var (filtered, usedFallback) = FilterStreamsWithFallback(streams, req.Quality, req.Id);
             if (filtered.Count == 0)
             {
@@ -100,15 +106,18 @@ namespace InfiniteDrive.Services
                 return Error(ResolverError.QualityMismatch);
             }
 
-            // 4. Probe top candidates and reorder — dead URLs sink to back of list.
+            // 5. Probe top candidates and reorder — dead URLs sink to back of list.
             //    Emby client sees working streams first; dead ones remain as fallback.
             //    5s total budget shared across all probes (Sprint 302).
             filtered = await ProbeAndReorderAsync(filtered);
 
-            // 5. Select top stream per source
+            // 6. Select top stream per source
             var variants = SelectTopStreams(filtered);
 
-            // 5. Build M3U8 playlist with signed URLs
+            // 7. Write live results to cache (fire-and-forget)
+            _ = WriteToCacheAsync(db, req, variants);
+
+            // 8. Build M3U8 playlist with signed URLs
             var playlist = BuildPlaylist(variants, req.Quality);
 
             return new
@@ -365,6 +374,183 @@ namespace InfiniteDrive.Services
                 .ToList();
 
             return _m3u8Builder.CreateVariantPlaylist(Config.EmbyBaseUrl, quality, variants);
+        }
+
+        // ── Cache-first path ────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Checks the resolution cache for valid candidates. If the top-ranked
+        /// candidate probes alive, builds and returns an M3U8 playlist immediately
+        /// without hitting AIOStreams. Returns null on cache miss or dead probe.
+        /// </summary>
+        private async Task<object?> TryServeFromCacheAsync(
+            Data.DatabaseManager? db, ResolverRequest req)
+        {
+            if (db == null) return null;
+
+            try
+            {
+                var candidates = await db.GetStreamCandidatesAsync(
+                    req.Id, req.Season, req.Episode);
+
+                if (candidates == null || candidates.Count == 0)
+                    return null;
+
+                // Filter to valid candidates only — the probe is the real validation
+                var validCandidates = candidates
+                    .Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Url))
+                    .OrderBy(c => c.Rank)
+                    .ToList();
+
+                if (validCandidates.Count == 0)
+                    return null;
+
+                // Probe ONLY the top-ranked candidate (2s budget)
+                var top = validCandidates[0];
+                var probe = Plugin.Instance?.StreamProbeService;
+                if (probe != null)
+                {
+                    using var cts = new System.Threading.CancellationTokenSource(2000);
+                    try
+                    {
+                        var result = await probe.ProbeAsync(top.Url, cts.Token);
+                        if (!result.Ok)
+                        {
+                            _logger.LogDebug("[Resolve] Cache probe failed for {Url}, falling through to live", top.Url);
+                            return null;
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        _logger.LogDebug("[Resolve] Cache probe timed out for {Url}, falling through to live", top.Url);
+                        return null;
+                    }
+                }
+
+                // Probe passed — build M3U8 from cached candidates
+                _logger.LogInformation(
+                    "[Resolve] Cache hit for {Id} S{S}E{E} — serving {Count} cached candidates",
+                    req.Id, req.Season, req.Episode, validCandidates.Count);
+
+                var playlist = BuildPlaylistFromCandidates(validCandidates, req.Quality);
+                return new
+                {
+                    ContentType = M3u8Builder.MimeType,
+                    Content = playlist,
+                    StatusCode = 200
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Resolve] Cache lookup failed for {Id}, falling through to live", req.Id);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Builds an M3U8 playlist from cached StreamCandidate entries.
+        /// </summary>
+        private string BuildPlaylistFromCandidates(
+            List<StreamCandidate> candidates, string quality)
+        {
+            var variants = candidates
+                .Where(c => !string.IsNullOrEmpty(c.Url))
+                .Select(c =>
+                {
+                    var signedUrl = PlaybackTokenService.Sign(c.Url!, Config.PluginSecret, 1);
+                    var proxyUrl = $"{Config.EmbyBaseUrl.TrimEnd('/')}/InfiniteDrive/Stream?url={Uri.EscapeDataString(signedUrl)}";
+
+                    var resolution = !string.IsNullOrEmpty(c.QualityTier)
+                        ? MapTierToResolution(c.QualityTier)
+                        : M3u8Builder.TierMetadata[quality].Resolution;
+
+                    var bandwidth = EstimateBandwidth(resolution);
+                    var displayName = $"{c.ProviderKey} - {resolution}";
+                    if (!string.IsNullOrEmpty(c.FileName))
+                        displayName += $" [{c.FileName}]";
+
+                    return new M3U8Variant
+                    {
+                        DisplayName = displayName,
+                        SourceName = c.ProviderKey,
+                        Url = proxyUrl,
+                        Bandwidth = bandwidth,
+                        Resolution = resolution,
+                        IsHevc = false,
+                        IsHdr = c.QualityTier == "4k_hdr"
+                    };
+                })
+                .ToList();
+
+            return _m3u8Builder.CreateVariantPlaylist(Config.EmbyBaseUrl, quality, variants);
+        }
+
+        /// <summary>
+        /// Maps a quality tier string from cache to a resolution label.
+        /// </summary>
+        private static string MapTierToResolution(string tier) => tier switch
+        {
+            "remux" or "2160p" or "4k" => "4K",
+            "1080p" => "1080p",
+            "720p" => "720p",
+            "480p" => "480p",
+            _ => "1080p"
+        };
+
+        /// <summary>
+        /// Writes live resolution results to cache. Fire-and-forget — never
+        /// blocks or fails the playback response.
+        /// </summary>
+        private async Task WriteToCacheAsync(
+            Data.DatabaseManager? db, ResolverRequest req, List<AioStreamsStream> streams)
+        {
+            if (db == null || streams.Count == 0) return;
+
+            try
+            {
+                var now = DateTime.UtcNow;
+                var expiresAt = now.AddMinutes(Config.CacheLifetimeMinutes);
+
+                var entry = new ResolutionEntry
+                {
+                    ImdbId = req.Id,
+                    Season = req.Season,
+                    Episode = req.Episode,
+                    StreamUrl = streams[0].Url ?? string.Empty,
+                    QualityTier = M3u8Builder.MapStreamToTier(streams[0]),
+                    FileName = streams[0].BehaviorHints?.Filename,
+                    Status = "valid",
+                    ResolvedAt = now.ToString("o"),
+                    ExpiresAt = expiresAt.ToString("o"),
+                    ResolutionTier = "live"
+                };
+
+                var candidates = streams
+                    .Where(s => !string.IsNullOrEmpty(s.Url))
+                    .Select((s, i) => new StreamCandidate
+                    {
+                        ImdbId = req.Id,
+                        Season = req.Season,
+                        Episode = req.Episode,
+                        Rank = i,
+                        ProviderKey = M3u8Builder.GetSourceName(s).ToLowerInvariant(),
+                        StreamType = s.ParsedFile != null ? "debrid" : "unknown",
+                        Url = s.Url!,
+                        QualityTier = M3u8Builder.MapStreamToTier(s),
+                        FileName = s.BehaviorHints?.Filename,
+                        Status = "valid",
+                        ResolvedAt = now.ToString("o"),
+                        ExpiresAt = expiresAt.ToString("o")
+                    })
+                    .ToList();
+
+                await db.UpsertResolutionResultAsync(entry, candidates);
+                _logger.LogDebug("[Resolve] Wrote {Count} candidates to cache for {Id}", candidates.Count, req.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Resolve] Cache write failed for {Id} (non-fatal)", req.Id);
+            }
         }
 
         /// <summary>
