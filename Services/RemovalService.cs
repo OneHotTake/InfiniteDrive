@@ -186,19 +186,9 @@ namespace InfiniteDrive.Services
                 }
             }
 
-            // ── Movie: single .strm file ──────────────────────────────────────
-            if (!File.Exists(strmPath))
-                return;
-
-            try
-            {
-                File.Delete(strmPath);
-                _logger.LogDebug("[RemovalService] Deleted .strm file: {Path}", strmPath);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[RemovalService] Failed to delete .strm file for item {ItemId}", item.Id);
-            }
+            // ── Movie: single .strm file + version variants ───────────────────
+            StrmWriterService.DeleteWithVersions(strmPath);
+            _logger.LogDebug("[RemovalService] Deleted .strm + versions: {Path}", strmPath);
         }
 
         /// <summary>

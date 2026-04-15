@@ -269,8 +269,10 @@ namespace InfiniteDrive.Tasks
                 return false;
             }
 
-            // Write missing .strm files
+            // Write missing .strm files + version slots
             int written = 0;
+            var strm = Plugin.Instance?.StrmWriterService;
+
             foreach (var kvp in bySeason)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -288,8 +290,15 @@ namespace InfiniteDrive.Tasks
                     var path     = Path.Combine(seasonDir, fileName);
                     if (File.Exists(path)) continue;
 
-                    var url = StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId, "series", seasonNum, epNum);
-                    File.WriteAllText(path, url, Encoding.UTF8);
+                    if (strm != null)
+                    {
+                        await strm.WriteStrmWithVersionsAsync(path, item.ImdbId, seasonNum, epNum, cancellationToken);
+                    }
+                    else
+                    {
+                        var url = StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId, "series", seasonNum, epNum);
+                        File.WriteAllText(path, url, Encoding.UTF8);
+                    }
 
                     // Write episode NFO file with basic info
                     var nfoPath = Path.ChangeExtension(path, ".nfo");

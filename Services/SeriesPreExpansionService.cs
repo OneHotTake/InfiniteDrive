@@ -120,9 +120,7 @@ namespace InfiniteDrive.Services
                             continue;
                         }
 
-                        // Create .strm file with signed URL
-                        var strmContent = BuildStrmContent(item.ImdbId ?? item.Id, seasonNum, epNum, config);
-
+                        // Create .strm file with signed URL + version slots
                         var sanitisedName = StrmWriterService.SanitisePathPublic(fullMeta.GetName());
                         var fileName = $"{sanitisedName} S{seasonNum:D2}E{epNum:D2}.strm";
                         var filePath = Path.Combine(seasonPath, fileName);
@@ -130,7 +128,11 @@ namespace InfiniteDrive.Services
 
                         if (!File.Exists(filePath))
                         {
-                            await File.WriteAllTextAsync(filePath, strmContent, Encoding.UTF8, cancellationToken);
+                            var strm = Plugin.Instance?.StrmWriterService;
+                            if (strm != null)
+                                await strm.WriteStrmWithVersionsAsync(filePath, item.ImdbId ?? item.Id, seasonNum, epNum, cancellationToken);
+                            else
+                                await File.WriteAllTextAsync(filePath, StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", seasonNum, epNum), Encoding.UTF8, cancellationToken);
 
                             // Write episode NFO file
                             await WriteEpisodeNfoFileAsync(nfoPath, episode, fullMeta, cancellationToken);
@@ -208,16 +210,18 @@ namespace InfiniteDrive.Services
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    // G3: Each episode .strm must include season+episode in signed URL
-                    var strmContent = BuildStrmContent(item.ImdbId ?? item.Id, season, episode, config);
-
                     var sanitisedName = StrmWriterService.SanitisePathPublic(item.Title);
                     var fileName = $"{sanitisedName} S{season:D2}E{episode:D2}.strm";
                     var filePath = Path.Combine(seasonPath, fileName);
 
                     if (!File.Exists(filePath))
                     {
-                        await File.WriteAllTextAsync(filePath, strmContent, Encoding.UTF8, cancellationToken);
+                        var strm = Plugin.Instance?.StrmWriterService;
+                        if (strm != null)
+                            await strm.WriteStrmWithVersionsAsync(filePath, item.ImdbId ?? item.Id, season, episode, cancellationToken);
+                        else
+                            await File.WriteAllTextAsync(filePath, StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", season, episode), Encoding.UTF8, cancellationToken);
+
                         written++;
                         _logger.LogDebug(
                             "[InfiniteDrive] SeriesPreExpansion: Wrote default {FilePath}",
@@ -379,13 +383,16 @@ namespace InfiniteDrive.Services
                             var seasonDir = Path.Combine(showRoot, $"Season {ep.Season:D2}");
                             Directory.CreateDirectory(seasonDir);
 
-                            var strmContent = BuildStrmContent(item.ImdbId ?? item.Id, ep.Season, ep.Episode, config);
                             var fileName = $"{sanitisedName} S{ep.Season:D2}E{ep.Episode:D2}.strm";
                             var filePath = Path.Combine(seasonDir, fileName);
 
                             if (!File.Exists(filePath))
                             {
-                                await File.WriteAllTextAsync(filePath, strmContent, Encoding.UTF8, cancellationToken);
+                                var strm = Plugin.Instance?.StrmWriterService;
+                                if (strm != null)
+                                    await strm.WriteStrmWithVersionsAsync(filePath, item.ImdbId ?? item.Id, ep.Season, ep.Episode, cancellationToken);
+                                else
+                                    await File.WriteAllTextAsync(filePath, StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", ep.Season, ep.Episode), Encoding.UTF8, cancellationToken);
 
                                 // Write episode NFO if we have metadata for this episode
                                 if (videoLookup.TryGetValue(ep, out var video))
@@ -446,28 +453,6 @@ namespace InfiniteDrive.Services
             if (year.HasValue) sb.Append($" ({year})");
             if (!string.IsNullOrEmpty(imdbId)) sb.Append($" [imdbid-{imdbId}]");
             return sb.ToString();
-        }
-
-        /// <summary>
-        /// Build .strm file content. Uses signed URLs when available, falls back to legacy Play endpoint.
-        /// </summary>
-        private static string BuildStrmContent(string id, int season, int episode, PluginConfiguration config)
-        {
-            // Ensure PluginSecret is initialized before accessing Configuration
-            Plugin.Instance?.EnsureInitialization();
-
-            var secret = Plugin.Instance?.Configuration?.PluginSecret;
-
-            if (!string.IsNullOrEmpty(secret))
-            {
-                return PlaybackTokenService.GenerateSignedUrl(
-                    config.EmbyBaseUrl, id, "series", season, episode,
-                    secret,
-                    TimeSpan.FromDays(config.SignatureValidityDays > 0 ? config.SignatureValidityDays : 365));
-            }
-
-            // PluginSecret is required — fail closed rather than generating dead-end URLs
-            throw new InvalidOperationException("PluginSecret not configured — cannot sign episode .strm URL");
         }
 
         /// <summary>

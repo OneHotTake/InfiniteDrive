@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Tasks;
@@ -222,9 +223,8 @@ namespace InfiniteDrive.Tasks
         // ── Private ─────────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Deletes the .strm file at <paramref name="strmPath"/> and, if the
-        /// parent directory is now empty, removes that directory too.
-        /// Returns true if the file was deleted successfully (or already absent).
+        /// Deletes the .strm file + version variants and cleans empty directories.
+        /// Returns true if the path was handled (deleted or already absent).
         /// </summary>
         private bool TryDeleteStrm(string? strmPath)
         {
@@ -233,33 +233,8 @@ namespace InfiniteDrive.Tasks
 
             try
             {
-                if (File.Exists(strmPath))
-                {
-                    File.Delete(strmPath);
-                    _logger.LogDebug("[InfiniteDrive] Deleted .strm: {Path}", strmPath);
-                }
-
-                // Remove the containing folder if it's now empty (e.g. movie folder
-                // that only contained the single .strm file).
-                var dir = Path.GetDirectoryName(strmPath);
-                if (!string.IsNullOrEmpty(dir)
-                    && Directory.Exists(dir)
-                    && Directory.GetFileSystemEntries(dir).Length == 0)
-                {
-                    Directory.Delete(dir);
-                    _logger.LogDebug("[InfiniteDrive] Removed empty folder: {Dir}", dir);
-
-                    // Also remove the grandparent folder if it's empty (series season dir).
-                    var parent = Path.GetDirectoryName(dir);
-                    if (!string.IsNullOrEmpty(parent)
-                        && Directory.Exists(parent)
-                        && Directory.GetFileSystemEntries(parent).Length == 0)
-                    {
-                        Directory.Delete(parent);
-                        _logger.LogDebug("[InfiniteDrive] Removed empty folder: {Dir}", parent);
-                    }
-                }
-
+                StrmWriterService.DeleteWithVersions(strmPath);
+                _logger.LogDebug("[InfiniteDrive] Deleted .strm + versions: {Path}", strmPath);
                 return true;
             }
             catch (Exception ex)

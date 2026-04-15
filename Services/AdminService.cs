@@ -104,6 +104,55 @@ namespace InfiniteDrive.Services
         public string Message { get; set; } = "";
     }
 
+    [Route("/InfiniteDrive/Admin/VersionSlots", "GET",
+        Summary = "List all quality version slots with enabled/default status")]
+    public class GetVersionSlotsRequest : IReturn<GetVersionSlotsResponse> { }
+
+    public class VersionSlotDto
+    {
+        public string SlotKey { get; set; } = string.Empty;
+        public string Label { get; set; } = string.Empty;
+        public string Resolution { get; set; } = string.Empty;
+        public bool Enabled { get; set; }
+        public bool IsDefault { get; set; }
+        public int SortOrder { get; set; }
+    }
+
+    public class GetVersionSlotsResponse
+    {
+        public List<VersionSlotDto> Slots { get; set; } = new();
+    }
+
+    [Route("/InfiniteDrive/Admin/VersionSlots/Toggle", "POST",
+        Summary = "Enable or disable a version slot; triggers rehydration")]
+    public class ToggleVersionSlotRequest : IReturn<ToggleVersionSlotResponse>
+    {
+        [ApiMember(Name = "slotKey", Description = "Slot to toggle", DataType = "string", ParameterType = "query")]
+        public string SlotKey { get; set; } = "";
+        [ApiMember(Name = "enabled", Description = "Target state", DataType = "boolean", ParameterType = "query")]
+        public bool Enabled { get; set; }
+    }
+
+    public class ToggleVersionSlotResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+    }
+
+    [Route("/InfiniteDrive/Admin/VersionSlots/SetDefault", "POST",
+        Summary = "Change the default version slot; triggers rehydration")]
+    public class SetDefaultSlotRequest : IReturn<SetDefaultSlotResponse>
+    {
+        [ApiMember(Name = "slotKey", Description = "Slot to set as default", DataType = "string", ParameterType = "query")]
+        public string SlotKey { get; set; } = "";
+    }
+
+    public class SetDefaultSlotResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+    }
+
     // ── Service ──────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -278,15 +327,11 @@ namespace InfiniteDrive.Services
                         // 2. Block in catalog_items using primary ID (IMDB value from PrimaryId)
                         await _db.BlockCatalogItemByImdbIdAsync(mediaItem.PrimaryId.Value, "admin", ct);
 
-                        // 3. Delete .strm/.nfo from catalog_item
+                        // 3. Delete .strm/.nfo + version variants
                         var catalogItem = await _db.GetCatalogItemByImdbIdAsync(mediaItem.PrimaryId.Value);
                         if (catalogItem != null)
                         {
-                            DeleteFileIfExists(catalogItem.StrmPath, ".strm");
-                            DeleteFileIfExists(
-                                !string.IsNullOrEmpty(catalogItem.StrmPath)
-                                    ? Path.ChangeExtension(catalogItem.StrmPath, ".nfo")
-                                    : null, ".nfo");
+                            StrmWriterService.DeleteWithVersions(catalogItem.StrmPath);
                         }
 
                         // 4. Block in media_items + clear user saves
@@ -353,6 +398,129 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "[AdminService] Failed to clear sentinel for {ImdbId}", req.ImdbId);
                 return new ClearSentinelResponse { Success = false, Message = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Handles <c>GET /InfiniteDrive/Admin/VersionSlots</c>.
+        /// Returns all quality slots with enabled/default status.
+        /// </summary>
+        public async Task<object> Get(GetVersionSlotsRequest _)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            try
+            {
+                var slotRepo = Plugin.Instance?.VersionSlotRepository;
+                if (slotRepo == null)
+                    return new GetVersionSlotsResponse { Slots = new() };
+
+                var slots = await slotRepo.GetAllSlotsAsync(CancellationToken.None);
+
+                return new GetVersionSlotsResponse
+                {
+                    Slots = slots.Select(s => new VersionSlotDto
+                    {
+                        SlotKey = s.SlotKey,
+                        Label = s.Label,
+                        Resolution = s.Resolution,
+                        Enabled = s.Enabled,
+                        IsDefault = s.IsDefault,
+                        SortOrder = s.SortOrder
+                    }).ToList()
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AdminService] Failed to fetch version slots");
+                return new GetVersionSlotsResponse { Slots = new() };
+            }
+        }
+
+        /// <summary>
+        /// Handles <c>POST /InfiniteDrive/Admin/VersionSlots/Toggle</c>.
+        /// Enables or disables a slot and triggers rehydration (add/remove .strm files).
+        /// </summary>
+        public async Task<object> Post(ToggleVersionSlotRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            if (string.IsNullOrWhiteSpace(req.SlotKey))
+                return new ToggleVersionSlotResponse { Success = false, Message = "slotKey is required" };
+
+            try
+            {
+                var slotRepo = Plugin.Instance?.VersionSlotRepository;
+                if (slotRepo == null)
+                    return new ToggleVersionSlotResponse { Success = false, Message = "VersionSlotRepository not initialized" };
+
+                var slot = await slotRepo.GetSlotAsync(req.SlotKey, CancellationToken.None);
+                if (slot == null)
+                    return new ToggleVersionSlotResponse { Success = false, Message = $"Slot '{req.SlotKey}' not found" };
+
+                if (slot.IsDefault && !req.Enabled)
+                    return new ToggleVersionSlotResponse { Success = false, Message = "Cannot disable the default slot" };
+
+                slot.Enabled = req.Enabled;
+                await slotRepo.UpsertSlotAsync(slot, CancellationToken.None);
+
+                // Trigger rehydration in background (add or remove .strm files)
+                var rehydrationService = new RehydrationService(_logger);
+                if (req.Enabled)
+                    _ = rehydrationService.AddSlotAsync(req.SlotKey, null, CancellationToken.None);
+                else
+                    _ = rehydrationService.RemoveSlotAsync(req.SlotKey, null, CancellationToken.None);
+
+                _logger.LogInformation("[AdminService] Toggled version slot {SlotKey} → {Enabled}", req.SlotKey, req.Enabled);
+                return new ToggleVersionSlotResponse { Success = true, Message = $"Slot '{req.SlotKey}' {(req.Enabled ? "enabled" : "disabled")}" };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AdminService] Failed to toggle version slot {SlotKey}", req.SlotKey);
+                return new ToggleVersionSlotResponse { Success = false, Message = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Handles <c>POST /InfiniteDrive/Admin/VersionSlots/SetDefault</c>.
+        /// Changes the default slot and triggers rehydration (rename .strm files).
+        /// </summary>
+        public async Task<object> Post(SetDefaultSlotRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            if (string.IsNullOrWhiteSpace(req.SlotKey))
+                return new SetDefaultSlotResponse { Success = false, Message = "slotKey is required" };
+
+            try
+            {
+                var slotRepo = Plugin.Instance?.VersionSlotRepository;
+                if (slotRepo == null)
+                    return new SetDefaultSlotResponse { Success = false, Message = "VersionSlotRepository not initialized" };
+
+                var slot = await slotRepo.GetSlotAsync(req.SlotKey, CancellationToken.None);
+                if (slot == null)
+                    return new SetDefaultSlotResponse { Success = false, Message = $"Slot '{req.SlotKey}' not found" };
+
+                if (!slot.Enabled)
+                    return new SetDefaultSlotResponse { Success = false, Message = "Cannot set a disabled slot as default" };
+
+                await slotRepo.SetDefaultSlotAsync(req.SlotKey, CancellationToken.None);
+
+                // Trigger rehydration in background (rename base/suffixed .strm files)
+                var rehydrationService = new RehydrationService(_logger);
+                _ = rehydrationService.ChangeDefaultAsync(req.SlotKey, null, CancellationToken.None);
+
+                _logger.LogInformation("[AdminService] Changed default version slot to {SlotKey}", req.SlotKey);
+                return new SetDefaultSlotResponse { Success = true, Message = $"Default slot changed to '{req.SlotKey}'" };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AdminService] Failed to set default version slot to {SlotKey}", req.SlotKey);
+                return new SetDefaultSlotResponse { Success = false, Message = ex.Message };
             }
         }
 
