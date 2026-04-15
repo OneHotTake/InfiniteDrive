@@ -35,9 +35,9 @@ split_dump.py
 CONTINUE.md
 test-config.json
 
-# .ai/ session state (ephemeral — not shared)
-.ai/FAILURES.ndjson
-.ai/TASK_QUEUE.json
-.ai/CURRENT_TASK.md
+# Hidden directories (session state, archives, tooling)
+.ai/
+.archive/
+.dual-graph/
 libs/
 _retired/
