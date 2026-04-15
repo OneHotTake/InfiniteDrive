@@ -41,10 +41,12 @@ namespace InfiniteDrive.Services
     public class StreamEndpointService : IService, IRequiresRequest
     {
         private readonly ILogger<StreamEndpointService> _logger;
+        private readonly RateLimiter _rateLimiter;
 
-        public StreamEndpointService(ILogManager logManager)
+        public StreamEndpointService(ILogManager logManager, ILogger<RateLimiter> rateLimiterLogger)
         {
             _logger = new EmbyLoggerAdapter<StreamEndpointService>(logManager.GetLogger("InfiniteDrive"));
+            _rateLimiter = new RateLimiter(rateLimiterLogger, Array.Empty<string>());
         }
 
         private PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
@@ -78,6 +80,12 @@ namespace InfiniteDrive.Services
         /// </summary>
         private async Task<object> HandleAsync(StreamEndpointRequest req, bool isHead)
         {
+            // Sprint 302-05: Rate limit check
+            var clientIp = RateLimiter.GetClientIp(Request);
+            var rateLimitResult = _rateLimiter.CheckStreamLimit(clientIp);
+            if (rateLimitResult != null)
+                return rateLimitResult;
+
             // 1. Validate PluginSecret
             if (string.IsNullOrEmpty(Config.PluginSecret))
             {

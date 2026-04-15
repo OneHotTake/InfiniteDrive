@@ -179,5 +179,13 @@ namespace InfiniteDrive.Models
         /// Null for movies or when expansion hasn't started.
         /// </summary>
         public bool? EpisodesExpanded { get; set; }
+
+        /// <summary>
+        /// Unix timestamp when this item was last verified in a catalog sync.
+        /// Used for safe removal: items are only pruned if they've been missing
+        /// for >7 days (not verified in 7+ days).
+        /// Null if never verified.
+        /// </summary>
+        public long? LastVerifiedAt { get; set; }
     }
 }

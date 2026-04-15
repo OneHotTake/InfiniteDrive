@@ -921,9 +921,10 @@ namespace InfiniteDrive.Tasks
 
             // 2. Fetch from all providers (with interval guard + health recording)
             progress.Report(5);
-            var (allItems, fetchedSourceIds) = await FetchFromAllProvidersAsync(providers, config, db, cancellationToken);
+            var (allItems, fetchedSourceIds, attemptedProviders) = await FetchFromAllProvidersAsync(providers, config, db, cancellationToken);
             _logger.LogInformation(
-                "[InfiniteDrive] Fetched {Count} raw catalog items from all sources", allItems.Count);
+                "[InfiniteDrive] Fetched {Count} raw catalog items from all sources (attempted {Attempted} providers)",
+                allItems.Count, attemptedProviders);
 
             // 2b. If AIOStreams was just detected as stream-only this run AND Cinemeta wasn't
             //     already scheduled, run Cinemeta immediately (same sync) rather than making
@@ -934,7 +935,7 @@ namespace InfiniteDrive.Tasks
             {
                 _logger.LogInformation(
                     "[InfiniteDrive] AIOStreams detected as stream-only — running Cinemeta fallback in this sync");
-                var (cinemetaItems, cinemetaIds) = await FetchFromAllProvidersAsync(
+                var (cinemetaItems, cinemetaIds, _) = await FetchFromAllProvidersAsync(
                     new List<ICatalogProvider> { new CinemetaDefaultProvider() },
                     config, db, cancellationToken);
                 allItems.AddRange(cinemetaItems);
@@ -954,8 +955,8 @@ namespace InfiniteDrive.Tasks
             await UpsertItemsAsync(db, deduplicated, cancellationToken);
             progress.Report(40);
 
-            // 3b. Prune items removed from their sources
-            await PruneRemovedItemsAsync(db, fetchedSourceIds, cancellationToken);
+            // 3b. Prune items removed from their sources (with safety check)
+            await PruneRemovedItemsAsync(db, fetchedSourceIds, attemptedProviders, cancellationToken);
 
             // 4. Check that Emby libraries cover the sync paths; warn if not
             WarnIfLibrariesMissing(config);
@@ -1050,12 +1051,13 @@ namespace InfiniteDrive.Tasks
 
         /// <summary>
         /// Fetches catalog items from all providers.
-        /// Returns the flat item list AND a per-source set of IMDB IDs for every
-        /// provider that completed successfully (used by the prune step).
+        /// Returns the flat item list, a per-source set of IMDB IDs for every
+        /// provider that completed successfully (used by the prune step), and the count
+        /// of attempted providers for safety check.
         /// Providers that were skipped (interval guard) are NOT included in
         /// <paramref name="fetchedSourceIds"/> so they are not pruned.
         /// </summary>
-        private async Task<(List<CatalogItem> items, Dictionary<string, HashSet<string>> fetchedSourceIds)>
+        private async Task<(List<CatalogItem> items, Dictionary<string, HashSet<string>> fetchedSourceIds, int attemptedProviders)>
             FetchFromAllProvidersAsync(
             List<ICatalogProvider>  providers,
             PluginConfiguration     config,
@@ -1064,6 +1066,7 @@ namespace InfiniteDrive.Tasks
         {
             var results          = new List<CatalogItem>();
             var fetchedSourceIds = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            var attemptedProviders = 0;
 
             foreach (var provider in providers)
             {
@@ -1087,6 +1090,9 @@ namespace InfiniteDrive.Tasks
                 {
                     _logger.LogDebug(ex, "[InfiniteDrive] Could not read sync state for {Key}", provider.SourceKey);
                 }
+
+                // Sprint 302-06: Track attempted providers for safety check
+                attemptedProviders++;
 
                 _logger.LogInformation("[InfiniteDrive] Fetching catalog from {Provider}", provider.ProviderName);
 
@@ -1158,7 +1164,7 @@ namespace InfiniteDrive.Tasks
                     provider.ProviderName, fetchResult.Items.Count, fetchResult.ProviderReachable);
             }
 
-            return (results, fetchedSourceIds);
+            return (results, fetchedSourceIds, attemptedProviders);
         }
 
         /// <summary>
@@ -1245,17 +1251,38 @@ namespace InfiniteDrive.Tasks
         // ── Private: source diff / prune ────────────────────────────────────────
 
         /// <summary>
+        /// Sprint 302-06: Marvin sync safety.
         /// For each source that completed a successful fetch this run, compares the
         /// returned IMDB IDs against the previously active catalog rows.  Any item
         /// no longer present is soft-deleted in the database and its .strm file (plus
         /// the parent Season directory and show directory if they become empty) is
         /// removed from disk.
+        ///
+        /// Safety: Skip pruning entirely if any source failed to fetch.
+        /// Also updates last_verified_at for items found in catalog.
         /// </summary>
         private async Task PruneRemovedItemsAsync(
             Data.DatabaseManager                    db,
             Dictionary<string, HashSet<string>>     fetchedSourceIds,
+            int                                   totalProviders,
             CancellationToken                       cancellationToken)
         {
+            // Sprint 302-06: Skip pruning if any source failed to fetch
+            // This prevents mass removal when a resolver is temporarily down
+            if (fetchedSourceIds.Count < totalProviders)
+            {
+                _logger.LogInformation(
+                    "[InfiniteDrive] Skipping pruning — only {Fetched}/{Total} sources fetched successfully. Some resolvers may be down.",
+                    fetchedSourceIds.Count, totalProviders);
+                return;
+            }
+
+            // Sprint 302-06: Update last_verified_at for items found in catalog
+            foreach (var kvp in fetchedSourceIds)
+            {
+                await db.UpdateLastVerifiedAtAsync(kvp.Value, kvp.Key, cancellationToken);
+            }
+
             foreach (var kvp in fetchedSourceIds)
             {
                 cancellationToken.ThrowIfCancellationRequested();

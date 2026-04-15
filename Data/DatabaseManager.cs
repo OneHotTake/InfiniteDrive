@@ -33,7 +33,7 @@ namespace InfiniteDrive.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 28;
+        private const int CurrentSchemaVersion = 30;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -117,7 +117,7 @@ namespace InfiniteDrive.Data
                      local_path, local_source, item_state, pin_source, pinned_at,
                      nfo_status, retry_count, next_retry_at,
                      blocked_at, blocked_by, first_added_by_user_id,
-                     tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded)
+                     tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_verified_at)
                 VALUES
                     (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                      @source, @source_list_id, @seasons_json, @strm_path,
@@ -125,7 +125,7 @@ namespace InfiniteDrive.Data
                      @local_path, @local_source, @item_state, @pin_source, @pinned_at,
                      @nfo_status, @retry_count, @next_retry_at,
                      @blocked_at, @blocked_by, @first_added_by_user_id,
-                     @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded)
+                     @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_verified_at)
                 ON CONFLICT(imdb_id, source) DO UPDATE SET
                     tmdb_id       = excluded.tmdb_id,
                     unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -150,7 +150,8 @@ namespace InfiniteDrive.Data
                     catalog_type   = COALESCE(catalog_items.catalog_type,  excluded.catalog_type),
                     raw_meta_json  = excluded.raw_meta_json,
                     videos_json    = COALESCE(excluded.videos_json, catalog_items.videos_json),
-                    episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded);";
+                    episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded),
+                    last_verified_at = excluded.last_verified_at;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -195,6 +196,10 @@ namespace InfiniteDrive.Data
                 BindNullableText(cmd, "@catalog_type", item.CatalogType);
                 BindNullableText(cmd, "@videos_json", item.VideosJson);
                 BindNullableInt(cmd, "@episodes_expanded", item.EpisodesExpanded.HasValue ? (item.EpisodesExpanded.Value ? 1 : 0) : null);
+                if (item.LastVerifiedAt.HasValue)
+                    cmd.BindParameters["@last_verified_at"].Bind(item.LastVerifiedAt.Value);
+                else
+                    cmd.BindParameters["@last_verified_at"].BindNull();
             });
         }
 
@@ -392,6 +397,9 @@ namespace InfiniteDrive.Data
         /// longer present in <paramref name="currentImdbIds"/> is soft-deleted by
         /// setting <c>removed_at = now()</c>.
         ///
+        /// Sprint 302-06: Only removes items not verified in >7 days. Items
+        /// that were recently verified are kept to handle transient source errors.
+        ///
         /// Returns the list of <c>strm_path</c> values for the removed rows so the
         /// caller can delete the files from disk.
         /// </summary>
@@ -401,7 +409,15 @@ namespace InfiniteDrive.Data
             CancellationToken cancellationToken = default)
         {
             var existing = await GetCatalogItemsBySourceAsync(source);
-            var toRemove = existing.Where(x => !currentImdbIds.Contains(x.ImdbId)).ToList();
+            var sevenDaysAgo = DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeSeconds();
+
+            // Sprint 302-06: Only remove items that:
+            // 1. Are not in current catalog AND
+            // 2. Have not been verified in >7 days OR never verified
+            var toRemove = existing.Where(x =>
+                !currentImdbIds.Contains(x.ImdbId) &&
+                (x.LastVerifiedAt == null || x.LastVerifiedAt < sevenDaysAgo)
+            ).ToList();
 
             if (toRemove.Count == 0)
                 return new List<string>();
@@ -433,6 +449,38 @@ namespace InfiniteDrive.Data
             }
 
             return removed;
+        }
+
+        /// <summary>
+        /// Updates last_verified_at for items found in catalog sync.
+        /// Used for safe removal: items are only pruned if they've been missing
+        /// for >7 days.
+        /// </summary>
+        public async Task UpdateLastVerifiedAtAsync(
+            HashSet<string> imdbIds,
+            string source,
+            CancellationToken cancellationToken = default)
+        {
+            if (imdbIds.Count == 0)
+                return;
+
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var idsParam = string.Join(",", imdbIds.Select((_, i) => $"@id{i}"));
+
+            var sql = $@"
+                UPDATE catalog_items
+                SET last_verified_at = @verified_at
+                WHERE imdb_id IN ({idsParam}) AND source = @source;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@verified_at", (int)now);
+                BindText(cmd, "@source", source);
+                for (int i = 0; i < imdbIds.Count; i++)
+                {
+                    BindText(cmd, $"@id{i}", imdbIds.ElementAt(i));
+                }
+            }, cancellationToken);
         }
 
         /// <summary>
@@ -3536,6 +3584,16 @@ CREATE INDEX IF NOT EXISTS idx_user_saves_item ON user_item_saves(media_item_id)
                 _logger.LogInformation("[InfiniteDrive] Schema V29 migration complete");
                 version = 29;
             }
+
+            if (version < 30)
+            {
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V30", version);
+                if (!ColumnExists(conn, "catalog_items", "last_verified_at"))
+                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN last_verified_at INTEGER;");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (30);");
+                _logger.LogInformation("[InfiniteDrive] Schema V30 migration complete (last_verified_at added)");
+                version = 30;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -4410,6 +4468,8 @@ LIMIT 1";
             VideosJson       = r.IsDBNull(31) ? null : r.GetString(31),
             // Sprint 301: Episode expansion tracking
             EpisodesExpanded = r.IsDBNull(32) ? (bool?)null : r.GetInt(32) == 1,
+            // Sprint 302: Marvin sync safety
+            LastVerifiedAt = r.IsDBNull(33) ? (long?)null : r.GetInt64(33),
         };
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry

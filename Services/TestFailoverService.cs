@@ -14,10 +14,10 @@ namespace InfiniteDrive.Services
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
     /// <summary>
-    /// Request object for the <c>GET /InfiniteDrive/TestFailover</c> dry-run endpoint.
+    /// Request object for <c>GET /InfiniteDrive/TestFailover</c> dry-run endpoint.
     /// </summary>
     [Route("/InfiniteDrive/TestFailover", "GET",
-        Summary = "Dry-run the full failover chain for a given IMDB ID without serving a stream")]
+        Summary = "Dry-run of failover chain for a given IMDB ID without serving a stream")]
     public class TestFailoverRequest : IReturn<object>
     {
         /// <summary>IMDB ID to probe, e.g. <c>tt0111161</c>.</summary>
@@ -27,18 +27,17 @@ namespace InfiniteDrive.Services
     }
 
     /// <summary>
-    /// Result for one failover layer in the <c>TestFailover</c> dry-run.
+    /// Result for one failover layer in <c>TestFailover</c> dry-run.
     /// </summary>
     public class FailoverLayerResult
     {
         /// <summary>
         /// Machine-readable outcome.
-        /// Values: <c>ok</c>, <c>skipped</c>, <c>timeout</c>, <c>error</c>,
-        ///         <c>no_streams</c>, <c>no_hash</c>, <c>no_key</c>, <c>not_cached</c>.
+        /// Values: <c>ok</c>, <c>skipped</c>, <c>timeout</c>, <c>error</c>, <c>no_streams</c>.
         /// </summary>
         public string Status { get; set; } = "skipped";
 
-        /// <summary>Human-readable detail for the status badge.</summary>
+        /// <summary>Human-readable detail for status badge.</summary>
         public string Message { get; set; } = string.Empty;
 
         /// <summary>Round-trip latency in milliseconds, or 0 if no network call was made.</summary>
@@ -46,7 +45,7 @@ namespace InfiniteDrive.Services
     }
 
     /// <summary>
-    /// Full response from the <c>TestFailover</c> dry-run.
+    /// Full response from <c>TestFailover</c> dry-run.
     /// </summary>
     public class TestFailoverResponse
     {
@@ -59,9 +58,6 @@ namespace InfiniteDrive.Services
         /// <summary>Layer 2 result: AIOStreams fallback instances.</summary>
         public FailoverLayerResult Layer2 { get; set; } = new FailoverLayerResult();
 
-        /// <summary>Layer 3 result: direct debrid provider APIs.</summary>
-        public FailoverLayerResult Layer3 { get; set; } = new FailoverLayerResult();
-
         /// <summary>One-line plain-English summary of the overall result.</summary>
         public string Summary { get; set; } = string.Empty;
     }
@@ -72,11 +68,10 @@ namespace InfiniteDrive.Services
     /// Handles <c>GET /InfiniteDrive/TestFailover</c>.
     ///
     /// <para>
-    /// Dry-runs the complete resilience chain for a given IMDB ID:
+    /// Dry-runs complete resilience chain for a given IMDB ID:
     /// <list type="number">
     ///   <item>Layer 1 — primary AIOStreams only (no fallbacks)</item>
     ///   <item>Layer 2 — each configured fallback AIOStreams URL</item>
-    ///   <item>Layer 3 — direct debrid instant-availability check using stored torrent hashes</item>
     /// </list>
     /// </para>
     ///
@@ -87,11 +82,11 @@ namespace InfiniteDrive.Services
     /// </summary>
     public class TestFailoverService : IService, IRequiresRequest
     {
-        // Timeout used for each layer's AIOStreams probe — short to keep the UI responsive.
+        // Timeout used for each layer's AIOStreams probe — short to keep UI responsive.
         private const int ProbeTimeoutMs = 5_000;
 
         private readonly ILogger<TestFailoverService> _logger;
-        private readonly IAuthorizationContext        _authCtx;
+        private readonly IAuthorizationContext _authCtx;
 
         /// <inheritdoc/>
         public IRequest Request { get; set; } = null!;
@@ -99,7 +94,7 @@ namespace InfiniteDrive.Services
         /// <summary>Emby injects <paramref name="logManager"/> and <paramref name="authCtx"/> automatically.</summary>
         public TestFailoverService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger  = new EmbyLoggerAdapter<TestFailoverService>(
+            _logger = new EmbyLoggerAdapter<TestFailoverService>(
                 logManager.GetLogger("InfiniteDrive"));
             _authCtx = authCtx;
         }
@@ -108,23 +103,23 @@ namespace InfiniteDrive.Services
         public async Task<object> Get(TestFailoverRequest req)
         {
             // SEC-3: Admin-only — this endpoint makes real outbound network calls and
-            // exposes the full failover configuration (fallback URLs, debrid availability).
+            // exposes failover configuration (fallback URLs).
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
 
             var config = Plugin.Instance?.Configuration;
-            var db     = Plugin.Instance?.DatabaseManager;
+            var db = Plugin.Instance?.DatabaseManager;
 
             if (config == null || db == null)
                 return new TestFailoverResponse { Summary = "Plugin not initialised." };
 
             // SEC-2: Validate IMDB ID format before making any outbound network calls.
-            // Fall back to Shawshank if the parameter is blank.
+            // Fall back to Shawshank if parameter is blank.
             var rawImdb = string.IsNullOrWhiteSpace(req.Imdb) ? "tt0111161" : req.Imdb.Trim();
             if (!IsValidImdbId(rawImdb))
                 return new TestFailoverResponse
                 {
-                    Imdb    = rawImdb,
+                    Imdb = rawImdb,
                     Summary = $"Invalid IMDB ID '{rawImdb}'. Expected format: tt1234567",
                 };
 
@@ -137,9 +132,6 @@ namespace InfiniteDrive.Services
             // ── Layer 2: Fallback AIOStreams instances ─────────────────────────────
             resp.Layer2 = await ProbeFallbacksAsync(imdb, config);
 
-            // ── Layer 3: Direct debrid instant availability ────────────────────────
-            resp.Layer3 = await ProbeDebridDirectAsync(imdb, config, db);
-
             // ── Summary ───────────────────────────────────────────────────────────
             resp.Summary = BuildSummary(resp);
             return resp;
@@ -148,7 +140,7 @@ namespace InfiniteDrive.Services
         // ── Layer probes ─────────────────────────────────────────────────────────
 
         /// <summary>
-        /// Probes the primary AIOStreams instance with a short timeout.
+        /// Probes primary AIOStreams instance with a short timeout.
         /// </summary>
         private async Task<FailoverLayerResult> ProbeAioStreamsInstanceAsync(
             string imdb, PluginConfiguration config, bool primaryOnly)
@@ -157,7 +149,7 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
                 return new FailoverLayerResult
                 {
-                    Status  = "skipped",
+                    Status = "skipped",
                     Message = "No primary manifest URL configured.",
                 };
 
@@ -173,15 +165,15 @@ namespace InfiniteDrive.Services
                 if (response?.Streams == null || response.Streams.Count == 0)
                     return new FailoverLayerResult
                     {
-                        Status    = "no_streams",
-                        Message   = "AIOStreams responded but returned no streams for this title.",
+                        Status = "no_streams",
+                        Message = "AIOStreams responded but returned no streams for this title.",
                         LatencyMs = (int)sw.ElapsedMilliseconds,
                     };
 
                 return new FailoverLayerResult
                 {
-                    Status    = "ok",
-                    Message   = $"{response.Streams.Count} stream(s) returned.",
+                    Status = "ok",
+                    Message = $"{response.Streams.Count} stream(s) returned.",
                     LatencyMs = (int)sw.ElapsedMilliseconds,
                 };
             }
@@ -190,8 +182,8 @@ namespace InfiniteDrive.Services
                 sw.Stop();
                 return new FailoverLayerResult
                 {
-                    Status    = "timeout",
-                    Message   = $"Primary AIOStreams unreachable: {ex.Message}",
+                    Status = "timeout",
+                    Message = $"Primary AIOStreams unreachable: {ex.Message}",
                     LatencyMs = (int)sw.ElapsedMilliseconds,
                 };
             }
@@ -200,8 +192,8 @@ namespace InfiniteDrive.Services
                 sw.Stop();
                 return new FailoverLayerResult
                 {
-                    Status    = "timeout",
-                    Message   = $"Primary AIOStreams did not respond within {ProbeTimeoutMs / 1000}s.",
+                    Status = "timeout",
+                    Message = $"Primary AIOStreams did not respond within {ProbeTimeoutMs / 1000}s.",
                     LatencyMs = (int)sw.ElapsedMilliseconds,
                 };
             }
@@ -210,15 +202,15 @@ namespace InfiniteDrive.Services
                 sw.Stop();
                 return new FailoverLayerResult
                 {
-                    Status    = "error",
-                    Message   = ex.Message,
+                    Status = "error",
+                    Message = ex.Message,
                     LatencyMs = (int)sw.ElapsedMilliseconds,
                 };
             }
         }
 
         /// <summary>
-        /// Probes the secondary AIOStreams provider if configured.
+        /// Probes secondary AIOStreams provider if configured.
         /// Returns "skipped" if no secondary manifest URL is configured.
         /// </summary>
         private async Task<FailoverLayerResult> ProbeFallbacksAsync(
@@ -228,7 +220,7 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                 return new FailoverLayerResult
                 {
-                    Status  = "skipped",
+                    Status = "skipped",
                     Message = "No secondary manifest URL configured.",
                 };
 
@@ -251,15 +243,15 @@ namespace InfiniteDrive.Services
                 if (response?.Streams?.Count > 0)
                     return new FailoverLayerResult
                     {
-                        Status    = "ok",
-                        Message   = $"{response.Streams.Count} stream(s) returned.",
+                        Status = "ok",
+                        Message = $"{response.Streams.Count} stream(s) returned.",
                         LatencyMs = (int)sw.ElapsedMilliseconds,
                     };
                 else
                     return new FailoverLayerResult
                     {
-                        Status    = "no_streams",
-                        Message   = "Secondary instance responded but returned no streams.",
+                        Status = "no_streams",
+                        Message = "Secondary instance responded but returned no streams.",
                         LatencyMs = (int)sw.ElapsedMilliseconds,
                     };
             }
@@ -268,8 +260,8 @@ namespace InfiniteDrive.Services
                 sw.Stop();
                 return new FailoverLayerResult
                 {
-                    Status    = "timeout",
-                    Message   = $"Secondary instance unreachable: {ex.Message}",
+                    Status = "timeout",
+                    Message = $"Secondary instance unreachable: {ex.Message}",
                     LatencyMs = (int)sw.ElapsedMilliseconds,
                 };
             }
@@ -278,8 +270,8 @@ namespace InfiniteDrive.Services
                 sw.Stop();
                 return new FailoverLayerResult
                 {
-                    Status    = "timeout",
-                    Message   = $"Secondary instance did not respond within {ProbeTimeoutMs / 1000}s.",
+                    Status = "timeout",
+                    Message = $"Secondary instance did not respond within {ProbeTimeoutMs / 1000}s.",
                     LatencyMs = (int)sw.ElapsedMilliseconds,
                 };
             }
@@ -288,25 +280,11 @@ namespace InfiniteDrive.Services
                 sw.Stop();
                 return new FailoverLayerResult
                 {
-                    Status    = "error",
-                    Message   = ex.Message,
+                    Status = "error",
+                    Message = ex.Message,
                     LatencyMs = (int)sw.ElapsedMilliseconds,
                 };
             }
-        }
-
-        /// <summary>
-        /// Layer 3 was direct debrid instant-availability, removed in v0.51+.
-        /// Always returns <c>no_key</c> — AIOStreams is the only resolution path.
-        /// </summary>
-        private Task<FailoverLayerResult> ProbeDebridDirectAsync(
-            string imdb, PluginConfiguration config, DatabaseManager db)
-        {
-            return Task.FromResult(new FailoverLayerResult
-            {
-                Status  = "no_key",
-                Message = "Direct debrid fallback was removed in v0.51+. AIOStreams handles all resolution.",
-            });
         }
 
         // ── Helpers ─────────────────────────────────────────────────────────────
@@ -318,9 +296,6 @@ namespace InfiniteDrive.Services
 
             if (r.Layer2.Status == "ok")
                 return "Layer 2 🛡️ — Primary AIOStreams is down but at least one fallback is healthy.";
-
-            if (r.Layer3.Status == "ok")
-                return "Layer 3 🔑 — Direct debrid would serve this title.";
 
             return "⚠️ All AIOStreams layers failed — check connection settings.";
         }

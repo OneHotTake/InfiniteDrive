@@ -15,16 +15,22 @@ namespace InfiniteDrive.Services
     /// Resolve endpoint service for AIOStreams stream resolution.
     /// Queries AIOStreams API, filters by quality tier, and returns M3U8 manifest.
     /// </summary>
-    public class ResolverService : IService
+    public class ResolverService : IService, IRequiresRequest
     {
         private readonly ILogger<ResolverService> _logger;
         private readonly M3u8Builder _m3u8Builder;
+        private readonly ResolverHealthTracker _healthTracker;
+        private readonly RateLimiter _rateLimiter;
 
-        public ResolverService(ILogManager logManager)
+        public ResolverService(ILogManager logManager, ILogger<RateLimiter> rateLimiterLogger)
         {
             _logger = new EmbyLoggerAdapter<ResolverService>(logManager.GetLogger("InfiniteDrive"));
             _m3u8Builder = new M3u8Builder();
+            _healthTracker = new ResolverHealthTracker(_logger);
+            _rateLimiter = new RateLimiter(rateLimiterLogger, Array.Empty<string>());
         }
+
+        public IRequest Request { get; set; } = null!;
 
         private PluginConfiguration Config => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
@@ -33,6 +39,12 @@ namespace InfiniteDrive.Services
         /// </summary>
         public async Task<object> Get(ResolverRequest req)
         {
+            // Sprint 302-05: Rate limit check
+            var clientIp = RateLimiter.GetClientIp(Request);
+            var rateLimitResult = _rateLimiter.CheckResolveLimit(clientIp);
+            if (rateLimitResult != null)
+                return rateLimitResult;
+
             // 1. Validate input
             if (string.IsNullOrEmpty(req.Id))
             {
@@ -67,12 +79,29 @@ namespace InfiniteDrive.Services
             }
 
             // 2. Resolve stream from AIOStreams
+            // Sprint 302-01: Check circuit breaker before attempting resolution
+            const string resolverName = "aiostreams_primary";
+            if (_healthTracker.ShouldSkip(resolverName))
+            {
+                _logger.LogWarning(
+                    "[InfiniteDrive][Resolve] Skipping {Resolver} - circuit is open",
+                    resolverName);
+                return Error(ResolverError.PrimaryResolverDown);
+            }
+
             var (streams, resolverError) = await ResolveStreamsAsync(req);
             if (resolverError.HasValue)
             {
                 // Upstream error (rate limit, connection failure, etc.)
+                if (resolverError == ResolverError.PrimaryResolverDown)
+                {
+                    _healthTracker.RecordFailure(resolverName);
+                }
                 return Error(resolverError.Value);
             }
+
+            // Record success for circuit breaker
+            _healthTracker.RecordSuccess(resolverName);
 
             if (streams == null || streams.Count == 0)
             {
@@ -90,7 +119,7 @@ namespace InfiniteDrive.Services
 
             // 4. Probe top candidates and reorder — dead URLs sink to back of list.
             //    Emby client sees working streams first; dead ones remain as fallback.
-            //    1.5s total budget shared across all probes (Sprint 159).
+            //    5s total budget shared across all probes (Sprint 302).
             filtered = await ProbeAndReorderAsync(filtered);
 
             // 5. Select top stream per source
@@ -154,7 +183,7 @@ namespace InfiniteDrive.Services
         /// Probes the top 3 stream URLs and reorders the list so live streams
         /// come first. Dead URLs sink to the back rather than being removed —
         /// the Emby client can still attempt them as a last resort.
-        /// Total probe budget: 1.5s across all probes.
+        /// Total probe budget: 5s across all probes.
         /// </summary>
         private async Task<List<AioStreamsStream>> ProbeAndReorderAsync(
             List<AioStreamsStream> streams)
@@ -167,7 +196,7 @@ namespace InfiniteDrive.Services
             var live    = new List<AioStreamsStream>();
             var dead    = new List<AioStreamsStream>();
 
-            using var cts = new System.Threading.CancellationTokenSource(1500);
+            using var cts = new System.Threading.CancellationTokenSource(5000);
 
             foreach (var stream in toProbe)
             {

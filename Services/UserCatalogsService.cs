@@ -315,7 +315,11 @@ namespace InfiniteDrive.Services
                 var info = _authCtx.GetAuthorizationInfo(Request);
                 return info?.User?.Id.ToString("N");
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] UserCatalogsService: Failed to get current user ID");
+                return null;
+            }
         }
 
         private static T Err<T>(string message) where T : class, new()

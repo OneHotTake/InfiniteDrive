@@ -82,6 +82,7 @@ namespace InfiniteDrive.Services
         private readonly Func<PluginConfiguration> _configAccessor;
         private readonly ILogger _logger;
         private readonly Func<int, int, int> _jitterSource;
+        private readonly object _lock = new();
         private DateTimeOffset _globalCooldownUntil = DateTimeOffset.MinValue;
 
         // Soft dependency — may be null during tests or before Plugin initialisation
@@ -145,11 +146,20 @@ namespace InfiniteDrive.Services
         public async Task WaitAsync(CooldownKind kind, CancellationToken ct)
         {
             // If we're in a global 429 cooldown, sleep until it expires
-            if (DateTimeOffset.UtcNow < _globalCooldownUntil)
+            TimeSpan? remaining = null;
+            lock (_lock)  // Sprint 302-03: Thread safety for _globalCooldownUntil
             {
-                var remaining = _globalCooldownUntil - DateTimeOffset.UtcNow;
-                _logger.LogDebug("[cooldown] Global cooldown active — waiting {Remaining:F1}s", remaining.TotalSeconds);
-                await Task.Delay(remaining, ct).ConfigureAwait(false);
+                if (DateTimeOffset.UtcNow < _globalCooldownUntil)
+                {
+                    remaining = _globalCooldownUntil - DateTimeOffset.UtcNow;
+                }
+            }
+
+            if (remaining.HasValue)
+            {
+                _logger.LogDebug("[cooldown] Global cooldown active — waiting {Remaining:F1}s", remaining.Value.TotalSeconds);
+                await Task.Delay(remaining.Value, ct).ConfigureAwait(false);
+                return;
             }
 
             var baseDelay = Profile.DelayFor(kind);
@@ -170,29 +180,32 @@ namespace InfiniteDrive.Services
         /// </param>
         public void Tripped(TimeSpan? retryAfter = null)
         {
-            var wait = retryAfter ?? TimeSpan.FromSeconds(Profile.GlobalCooldownSeconds);
-            _globalCooldownUntil = DateTimeOffset.UtcNow + wait;
-
-            // Three-strikes tracking
-            _tripHistory.Enqueue(DateTimeOffset.UtcNow);
-            while (_tripHistory.Count > 0 && _tripHistory.Peek() < DateTimeOffset.UtcNow.AddHours(-1))
-                _tripHistory.Dequeue();
-
-            if (_tripHistory.Count >= 3 && Instance == InstanceType.Shared)
+            lock (_lock)  // Sprint 302-03: Thread safety
             {
-                _suggestPrivateInstance = true;
-                _logger.LogInformation("[cooldown] 3+ rate limits in 1h on shared instance — suggesting private instance");
+                var wait = retryAfter ?? TimeSpan.FromSeconds(Profile.GlobalCooldownSeconds);
+                _globalCooldownUntil = DateTimeOffset.UtcNow + wait;
+
+                // Three-strikes tracking
+                _tripHistory.Enqueue(DateTimeOffset.UtcNow);
+                while (_tripHistory.Count > 0 && _tripHistory.Peek() < DateTimeOffset.UtcNow.AddHours(-1))
+                    _tripHistory.Dequeue();
+
+                if (_tripHistory.Count >= 3 && Instance == InstanceType.Shared)
+                {
+                    _suggestPrivateInstance = true;
+                    _logger.LogInformation("[cooldown] 3+ rate limits in 1h on shared instance — suggesting private instance");
+                }
+
+                _logger.LogWarning("[cooldown] AIOStreams 429 — pausing all HTTP for {Seconds:F0}s", wait.TotalSeconds);
+
+                // Emit progress event for dashboard badge (Sprint 155E)
+                _progressStreamer?.Publish(new ProgressEvent(
+                    Type: "upstream_cooldown",
+                    Message: "Upstream busy — pausing briefly to stay a good neighbour.",
+                    Progress: 0,
+                    Details: $"{{\"until\":\"{_globalCooldownUntil:O}\",\"reason\":\"shared_instance_rate_limit\",\"suggestPrivate\":{_suggestPrivateInstance.ToString().ToLowerInvariant()}}}"
+                ));
             }
-
-            _logger.LogWarning("[cooldown] AIOStreams 429 — pausing all HTTP for {Seconds:F0}s", wait.TotalSeconds);
-
-            // Emit progress event for dashboard badge (Sprint 155E)
-            _progressStreamer?.Publish(new ProgressEvent(
-                Type: "upstream_cooldown",
-                Message: "Upstream busy — pausing briefly to stay a good neighbour.",
-                Progress: 0,
-                Details: $"{{\"until\":\"{_globalCooldownUntil:O}\",\"reason\":\"shared_instance_rate_limit\",\"suggestPrivate\":{_suggestPrivateInstance.ToString().ToLowerInvariant()}}}"
-            ));
         }
 
         /// <summary>
