@@ -8,8 +8,9 @@ Root
 Configuration/               : UI HTML/JS only (never read in backend)
 Data/                        : Schema + DatabaseManager (SQLite)
 Services/                    : all business logic
+Services/Api/                : extracted endpoint classes (Catalog, Diagnostics, Search)
 Tasks/                       : background tasks
-Models/                      : POCO only
+Models/                      : POCO only + ResolutionResult
 
 .ai/
 - CURRENT_TASK.md            : active task only (read first)
@@ -72,3 +73,9 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 
 ## Sprint 350 Complete (2026-04-15)
 - 14 critical audit fixes: ManifestFetcher showstopper, circuit breaker close/persist, PluginSecret fail-closed, probe continue, gap repair fail-closed, path traversal guard, ItemPipeline .strm write impl, provider+circuit state persistence, IMDB ID validation, rate limiter hardening, M3U8 retry, DB write resilience
+
+## Sprints 354–357 Complete (2026-04-15)
+- S354: NamingPolicyService — one BuildFolderName, one SanitisePath. Deleted 4 duplicate copies across StrmWriter/SeriesPreExpansion/EpisodeExpand/RefreshTask. Fixed RefreshTask `[tmdbid=X]` bug.
+- S355: ResolutionResult — structured failure enum (Success/Throttled/ContentMissing/ProviderDown) replaces null returns in StreamResolutionHelper + ResolverService.
+- S356: NfoWriterService — centralized NFO authority with Seed + Enriched quality levels. Deleted 10 private NFO writers, 3 manual XML escapers. All use SecurityElement.Escape. Skipped deletion of 4 active tasks (not obsolete).
+- S357: StatusService decomposition — 2655-line file split into StatusService.cs (812) + Api/CatalogEndpoints.cs (520) + Api/DiagnosticsEndpoints.cs (1020) + Api/SearchEndpoints.cs (334).

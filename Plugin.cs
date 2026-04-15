@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Data;
 using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using InfiniteDrive.Services;
 using InfiniteDrive.UI;
 using InfiniteDrive.Repositories.Interfaces;
@@ -81,10 +82,10 @@ namespace InfiniteDrive
         private static DateTimeOffset _manifestFetchedAt = DateTimeOffset.MinValue;
 
         /// <summary>
-        /// Manifest status: "ok" = loaded and within TTL, "stale" = loaded but past 12-hour TTL, "error" = last fetch failed or never loaded.
-        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// Manifest status: Ok = loaded and within TTL, Stale = loaded but past 12-hour TTL, Error = last fetch failed or never loaded.
+        /// (Sprint 358: Enum-driven state)
         /// </summary>
-        private static string _manifestStatus = "error";
+        private static ManifestStatusState _manifestStatus = ManifestStatusState.Error;
 
         /// <summary>
         /// Gets or sets the manifest fetched timestamp.
@@ -97,15 +98,15 @@ namespace InfiniteDrive
 
         /// <summary>
         /// Gets the current manifest status.
-        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// (Sprint 358: Enum-driven state)
         /// </summary>
-        public static string GetManifestStatus() => _manifestStatus;
+        public static ManifestStatusState GetManifestStatus() => _manifestStatus;
 
         /// <summary>
         /// Sets the manifest status. Used by RefreshManifest to update state.
-        /// (Sprint 102A-01: ManifestStatus state machine)
+        /// (Sprint 358: Enum-driven state)
         /// </summary>
-        internal static void SetManifestStatus(string status)
+        internal static void SetManifestStatus(ManifestStatusState status)
         {
             _manifestStatus = status;
         }
@@ -121,7 +122,7 @@ namespace InfiniteDrive
                 var age = DateTimeOffset.UtcNow - _manifestFetchedAt;
                 if (age > TimeSpan.FromHours(12))
                 {
-                    _manifestStatus = "stale";
+                    _manifestStatus = ManifestStatusState.Stale;
                 }
             }
         }

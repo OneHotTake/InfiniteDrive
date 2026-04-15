@@ -331,15 +331,15 @@ namespace InfiniteDrive.Tasks
                         ELSE 1
                     END ASC,
                     added_at ASC
-                LIMIT 42;"; // 42: max enrichment items per Marvin cycle — balanced to avoid long I/O stalls
+                LIMIT 42;";
 
-            var needsEnrichItems = await db.QueryListAsync<EnrichedItem>(
+            var needsEnrichItems = await db.QueryListAsync<EnrichmentRequest>(
                 needsEnrichQuery,
                 cmd => { },
-                row => new EnrichedItem
+                row => new EnrichmentRequest
                 {
                     Id = row.GetString(0),
-                    ImdbId = row.GetString(1),
+                    ImdbId = row.IsDBNull(1) ? null : row.GetString(1),
                     Title = row.GetString(4),
                     Year = row.IsDBNull(5) ? (int?)null : row.GetInt(5),
                     RetryCount = row.GetInt(20),
@@ -351,102 +351,23 @@ namespace InfiniteDrive.Tasks
 
             var aioClient = new AioMetadataClient(Plugin.Instance!.Configuration, _logger);
             aioClient.Cooldown = Plugin.Instance?.CooldownGate;
-            var enrichedCount = 0;
-            var blockedCount = 0;
 
-            // Rate-limit: 1 call per 2 seconds
-            foreach (var item in needsEnrichItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
+            var result = await MetadataEnrichmentService.EnrichBatchAsync(
+                needsEnrichItems,
+                (req, ct) => aioClient.FetchAsync(req.ImdbId, req.Year, ct),
+                db, _logger, cancellationToken);
 
-                // Check retry_count and next_retry_at
-                if (item.RetryCount == 1 && item.NextRetryAt.HasValue)
-                {
-                    var retryTime = DateTimeOffset.FromUnixTimeSeconds(item.NextRetryAt.Value).DateTime;
-                    if (retryTime > DateTime.UtcNow)
-                    {
-                        // Waiting for +4h backoff
-                        continue;
-                    }
-                }
-                else if (item.RetryCount == 2 && item.NextRetryAt.HasValue)
-                {
-                    var retryTime = DateTimeOffset.FromUnixTimeSeconds(item.NextRetryAt.Value).DateTime;
-                    if (retryTime > DateTime.UtcNow)
-                    {
-                        // Waiting for +24h backoff
-                        continue;
-                    }
-                }
-                else if (item.RetryCount >= 3)
-                {
-                    // Max retries reached, already blocked
-                    blockedCount++;
-                    continue;
-                }
-
-                // Fetch metadata from AIOMetadata
-                var enriched = await aioClient.FetchAsync(item.ImdbId, item.Year);
-                if (enriched == null)
-                {
-                    // Failure: increment retry_count, set next_retry_at
-                    item.RetryCount++;
-                    var nextRetry = item.RetryCount switch
-                    {
-                        0 => DateTime.UtcNow.AddHours(4),
-                        1 => DateTime.UtcNow.AddHours(24),
-                        _ => DateTime.UtcNow // Will be set to Blocked below
-                    };
-
-                    item.NextRetryAt = new DateTimeOffset(nextRetry).ToUnixTimeSeconds();
-
-                    if (item.RetryCount >= 3)
-                    {
-                        // Transition to Blocked
-                        await db.SetNfoStatusAsync(item.Id, "Blocked", cancellationToken);
-                        blockedCount++;
-                        _logger.LogWarning(
-                            "[InfiniteDrive] Enrichment blocked for {Imdb} after 3 retries",
-                            item.ImdbId);
-                    }
-                    else
-                    {
-                        if (item.NextRetryAt.HasValue)
-                        {
-                            await db.UpdateItemRetryInfoAsync(item.Id, item.RetryCount, item.NextRetryAt.Value, cancellationToken);
-                        }
-                    }
-
-                    _logger.LogDebug(
-                        "[InfiniteDrive] Enrichment failed for {Imdb}, retry {Count}",
-                        item.ImdbId, item.RetryCount);
-                }
-                else
-                {
-                    // Success: enriched is non-null — write enriched .nfo
-                    await WriteEnrichedNfoAsync(item, enriched, cancellationToken);
-
-                    // Set nfo_status = 'Enriched', retry_count = 0
-                    await db.SetNfoStatusAsync(item.Id, "Enriched", cancellationToken);
-                    await db.UpdateItemRetryInfoAsync(item.Id, 0, null, cancellationToken);
-
-                    enrichedCount++;
-                    _logger.LogDebug("[InfiniteDrive] Enriched metadata for {Imdb}", item.ImdbId);
-                }
-
-                // Rate-limit delay: 2 seconds between calls
-                await Task.Delay(2000, cancellationToken);
-            }
-
-            _logger.LogInformation($"[InfiniteDrive] Enrichment: Processed {needsEnrichItems.Count} items, {enrichedCount} enriched, {blockedCount} blocked");
+            _logger.LogInformation(
+                "[InfiniteDrive] Enrichment: {Total} items, {Enriched} enriched, {Blocked} blocked, {Skipped} skipped",
+                needsEnrichItems.Count, result.EnrichedCount, result.BlockedCount, result.SkippedCount);
 
             // Notify Emby of updated NFO files
-            if (enrichedCount > 0)
+            if (result.EnrichedCount > 0)
             {
                 try
                 {
                     _libraryManager.QueueLibraryScan();
-                    _logger.LogInformation("[InfiniteDrive] Enrichment: Triggered library scan for {Count} enriched items", enrichedCount);
+                    _logger.LogInformation("[InfiniteDrive] Enrichment: Triggered library scan for {Count} enriched items", result.EnrichedCount);
                 }
                 catch (Exception ex)
                 {
@@ -455,97 +376,6 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        private async Task WriteEnrichedNfoAsync(EnrichedItem item, AioMetadataClient.EnrichedMetadata meta, CancellationToken cancellationToken)
-        {
-            var db = Plugin.Instance!.DatabaseManager;
-            var catalogItem = await db.GetCatalogItemByImdbIdAsync(item.ImdbId);
-            if (catalogItem == null || string.IsNullOrEmpty(catalogItem.StrmPath))
-                return;
-
-            var folderPath = catalogItem.StrmPath!;
-            var isSeries = catalogItem.MediaType == "series" || catalogItem.MediaType == "anime";
-            var rootElement = isSeries ? "tvshow" : "movie";
-
-            var nfoSb = new StringBuilder();
-            nfoSb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            nfoSb.AppendLine($"<{rootElement}>");
-            nfoSb.AppendLine($"  <title>{SanitizeXml(meta.Name)}</title>");
-
-            if (meta.Year.HasValue)
-            {
-                nfoSb.AppendLine($"  <year>{meta.Year.Value}</year>");
-            }
-
-            if (!string.IsNullOrEmpty(meta.Description))
-            {
-                nfoSb.AppendLine($"  <plot>{SanitizeXml(meta.Description)}</plot>");
-            }
-
-            // Write uniqueid - prefer IMDB, fall back to TMDB
-            if (!string.IsNullOrEmpty(meta.ImdbId))
-            {
-                nfoSb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{meta.ImdbId}</uniqueid>");
-            }
-            else if (!string.IsNullOrEmpty(meta.TmdbId))
-            {
-                nfoSb.AppendLine($"  <uniqueid type=\"tmdb\" default=\"true\">{meta.TmdbId}</uniqueid>");
-            }
-
-            // Write genres
-            if (meta.Genres != null && meta.Genres.Count > 0)
-            {
-                foreach (var genre in meta.Genres)
-                {
-                    nfoSb.AppendLine($"  <genre>{SanitizeXml(genre)}</genre>");
-                }
-            }
-
-            nfoSb.AppendLine($"</{rootElement}>");
-
-            // Write .nfo for each version slot
-            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
-            if (!slots.Any())
-                return;
-
-            var defaultSlot = slots.FirstOrDefault(s => s.IsDefault) ?? slots.First();
-            var baseName = catalogItem.Title;
-
-            foreach (var slot in slots)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                var fileName = $"{baseName}{(slot.IsDefault ? "" : $"_{slot.SlotKey}")}.nfo";
-                var fullPath = Path.Combine(folderPath, fileName);
-                var tmpPath = fullPath + ".tmp";
-
-                try
-                {
-                    await File.WriteAllTextAsync(tmpPath, nfoSb.ToString(), new UTF8Encoding(false));
-                    File.Move(tmpPath, fullPath, overwrite: true);
-                    _logger.LogDebug("[InfiniteDrive] Wrote enriched .nfo: {Path}", fullPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to write enriched .nfo: {Path}", fullPath);
-                    if (File.Exists(tmpPath))
-                        File.Delete(tmpPath);
-                }
-            }
-        }
-
-        private static string SanitizeXml(string input)
-        {
-            if (string.IsNullOrEmpty(input))
-                return input;
-
-            // Basic XML sanitization
-            return input
-                .Replace("&", "&amp;")
-                .Replace("<", "&lt;")
-                .Replace(">", "&gt;")
-                .Replace("\"", "&quot;")
-                .Replace("'", "&apos;");
-        }
 
         // ── Phase 3: Token Renewal ─────────────────────────────────────────
 
@@ -693,16 +523,5 @@ namespace InfiniteDrive.Tasks
             return "http://localhost:8096";
         }
 
-        // ── Helper types ─────────────────────────────────────────────────────────
-
-        private record EnrichedItem
-        {
-            public string Id { get; init; }
-            public string ImdbId { get; init; }
-            public string Title { get; init; }
-            public int? Year { get; init; }
-            public int RetryCount { get; set; }
-            public long? NextRetryAt { get; set; }
-        }
     }
 }

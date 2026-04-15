@@ -70,7 +70,7 @@ namespace InfiniteDrive.Services
                     : config.SyncPathShows;
                 var seriesPath = Path.Combine(
                     basePath,
-                    StrmWriterService.SanitisePathPublic(BuildFolderName(fullMeta.GetName(), fullMeta.GetYear(), item.ImdbId)));
+                    NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(fullMeta.GetName(), fullMeta.GetYear(), item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
 
                 Directory.CreateDirectory(seriesPath);
                 _logger.LogDebug("[InfiniteDrive] SeriesPreExpansion: Series folder: {Path}", seriesPath);
@@ -121,7 +121,7 @@ namespace InfiniteDrive.Services
                         }
 
                         // Create .strm file with signed URL + version slots
-                        var sanitisedName = StrmWriterService.SanitisePathPublic(fullMeta.GetName());
+                        var sanitisedName = NamingPolicyService.SanitisePath(fullMeta.GetName());
                         var fileName = $"{sanitisedName} S{seasonNum:D2}E{epNum:D2}.strm";
                         var filePath = Path.Combine(seasonPath, fileName);
                         var nfoPath = Path.ChangeExtension(filePath, ".nfo");
@@ -135,7 +135,7 @@ namespace InfiniteDrive.Services
                                 await File.WriteAllTextAsync(filePath, StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", seasonNum, epNum), Encoding.UTF8, cancellationToken);
 
                             // Write episode NFO file
-                            await WriteEpisodeNfoFileAsync(nfoPath, episode, fullMeta, cancellationToken);
+                            await NfoWriterService.WriteEpisodeNfoAsync(nfoPath, episode, fullMeta, cancellationToken);
 
                             written++;
                             _logger.LogDebug(
@@ -146,7 +146,7 @@ namespace InfiniteDrive.Services
                 }
 
                 // Write tvshow.nfo file for Emby
-                await WriteTvNfoFileAsync(seriesPath, fullMeta, item, cancellationToken);
+                await NfoWriterService.WriteTvShowNfoAsync(seriesPath, fullMeta, item, cancellationToken);
 
                 _logger.LogInformation(
                     "[InfiniteDrive] SeriesPreExpansion: Complete for {ImdbId} ({Title}) - {Written} new .strm files written",
@@ -193,7 +193,7 @@ namespace InfiniteDrive.Services
                 : config.SyncPathShows;
             var seriesPath = Path.Combine(
                 basePath,
-                StrmWriterService.SanitisePathPublic(BuildFolderName(item.Title, item.Year, item.ImdbId)));
+                NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
 
             Directory.CreateDirectory(seriesPath);
 
@@ -210,7 +210,7 @@ namespace InfiniteDrive.Services
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var sanitisedName = StrmWriterService.SanitisePathPublic(item.Title);
+                    var sanitisedName = NamingPolicyService.SanitisePath(item.Title);
                     var fileName = $"{sanitisedName} S{season:D2}E{episode:D2}.strm";
                     var filePath = Path.Combine(seasonPath, fileName);
 
@@ -368,7 +368,7 @@ namespace InfiniteDrive.Services
 
                     if (!string.IsNullOrEmpty(showRoot) && Directory.Exists(showRoot))
                     {
-                        var sanitisedName = StrmWriterService.SanitisePathPublic(
+                        var sanitisedName = NamingPolicyService.SanitisePath(
                             fullMeta.GetName() ?? item.Title);
 
                         // Build lookup for video metadata
@@ -399,7 +399,7 @@ namespace InfiniteDrive.Services
                                 {
                                     var nfoPath = Path.ChangeExtension(filePath, ".nfo");
                                     if (!File.Exists(nfoPath))
-                                        await WriteEpisodeNfoFileAsync(nfoPath, video, fullMeta, cancellationToken);
+                                        await NfoWriterService.WriteEpisodeNfoAsync(nfoPath, video, fullMeta, cancellationToken);
                                 }
 
                                 changes++;
@@ -447,131 +447,6 @@ namespace InfiniteDrive.Services
         /// </summary>
         public static EpisodeSyncResult? LastSyncResult { get; set; }
 
-        private static string BuildFolderName(string title, int? year, string? imdbId)
-        {
-            var sb = new StringBuilder(title);
-            if (year.HasValue) sb.Append($" ({year})");
-            if (!string.IsNullOrEmpty(imdbId)) sb.Append($" [imdbid-{imdbId}]");
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// Write a tvshow.nfo file so Emby can match the series by IMDB ID.
-        /// </summary>
-        private static async Task WriteTvNfoFileAsync(
-            string seriesPath,
-            StremioMeta meta,
-            CatalogItem catalogItem,
-            CancellationToken cancellationToken)
-        {
-            var nfoPath = Path.Combine(seriesPath, "tvshow.nfo");
-            if (File.Exists(nfoPath))
-                return; // Don't overwrite existing NFO
-
-            var esc = System.Security.SecurityElement.Escape;
-            var sb = new StringBuilder();
-            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            sb.AppendLine("<tvshow>");
-            sb.AppendLine($"  <title>{esc(meta.GetName())}</title>");
-
-            var year = meta.GetYear();
-            if (year.HasValue)
-                sb.AppendLine($"  <year>{year.Value}</year>");
-
-            if (meta.Released.HasValue)
-                sb.AppendLine($"  <premiered>{meta.Released.Value:yyyy-MM-dd}</premiered>");
-            else if (meta.FirstAired.HasValue)
-                sb.AppendLine($"  <premiered>{meta.FirstAired.Value:yyyy-MM-dd}</premiered>");
-
-            // ── Provider IDs (uniqueid tags for anime plugin matching) ────────
-            if (!string.IsNullOrWhiteSpace(catalogItem.ImdbId))
-                sb.AppendLine($"  <uniqueid type=\"imdb\" default=\"true\">{esc(catalogItem.ImdbId)}</uniqueid>");
-
-            var tmdb = meta.GetTmdbId() ?? catalogItem.TmdbId;
-            if (!string.IsNullOrWhiteSpace(tmdb))
-                sb.AppendLine($"  <uniqueid type=\"tmdb\">{esc(tmdb)}</uniqueid>");
-
-            if (!string.IsNullOrWhiteSpace(catalogItem.TvdbId))
-                sb.AppendLine($"  <uniqueid type=\"tvdb\">{esc(catalogItem.TvdbId)}</uniqueid>");
-
-            if (!string.IsNullOrWhiteSpace(meta.KitsuId))
-                sb.AppendLine($"  <uniqueid type=\"kitsu\">{esc(meta.KitsuId)}</uniqueid>");
-
-            if (!string.IsNullOrWhiteSpace(meta.AniListId))
-                sb.AppendLine($"  <uniqueid type=\"anilist\">{esc(meta.AniListId)}</uniqueid>");
-
-            if (!string.IsNullOrWhiteSpace(meta.MalId))
-                sb.AppendLine($"  <uniqueid type=\"mal\">{esc(meta.MalId)}</uniqueid>");
-
-            // Legacy tags for Emby compatibility
-            if (!string.IsNullOrWhiteSpace(catalogItem.ImdbId))
-                sb.AppendLine($"  <imdbid>{esc(catalogItem.ImdbId)}</imdbid>");
-            if (!string.IsNullOrWhiteSpace(tmdb))
-                sb.AppendLine($"  <tmdbid>{esc(tmdb)}</tmdbid>");
-
-            // ── Rich metadata ────────────────────────────────────────────────
-            if (!string.IsNullOrWhiteSpace(meta.Overview))
-                sb.AppendLine($"  <plot><![CDATA[{meta.Overview}]]></plot>");
-
-            if (meta.Genres?.Count > 0)
-            {
-                foreach (var genre in meta.Genres)
-                    sb.AppendLine($"  <genre>{esc(genre)}</genre>");
-            }
-
-            if (!string.IsNullOrWhiteSpace(meta.Status))
-                sb.AppendLine($"  <status>{esc(meta.Status)}</status>");
-
-            // ── Anime-specific fields ─────────────────────────────────────────
-            var isAnime = string.Equals(catalogItem.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
-            if (isAnime)
-                sb.AppendLine("  <displayorder>absolute</displayorder>");
-
-            sb.AppendLine("</tvshow>");
-
-            await File.WriteAllTextAsync(nfoPath, sb.ToString(), Encoding.UTF8, cancellationToken);
-        }
-
-        private static async Task WriteEpisodeNfoFileAsync(
-            string nfoPath,
-            StremioVideo episode,
-            StremioMeta seriesMeta,
-            CancellationToken cancellationToken = default)
-        {
-            if (episode.Season == null || episode.Episode == null)
-                return;
-
-            var esc = System.Security.SecurityElement.Escape;
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("<?xml version=\"1.0\" encoding=\"UTF-8\"?>");
-            sb.AppendLine($"<episodedetails lockdata=\"false\">");
-
-            // Episode title
-            if (!string.IsNullOrEmpty(episode.Name))
-                sb.AppendLine($"  <title>{esc(episode.Name)}</title>");
-
-            // Episode number and season
-            sb.AppendLine($"  <season>{episode.Season}</season>");
-            sb.AppendLine($"  <episode>{episode.Episode}</episode>");
-
-            // Absolute episode number for anime
-            if (episode.AbsoluteEpisodeNumber.HasValue)
-                sb.AppendLine($"  <displayepisodenumber>{episode.AbsoluteEpisodeNumber.Value}</displayepisodenumber>");
-
-            // Air date
-            if (episode.Released.HasValue)
-                sb.AppendLine($"  <aired>{episode.Released.Value:yyyy-MM-dd}</aired>");
-            else if (episode.FirstAired.HasValue)
-                sb.AppendLine($"  <aired>{episode.FirstAired.Value:yyyy-MM-dd}</aired>");
-
-            // Series title (for context)
-            if (!string.IsNullOrEmpty(seriesMeta.Title))
-                sb.AppendLine($"  <showtitle>{esc(seriesMeta.Title)}</showtitle>");
-
-            sb.AppendLine("</episodedetails>");
-
-            await File.WriteAllTextAsync(nfoPath, sb.ToString(), Encoding.UTF8, cancellationToken);
-        }
     }
 
     /// <summary>

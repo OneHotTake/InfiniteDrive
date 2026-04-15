@@ -23,7 +23,7 @@ namespace InfiniteDrive.Services
         /// This is extracted from PlaybackService.SyncResolveAsync for shared use.
         /// Writes both ranked candidates and the primary ResolutionEntry to the database.
         /// </summary>
-        public static async Task<ResolutionEntry?> SyncResolveViaProvidersAsync(
+        public static async Task<ResolutionResult> SyncResolveViaProvidersAsync(
             PlayRequest req,
             PluginConfiguration config,
             DatabaseManager db,
@@ -119,7 +119,7 @@ namespace InfiniteDrive.Services
                         }
                     }
 
-                    return entry;
+                    return new ResolutionResult { Status = ResolutionStatus.Success, StreamUrl = entry.StreamUrl, Entry = entry };
                 }
                 catch (AioStreamsUnreachableException ex)
                 {
@@ -132,7 +132,7 @@ namespace InfiniteDrive.Services
                 {
                     logger.LogWarning("[InfiniteDrive] Sync resolve timed out ({Timeout}s) for {Imdb}",
                         timeoutMs / 1000, req.Imdb);
-                    return null;
+                    return new ResolutionResult { Status = ResolutionStatus.ProviderDown };
                 }
                 catch (Exception ex)
                 {
@@ -144,9 +144,9 @@ namespace InfiniteDrive.Services
 
             // If we got here, all providers were either unreachable or returned no streams
             if (lastUnreachable != null)
-                throw lastUnreachable;
+                return new ResolutionResult { Status = ResolutionStatus.ProviderDown };
 
-            return null;
+            return new ResolutionResult { Status = ResolutionStatus.ContentMissing };
         }
 
         /// <summary>
@@ -190,7 +190,7 @@ namespace InfiniteDrive.Services
             };
 
             var resolved = await SyncResolveViaProvidersAsync(playReq, config, db, logger, healthTracker, cancellationToken);
-            if (resolved != null)
+            if (resolved.Status == ResolutionStatus.Success && resolved.Entry != null)
             {
                 var resolvedCandidates = await db.GetStreamCandidatesAsync(imdbId, season, episode);
                 streamUrl = resolvedCandidates.Count > 0 ? resolvedCandidates[0].Url : resolved.StreamUrl;

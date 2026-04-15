@@ -62,15 +62,15 @@ namespace InfiniteDrive.Services
             {
                 var animeFolder = Path.Combine(
                     config.SyncPathAnime,
-                    SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
+                    NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
 
                 if (item.MediaType == "movie")
                 {
                     Directory.CreateDirectory(animeFolder);
-                    var animeFileName = $"{SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
+                    var animeFileName = $"{NamingPolicyService.SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
                     var animePath = Path.Combine(animeFolder, animeFileName);
                     WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
-                    WriteNfoFileIfEnabled(config, item, animePath, originSourceType);
+                    if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(animePath, item, originSourceType.ToDisplayString());
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     await WriteVersionSlotsAsync(animePath, config, item.ImdbId, "movie", null, null, ct);
                     return animePath;
@@ -79,9 +79,9 @@ namespace InfiniteDrive.Services
                 {
                     var animeSeasonDir = Path.Combine(animeFolder, "Season 01");
                     Directory.CreateDirectory(animeSeasonDir);
-                    var animeStrmPath = Path.Combine(animeSeasonDir, $"{SanitisePath(item.Title)} S01E01.strm");
+                    var animeStrmPath = Path.Combine(animeSeasonDir, $"{NamingPolicyService.SanitisePath(item.Title)} S01E01.strm");
                     WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
-                    WriteNfoFileIfEnabled(config, item, animeStrmPath, originSourceType);
+                    if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(animeStrmPath, item, originSourceType.ToDisplayString());
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     await WriteVersionSlotsAsync(animeStrmPath, config, item.ImdbId, "series", 1, 1, ct);
                     return animeStrmPath;
@@ -93,12 +93,12 @@ namespace InfiniteDrive.Services
                 if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return null;
                 var folder = Path.Combine(
                     config.SyncPathMovies,
-                    SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
+                    NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
                 Directory.CreateDirectory(folder);
-                var fileName = $"{SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
+                var fileName = $"{NamingPolicyService.SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
                 var path = Path.Combine(folder, fileName);
                 WriteStrmFile(path, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
-                WriteNfoFileIfEnabled(config, item, path, originSourceType);
+                if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(path, item, originSourceType.ToDisplayString());
                 await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                 await WriteVersionSlotsAsync(path, config, item.ImdbId, "movie", null, null, ct);
                 return path;
@@ -107,12 +107,12 @@ namespace InfiniteDrive.Services
             // Series — seed S01E01
             if (string.IsNullOrWhiteSpace(config.SyncPathShows)) return null;
             var showDir = Path.Combine(config.SyncPathShows,
-                SanitisePath(BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType)));
+                NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
             var seasonDir = Path.Combine(showDir, "Season 01");
             Directory.CreateDirectory(seasonDir);
-            var strmPath = Path.Combine(seasonDir, $"{SanitisePath(item.Title)} S01E01.strm");
+            var strmPath = Path.Combine(seasonDir, $"{NamingPolicyService.SanitisePath(item.Title)} S01E01.strm");
             WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
-            WriteNfoFileIfEnabled(config, item, strmPath, originSourceType);
+            if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(strmPath, item, originSourceType.ToDisplayString());
             await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
             await WriteVersionSlotsAsync(strmPath, config, item.ImdbId, "series", 1, 1, ct);
             return strmPath;
@@ -195,7 +195,7 @@ namespace InfiniteDrive.Services
 
             Directory.CreateDirectory(seasonDir);
 
-            var fileName = $"{SanitisePath(seriesItem.Title)} S{season:D2}E{episode:D2}.strm";
+            var fileName = $"{NamingPolicyService.SanitisePath(seriesItem.Title)} S{season:D2}E{episode:D2}.strm";
             var filePath = Path.Combine(seasonDir, fileName);
 
             if (File.Exists(filePath))
@@ -209,7 +209,7 @@ namespace InfiniteDrive.Services
             WriteStrmFile(filePath, url);
 
             if (config.EnableNfoHints)
-                WriteEpisodeNfo(seriesItem, season, episode, episodeTitle, filePath);
+                NfoWriterService.WriteSeedEpisodeNfo(filePath, seriesItem.Title, season, episode, episodeTitle);
 
             await WriteVersionSlotsAsync(filePath, config, seriesItem.ImdbId, "series", season, episode, ct);
 
@@ -278,7 +278,7 @@ namespace InfiniteDrive.Services
 
             Directory.CreateDirectory(seasonDir);
 
-            var fileName = $"{SanitisePath(seriesItem.Title)} S{seasonNumber:D2}E{episodeNumber:D2}.strm";
+            var fileName = $"{NamingPolicyService.SanitisePath(seriesItem.Title)} S{seasonNumber:D2}E{episodeNumber:D2}.strm";
             var filePath = Path.Combine(seasonDir, fileName);
 
             if (File.Exists(filePath))
@@ -289,45 +289,10 @@ namespace InfiniteDrive.Services
 
             // Write episode NFO if enabled
             if (config.EnableNfoHints)
-                WriteEpisodeNfo(seriesItem, seasonNumber, episodeNumber, episodeTitle, filePath);
+                NfoWriterService.WriteSeedEpisodeNfo(filePath, seriesItem.Title, seasonNumber, episodeNumber, episodeTitle);
 
             _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode {FilePath}", filePath);
             return filePath;
-        }
-
-        /// <summary>
-        /// Writes a minimal episodedetails NFO for a repaired episode.
-        /// </summary>
-        private void WriteEpisodeNfo(
-            CatalogItem seriesItem,
-            int seasonNumber,
-            int episodeNumber,
-            string? episodeTitle,
-            string strmPath)
-        {
-            try
-            {
-                var nfoPath = Path.ChangeExtension(strmPath, ".nfo");
-                using var writer = new StreamWriter(nfoPath, false, new UTF8Encoding(false));
-                writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
-                writer.WriteLine("<episodedetails>");
-                writer.WriteLine($"  <title>{EncodeXml(episodeTitle ?? $"Episode {episodeNumber}")}</title>");
-                writer.WriteLine($"  <season>{seasonNumber}</season>");
-                writer.WriteLine($"  <episode>{episodeNumber}</episode>");
-                writer.WriteLine($"  <showtitle>{EncodeXml(seriesItem.Title)}</showtitle>");
-                if (!string.IsNullOrEmpty(seriesItem.ImdbId))
-                    writer.WriteLine($"  <uniqueid type=\"imdb\">{seriesItem.ImdbId}</uniqueid>");
-                if (!string.IsNullOrEmpty(seriesItem.TmdbId))
-                    writer.WriteLine($"  <uniqueid type=\"tmdb\">{seriesItem.TmdbId}</uniqueid>");
-                if (!string.IsNullOrEmpty(seriesItem.TvdbId))
-                    writer.WriteLine($"  <uniqueid type=\"tvdb\">{seriesItem.TvdbId}</uniqueid>");
-                writer.WriteLine("</episodedetails>");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[InfiniteDrive] StrmWriterService: failed to write episode NFO for {ImdbId} S{S}E{E}",
-                    seriesItem.ImdbId, seasonNumber, episodeNumber);
-            }
         }
 
         // ── Private: .strm file I/O ──────────────────────────────────────────────
@@ -347,56 +312,6 @@ namespace InfiniteDrive.Services
                 return; // Already set, first-writer-wins
 
             await _db.SetFirstAddedByUserIdIfNotSetAsync(item.Id, ownerUserId, ct);
-        }
-
-        // ── Private: NFO file generation ───────────────────────────────────────────
-
-        /// <summary>
-        /// Writes a minimal Kodi-format .nfo file alongside the .strm if enabled.
-        /// Contains only IMDB and TMDB uniqueid tags — no plot, poster, or cast data.
-        /// Emby reads these IDs to match the item against its internal scraper.
-        /// </summary>
-        private void WriteNfoFileIfEnabled(
-            PluginConfiguration config,
-            CatalogItem item,
-            string strmPath,
-            SourceType originSourceType)
-        {
-            if (!config.EnableNfoHints)
-                return;
-
-            try
-            {
-                var nfoPath = Path.ChangeExtension(strmPath, ".nfo");
-                using var writer = new StreamWriter(nfoPath, false, new UTF8Encoding(false));
-                writer.WriteLine("<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>");
-                writer.WriteLine("<movie>");
-                writer.WriteLine($"  <uniqueid type=\"imdb\">{item.ImdbId}</uniqueid>");
-                if (!string.IsNullOrEmpty(item.TmdbId))
-                    writer.WriteLine($"  <uniqueid type=\"tmdb\">{item.TmdbId}</uniqueid>");
-                writer.WriteLine($"  <title>{EncodeXml(item.Title)}</title>");
-                if (item.Year.HasValue)
-                    writer.WriteLine($"  <year>{item.Year.Value}</year>");
-                writer.WriteLine($"  <source>{originSourceType.ToDisplayString()}</source>");
-                writer.WriteLine("</movie>");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[InfiniteDrive] StrmWriterService: failed to write NFO for {ImdbId}", item.ImdbId);
-            }
-        }
-
-        /// <summary>
-        /// XML-escapes special characters to prevent malformed NFO files.
-        /// </summary>
-        private static string EncodeXml(string input)
-        {
-            if (string.IsNullOrEmpty(input)) return input;
-            return input.Replace("&", "&amp;")
-                       .Replace("<", "&lt;")
-                       .Replace(">", "&gt;")
-                       .Replace("\"", "&quot;")
-                       .Replace("'", "&apos;");
         }
 
         // ── Public: centralized delete helpers (FIX-353-01) ────────────────────
@@ -490,48 +405,7 @@ namespace InfiniteDrive.Services
         // ── Private: helpers ─────────────────────────────────────────────────────
 
         /// <summary>
-        /// Builds a folder name using Emby IMDB auto-match convention:
-        /// <c>{Title} ({Year}) [imdbid-{imdbId}]</c>
-        ///
-        /// The <c>[imdbid-ttXXXXXXX]</c> suffix causes Emby's built-in scrapers
-        /// (TMDb, OMDb) to automatically fetch poster, backdrop, cast, and ratings
-        /// without requiring a separate .nfo file for ID hinting.
-        /// </summary>
-        private static string BuildFolderName(
-            string title,
-            int? year,
-            string? imdbId,
-            string? tmdbId,
-            string? tvdbId,
-            string mediaType)
-        {
-            var sb = new StringBuilder(title);
-            if (year.HasValue) sb.Append($" ({year})");
-
-            // Priority: tt > tvdb (series) > tmdb > nothing
-            // Emby scanner reads the FIRST recognized hint in the folder name.
-            if (!string.IsNullOrEmpty(imdbId) &&
-                imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
-            {
-                sb.Append($" [imdbid-{imdbId}]");
-            }
-            else if (!string.IsNullOrEmpty(tvdbId) &&
-                     (mediaType == "series" || mediaType == "anime"))
-            {
-                sb.Append($" [tvdbid-{tvdbId}]");
-            }
-            else if (!string.IsNullOrEmpty(tmdbId))
-            {
-                sb.Append($" [tmdbid-{tmdbId}]");
-            }
-            // No hint if we have nothing — Emby will fuzzy-match by title+year
-
-            return sb.ToString();
-        }
-
-        /// <summary>
         /// Generates a signed URL for /InfiniteDrive/resolve endpoint using resolve tokens.
-        /// Falls back to legacy /InfiniteDrive/Play URL if PluginSecret is not configured.
         /// </summary>
         public static string BuildSignedStrmUrl(
             PluginConfiguration config,
@@ -577,26 +451,10 @@ namespace InfiniteDrive.Services
             throw new InvalidOperationException("PluginSecret not configured — cannot sign .strm URL");
         }
 
-        /// <summary>Removes filesystem-unsafe characters from a path segment.</summary>
-        private static string SanitisePath(string input)
-        {
-            var invalid = new[] { '/', '\\', ':', '*', '?', '"', '<', '>', '|' };
-            var sb = new StringBuilder(input.Length);
-            foreach (var ch in input)
-                sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
-
-            // Sprint 303-04: Block path traversal
-            var result = sb.ToString().Trim();
-            if (result.Contains(".."))
-                throw new InvalidOperationException($"Path traversal detected in input: '{input}'");
-
-            return result;
-        }
-
         /// <summary>
         /// Public wrapper for SanitisePath for external callers.
-        /// Moved from CatalogSyncTask.SanitisePathPublic (Sprint 156).
+        /// Delegates to NamingPolicyService.SanitisePath.
         /// </summary>
-        public static string SanitisePathPublic(string input) => SanitisePath(input);
+        public static string SanitisePathPublic(string input) => NamingPolicyService.SanitisePath(input);
     }
 }
