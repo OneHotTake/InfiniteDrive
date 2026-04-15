@@ -76,56 +76,16 @@ namespace InfiniteDrive
         public static ProgressStreamer ProgressStreamer = new();
 
         /// <summary>
-        /// Timestamp when manifest was last fetched. Used for TTL validation.
-        /// (Sprint 100A-01)
+        /// Manifest state container — single authority for status, fetched timestamp, staleness.
+        /// Sprint 360: replaces scattered statics + static methods.
         /// </summary>
-        private static DateTimeOffset _manifestFetchedAt = DateTimeOffset.MinValue;
+        public static ManifestState Manifest { get; } = new();
 
         /// <summary>
-        /// Manifest status: Ok = loaded and within TTL, Stale = loaded but past 12-hour TTL, Error = last fetch failed or never loaded.
-        /// (Sprint 358: Enum-driven state)
+        /// Pipeline phase tracker — shared operational picture for admin UI + diagnostics.
+        /// Sprint 361: In-memory snapshot, no DB writes.
         /// </summary>
-        private static ManifestStatusState _manifestStatus = ManifestStatusState.Error;
-
-        /// <summary>
-        /// Gets or sets the manifest fetched timestamp.
-        /// </summary>
-        public static DateTimeOffset ManifestFetchedAt
-        {
-            get => _manifestFetchedAt;
-            set => _manifestFetchedAt = value;
-        }
-
-        /// <summary>
-        /// Gets the current manifest status.
-        /// (Sprint 358: Enum-driven state)
-        /// </summary>
-        public static ManifestStatusState GetManifestStatus() => _manifestStatus;
-
-        /// <summary>
-        /// Sets the manifest status. Used by RefreshManifest to update state.
-        /// (Sprint 358: Enum-driven state)
-        /// </summary>
-        internal static void SetManifestStatus(ManifestStatusState status)
-        {
-            _manifestStatus = status;
-        }
-
-        /// <summary>
-        /// Checks if cached manifest is stale (> 12 hours old) and updates status.
-        /// (Sprint 102A-01: ManifestStatus state machine)
-        /// </summary>
-        internal static void CheckManifestStale()
-        {
-            if (_manifestFetchedAt != DateTimeOffset.MinValue)
-            {
-                var age = DateTimeOffset.UtcNow - _manifestFetchedAt;
-                if (age > TimeSpan.FromHours(12))
-                {
-                    _manifestStatus = ManifestStatusState.Stale;
-                }
-            }
-        }
+        public static PipelinePhaseTracker Pipeline { get; } = new();
 
         /// <summary>
         /// Shared database manager.  Initialised during plugin construction so it

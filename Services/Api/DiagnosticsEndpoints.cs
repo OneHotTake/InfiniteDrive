@@ -902,6 +902,9 @@ body{{
         /// </summary>
         public string? LastCollectionSyncTime { get; set; }
 
+        /// <summary>Current pipeline phase, if any task is active. Sprint 362.</summary>
+        public PipelinePhase? ActivePipeline { get; set; }
+
         /// <summary>Blocked addon names.</summary>
         public List<string> BlockedAddons { get; set; } = new List<string>();
 
@@ -950,8 +953,11 @@ body{{
                 }
 
                 // Manifest status — use Plugin authority (Sprint 358: deleted dead local)
-                response.ManifestStatus = Plugin.GetManifestStatus();
-                response.ManifestLastFetched = Plugin.ManifestFetchedAt.ToString("o");
+                response.ManifestStatus = Plugin.Manifest.Status;
+                response.ManifestLastFetched = Plugin.Manifest.FetchedAt.ToString("o");
+
+                // Pipeline phase — Sprint 362
+                response.ActivePipeline = Plugin.Pipeline.Current;
 
                 // Catalog count (from manifest, approximate)
                 response.CatalogCount = 0; // Would need to fetch manifest for exact count

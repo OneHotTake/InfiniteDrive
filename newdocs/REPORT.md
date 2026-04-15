@@ -110,13 +110,20 @@ All changes written to `./newdocs/`. Dead/outdated docs flagged below.
 ### Architecture NOT documented:
 - `SyncLock` (SemaphoreSlim) — Catalog mutation serialization
 - `ProgressStreamer` — SSE event streamer
-- `ManifestStatus` state machine — ok/stale/error tracking
+- `ManifestState` class (`Plugin.Manifest`) — manifest status + staleness authority (Sprint 360)
+- `ManifestStatusState` enum — Error/NotConfigured/Stale/Ok with [EnumMember] (Sprint 358)
+- `PipelinePhaseTracker` (`Plugin.Pipeline`) — real-time task phase visibility (Sprint 361)
+- `MetadataEnrichmentService` — shared retry/backoff logic for metadata enrichment (Sprint 359)
+- `NamingPolicyService` — single naming authority for folder names and path sanitisation (Sprint 354)
 - Repository layer: `CatalogRepository`, `VersionSlotRepository`, `CandidateRepository`, `SnapshotRepository`, `MaterializedVersionRepository`
 - `CooldownGate` — Rate limiting service (replaces ApiCallDelayMs)
 - `StreamProbeService` — Stream availability checking
 - `IdResolverService` — ID normalization chain
 - `CertificationResolver` — TMDB parental rating lookup
-- `NfoWriterService` — Centralized NFO authority (Sprint 356)
+
+### NOW DOCUMENTED in architecture/ (Sprint 362):
+- All services, models, tasks, DTOs, control flows, and state management are covered in `architecture/` directory
+- See: `architecture/OVERVIEW.md`, `architecture/SERVICES.md`, `architecture/CONTROL_FLOW.md`, `architecture/STATE_MANAGEMENT.md`, `architecture/DTO_SCHEMAS.md`, `architecture/TASKS.md`
 
 ---
 
@@ -180,6 +187,6 @@ From `InfiniteDrive.csproj`:
 5. **Rate limiter hardening** (Sprint 350): `RateLimiter` enforces per-client resolve limits
 6. **IMDB ID validation** (Sprint 350): `IdResolverService` validates ID format before resolution
 7. **DB write serialization** (Sprint 312): `DatabaseManager._dbWriteGate` serializes all writes (WAL mode constraint)
-8. **Manifest TTL** (Sprint 102A-01): Manifest expires after 12 hours; status tracked as ok/stale/error
+8. **Manifest TTL** (Sprint 102A-01, updated Sprint 360): `Plugin.Manifest` (`ManifestState`) tracks status as `ManifestStatusState` enum (Error/NotConfigured/Stale/Ok); stale after 12 hours via `CheckStale()`
 9. **Version slot floor** (Sprint 127): `hd_broad` slot cannot be disabled — always present
 10. **CooldownGate** (Sprint 155): Replaces scattered `Task.Delay(ApiCallDelayMs)` with profile-aware delays

@@ -911,6 +911,7 @@ namespace InfiniteDrive.Tasks
             }
 
             // 1. Build provider list
+            Plugin.Pipeline.SetPhase("CatalogSync", "BuildProviders");
             var providers = BuildProviders(config);
             if (providers.Count == 0)
             {
@@ -920,6 +921,7 @@ namespace InfiniteDrive.Tasks
             }
 
             // 2. Fetch from all providers (with interval guard + health recording)
+            Plugin.Pipeline.SetPhase("CatalogSync", "Fetch");
             progress.Report(5);
             var (allItems, fetchedSourceIds, attemptedProviders) = await FetchFromAllProvidersAsync(providers, config, db, cancellationToken);
             _logger.LogInformation(
@@ -1017,6 +1019,7 @@ namespace InfiniteDrive.Tasks
                 }
                 // Sprint 100A-10: Release global sync lock
                 Plugin.SyncLock.Release();
+                Plugin.Pipeline.Clear();
             }
         }
 

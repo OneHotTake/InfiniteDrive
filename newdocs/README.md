@@ -103,12 +103,19 @@ http://localhost:8096/web/configurationpage?name=InfiniteDiscover
 ```
 AIOStreams API
      │
-     ├── CatalogSyncTask / TriggerService  (scheduled: discovers catalogs)
-     ├── CatalogDiscoverService           (resolves items, normalizes IDs)
-     ├── IdResolverService                (tt/tmdb/tvdb resolution chain)
-     ├── NfoWriterService                 (writes .nfo files: seed + enriched)
-     ├── StrmWriterService                 (writes .strm files)
-     └── MarvinTask                        (trickle hydration, background)
+     ├── CatalogSyncTask                    (scheduled: discovers catalogs)
+     │     └── Fetch → Filter → Diff → Process → User Catalogs
+     ├── RefreshTask                        (6-step pipeline: queued items → playable)
+     │     └── Collect → Write → Hint → Enrich → Notify → Verify
+     ├── MarvinTask                         (4-phase orchestrator: validation + maintenance)
+     │     └── Validation → Enrichment → TokenRenewal → SaveMaintenance
+     ├── NamingPolicyService                (single naming authority for paths/folders)
+     ├── NfoWriterService                   (writes .nfo files: seed + enriched + episode)
+     ├── MetadataEnrichmentService          (shared retry/backoff for metadata enrichment)
+     ├── IdResolverService                  (tt/tmdb/tvdb resolution chain)
+     ├── StrmWriterService                  (writes .strm files)
+     ├── Plugin.Manifest                    (manifest status + staleness authority)
+     └── Plugin.Pipeline                    (real-time task phase visibility)
 
 Emby Player → /InfiniteDrive/Resolve      (real-time: picks streams, probes URLs)
                    └── /InfiniteDrive/Stream  (HLS manifest proxy or CDN redirect)
@@ -119,6 +126,8 @@ Emby Player → /InfiniteDrive/Resolve      (real-time: picks streams, probes UR
 | Component | Responsibility |
 |-----------|----------------|
 | `Plugin` | Entry point, singleton state, config persistence |
+| `Plugin.Manifest` | `ManifestState` — manifest status + staleness (12h TTL) |
+| `Plugin.Pipeline` | `PipelinePhaseTracker` — real-time task/phase visibility |
 | `InfiniteDriveInitializationService` | IServerEntryPoint: DB init, PluginSecret generation |
 | `ResolverService` | `GET /InfiniteDrive/Resolve`: AIOStreams resolution with circuit breaker |
 | `StreamEndpointService` | `GET /InfiniteDrive/Stream`: HLS manifest proxy + CDN redirect |
@@ -127,8 +136,10 @@ Emby Player → /InfiniteDrive/Resolve      (real-time: picks streams, probes UR
 | `ResolverHealthTracker` | Circuit breaker: trips on 5 consecutive failures |
 | `CooldownGate` | Profile-aware HTTP throttling (replaces scattered delays) |
 | `StreamProbeService` | HEAD → GET-range: 500ms/probe, 1.5s total budget |
-| `StrmWriterService` | Unified .strm write path (Sprint 156) |
-| `NfoWriterService` | Centralized NFO authority (Sprint 356) |
+| `StrmWriterService` | Unified .strm write path |
+| `NfoWriterService` | Centralized NFO authority: seed + enriched + episode |
+| `NamingPolicyService` | Single naming authority for folder names and path sanitisation |
+| `MetadataEnrichmentService` | Shared retry/backoff logic for metadata enrichment |
 | `SyncLock` | SemaphoreSlim: only one catalog sync or Marvin task at a time |
 
 ### Key Design Decisions
