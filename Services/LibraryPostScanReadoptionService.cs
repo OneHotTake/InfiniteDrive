@@ -160,15 +160,12 @@ namespace InfiniteDrive.Services
         /// </summary>
         private async Task ReadoptItemAsync(Data.DatabaseManager db, CatalogItem item, CancellationToken ct)
         {
-            // Delete .strm if configured to do so
+            // Delete .strm + version variants if configured to do so
             if (Plugin.Instance?.Configuration?.DeleteStrmOnReadoption == true)
             {
-                if (!string.IsNullOrEmpty(item.StrmPath) && File.Exists(item.StrmPath))
-                {
-                    File.Delete(item.StrmPath);
-                    _logger.LogDebug("[InfiniteDrive] Deleted .strm for re-adopted item: {Path}",
-                        item.StrmPath);
-                }
+                StrmWriterService.DeleteWithVersions(item.StrmPath);
+                _logger.LogDebug("[InfiniteDrive] Deleted .strm + versions for re-adopted item: {Path}",
+                    item.StrmPath);
             }
 
             // Update catalog item state

@@ -79,28 +79,16 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Deletes the .strm file.
+        /// Deletes the .strm file + version variants.
         /// Note: Emby library item removal is handled by Emby when .strm is deleted.
         /// </summary>
         private void DeleteStrmFileAsync(MediaItem item)
         {
-            if (string.IsNullOrEmpty(item.StrmPath) || !File.Exists(item.StrmPath))
-            {
+            if (string.IsNullOrEmpty(item.StrmPath))
                 return;
-            }
 
-            try
-            {
-                File.Delete(item.StrmPath);
-                _logger.LogDebug("[YourFilesResolver] Deleted .strm file for superseded item: {Path}", item.StrmPath);
-
-                // Note: Emby will automatically remove the library item when the .strm file is deleted
-                // during the next library scan
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[YourFilesResolver] Failed to delete .strm file for superseded item {ItemId}", item.Id);
-            }
+            StrmWriterService.DeleteWithVersions(item.StrmPath);
+            _logger.LogDebug("[YourFilesResolver] Deleted .strm + versions for superseded item: {Path}", item.StrmPath);
         }
     }
 

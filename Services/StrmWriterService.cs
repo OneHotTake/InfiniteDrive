@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -70,6 +72,7 @@ namespace InfiniteDrive.Services
                     WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
                     WriteNfoFileIfEnabled(config, item, animePath, originSourceType);
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
+                    await WriteVersionSlotsAsync(animePath, config, item.ImdbId, "movie", null, null, ct);
                     return animePath;
                 }
                 else
@@ -80,6 +83,7 @@ namespace InfiniteDrive.Services
                     WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
                     WriteNfoFileIfEnabled(config, item, animeStrmPath, originSourceType);
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
+                    await WriteVersionSlotsAsync(animeStrmPath, config, item.ImdbId, "series", 1, 1, ct);
                     return animeStrmPath;
                 }
             }
@@ -96,6 +100,7 @@ namespace InfiniteDrive.Services
                 WriteStrmFile(path, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
                 WriteNfoFileIfEnabled(config, item, path, originSourceType);
                 await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
+                await WriteVersionSlotsAsync(path, config, item.ImdbId, "movie", null, null, ct);
                 return path;
             }
 
@@ -109,13 +114,132 @@ namespace InfiniteDrive.Services
             WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
             WriteNfoFileIfEnabled(config, item, strmPath, originSourceType);
             await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
+            await WriteVersionSlotsAsync(strmPath, config, item.ImdbId, "series", 1, 1, ct);
             return strmPath;
         }
 
         /// <summary>
-        /// Writes a single episode .strm + .nfo for a series repair.
-        /// Derives the show root from <paramref name="seriesItem"/>'s existing <c>StrmPath</c>.
-        /// Idempotent — returns existing path if file already on disk.
+        /// Writes additional versioned .strm files for each enabled non-default quality slot.
+        /// Emby groups files with " - {suffix}" naming as versions of the same item,
+        /// enabling the native quality picker in the UI.
+        /// No-op when only the default slot is enabled (preserves existing behavior).
+        /// </summary>
+        private async Task WriteVersionSlotsAsync(
+            string baseStrmPath,
+            PluginConfiguration config,
+            string imdbId,
+            string mediaType,
+            int? season,
+            int? episode,
+            CancellationToken ct)
+        {
+            var slotRepo = Plugin.Instance?.VersionSlotRepository;
+            if (slotRepo == null) return;
+
+            var enabledSlots = await slotRepo.GetEnabledSlotsAsync(ct);
+            var defaultSlot = enabledSlots.FirstOrDefault(s => s.IsDefault) ?? enabledSlots.FirstOrDefault();
+            if (defaultSlot == null) return;
+
+            var additionalSlots = enabledSlots.Where(s => s.SlotKey != defaultSlot.SlotKey).ToList();
+            if (additionalSlots.Count == 0) return;
+
+            var folder = Path.GetDirectoryName(baseStrmPath)!;
+            var baseName = Path.GetFileNameWithoutExtension(baseStrmPath);
+
+            foreach (var slot in additionalSlots)
+            {
+                var suffix = slot.FileSuffix;
+                if (string.IsNullOrWhiteSpace(suffix)) continue;
+
+                var versionedPath = Path.Combine(folder, $"{baseName} - {suffix}.strm");
+                var url = BuildSignedStrmUrl(config, imdbId, mediaType, season, episode, quality: slot.SlotKey);
+                WriteStrmFile(versionedPath, url);
+            }
+        }
+
+        /// <summary>
+        /// Full episode write: derives path from seriesItem.StrmPath, writes
+        /// .strm + NFO + all enabled version slots. The authoritative method
+        /// for gap repair and rehydration.
+        /// </summary>
+        public async Task<string?> WriteEpisodeAsync(
+            CatalogItem seriesItem, int season, int episode,
+            string? episodeTitle, CancellationToken ct)
+        {
+            if (string.IsNullOrEmpty(seriesItem.StrmPath))
+            {
+                _logger.LogWarning("[InfiniteDrive] StrmWriterService: cannot write episode — strm_path is null for {ImdbId}", seriesItem.ImdbId);
+                return null;
+            }
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return null;
+
+            // Derive show root: walk up from .../Show Name/Season XX/file.strm
+            var existingDir = Path.GetDirectoryName(seriesItem.StrmPath);
+            if (existingDir == null) return null;
+            var showDir = Path.GetDirectoryName(existingDir);
+            if (showDir == null) return null;
+
+            var seasonName = Path.GetFileName(existingDir);
+            string seasonDir;
+            if (!seasonName.StartsWith("Season ", StringComparison.OrdinalIgnoreCase))
+            {
+                showDir = existingDir;
+                seasonDir = Path.Combine(showDir, $"Season {season:D2}");
+            }
+            else
+            {
+                seasonDir = Path.Combine(showDir, $"Season {season:D2}");
+            }
+
+            Directory.CreateDirectory(seasonDir);
+
+            var fileName = $"{SanitisePath(seriesItem.Title)} S{season:D2}E{episode:D2}.strm";
+            var filePath = Path.Combine(seasonDir, fileName);
+
+            if (File.Exists(filePath))
+            {
+                // Idempotent — but still ensure version slots exist
+                await WriteVersionSlotsAsync(filePath, config, seriesItem.ImdbId, "series", season, episode, ct);
+                return filePath;
+            }
+
+            var url = BuildSignedStrmUrl(config, seriesItem.ImdbId, "series", season, episode);
+            WriteStrmFile(filePath, url);
+
+            if (config.EnableNfoHints)
+                WriteEpisodeNfo(seriesItem, season, episode, episodeTitle, filePath);
+
+            await WriteVersionSlotsAsync(filePath, config, seriesItem.ImdbId, "series", season, episode, ct);
+
+            _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode + versions {FilePath}", filePath);
+            return filePath;
+        }
+
+        /// <summary>
+        /// Writes a .strm file + all enabled version slots to a caller-specified path.
+        /// For use by SeriesPreExpansionService and EpisodeExpandTask which construct
+        /// their own paths. Idempotent — no-op if file already exists.
+        /// </summary>
+        public async Task WriteStrmWithVersionsAsync(
+            string filePath, string imdbId, int season, int episode,
+            CancellationToken ct)
+        {
+            if (File.Exists(filePath)) return;
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return;
+
+            var url = BuildSignedStrmUrl(config, imdbId, "series", season, episode);
+            WriteStrmFile(filePath, url);
+            await WriteVersionSlotsAsync(filePath, config, imdbId, "series", season, episode, ct);
+        }
+
+        /// <summary>
+        /// Writes a single episode .strm + .nfo for a series repair (sync).
+        /// Prefer <see cref="WriteEpisodeAsync"/> which also writes version slots.
+        /// Kept for backward compatibility.
         /// </summary>
         public string? WriteEpisodeStrm(
             CatalogItem seriesItem,
@@ -273,6 +397,94 @@ namespace InfiniteDrive.Services
                        .Replace(">", "&gt;")
                        .Replace("\"", "&quot;")
                        .Replace("'", "&apos;");
+        }
+
+        // ── Public: centralized delete helpers (FIX-353-01) ────────────────────
+
+        /// <summary>
+        /// Deletes a .strm file, its .nfo, all version slot variants, and cleans
+        /// empty parent directories. Null-safe — no-op if path is null or missing.
+        /// </summary>
+        public static void DeleteWithVersions(string? strmPath)
+        {
+            if (string.IsNullOrEmpty(strmPath)) return;
+
+            try
+            {
+                var dir = Path.GetDirectoryName(strmPath);
+                var baseName = Path.GetFileNameWithoutExtension(strmPath);
+
+                // Base .strm + .nfo
+                SafeDelete(strmPath);
+                SafeDelete(Path.ChangeExtension(strmPath, ".nfo"));
+
+                if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+
+                // Versioned variants: "basename - suffix.strm" / "basename - suffix.nfo"
+                foreach (var f in Directory.GetFiles(dir, $"{baseName} - *.strm"))
+                    SafeDelete(f);
+                foreach (var f in Directory.GetFiles(dir, $"{baseName} - *.nfo"))
+                    SafeDelete(f);
+
+                // Clean empty directories up two levels (season → show → library)
+                CleanEmptyDir(dir);
+                if (!string.IsNullOrEmpty(dir))
+                    CleanEmptyDir(Path.GetDirectoryName(dir));
+            }
+            catch { /* best-effort cleanup */ }
+        }
+
+        /// <summary>
+        /// Deletes episode .strm + .nfo files (base + version variants) for the
+        /// given episodes, then cleans empty season and show directories.
+        /// </summary>
+        public static void DeleteEpisodesWithVersions(
+            string showDir,
+            string sanitisedTitle,
+            IEnumerable<(int season, int episode)> episodes)
+        {
+            if (string.IsNullOrEmpty(showDir) || !Directory.Exists(showDir)) return;
+
+            var emptySeasonDirs = new HashSet<string>();
+
+            foreach (var (season, episode) in episodes)
+            {
+                var seasonDir = Path.Combine(showDir, $"Season {season:D2}");
+                if (!Directory.Exists(seasonDir)) continue;
+
+                // "Title S01E01*" catches base + "Title S01E01 - 4K" etc.
+                var epPattern = $"{sanitisedTitle} S{season:D2}E{episode:D2}*";
+
+                foreach (var f in Directory.GetFiles(seasonDir, $"{epPattern}.strm"))
+                    SafeDelete(f);
+                foreach (var f in Directory.GetFiles(seasonDir, $"{epPattern}.nfo"))
+                    SafeDelete(f);
+
+                emptySeasonDirs.Add(seasonDir);
+            }
+
+            foreach (var d in emptySeasonDirs)
+                CleanEmptyDir(d);
+            CleanEmptyDir(showDir);
+        }
+
+        // ── Private: delete helpers ─────────────────────────────────────────────
+
+        private static void SafeDelete(string? path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+            try { File.Delete(path); } catch { }
+        }
+
+        private static void CleanEmptyDir(string? dir)
+        {
+            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
+            try
+            {
+                if (!Directory.EnumerateFileSystemEntries(dir).Any())
+                    Directory.Delete(dir);
+            }
+            catch { }
         }
 
         // ── Private: helpers ─────────────────────────────────────────────────────

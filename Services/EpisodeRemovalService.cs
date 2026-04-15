@@ -50,63 +50,27 @@ namespace InfiniteDrive.Services
                 return Task.FromResult(0);
             }
 
-            // Build a set of filename patterns to match
             var sanitisedTitle = StrmWriterService.SanitisePathPublic(series.Title);
-            int deleted = 0;
-            var emptySeasonDirs = new HashSet<string>();
+            var episodes = removedEpisodes.Select(e => (e.Season, e.Episode)).ToList();
 
-            foreach (var ep in removedEpisodes)
+            // Count files before delete for reporting
+            int countBefore = 0;
+            foreach (var ep in episodes)
             {
-                ct.ThrowIfCancellationRequested();
-
                 var seasonDir = Path.Combine(showRoot, $"Season {ep.Season:D2}");
                 if (!Directory.Exists(seasonDir)) continue;
-
-                var pattern = $"{sanitisedTitle} S{ep.Season:D2}E{ep.Episode:D2}.*";
-                var files = Directory.GetFiles(seasonDir, pattern);
-
-                foreach (var file in files)
-                {
-                    var ext = Path.GetExtension(file);
-                    if (ext != ".strm" && ext != ".nfo") continue;
-
-                    try
-                    {
-                        File.Delete(file);
-                        deleted++;
-                        _logger.LogDebug("[EpisodeRemoval] Deleted {File}", file);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[EpisodeRemoval] Failed to delete {File}", file);
-                    }
-                }
-
-                emptySeasonDirs.Add(seasonDir);
+                var pattern = $"{sanitisedTitle} S{ep.Season:D2}E{ep.Episode:D2}*";
+                countBefore += Directory.GetFiles(seasonDir, $"{pattern}.strm").Length;
+                countBefore += Directory.GetFiles(seasonDir, $"{pattern}.nfo").Length;
             }
 
-            // Clean up empty season folders
-            foreach (var dir in emptySeasonDirs)
-            {
-                try
-                {
-                    if (Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
-                    {
-                        Directory.Delete(dir);
-                        _logger.LogDebug("[EpisodeRemoval] Removed empty season folder: {Dir}", dir);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[EpisodeRemoval] Failed to remove season folder {Dir}", dir);
-                }
-            }
+            StrmWriterService.DeleteEpisodesWithVersions(showRoot, sanitisedTitle, episodes);
 
             _logger.LogInformation(
                 "[EpisodeRemoval] {Title} — removed {Count} episodes: {List}",
-                series.Title, deleted, string.Join(", ", removedEpisodes.Select(e => $"S{e.Season:D2}E{e.Episode:D2}")));
+                series.Title, removedEpisodes.Count, string.Join(", ", removedEpisodes.Select(e => $"S{e.Season:D2}E{e.Episode:D2}")));
 
-            return Task.FromResult(deleted);
+            return Task.FromResult(countBefore);
         }
 
         /// <summary>
