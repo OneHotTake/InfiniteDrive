@@ -216,6 +216,18 @@ namespace InfiniteDrive
         public Services.CertificationResolver CertificationResolver { get; private set; } = null!;
 
         /// <summary>
+        /// Shared resolver health tracker with circuit breaker (Sprint 310).
+        /// Singleton shared across ResolverService, StreamResolutionHelper, etc.
+        /// </summary>
+        public Services.ResolverHealthTracker ResolverHealthTracker { get; private set; } = null!;
+
+        /// <summary>
+        /// Active provider state for self-healing failover (Sprint 311).
+        /// Tracks whether primary or secondary provider is currently active.
+        /// </summary>
+        public Models.ActiveProviderState ActiveProviderState { get; private set; } = new();
+
+        /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.
         /// Heavy initialization (database, repositories, PluginSecret) is deferred to
         /// InfiniteDriveInitializationService.Run() via IServerEntryPoint.
@@ -455,6 +467,11 @@ namespace InfiniteDrive
                     new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) }),
                     new EmbyLoggerAdapter<Services.CertificationResolver>(_logManager.GetLogger("CertificationResolver")));
                 _logger.LogInformation("[InfiniteDrive] CertificationResolver initialised");
+
+                // Initialise ResolverHealthTracker (Sprint 310: Shared singleton)
+                ResolverHealthTracker = new Services.ResolverHealthTracker(
+                    new EmbyLoggerAdapter<Services.ResolverHealthTracker>(_logManager.GetLogger("ResolverHealthTracker")));
+                _logger.LogInformation("[InfiniteDrive] ResolverHealthTracker initialised");
             }
             catch (Exception ex)
             {

@@ -50,3 +50,22 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - New: Services/EpisodeDiffService.cs, Services/EpisodeRemovalService.cs
 - Modified: SeriesPreExpansionService (VideosJson storage + SyncSeriesEpisodesAsync diff), DatabaseManager (videos_json column), RemovalService (full series folder delete), StatusService (EpisodeSyncSummary), TriggerService (deprecation warnings)
 - Deprecated: SeriesGapScanTask, SeriesGapRepairTask marked [Obsolete]
+
+## Sprint 310 Complete (2026-04-15)
+- Critical path unification: ResolverService now tries primary → secondary providers with circuit breaker
+- ResolverHealthTracker is a shared singleton (Plugin.Instance.ResolverHealthTracker)
+- Deleted DirectStreamUrl endpoint (unsigned URL leakage vector)
+- StreamEndpointService returns 503 when PluginSecret missing
+- All HMAC comparisons already use FixedTimeEquals (verified)
+
+## Sprint 311 Complete (2026-04-15)
+- Self-healing failover: ActiveProviderState tracks Primary/Secondary, auto-restore on Marvin cycle
+- CatalogSyncIntervalHours default 24h→1h
+- Gap repair verifies upstream streams before writing .strm (no ghost episodes)
+- New: POST /InfiniteDrive/Admin/ClearSentinel, Models/ActiveProviderState.cs
+
+## Sprint 312 Complete (2026-04-15)
+- Deleted: Tasks/FileResurrectionTask.cs (superseded by MarvinTask)
+- Removed dead LastKnownServerAddress config field
+- Cleaned misleading debrid fallback comments (InfoHash is active AIOStreams code)
+- Verification: zero matches for FileResurrection, DirectDebrid, DirectStreamUrl in source

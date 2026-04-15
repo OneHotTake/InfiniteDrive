@@ -27,7 +27,6 @@ namespace InfiniteDrive.Services
     /// <list type="bullet">
     ///   <item><c>catalog_sync</c> — <see cref="CatalogSyncTask"/></item>
     ///   <item><c>link_resolver</c> — <see cref="LinkResolverTask"/></item>
-    ///   <item><c>file_resurrection</c> — <see cref="FileResurrectionTask"/></item>
     ///   <item><c>library_readoption</c> — <see cref="LibraryReadoptionTask"/></item>
     /// </list>
     /// </summary>
@@ -99,7 +98,6 @@ namespace InfiniteDrive.Services
         private const string TaskCatalogSync          = "catalog_sync";
         private const string TaskCatalogDiscover     = "catalog_discover";
         private const string TaskLinkResolver         = "link_resolver";
-        private const string TaskFileResurrection     = "file_resurrection";
         private const string TaskLibraryReadoption    = "library_readoption";
         private const string TaskEpisodeExpand        = "episode_expand";
         // Old Doctor task removed in Sprint 147 - replaced by MarvinTask + RefreshTask
@@ -167,11 +165,6 @@ namespace InfiniteDrive.Services
                     break;
 
 #pragma warning disable CS0618 // Type is obsolete (kept for backward compatibility)
-                case TaskFileResurrection:
-                    FireAndForget(ct => new FileResurrectionTask(_libraryManager, _logManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
-                    break;
-
                 case TaskLibraryReadoption:
                     FireAndForget(ct => new LibraryReadoptionTask(_libraryManager, _logManager)
                         .Execute(ct, new Progress<double>()), taskKey);
@@ -364,7 +357,7 @@ namespace InfiniteDrive.Services
                         Message = $"Unknown task '{taskKey}'. Valid keys: " +
                                   $"{TaskCatalogSync}, {TaskCatalogDiscover}, " +
                                   $"{TaskLinkResolver}, " +
-                                  $"{TaskFileResurrection}, {TaskLibraryReadoption}, " +
+                                  $"{TaskLibraryReadoption}, " +
                                   $"{TaskEpisodeExpand}, {TaskCollectionSync}, " +
                                   $"{TaskClearClientProfiles}, " +
                                   $"{TaskForceSyncReset}, {TaskClearCache}, {TaskDeadLinkScan}, " +

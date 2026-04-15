@@ -28,6 +28,7 @@ namespace InfiniteDrive.Services
             PluginConfiguration config,
             DatabaseManager db,
             ILogger logger,
+            ResolverHealthTracker? healthTracker = null,
             CancellationToken cancellationToken = default)
         {
             // Use the larger of the user-configured floor and the timeout discovered
@@ -51,10 +52,19 @@ namespace InfiniteDrive.Services
 
             foreach (var provider in providers)
             {
+                var providerKey = provider.DisplayName ?? "unknown";
+
+                // Sprint 310: Circuit breaker — skip providers with open circuits
+                if (healthTracker?.ShouldSkip(providerKey) == true)
+                {
+                    logger.LogDebug("[InfiniteDrive] Skipping provider {Name} — circuit open", providerKey);
+                    continue;
+                }
+
                 try
                 {
                     logger.LogDebug("[InfiniteDrive] Trying provider {Name} for {Imdb}",
-                        provider.DisplayName ?? "unknown", req.Imdb);
+                        providerKey, req.Imdb);
 
                     using var client = new AioStreamsClient(
                         provider.Url, provider.Uuid, provider.Token, logger);
@@ -82,13 +92,28 @@ namespace InfiniteDrive.Services
                     var entry = BuildEntryFromCandidates(candidates, req, config, "tier0");
                     await db.UpsertResolutionResultAsync(entry, candidates);
                     await db.IncrementApiCallCountAsync();
+
+                    healthTracker?.RecordSuccess(providerKey);
+
+                    // Sprint 311: Update active provider on failover
+                    if (providerKey == "Secondary")
+                    {
+                        var state = Plugin.Instance?.ActiveProviderState;
+                        if (state?.Current != Models.ActiveProvider.Secondary)
+                        {
+                            state!.Current = Models.ActiveProvider.Secondary;
+                            logger.LogWarning("[Failover] Primary unavailable, switched to Secondary");
+                        }
+                    }
+
                     return entry;
                 }
                 catch (AioStreamsUnreachableException ex)
                 {
                     lastUnreachable = ex;
+                    healthTracker?.RecordFailure(providerKey);
                     logger.LogDebug("[InfiniteDrive] Provider {Name} unreachable, trying next",
-                        provider.DisplayName ?? "unknown");
+                        providerKey);
                 }
                 catch (OperationCanceledException)
                 {
@@ -98,8 +123,9 @@ namespace InfiniteDrive.Services
                 }
                 catch (Exception ex)
                 {
+                    healthTracker?.RecordFailure(providerKey);
                     logger.LogError(ex, "[InfiniteDrive] Sync resolve failed for {Imdb} with provider {Name}",
-                        req.Imdb, provider.DisplayName ?? "unknown");
+                        req.Imdb, providerKey);
                 }
             }
 
@@ -121,6 +147,7 @@ namespace InfiniteDrive.Services
             PluginConfiguration config,
             DatabaseManager db,
             ILogger logger,
+            ResolverHealthTracker? healthTracker = null,
             CancellationToken cancellationToken = default)
         {
             // Step 1: Check cache first
@@ -149,7 +176,7 @@ namespace InfiniteDrive.Services
                 Episode = episode
             };
 
-            var resolved = await SyncResolveViaProvidersAsync(playReq, config, db, logger, cancellationToken);
+            var resolved = await SyncResolveViaProvidersAsync(playReq, config, db, logger, healthTracker, cancellationToken);
             if (resolved != null)
             {
                 var resolvedCandidates = await db.GetStreamCandidatesAsync(imdbId, season, episode);

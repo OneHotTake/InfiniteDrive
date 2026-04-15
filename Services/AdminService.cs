@@ -90,6 +90,20 @@ namespace InfiniteDrive.Services
         public List<string> Errors { get; set; } = new();
     }
 
+    [Route("/InfiniteDrive/Admin/ClearSentinel", "POST",
+        Summary = "Clear no_streams sentinel for an item, allowing fresh resolution")]
+    public class ClearSentinelRequest : IReturn<ClearSentinelResponse>
+    {
+        [ApiMember(Name = "imdbId", Description = "IMDb ID to clear", DataType = "string", ParameterType = "query")]
+        public string ImdbId { get; set; } = "";
+    }
+
+    public class ClearSentinelResponse
+    {
+        public bool Success { get; set; }
+        public string Message { get; set; } = "";
+    }
+
     // ── Service ──────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -308,6 +322,37 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "[AdminService] Failed to block items");
                 return new BlockItemsResponse { Success = false, Count = count, Errors = errors };
+            }
+        }
+
+        /// <summary>
+        /// Handles <c>POST /InfiniteDrive/Admin/ClearSentinel</c>.
+        /// Deletes failed resolution cache entries for the given IMDb ID,
+        /// allowing fresh resolution on next playback attempt.
+        /// Sprint 311: Clear no_streams sentinel.
+        /// </summary>
+        public async Task<object> Post(ClearSentinelRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            if (string.IsNullOrWhiteSpace(req.ImdbId))
+                return new ClearSentinelResponse { Success = false, Message = "imdbId is required" };
+
+            try
+            {
+                var deleted = await _db.ClearFailedSentinelAsync(req.ImdbId);
+
+                if (deleted == 0)
+                    return new ClearSentinelResponse { Success = false, Message = "No failed sentinel found for " + req.ImdbId };
+
+                _logger.LogInformation("[AdminService] Cleared failed sentinel for {ImdbId}", req.ImdbId);
+                return new ClearSentinelResponse { Success = true, Message = $"Cleared {deleted} failed sentinel(s)" };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AdminService] Failed to clear sentinel for {ImdbId}", req.ImdbId);
+                return new ClearSentinelResponse { Success = false, Message = ex.Message };
             }
         }
 

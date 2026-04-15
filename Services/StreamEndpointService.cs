@@ -89,7 +89,7 @@ namespace InfiniteDrive.Services
             // 1. Validate PluginSecret
             if (string.IsNullOrEmpty(Config.PluginSecret))
             {
-                return Error(500, "server_error", "Plugin not initialized");
+                return Error(503, "plugin_not_initialized", "Plugin not initialized");
             }
 
             // 2. Decode and validate signed URL

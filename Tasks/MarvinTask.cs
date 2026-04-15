@@ -108,6 +108,9 @@ namespace InfiniteDrive.Tasks
         {
             _logger.LogInformation("[InfiniteDrive] MarvinTask started");
 
+            // Sprint 311: Restore primary provider if it's back up
+            _ = TryRestorePrimaryAsync();
+
             try
             {
                 // Phase 1: Validation pass
@@ -147,6 +150,38 @@ namespace InfiniteDrive.Tasks
         }
 
         // ── Phase 1: Validation Pass ───────────────────────────────────────
+
+        // ── Sprint 311: Primary provider health restore ──────────────────────────
+
+        private async Task TryRestorePrimaryAsync()
+        {
+            var state = Plugin.Instance?.ActiveProviderState;
+            if (state == null || state.Current != Models.ActiveProvider.Secondary)
+                return;
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null || string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+                return;
+
+            try
+            {
+                var (baseUrl, _, _) = Services.AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
+                if (string.IsNullOrWhiteSpace(baseUrl)) return;
+
+                using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+                var response = await http.GetAsync(baseUrl);
+
+                if (response.IsSuccessStatusCode)
+                {
+                    state.Current = Models.ActiveProvider.Primary;
+                    _logger.LogInformation("[Failover] Primary restored");
+                }
+            }
+            catch
+            {
+                // Primary still down — no action needed
+            }
+        }
 
         private async Task ValidationPassAsync(CancellationToken cancellationToken)
         {

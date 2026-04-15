@@ -593,8 +593,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Returns all active catalog items with the given <c>local_source</c> value.
-        /// Used by <see cref="Tasks.FileResurrectionTask"/> to find library-tracked
-        /// items whose original file may have gone missing.
+        /// Used to find library-tracked items whose original file may have gone missing.
         /// </summary>
         public async Task<List<CatalogItem>> GetItemsByLocalSourceAsync(string localSource)
         {
@@ -627,6 +626,36 @@ namespace InfiniteDrive.Data
         public async Task ClearResolutionCacheAsync(CancellationToken cancellationToken = default)
         {
             await ExecuteWriteAsync("DELETE FROM resolution_cache;", _ => { }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Sprint 311: Deletes failed resolution cache entries (no_streams sentinels) for a specific IMDb ID.
+        /// Returns the number of rows deleted.
+        /// </summary>
+        public async Task<int> ClearFailedSentinelAsync(string imdbId, CancellationToken cancellationToken = default)
+        {
+            const string countSql = @"
+                SELECT COUNT(*) FROM resolution_cache
+                WHERE imdb_id = @imdb_id AND status = 'failed';";
+
+            const string deleteSql = @"
+                DELETE FROM resolution_cache
+                WHERE imdb_id = @imdb_id AND status = 'failed';";
+
+            int count;
+            using (var conn = OpenConnection())
+            {
+                using var stmt = conn.PrepareStatement(countSql);
+                BindText(stmt, "@imdb_id", imdbId);
+                count = 0;
+                foreach (var row in stmt.AsRows())
+                    count = row.GetInt(0);
+            }
+
+            if (count > 0)
+                await ExecuteWriteAsync(deleteSql, cmd => BindText(cmd, "@imdb_id", imdbId), cancellationToken);
+
+            return count;
         }
 
         /// <summary>
@@ -775,8 +804,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Increments the resurrection counter for a catalog item by one.
-        /// Called by <see cref="Tasks.FileResurrectionTask"/> each time a missing
-        /// file is rebuilt as a .strm.
+        /// Called each time a missing file is rebuilt as a .strm.
         /// </summary>
         public async Task IncrementResurrectionCountAsync(string imdbId, string source, CancellationToken cancellationToken = default)
         {
@@ -2884,7 +2912,7 @@ INSERT OR IGNORE INTO schema_version (version) VALUES (3);
             }
 
             // ── V5 → V6 ─────────────────────────────────────────────────────────
-            // Adds resurrection_count to catalog_items so FileResurrectionTask can
+            // Adds resurrection_count to catalog_items so resurrection tracking can
             // track how many times each item has been rebuilt as a .strm after its
             // original library file went missing.
             if (version < 6)
@@ -2957,10 +2985,8 @@ CREATE INDEX IF NOT EXISTS idx_candidates_item
             }
 
             // ── V8 → V9 ─────────────────────────────────────────────────────────
-            // Adds info_hash and file_idx to stream_candidates so the direct debrid
-            // fallback path (Sprint 14) can re-generate a fresh CDN URL from the
-            // torrent hash without calling AIOStreams — used when AIOStreams is
-            // unreachable and all cached CDN URLs have expired.
+            // Adds info_hash and file_idx to stream_candidates for torrent identity
+            // tracking from AIOStreams debrid streams.
             //
             // Also enables cross-item cache invalidation: when one URL from a hash is
             // confirmed dead, all candidates sharing that hash can be marked stale.

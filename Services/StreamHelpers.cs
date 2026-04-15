@@ -384,8 +384,7 @@ namespace InfiniteDrive.Services
                     FileSize    = s.BehaviorHints?.VideoSize ?? s.Size,
                     BitrateKbps = s.Bitrate.HasValue ? (int)(s.Bitrate.Value / 1000) : null,
                     IsCached    = s.Service?.Cached ?? true,
-                    // Store torrent identity for the direct debrid fallback path (Sprint 14).
-                    // Present for debrid streams; null for usenet/HTTP.
+                    // Store torrent identity for debrid streams; null for usenet/HTTP.
                     InfoHash    = string.IsNullOrEmpty(s.InfoHash) ? null : s.InfoHash,
                     FileIdx     = s.FileIdx,
                     StreamKey   = streamKey,

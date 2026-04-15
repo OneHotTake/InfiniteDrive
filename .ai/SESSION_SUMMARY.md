@@ -1,5 +1,52 @@
 # Session Summary
 
+## 2026-04-15 — Sprint 310 Implementation
+
+### Task
+Sprint 310 — Critical Path Unification & Security Hardening
+
+### Model & Tokens
+Model: Sonnet | ~18K input, ~6K output ≈ ~24K total
+
+### Files Changed
+| File | Change |
+|------|--------|
+| `Plugin.cs` | +ResolverHealthTracker singleton property + init |
+| `Services/ResolverService.cs` | Provider fallback loop (primary→secondary), circuit breaker per-provider, removed single-provider path |
+| `Services/StreamResolutionHelper.cs` | +healthTracker param, ShouldSkip/RecordSuccess/RecordFailure per-provider |
+| `Services/DiscoverService.cs` | Deleted DirectStreamUrl endpoint + DTOs, updated SyncResolveViaProvidersAsync calls |
+| `Services/StreamEndpointService.cs` | 500→503 for missing PluginSecret |
+
+### Build
+`dotnet build -c Release` — 0 errors, 0 warnings
+
+---
+
+## 2026-04-15 — Sprint 311 Implementation
+
+### Task
+Sprint 311 — Self-Healing Provider Failover & Sync Improvements
+
+### Model & Tokens
+Model: Sonnet | ~22K input, ~8K output ≈ ~30K total
+
+### Files Changed
+| File | Change |
+|------|--------|
+| `Models/ActiveProviderState.cs` | NEW — enum + thread-safe state class |
+| `Plugin.cs` | +ActiveProviderState singleton |
+| `Services/StreamResolutionHelper.cs` | Failover swap on secondary success |
+| `Tasks/MarvinTask.cs` | TryRestorePrimaryAsync (5s manifest ping) |
+| `PluginConfiguration.cs` | CatalogSyncIntervalHours 24→1, clamp max 168→24 |
+| `Services/SeriesGapRepairService.cs` | Upstream verification before .strm write |
+| `Services/AdminService.cs` | ClearSentinel DTOs + handler |
+| `Data/DatabaseManager.cs` | ClearFailedSentinelAsync |
+
+### Build
+`dotnet build -c Release` — 0 errors, 0 warnings
+
+---
+
 ## 2026-04-14 — Sprint 216 Research Completion
 
 ### Task

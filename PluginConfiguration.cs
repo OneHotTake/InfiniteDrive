@@ -336,10 +336,10 @@ namespace InfiniteDrive
         /// hammered on every task invocation.
         ///
         /// Sources in an <c>error</c> state are always retried regardless of this value.
-        /// Default: 24 h.
+        /// Default: 1 h.
         /// </summary>
         [DataMember]
-        public int CatalogSyncIntervalHours { get; set; } = 24;
+        public int CatalogSyncIntervalHours { get; set; } = 1;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  STREAMING / PROXY                                                   ║
@@ -529,17 +529,6 @@ namespace InfiniteDrive
         public string DefaultSlotKey { get; set; } = "hd_broad";
 
         /// <summary>
-        /// Last known Emby server LAN address, stored as "host:port" (normalized).
-        /// Compared against the current address on every server startup by
-        /// <see cref="Services.VersionPlaybackStartupDetector"/>.  When a change
-        /// is detected, all materialized .strm files are rewritten with the new URL.
-        ///
-        /// Empty on fresh install — populated automatically on first startup.
-        /// </summary>
-        [DataMember]
-        public string LastKnownServerAddress { get; set; } = string.Empty;
-
-        /// <summary>
         /// Queue of pending rehydration operations serialised as JSON.
         ///
         /// Each entry is an object with a <c>type</c> field and a <c>slotKey</c> field:
@@ -726,7 +715,7 @@ namespace InfiniteDrive
             ApiDailyBudget            = Clamp(ApiDailyBudget,            1,     100_000);
             MaxConcurrentResolutions  = Clamp(MaxConcurrentResolutions,  1,     20);
             CatalogItemCap            = Clamp(CatalogItemCap,            1,     50_000);
-            CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     168);    // 1 h – 7 days
+            CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     24);     // 1 h – 24 h
             MaxConcurrentProxyStreams  = Clamp(MaxConcurrentProxyStreams, 1,     20);
             SyncResolveTimeoutSeconds = Clamp(SyncResolveTimeoutSeconds, 5,     300);
             NextUpLookaheadEpisodes   = Clamp(NextUpLookaheadEpisodes,   0,     10);

@@ -27,9 +27,9 @@ namespace InfiniteDrive.Tasks
     ///         to prevent Emby from showing the title twice.</item>
     /// </list>
     ///
-    /// This is the complement to <see cref="FileResurrectionTask"/>:
+    /// This is the complement to file resurrection (MarvinTask):
     /// <list type="bullet">
-    ///   <item><see cref="FileResurrectionTask"/> — real file gone → rebuild .strm</item>
+    ///   <item>Resurrection — real file gone → rebuild .strm</item>
     ///   <item><see cref="LibraryReadoptionTask"/> — real file appeared → retire .strm</item>
     /// </list>
     ///

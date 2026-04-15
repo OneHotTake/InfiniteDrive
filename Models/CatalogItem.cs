@@ -85,8 +85,7 @@ namespace InfiniteDrive.Models
         public string? RemovedAt { get; set; }
 
         /// <summary>
-        /// Number of times this item has been resurrected by <c>FileResurrectionTask</c>.
-        /// Incremented each time a missing library file is replaced by a new .strm.
+        /// Number of times this item has been resurrected (missing library file replaced by .strm).
         /// </summary>
         public int ResurrectionCount { get; set; }
 
