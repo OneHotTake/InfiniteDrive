@@ -1925,6 +1925,7 @@ namespace InfiniteDrive.Services
             var coverageStats = await db.GetResolutionCoverageAsync();
             var dbPath        = db.GetDatabasePath();
             long dbBytes      = 0;
+            // File size stat is non-critical — fail silently if file is locked
             try { dbBytes = new FileInfo(dbPath).Length; } catch { }
 
             return new
