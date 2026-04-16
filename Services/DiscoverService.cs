@@ -847,6 +847,7 @@ namespace InfiniteDrive.Services
 
                 await _db.DeleteUserSaveAsync(callerUserId, mediaItem.Id, ct);
                 await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
+                await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.ImdbId, false);
 
                 _logger.LogInformation("Removed {ImdbId} from library for user {UserId}", req.ImdbId, callerUserId);
 
@@ -933,18 +934,17 @@ namespace InfiniteDrive.Services
             {
                 try
                 {
-                    var candidates = _libraryManager.GetItemList(
+                    var match = _libraryManager.GetItemList(
                         new MediaBrowser.Controller.Entities.InternalItemsQuery
                         {
+                            AnyProviderIdEquals = new[] {
+                                new KeyValuePair<string, string>("Imdb", entry.ImdbId)
+                            },
                             IncludeItemTypes = entry.MediaType == "series"
                                 ? new[] { "Series" }
                                 : new[] { "Movie" },
                             Recursive = true
-                        });
-                    var match = candidates.FirstOrDefault(i =>
-                        i.ProviderIds != null &&
-                        i.ProviderIds.TryGetValue("Imdb", out var id) &&
-                        string.Equals(id, entry.ImdbId, StringComparison.OrdinalIgnoreCase));
+                        }).FirstOrDefault();
                     if (match != null)
                         embyItemId = match.Id.ToString("N");
                 }
