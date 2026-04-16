@@ -287,7 +287,8 @@ namespace InfiniteDrive
                     EmbeddedResourcePath = "InfiniteDrive.Configuration.discoverpage.html",
                     IsMainConfigPage = false,
                     EnableInMainMenu = true,
-                    DisplayName = "Discover"
+                    DisplayName = "Discover",
+                    MenuIcon = "explore"
                 }
             };
         }
