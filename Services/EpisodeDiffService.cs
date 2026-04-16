@@ -61,8 +61,9 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Parses episode keys from stored videos_json.
         /// Format: serialized List of {Season, Episode} objects.
+        /// Sprint 370: Made public for StrmWriterService.WriteEpisodesFromVideosJsonAsync.
         /// </summary>
-        private static HashSet<EpisodeKey> ParseVideoKeys(string? json)
+        public static HashSet<EpisodeKey> ParseVideoKeys(string? json)
         {
             if (string.IsNullOrEmpty(json)) return new HashSet<EpisodeKey>();
 

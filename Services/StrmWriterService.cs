@@ -456,5 +456,84 @@ namespace InfiniteDrive.Services
         /// Delegates to NamingPolicyService.SanitisePath.
         /// </summary>
         public static string SanitisePathPublic(string input) => NamingPolicyService.SanitisePath(input);
+
+        /// <summary>
+        /// Writes all episode .strm files from VideosJson (AIOStreams one-pass sync).
+        /// Sprint 370: One-pass series episode sync from AIOStreams.
+        /// </summary>
+        public Task<int> WriteEpisodesFromVideosJsonAsync(
+            CatalogItem item,
+            PluginConfiguration? config,
+            CancellationToken cancellationToken)
+        {
+            if (string.IsNullOrEmpty(item.VideosJson))
+                return Task.FromResult(0);
+
+            config ??= Plugin.Instance?.Configuration;
+            if (config == null)
+                return Task.FromResult(0);
+
+            var basePath = string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase)
+                ? config.SyncPathAnime
+                : config.SyncPathShows;
+
+            if (string.IsNullOrEmpty(basePath))
+                return Task.FromResult(0);
+
+            // Parse VideosJson to get episode list
+            var videos = EpisodeDiffService.ParseVideoKeys(item.VideosJson);
+            if (videos.Count == 0)
+                return Task.FromResult(0);
+
+            // Create series folder
+            var folderName = NamingPolicyService.BuildFolderName(item);
+            var seriesPath = Path.Combine(basePath, folderName);
+            Directory.CreateDirectory(seriesPath);
+
+            var written = 0;
+            var sanitisedName = NamingPolicyService.SanitisePath(item.Title);
+
+            // Group episodes by season
+            var seasonGroups = videos.GroupBy(v => v.Season);
+
+            foreach (var seasonGroup in seasonGroups)
+            {
+                var seasonNum = seasonGroup.Key;
+                var seasonPath = Path.Combine(seriesPath, $"Season {seasonNum:D2}");
+                Directory.CreateDirectory(seasonPath);
+
+                foreach (var episode in seasonGroup)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var fileName = $"{sanitisedName} S{seasonNum:D2}E{episode.Episode:D2}.strm";
+                    var filePath = Path.Combine(seasonPath, fileName);
+
+                    if (!File.Exists(filePath))
+                    {
+                        var strmUrl = BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", seasonNum, episode.Episode);
+                        WriteStrmFile(filePath, strmUrl);
+                        written++;
+                        _logger.LogDebug(
+                            "[InfiniteDrive] WriteEpisodesFromVideosJson: Wrote {FilePath}",
+                            filePath);
+                    }
+                }
+            }
+
+            // Write tvshow.nfo if enabled
+            if (config.EnableNfoHints)
+            {
+                var nfoPath = Path.Combine(seriesPath, "tvshow.nfo");
+                if (!File.Exists(nfoPath))
+                    NfoWriterService.WriteSeedNfo(nfoPath, item, "AIOStreams");
+            }
+
+            _logger.LogInformation(
+                "[InfiniteDrive] WriteEpisodesFromVideosJson: Wrote {Count} episodes for {Title}",
+                written, item.Title);
+
+            return Task.FromResult(written);
+        }
     }
 }
