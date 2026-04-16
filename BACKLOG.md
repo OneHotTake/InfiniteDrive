@@ -2,7 +2,8 @@
 
 Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 
-**Current Status**: Sprint 207 Complete (Per-User Saves + InfiniteDriveChannel) |
+**Current Status**: Sprint 370 Complete (One-pass series episode sync from AIOStreams) |
+                     Sprint 207 Complete (Per-User Saves + InfiniteDriveChannel) |
                      Sprint 205 Complete (User Tabs Removed from Config Page) |
                      Sprint 204 Complete (Discover Endpoint Un-gating) |
                      Sprint 203 Complete (Admin Page Restructure + Catalogs→Sources Rename) |
@@ -15,6 +16,28 @@ Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 **Version 0.41**: Sprints 200+201 — Wizard UX redesign + library provisioning + anime routing fix.
 **Version 0.43**: Sprint 203 — Admin Page Restructure + Catalogs→Sources Rename.
 **Version 0.47**: Sprint 207 — Per-user saves via user_item_saves table, InfiniteDriveChannel (IChannel), build fix, unsave endpoint.
+
+---
+
+## Sprint 370 — One-Pass Series Episode Sync from AIOStreams (2026-04-16)
+
+**Status:** Complete
+
+### Goals
+- Eliminate redundant Stremio metadata fetch by using AIOStreams meta endpoint directly
+- One-pass episode writing from AIOStreams Videos[] data
+- Fall back to SeriesPreExpansionService if AIOStreams fetch fails
+
+### Implementation
+- Added `FetchAioVideosAsync()` to RefreshTask to fetch Videos[] from AIOStreams meta endpoint
+- Added `WriteEpisodesFromVideosJsonAsync()` to StrmWriterService for one-pass episode writing
+- Made `EpisodeDiffService.ParseVideoKeys()` public for StrmWriterService use
+- Modified `WriteStepAsync()` to prefer AIOStreams metadata over Stremio, fall back on failure
+
+### Files Changed
+- `Services/EpisodeDiffService.cs` — Made `ParseVideoKeys()` public
+- `Services/StrmWriterService.cs` — Added `WriteEpisodesFromVideosJsonAsync()`
+- `Tasks/RefreshTask.cs` — Added `FetchAioVideosAsync()` and modified series expansion flow
 
 ---
 
