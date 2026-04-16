@@ -89,3 +89,8 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Created architecture/ with 6 exhaustive technical docs (OVERVIEW, SERVICES, CONTROL_FLOW, STATE_MANAGEMENT, DTO_SCHEMAS, TASKS)
 - Updated 6 newdocs/ files to fix drift from Sprints 354-362
 - Audited 46 docs files total: 40 drift findings cataloged and resolved
+
+## Sprint 370 Complete (2026-04-16)
+- One-pass series episode sync from AIOStreams meta endpoint
+- RefreshTask fetches Videos[] from AIOStreams directly, falls back to Stremio on failure
+- StrmWriterService.WriteEpisodesFromVideosJsonAsync for one-pass episode writing
