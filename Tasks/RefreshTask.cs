@@ -430,6 +430,18 @@ namespace InfiniteDrive.Tasks
             var config = Plugin.Instance!.Configuration;
             var embyBaseUrl = GetEmbyBaseUrl(config);
 
+            // Sprint 370: Create AIOStreams client for fetching Videos[] from meta endpoint
+            if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+            {
+                _logger.LogWarning("[InfiniteDrive] AIOStreams URL is not configured for Videos[] fetch");
+            }
+
+            using var client = new AioStreamsClient(config, _logger);
+            if (!client.IsConfigured)
+            {
+                _logger.LogWarning("[InfiniteDrive] AIOStreams client could not be configured for Videos[] fetch");
+            }
+
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -442,13 +454,51 @@ namespace InfiniteDrive.Tasks
                 var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
                             || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
 
+                if (isSeries && client.IsConfigured && !string.IsNullOrEmpty(item.ImdbId))
+                {
+                    // Sprint 370: Try one-pass sync from AIOStreams meta endpoint first
+                    var aioVideos = await FetchAioVideosAsync(item.ImdbId, item.MediaType, client, cancellationToken);
+                    if (aioVideos != null && aioVideos.Count > 0)
+                    {
+                        // Store Videos[] for future re-sync
+                        item.VideosJson = EpisodeDiffService.SerializeForStorage(aioVideos);
+
+                        _logger.LogInformation(
+                            "[InfiniteDrive] Writing episodes from AIOStreams meta: {ImdbId} ({Title})",
+                            item.ImdbId, item.Title);
+
+                        var strm = Plugin.Instance?.StrmWriterService;
+                        if (strm != null)
+                        {
+                            var episodesWritten = await strm.WriteEpisodesFromVideosJsonAsync(item, config, cancellationToken);
+                            if (episodesWritten > 0)
+                            {
+                                item.EpisodesExpanded = true;
+                                item.ItemState = ItemState.Written;
+                                item.StrmPath = Path.Combine(basePath, folderName);
+                                item.LocalPath = item.StrmPath;
+                                item.LocalSource = "strm";
+                                item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                                await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                                _logger.LogInformation(
+                                    "[InfiniteDrive] One-pass sync complete for {ImdbId} ({Title}) - {Count} episodes written",
+                                    item.ImdbId, item.Title, episodesWritten);
+                                written++;
+                                continue;
+                            }
+                        }
+                        // Fall through to SeriesPreExpansionService if VideosJson write fails
+                    }
+                }
+
                 if (isSeries)
                 {
+                    // Fallback: SeriesPreExpansionService (fetches from Stremio)
                     var expansion = EnsureExpansionService();
                     if (expansion != null)
                     {
                         _logger.LogInformation(
-                            "[InfiniteDrive] Expanding series: {ImdbId} ({Title})",
+                            "[InfiniteDrive] Expanding series via Stremio: {ImdbId} ({Title})",
                             item.ImdbId, item.Title);
 
                         var expanded = await expansion.ExpandSeriesFromMetadataAsync(item, config, cancellationToken);
@@ -1013,6 +1063,70 @@ namespace InfiniteDrive.Tasks
             var yearStr = releaseInfo.Split('–', '—')[0].Trim();
             if (int.TryParse(yearStr, out var year))
                 return year;
+
+            return null;
+        }
+
+        /// <summary>
+        /// Fetches Videos[] from AIOStreams meta endpoint for one-pass series episode sync.
+        /// Sprint 370: One-pass series episode sync from AIOStreams.
+        /// Returns null on failure or if no videos found.
+        /// </summary>
+        private async Task<List<Services.StremioVideo>?> FetchAioVideosAsync(
+            string imdbId, string mediaType, AioStreamsClient client, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var metaResponse = await client.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
+                if (metaResponse?.Meta?.Videos == null || metaResponse.Meta.Videos.Count == 0)
+                {
+                    _logger.LogDebug("[InfiniteDrive] No Videos[] found in AIOStreams meta for {ImdbId}", imdbId);
+                    return null;
+                }
+
+                // Convert AioVideo[] to StremioVideo[]
+                var videos = new List<Services.StremioVideo>();
+                foreach (var aioVideo in metaResponse.Meta.Videos)
+                {
+                    if (aioVideo.Season.HasValue && aioVideo.Episode.HasValue)
+                    {
+                        videos.Add(new Services.StremioVideo
+                        {
+                            Id = aioVideo.Id ?? $"{aioVideo.Season}-{aioVideo.Episode}",
+                            Name = aioVideo.Title,
+                            Season = aioVideo.Season,
+                            Episode = aioVideo.Episode,
+                            Number = aioVideo.Episode,
+                            Released = ParseAioVideoReleased(aioVideo.Released)
+                        });
+                    }
+                }
+
+                _logger.LogInformation(
+                    "[InfiniteDrive] Fetched {Count} episodes from AIOStreams meta for {ImdbId}",
+                    videos.Count, imdbId);
+
+                return videos;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "[InfiniteDrive] Failed to fetch Videos[] from AIOStreams meta for {ImdbId}",
+                    imdbId);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Parses AIOStreams video released date string to DateTime.
+        /// </summary>
+        private static DateTime? ParseAioVideoReleased(string? released)
+        {
+            if (string.IsNullOrEmpty(released))
+                return null;
+
+            if (DateTime.TryParse(released, out var dt))
+                return dt;
 
             return null;
         }
