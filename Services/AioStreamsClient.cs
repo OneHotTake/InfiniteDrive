@@ -734,11 +734,13 @@ namespace InfiniteDrive.Services
         /// <param name="imdbId">IMDB identifier, e.g. <c>tt1160419</c>.</param>
         public async Task<AioStreamsStreamResponse?> GetMovieStreamsAsync(
             string imdbId,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string? sel = null)
         {
             var path = $"/stream/movie/{Uri.EscapeDataString(imdbId)}.json";
+            if (!string.IsNullOrEmpty(sel))
+                path += $"?sel={Uri.EscapeDataString(sel)}";
             var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
-            // Sprint 100A-05: Error stub detection
             return CheckForErrorStub(result, imdbId);
         }
 
@@ -755,12 +757,14 @@ namespace InfiniteDrive.Services
             string imdbId,
             int season,
             int episode,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            string? sel = null)
         {
             var id   = $"{imdbId}:{season}:{episode}";
             var path = $"/stream/series/{Uri.EscapeDataString(id)}.json";
+            if (!string.IsNullOrEmpty(sel))
+                path += $"?sel={Uri.EscapeDataString(sel)}";
             var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
-            // Sprint 100A-05: Error stub detection
             return CheckForErrorStub(result, id);
         }
 

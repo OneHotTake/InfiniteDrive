@@ -979,7 +979,8 @@ namespace InfiniteDrive.Tasks
                     _logger.LogInformation(
                         "[InfiniteDrive] CatalogSyncTask: syncing {Count} active user catalogs", userCatalogs.Count);
                     var userCatalogSync = new Services.UserCatalogSyncService(
-                        _logManager, db, Plugin.Instance!.StrmWriterService, Plugin.Instance.CooldownGate);
+                        _logManager, db, Plugin.Instance!.StrmWriterService, Plugin.Instance.CooldownGate,
+                        Plugin.Instance.IdResolverService);
                     foreach (var uc in userCatalogs)
                     {
                         if (cancellationToken.IsCancellationRequested) break;

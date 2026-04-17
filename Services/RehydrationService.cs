@@ -138,8 +138,8 @@ namespace InfiniteDrive.Services
                         folderName += $" [imdbid-{item.ImdbId}]";
 
                     var basePath = Path.Combine(syncPath, folderName);
-                    var baseName = Services.NamingPolicyService.SanitisePath(
-                        item.Title ?? "Unknown");
+                    // File basename must match folder name for Emby version stacking
+                    var baseName = folderName;
 
                     // Build .strm URL with resolve token
                     // Note: Season/Episode are null for series-level catalog items
@@ -155,6 +155,26 @@ namespace InfiniteDrive.Services
                     // Write .strm file
                     var strmPath = materializer.WriteStrmFile(
                         basePath, baseName, slot, defaultSlot, strmUrl);
+
+                    // Ensure base (default slot) .strm exists — required for Emby version stacking
+                    if (slot.SlotKey != defaultSlot.SlotKey)
+                    {
+                        var baseStrmFile = Path.Combine(basePath, baseName + ".strm");
+                        if (!File.Exists(baseStrmFile))
+                        {
+                            var baseUrl = materializer.BuildStrmUrl(
+                                config.EmbyBaseUrl, item.ImdbId, defaultSlot.SlotKey,
+                                item.MediaType, null, null);
+                            materializer.WriteStrmFile(basePath, baseName, defaultSlot, defaultSlot, baseUrl);
+
+                            var baseNfoFile = Path.Combine(basePath, baseName + ".nfo");
+                            if (!File.Exists(baseNfoFile))
+                            {
+                                var baseNfoRoot = item.MediaType == "series" ? "episodedetails" : "movie";
+                                materializer.WriteNfoFile(basePath, baseName, defaultSlot, defaultSlot, null, baseNfoRoot, item);
+                            }
+                        }
+                    }
 
                     // Write .nfo file
                     var nfoRoot = item.MediaType == "series" ? "episodedetails" : "movie";

@@ -111,8 +111,6 @@ namespace InfiniteDrive.Services
                         new MediaPathInfo { Path = path }
                     },
                     // Critical: Disable chapter image extraction to avoid debrid blocking
-                    // Emby will scan the entire .strm file to extract chapters, which triggers
-                    // the debrid service and can lead to IP bans
                     EnableChapterImageExtraction = false,
                     ExtractChapterImagesDuringLibraryScan = false,
                     AutoGenerateChapters = false,
@@ -123,8 +121,16 @@ namespace InfiniteDrive.Services
                     MetadataCountryCode = config.MetadataCountryCode ?? "US",
 
                     // Enable embedded titles
-                    EnableEmbeddedTitles = true
+                    EnableEmbeddedTitles = true,
                 };
+
+                // Set runtime-only properties via reflection for best first-load experience
+                var optsType = libraryOptions.GetType();
+                try
+                {
+                    optsType.GetProperty("DownloadImagesInAdvance")?.SetValue(libraryOptions, true);
+                }
+                catch { /* non-critical */ }
 
                 _libraryManager.AddVirtualFolder(name, libraryOptions, refreshLibrary: false);
 

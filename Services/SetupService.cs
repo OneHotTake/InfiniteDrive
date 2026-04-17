@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Logging;
@@ -9,6 +12,7 @@ using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
+using System.Text.Json;
 
 namespace InfiniteDrive.Services
 {
@@ -149,10 +153,95 @@ namespace InfiniteDrive.Services
 
             await service.EnsureLibrariesProvisionedAsync();
 
+            // Apply metadata fetchers via TypeOptions on newly created libraries
+            ApplyMetadataTypeOptions();
+
             return new ProvisionLibrariesResponse
             {
                 Success = true,
                 Message = "Libraries provisioned"
+            };
+        }
+
+        /// <summary>
+        /// Sets TypeOptions (metadata + image fetchers) on all InfiniteDrive libraries
+        /// via the Emby REST API. TypeOptions is a runtime-only property not in the
+        /// compile-time SDK, so we use the API directly.
+        /// </summary>
+        private void ApplyMetadataTypeOptions()
+        {
+            try
+            {
+                var folders = _libraryManager.GetVirtualFolders();
+                var port = 8096;
+
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                var baseUrl = $"http://localhost:{port}";
+
+                foreach (var folder in folders)
+                {
+                    var name = folder.Name ?? "";
+                    if (!name.StartsWith("Streamed ")) continue;
+
+                    var contentType = folder.CollectionType ?? "";
+                    var itemId = folder.ItemId;
+                    var opts = folder.LibraryOptions;
+
+                    // Build TypeOptions array
+                    var typeOptions = new List<Dictionary<string, object>>();
+
+                    if (contentType == "movies")
+                    {
+                        typeOptions.Add(MakeTypeOption("Movie",
+                            new[] { "TheMovieDB", "TheOpenMovieDatabase" },
+                            new[] { "TheMovieDB", "FanArt" }));
+                    }
+                    else if (contentType == "tvshows")
+                    {
+                        foreach (var t in new[] { "Series", "Season", "Episode" })
+                            typeOptions.Add(MakeTypeOption(t,
+                                new[] { "TheTVDB", "TheMovieDB" },
+                                new[] { "TheTVDB", "TheMovieDB", "FanArt" }));
+                    }
+                    else
+                    {
+                        typeOptions.Add(MakeTypeOption("Movie",
+                            new[] { "TheMovieDB", "TheOpenMovieDatabase" },
+                            new[] { "TheMovieDB", "FanArt" }));
+                        typeOptions.Add(MakeTypeOption("Series",
+                            new[] { "TheTVDB", "TheMovieDB" },
+                            new[] { "TheTVDB", "TheMovieDB", "FanArt" }));
+                    }
+
+                    // Set TypeOptions via reflection on the LibraryOptions object
+                    var optsType = opts.GetType();
+                    var prop = optsType.GetProperty("TypeOptions");
+                    if (prop == null) continue;
+                    prop.SetValue(opts, typeOptions);
+
+                    // Persist via API
+                    var payload = JsonSerializer.Serialize(new { Id = itemId, LibraryOptions = opts });
+                    var content = new StringContent(payload, Encoding.UTF8, "application/json");
+                    var result = client.PostAsync($"{baseUrl}/Library/VirtualFolders/LibraryOptions", content).Result;
+                    _logger.LogInformation("[InfiniteDrive] Applied metadata TypeOptions to '{Name}': {Status}", name, result.StatusCode);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] Could not apply metadata TypeOptions — users may need to configure manually");
+            }
+        }
+
+        private static Dictionary<string, object> MakeTypeOption(string type, string[] metaFetchers, string[] imgFetchers)
+        {
+            return new Dictionary<string, object>
+            {
+                ["Type"] = type,
+                ["MetadataFetchers"] = metaFetchers,
+                ["MetadataFetcherOrder"] = metaFetchers,
+                ["ImageFetchers"] = imgFetchers,
+                ["ImageFetcherOrder"] = imgFetchers,
+                ["ImageOptions"] = new object[0]
             };
         }
 

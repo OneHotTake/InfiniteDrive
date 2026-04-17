@@ -104,18 +104,20 @@ function (loading) {
 
                 var html = '';
                 sources.forEach(function(src) {
-                    // Use LastReachedAt instead of LastReachableAt (API change compatibility)
                     var statusBadge = src.LastReachedAt ? '<span class="es-badge es-badge-ok">Active</span>' : '<span class="es-badge es-badge-warn">Not reachable</span>';
                     var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
-                    // Type is inferred from SourceKey since it's not in the API
                     var type = 'source';
                     if (src.SourceKey.indexOf(':movie:') !== -1) type = 'movie';
                     else if (src.SourceKey.indexOf(':series:') !== -1) type = 'series';
                     else if (src.SourceKey.indexOf(':anime:') !== -1) type = 'anime';
 
+                    var providerName = src.DisplayName
+                        ? esc(src.DisplayName) + ' <span class="es-type-badge" style="background:rgba(128,128,128,.12);color:inherit;opacity:.6">' + esc(type) + '</span>'
+                        : esc(type);
+
                     html += '<tr>' +
                         '<td>' + esc(src.SourceKey || 'Unknown') + '</td>' +
-                        '<td>' + esc(type) + '</td>' +
+                        '<td>' + providerName + '</td>' +
                         '<td>' + statusBadge + '</td>' +
                         '<td>' + lastSync + '</td>' +
                         '<td>' + (src.ItemCount || 0) + '</td>' +
@@ -130,7 +132,7 @@ function (loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        var tabs = ['providers','libraries','sources','security','parental','health','repair'];
+        var tabs = ['overview','providers','libraries','lists','sources','parental','security','inspector'];
 
         tabs.forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
@@ -141,23 +143,157 @@ function (loading) {
             btns[i].classList.toggle('active', btns[i].getAttribute('data-es-tab') === name);
         }
 
-        // Float save visibility
-        var floatSave = view.querySelector('#es-float-save');
-        if (floatSave) {
-            floatSave.style.display = (name === 'libraries' || name === 'parental') ? 'block' : 'none';
-        }
+        // Float action bar visibility
+        updateFloatActions(view, name);
 
         // Tab-specific load actions
+        if (name === 'overview')   { loadOverviewTab(view); }
         if (name === 'providers')  { loadProvidersTab(view); }
-        if (name === 'libraries')  { populateLibrariesTab(view, _loadedConfig); }
-        if (name === 'sources')    { loadCatalogs(view, 'src'); }
-        if (name === 'health')     { refreshDashboard(view);
-                                          if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 10000); }
-        if (name === 'repair')     { loadImprobabilityStatus(view); }
+        if (name === 'libraries')  { populateLibrariesTab(view, _loadedConfig); loadVersionSlots(view); }
+        if (name === 'sources')    { refreshSourcesTab(view); loadCatalogs(view, 'src'); }
+        if (name === 'lists')      { loadListsTab(view); }
         if (name === 'parental')   { loadBlockedItems(view); }
-        if (name !== 'health') {
+        if (name === 'inspector')  { refreshDashboard(view); loadImprobabilityStatus(view);
+                                          if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 10000); }
+        if (name !== 'inspector') {
             if (_dashInterval) { clearInterval(_dashInterval); _dashInterval = null; }
         }
+    }
+
+    // ── Float action bar ──────────────────────────────────────────────────
+    function updateFloatActions(view, tab) {
+        var bar = view.querySelector('#es-float-actions');
+        if (!bar) return;
+        bar.style.display = 'flex';
+
+        var showSave    = (tab === 'providers' || tab === 'libraries' || tab === 'lists' || tab === 'parental');
+        var showSync    = (tab === 'lists' || tab === 'sources');
+        var showRefresh = (tab !== 'lists' || true) && tab !== 'providers'; // refresh on all except... actually per plan
+
+        // Per-plan visibility
+        var saveTabs    = ['providers','libraries','lists','parental'];
+        var syncTabs    = ['lists','sources'];
+        var refreshTabs = ['overview','providers','libraries','sources','parental','security','inspector'];
+
+        var saveBtn = view.querySelector('#es-float-save-btn');
+        var syncBtn = view.querySelector('#es-float-sync-btn');
+        var refreshBtn = view.querySelector('#es-float-refresh-btn');
+        if (saveBtn) saveBtn.style.display = saveTabs.indexOf(tab) !== -1 ? '' : 'none';
+        if (syncBtn) syncBtn.style.display = syncTabs.indexOf(tab) !== -1 ? '' : 'none';
+        if (refreshBtn) refreshBtn.style.display = refreshTabs.indexOf(tab) !== -1 ? '' : 'none';
+
+        // Hide bar entirely if no buttons visible
+        var anyVisible = (saveBtn && saveBtn.style.display !== 'none') ||
+                         (syncBtn && syncBtn.style.display !== 'none') ||
+                         (refreshBtn && refreshBtn.style.display !== 'none');
+        bar.style.display = anyVisible ? 'flex' : 'none';
+    }
+
+    // ── Overview tab ──────────────────────────────────────────────────────
+    function loadOverviewTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = _loadedConfig;
+
+        // Setup checklist
+        evaluateGettingStarted(view, cfg);
+
+        // Sync status and health
+        esFetch('/InfiniteDrive/Status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                // Last sync
+                var syncEl = q(view, 'es-ov-last-sync');
+                if (syncEl) syncEl.textContent = data.RefreshLastRunAt ? fmtDate(data.RefreshLastRunAt) : 'Never';
+
+                // Catalog count
+                var countEl = q(view, 'es-ov-catalog-count');
+                if (countEl) countEl.textContent = data.CatalogItemCount || 0;
+
+                // Coverage
+                var covEl = q(view, 'es-ov-coverage');
+                if (covEl) {
+                    var pct = data.Coverage && data.Coverage.Total > 0 ? Math.round(data.Coverage.Valid / data.Coverage.Total * 100) : 0;
+                    covEl.textContent = pct + '%';
+                }
+
+                // AIO status
+                var aioEl = q(view, 'es-ov-aio-status');
+                if (aioEl) {
+                    aioEl.textContent = data.AioStreams && data.AioStreams.Ok ? 'Online' : 'Offline';
+                    aioEl.style.color = data.AioStreams && data.AioStreams.Ok ? '#28a745' : '#dc3545';
+                }
+
+                // Quick health grid
+                var provDot = q(view, 'es-ov-provider-dot');
+                var provText = q(view, 'es-ov-provider-text');
+                if (provDot && provText) {
+                    var hasProvider = cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl;
+                    provDot.className = 'es-health-dot ' + (hasProvider ? (data.AioStreams && data.AioStreams.Ok ? 'es-health-dot-ok' : 'es-health-dot-err') : 'es-health-dot-err');
+                    provText.textContent = hasProvider ? (data.AioStreams && data.AioStreams.Ok ? 'Connected' : 'Unreachable') : 'Not configured';
+                }
+
+                var libDot = q(view, 'es-ov-library-dot');
+                var libText = q(view, 'es-ov-library-text');
+                if (libDot && libText) {
+                    var hasLib = cfg.IsFirstRunComplete;
+                    libDot.className = 'es-health-dot ' + (hasLib ? 'es-health-dot-ok' : 'es-health-dot-err');
+                    libText.textContent = hasLib ? (data.CatalogItemCount || 0) + ' items synced' : 'Not set up';
+                }
+
+                var filterDot = q(view, 'es-ov-filter-dot');
+                var filterText = q(view, 'es-ov-filter-text');
+                if (filterDot && filterText) {
+                    var hasKey = !!(cfg.TmdbApiKey);
+                    filterDot.className = 'es-health-dot ' + (hasKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
+                    filterText.textContent = hasKey ? 'Enabled' : 'Disabled';
+                }
+
+                // Provider inline health
+                var provHealthDot = q(view, 'es-prov-health-dot');
+                var provHealthText = q(view, 'es-prov-health-text');
+                if (provHealthDot && provHealthText) {
+                    var hasManifest = cfg.PrimaryManifestUrl;
+                    provHealthDot.className = 'es-health-dot ' + (hasManifest ? (data.AioStreams && data.AioStreams.Ok ? 'es-health-dot-ok' : 'es-health-dot-err') : 'es-health-dot-err');
+                    provHealthText.textContent = hasManifest
+                        ? (data.AioStreams && data.AioStreams.Ok ? 'Primary connected' + (data.AioStreams.LatencyMs > 0 ? ' (' + data.AioStreams.LatencyMs + ' ms)' : '') : 'Primary unreachable')
+                        : 'No provider configured';
+                }
+
+                // Library inline health
+                var libHealthDot = q(view, 'es-lib-health-dot');
+                var libHealthText = q(view, 'es-lib-health-text');
+                if (libHealthDot && libHealthText) {
+                    libHealthDot.className = 'es-health-dot ' + (cfg.IsFirstRunComplete ? 'es-health-dot-ok' : 'es-health-dot-err');
+                    libHealthText.textContent = cfg.IsFirstRunComplete ? 'Libraries created' : 'Libraries not yet created';
+                }
+
+                // Lock library paths after first run
+                var pathsFields = view.querySelector('#es-lib-paths-fields');
+                var lockedNote = q(view, 'es-lib-locked-note');
+                if (cfg.IsFirstRunComplete) {
+                    if (pathsFields) pathsFields.classList.add('es-field-locked');
+                    if (lockedNote) lockedNote.style.display = 'block';
+                }
+
+                // Content Filtering inline health
+                var filterHealthDot = q(view, 'es-filter-health-dot');
+                var filterHealthText = q(view, 'es-filter-health-text');
+                if (filterHealthDot && filterHealthText) {
+                    var tmdbKey = cfg.TmdbApiKey;
+                    filterHealthDot.className = 'es-health-dot ' + (tmdbKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
+                    filterHealthText.textContent = tmdbKey ? 'Content filtering active' : 'No TMDB key configured';
+                }
+
+                // Security: show Generated date
+                var genDateEl = q(view, 'sec-generated-date');
+                if (genDateEl) {
+                    // Best guess: if never rotated, generated ~= plugin install time
+                    genDateEl.textContent = 'at plugin setup' + (cfg.PluginSecretRotatedAt ? '' : ' (never rotated)');
+                }
+
+                // Update status pills on tab bar
+                updateStatusPills(view, data);
+            }).catch(function() {});
     }
 
     // ── Sources tab ───────────────────────────────────────────────────────────
@@ -165,16 +301,8 @@ function (loading) {
         if (!_loadedConfig) return;
         var cfg = _loadedConfig;
 
-        // Reconstruct manifest URL for display
-        var aioUrl = cfg.AioStreamsUrl || '';
-        var uuid   = cfg.AioStreamsUuid  || '';
-        var token  = cfg.AioStreamsToken || '';
-        var displayUrl = (aioUrl && uuid && token)
-            ? aioUrl + '/stremio/' + uuid + '/' + token + '/manifest.json'
-            : (aioUrl || '');
-
         var urlEl = view.querySelector('#prov-aio-url');
-        if (urlEl && !urlEl._userEditing) urlEl.value = displayUrl;
+        if (urlEl && !urlEl._userEditing) urlEl.value = cfg.PrimaryManifestUrl || '';
 
         var backupEl = view.querySelector('#prov-backup-url');
         if (backupEl && !backupEl._userEditing)
@@ -208,8 +336,6 @@ function (loading) {
                 }
                 // Status pills
                 updateStatusPills(view, data);
-                // Getting Started card
-                evaluateGettingStarted(view, _loadedConfig);
             }).catch(function() {});
 
         // Display "last rotated" timestamp
@@ -226,35 +352,33 @@ function (loading) {
         var card = view.querySelector('#es-card-getting-started');
         if (!card) return;
 
-        var step1 = !!(cfg.AioStreamsUrl);
-        var step2 = !!(cfg.BaseSyncPath && cfg.EmbyBaseUrl);
-        var step3 = !!(cfg.AioStreamsCatalogIds || cfg.EnableAioStreamsCatalog);
+        var step1 = !!(cfg.PrimaryManifestUrl);
+        var step2 = !!(cfg.IsFirstRunComplete);
+        var step3 = !!(cfg.TmdbApiKey || cfg.TraktClientId);
 
-        if (step1 && step2 && step3) {
+        if (step1 && step2) {
             card.innerHTML =
                 '<div style="display:flex;align-items:center;justify-content:space-between">'
               + '<span>✅ Setup complete — InfiniteDrive is configured and syncing.</span>'
-              + '<a class="es-link-btn" href="#" data-es-tab="providers">Review Guide</a>'
               + '</div>';
             return;
         }
 
         function stepHtml(num, label, done, tabTarget) {
-            if (done) {
-                return '<div style="padding:.35em 0">✅ ' + num + '. ' + label + '</div>';
-            }
-            return '<div style="padding:.35em 0">'
-                 + num + '. ' + label + '  '
-                 + '<a class="es-link-btn" href="#" data-es-tab="' + tabTarget + '">'
-                 + '→ Go to ' + tabTarget.charAt(0).toUpperCase() + tabTarget.slice(1) + ' tab'
-                 + '</a></div>';
+            var icon = done ? '✅' : num + '.';
+            var link = done ? '' : ' <a class="es-link-btn" href="#" data-es-tab="' + tabTarget + '">Go to ' + tabTarget.charAt(0).toUpperCase() + tabTarget.slice(1) + ' →</a>';
+            return '<div class="es-checklist-step' + (done ? ' done' : '') + '">'
+                 + '<span class="es-check-icon">' + icon + '</span> '
+                 + '<span>' + label + '</span>'
+                 + link
+                 + '</div>';
         }
 
         card.innerHTML =
             '<div class="es-card-title">Getting Started</div>'
-          + stepHtml(1, 'Connect AIOStreams Manifest', step1, 'providers')
-          + stepHtml(2, 'Configure Libraries &amp; Servers', step2, 'libraries')
-          + stepHtml(3, 'Choose Sources', step3, 'sources')
+          + stepHtml(1, 'Connect a Provider', step1, 'providers')
+          + stepHtml(2, 'Set up Libraries', step2, 'libraries')
+          + stepHtml(3, 'Configure Content and Lists', step3, 'lists')
           + '<p class="es-hint" style="margin-top:.75em">'
           + 'Once complete, your library will begin populating automatically.</p>';
     }
@@ -263,6 +387,14 @@ function (loading) {
         var pillAio    = view.querySelector('#es-pill-aio');
         var pillBackup = view.querySelector('#es-pill-backup');
         if (!pillAio) return;
+
+        // Only show pills when a manifest is actually configured
+        var hasManifest = _loadedConfig && !!_loadedConfig.AioStreamsUrl;
+        if (!hasManifest) {
+            pillAio.className = 'es-status-pill es-pill-hidden';
+            if (pillBackup) pillBackup.className = 'es-status-pill es-pill-hidden';
+            return;
+        }
 
         var aioOnline = !!(data && data.AioStreamsOnline);
         pillAio.textContent = 'AIO ' + (aioOnline ? '✅' : '🔴');
@@ -276,7 +408,7 @@ function (loading) {
                 pillBackup.className = 'es-status-pill ' + (backupOnline ? 'es-pill-ok' : 'es-pill-err');
             }
         } else {
-            if (pillBackup) pillBackup.style.display = 'none';
+            if (pillBackup) pillBackup.className = 'es-status-pill es-pill-hidden';
         }
     }
 
@@ -320,6 +452,88 @@ function (loading) {
 
         var nfoEl = view.querySelector('#lib-write-nfo');
         if (nfoEl) nfoEl.checked = !!cfg.WriteNfoFiles;
+        var animeEl = view.querySelector('#lib-anime-enabled');
+        if (animeEl) animeEl.checked = true; // anime always enabled
+    }
+
+    function loadVersionSlots(view) {
+        var loadingEl = view.querySelector('#lib-slots-loading');
+        var listEl    = view.querySelector('#lib-slots-list');
+        var gridEl    = view.querySelector('#lib-slots-grid');
+        var defaultEl = view.querySelector('#lib-slots-default-label');
+        if (!gridEl) return;
+
+        esFetch('/InfiniteDrive/Admin/VersionSlots')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (loadingEl) loadingEl.style.display = 'none';
+                if (listEl) listEl.style.display = 'block';
+                if (!data.Slots || !data.Slots.length) {
+                    gridEl.innerHTML = '<span style="opacity:.5;font-size:.85em">No quality tiers available.</span>';
+                    return;
+                }
+                var defaultSlot = (data.Slots.find(function(s) { return s.IsDefault; }) || {}).SlotKey || 'hd_broad';
+                if (defaultEl) defaultEl.textContent = (data.Slots.find(function(s) { return s.IsDefault; }) || {}).Label || 'HD · Broad';
+
+                var html = '';
+                data.Slots.forEach(function(slot) {
+                    html += '<label class="checkboxContainer" style="margin:0">'
+                        + '<input type="checkbox" is="emby-checkbox"'
+                        + ' class="lib-slot-chk"'
+                        + ' data-slot-key="' + slot.SlotKey + '"'
+                        + (slot.Enabled ? ' checked' : '')
+                        + (slot.IsDefault ? ' disabled title="Default slot cannot be disabled"' : '')
+                        + '/>'
+                        + '<span class="checkboxLabel">'
+                        + slot.Label
+                        + ' <span style="opacity:.45;font-size:.8em">(' + slot.Resolution + (slot.HdrClass ? ' · ' + slot.HdrClass : '') + ')</span>'
+                        + (slot.IsDefault ? ' <span style="opacity:.5;font-size:.75em">[default]</span>' : '')
+                        + '</span>'
+                        + '</label>';
+                });
+                gridEl.innerHTML = html;
+            })
+            .catch(function() {
+                if (loadingEl) loadingEl.textContent = 'Could not load quality tiers — check server connection.';
+            });
+    }
+
+    function saveVersionSlots(view) {
+        var checkboxes = view.querySelectorAll('.lib-slot-chk');
+        var toggles = [];
+        for (var i = 0; i < checkboxes.length; i++) {
+            var chk = checkboxes[i];
+            if (chk.disabled) continue; // skip default slot
+            var key = chk.getAttribute('data-slot-key');
+            var enabled = chk.checked;
+            toggles.push({ key: key, enabled: enabled });
+        }
+        if (!toggles.length) return;
+
+        var statusEl = view.querySelector('#lib-slots-save-status');
+
+        // Serialize toggles to avoid database locking
+        var chain = Promise.resolve();
+        var results = [];
+        toggles.forEach(function(t) {
+            chain = chain.then(function() {
+                return esFetch('/InfiniteDrive/Admin/VersionSlots/Toggle?slotKey=' + encodeURIComponent(t.key) + '&enabled=' + t.enabled, {
+                    method: 'POST'
+                }).then(function(r) { return r.json(); })
+                .then(function(result) { results.push(result); })
+                .catch(function() { results.push({ Success: false, Message: 'Request failed' }); });
+            });
+        });
+
+        chain.then(function() {
+            var failures = results.filter(function(r) { return !r.Success; });
+            if (failures.length === 0) {
+                esFetch('/InfiniteDrive/Trigger?task=library_readoption', { method: 'POST' }).catch(function(){});
+                if (statusEl) { statusEl.textContent = '✓ Saved — rehydration triggered'; statusEl.style.color = '#28a745'; }
+            } else {
+                if (statusEl) { statusEl.textContent = '✗ ' + failures.map(function(f){ return f.Message; }).join('; '); statusEl.style.color = '#dc3545'; }
+            }
+        });
     }
 
     function saveLibrariesTab(view) {
@@ -338,12 +552,14 @@ function (loading) {
         cfg.MetadataCertificationCountry = (view.querySelector('#lib-meta-country') || {}).value || 'US';
         cfg.MetadataImageLanguage        = (view.querySelector('#lib-meta-img-lang')|| {}).value || 'en';
         cfg.WriteNfoFiles = !!((view.querySelector('#lib-write-nfo') || {}).checked);
+        cfg.EnableAnimeLibrary = true; // anime always enabled
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
                 _loadedConfig = cfg;
                 _unsavedChanges = false;
                 showFloatSaveConfirm(view);
                 esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'}).catch(function(){});
+                saveVersionSlots(view);
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
@@ -505,6 +721,7 @@ function (loading) {
         btn.addEventListener('click', function() {
             var activeTab = view.querySelector('[data-es-tab].active');
             var tab = activeTab ? activeTab.getAttribute('data-es-tab') : '';
+            if (tab === 'providers') saveProvidersTab(view);
             if (tab === 'libraries') saveLibrariesTab(view);
             if (tab === 'parental')  saveParentalTab(view);
         });
@@ -545,7 +762,7 @@ function (loading) {
     function saveParentalTab(view) {
         if (!_loadedConfig) return;
         var cfg = JSON.parse(JSON.stringify(_loadedConfig));
-        cfg.TmdbApiKey              = (view.querySelector('#cfg-tmdb-api-key') || {}).value || '';
+        cfg.TmdbApiKey              = (view.querySelector('#cfg-lists-tmdb-key') || {}).value || '';
         cfg.BlockUnratedForRestricted = !!(view.querySelector('#cfg-block-unrated') || {}).checked;
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
@@ -962,10 +1179,10 @@ function (loading) {
                     if (!cfg.MetadataImageLanguage)
                         cfg.MetadataImageLanguage = serverCfg.PreferredMetadataLanguage || 'en';
                     _loadedConfig = cfg;
-                    showTab(view, 'providers');
+                    showTab(view, 'overview');
                     loading.hide();
                 }).catch(function() {
-                    showTab(view, 'providers');
+                    showTab(view, 'overview');
                     loading.hide();
                 });
             })
@@ -1052,9 +1269,18 @@ function (loading) {
         set('cfg-plugin-secret',          cfg.PluginSecret);
 
         // Sprint 209: Parental Controls
-        set('cfg-tmdb-api-key',           cfg.TmdbApiKey || '');
+        var parentalTmdbStatus = view.querySelector('#cfg-parental-tmdb-status');
+        if (parentalTmdbStatus) {
+            parentalTmdbStatus.textContent = cfg.TmdbApiKey ? '✓ TMDB key configured — content filtering active on Discover page' : '✗ No TMDB key — configure on the Lists tab';
+            parentalTmdbStatus.style.color = cfg.TmdbApiKey ? '#52b54b' : '#dc3545';
+        }
         chk('cfg-block-unrated',         cfg.BlockUnratedForRestricted !== false);
         updateFilterStatus(view, cfg.TmdbApiKey);
+
+        // External Lists
+        set('cfg-trakt-client-id',        cfg.TraktClientId || '');
+        set('cfg-lists-tmdb-key',         cfg.TmdbApiKey || '');
+        set('cfg-user-catalog-limit',     cfg.UserCatalogLimit || 5);
 
         // Sprint 64: Anime library config
         checkAnimePluginStatus(view);
@@ -1104,13 +1330,13 @@ function (loading) {
                 indicator.className = 'es-status-indicator es-status-active';
                 indicator.textContent = '✅';
             }
-            if (text) text.textContent = 'TMDB API key configured — parental filtering is active';
+            if (text) text.textContent = 'Content filtering is active on the Discover page. Items in your library are controlled by Emby\'s parental settings.';
         } else {
             if (indicator) {
                 indicator.className = 'es-status-indicator es-status-inactive';
                 indicator.textContent = '⚠️';
             }
-            if (text) text.textContent = 'No TMDB key configured — parental filtering is inactive';
+            if (text) text.textContent = 'No TMDB key configured. Content will still sync to your library — Emby\'s own parental controls apply. To filter the Discover page, add a key on the Lists tab.';
         }
     }
 
@@ -1294,6 +1520,9 @@ function (loading) {
             // Sprint 209: Parental Controls
             TmdbApiKey:                 esVal(view, 'cfg-tmdb-api-key') || '',
             BlockUnratedForRestricted:  esChk(view, 'cfg-block-unrated'),
+            // External Lists
+            TraktClientId:              esVal(view, 'cfg-trakt-client-id') || '',
+            UserCatalogLimit:           esInt(view, 'cfg-user-catalog-limit', 5),
             IsFirstRunComplete:         _loadedConfig ? !!_loadedConfig.IsFirstRunComplete : false
         };
         // CONF-JSON: validate CatalogItemLimitsJson before saving
@@ -1551,6 +1780,33 @@ function (loading) {
         var container = q(view, 'es-health-providers');
         if (!container) return;
 
+        // Update the provider status grid cards
+        var primaryCard = view.querySelector('#health-card-aio');
+        var secondaryCard = view.querySelector('#health-card-secondary');
+
+        providers.forEach(function(p) {
+            var name = (p.DisplayName || '').toLowerCase();
+            var statusHtml = p.Ok
+                ? '<span style="color:#28a745;font-weight:600">Connected</span>'
+                : '<span style="color:#dc3545;font-weight:600">Offline</span>';
+            var detail = p.LatencyMs >= 0 ? p.LatencyMs + ' ms' : '';
+            if (p.Message && !p.Ok) detail = p.Message;
+
+            if (name === 'primary' && primaryCard) {
+                var statusEl = primaryCard.querySelector('#health-aio-status');
+                var detailEl = primaryCard.querySelector('#health-aio-detail');
+                if (statusEl) statusEl.innerHTML = statusHtml;
+                if (detailEl) detailEl.textContent = detail;
+            }
+            if (name === 'secondary' && secondaryCard) {
+                secondaryCard.style.display = 'block';
+                var statusEl = secondaryCard.querySelector('#health-secondary-status');
+                var detailEl = secondaryCard.querySelector('#health-secondary-detail');
+                if (statusEl) statusEl.innerHTML = statusHtml;
+                if (detailEl) detailEl.textContent = detail;
+            }
+        });
+
         if (!providers || providers.length === 0) {
             if (card) card.style.display = 'none';
             return;
@@ -1671,7 +1927,7 @@ function (loading) {
     function renderCatalogPanel(view, panel, catalogs, prefix, prevSet) {
         var html = '<table class="es-cpt"><thead><tr>'+
             '<th style="width:26px"></th><th>Source</th><th style="width:60px">Type</th>'+
-            '<th style="min-width:110px">Progress</th><th style="width:60px">Limit</th><th style="width:70px">Order</th>'+
+            '<th style="min-width:110px">Progress</th><th style="width:60px">Limit</th>'+
             '</tr></thead><tbody>';
         catalogs.forEach(function(c, idx) {
             var checked = (prevSet === null || prevSet[c.Id]) ? ' checked' : '';
@@ -1683,16 +1939,12 @@ function (loading) {
             var srcKey = 'aio:' + (c.Type||'movie') + ':' + c.Id;
             var progKey = cprogKey(srcKey);
             var limitVal = _catalogLimits[srcKey] ? String(_catalogLimits[srcKey]) : '';
-            var isFirst = idx === 0, isLast = idx === catalogs.length - 1;
-            var upDisabled = isFirst ? ' disabled style="opacity:.3"' : '';
-            var downDisabled = isLast ? ' disabled style="opacity:.3"' : '';
             html += '<tr>'+
                 '<td><input type="checkbox" class="es-catcb-'+prefix+'" value="'+esc(c.Id)+'"'+checked+' /></td>'+
-                '<td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.Name||c.Id)+'">'+esc(c.Name||c.Id)+'</td>'+
+                '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.Name||c.Id)+'">'+esc(c.Name||c.Id)+'</td>'+
                 '<td><span class="es-type-badge" style="'+tStyle+'">'+esc(c.Type||'')+'</span></td>'+
                 '<td id="es-cprog-'+prefix+'-'+progKey+'"><span style="opacity:.3;font-size:.8em">—</span></td>'+
                 '<td><input type="number" class="es-catalog-limit-input" style="width:52px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:3px;padding:.15em .3em;font-size:.82em;color:inherit" placeholder="100" min="1" max="5000" value="'+esc(limitVal)+'" data-srckey="'+esc(srcKey)+'" /></td>'+
-                '<td style="text-align:center;white-space:nowrap"><button type="button" is="emby-button" class="raised button" data-es-catalog-move="up" data-es-catalog-prefix="'+prefix+'" data-es-catalog-idx="'+idx+'" style="width:1.5em;height:1.5em;padding:0;border-radius:50%;font-size:.7em;margin:0 .1em"'+upDisabled+'>▲</button><button type="button" is="emby-button" class="raised button" data-es-catalog-move="down" data-es-catalog-prefix="'+prefix+'" data-es-catalog-idx="'+idx+'" style="width:1.5em;height:1.5em;padding:0;border-radius:50%;font-size:.7em;margin:0 .1em"'+downDisabled+'>▼</button></td>'+
                 '</tr>';
         });
         html += '</tbody></table>';
@@ -2016,10 +2268,21 @@ function (loading) {
         // Sprint 215: Wire dirty state to library and parental tab inputs
         ['lib-base-path','lib-name-movies','lib-name-series','lib-name-anime',
          'lib-emby-url','lib-meta-lang','lib-meta-country','lib-meta-img-lang',
-         'lib-write-nfo','cfg-tmdb-api-key','cfg-block-unrated'].forEach(function(id) {
+         'lib-write-nfo','cfg-block-unrated'].forEach(function(id) {
             var el = view.querySelector('#' + id);
             if (el) el.addEventListener('change', function() { markDirty(view); });
         });
+
+        // Wire provider inputs to mark dirty
+        ['prov-aio-url', 'prov-backup-url'].forEach(function(id) {
+            var el = view.querySelector('#' + id);
+            if (el) el.addEventListener('change', function() { markDirty(view); });
+        });
+        var cineEl = view.querySelector('#prov-cinemeta-enabled');
+        if (cineEl) {
+            cineEl.addEventListener('change', function() { markDirty(view); });
+            cineEl.addEventListener('click', function() { markDirty(view); });
+        }
 
         // Sprint 215: Wire Enter key on parental block search
         var parSearch = view.querySelector('#par-block-search');
@@ -2100,6 +2363,14 @@ function (loading) {
             });
             tmdbKeyInput.addEventListener('change', function() {
                 updateFilterStatus(view, tmdbKeyInput.value);
+            });
+        }
+
+        // Sprint 390: User catalog limit → real-time warning
+        var catalogLimitInput = view.querySelector('#cfg-user-catalog-limit');
+        if (catalogLimitInput) {
+            catalogLimitInput.addEventListener('input', function() {
+                updateListLimitWarning(view);
             });
         }
 
@@ -2261,13 +2532,11 @@ function (loading) {
             case 'rotate-api-key': rotateApiKey(view); break;
             case 'go-dashboard':       showTab(view, 'settings'); break;
             // Sprint 215 — New actions
-            case 'prov-refresh-all':    refreshProviders(view); break;
-            case 'prov-aio-refresh':   refreshProvider(view, 'aio'); break;
-            case 'prov-aio-edit':     openProviderEdit(view, (view.querySelector('#prov-aio-edit-btn')||{})._configureUrl); break;
-            case 'prov-backup-refresh': refreshProvider(view, 'backup'); break;
+            case 'prov-save-all':      saveProvidersTab(view); break;
+            case 'prov-aio-test':      testProvider(view, 'aio'); break;
+            case 'prov-aio-edit':      openProviderEdit(view, (view.querySelector('#prov-aio-edit-btn')||{})._configureUrl); break;
+            case 'prov-backup-test':   testProvider(view, 'backup'); break;
             case 'prov-backup-edit':   openProviderEdit(view, (view.querySelector('#prov-backup-edit-btn')||{})._configureUrl); break;
-            case 'prov-meta-refresh':  refreshProvider(view, 'meta'); break;
-            case 'prov-meta-edit':     openProviderEdit(view, (view.querySelector('#prov-meta-edit-btn')||{})._configureUrl); break;
             case 'prov-rss-save':      saveRssFeeds(view); break;
             case 'lib-meta-override': toggleMetaOverride(view); break;
             case 'src-refresh':         loadCatalogs(view, 'src'); break;
@@ -2277,34 +2546,44 @@ function (loading) {
             case 'par-block-search':   searchBlockItems(view); break;
             case 'par-block-item':      blockItemById(view, el.getAttribute('data-item-id'), el.getAttribute('data-item-title') || 'this item'); break;
             case 'test-tmdb-key':     testTmdbKey(view); break;
-            case 'float-save':         saveLibrariesTab(view); break;
+            case 'float-save':         saveCurrentTab(view); break;
+            case 'float-sync':         runTask(view, 'catalog_sync', el); break;
+            case 'float-refresh':      runMarvinOrRefresh(view); break;
+            case 'lists-save-settings': saveListsSettings(view); break;
+            case 'admin-list-add-open': openAdminListModal(view); break;
+            case 'admin-list-add-cancel': closeAdminListModal(view); break;
+            case 'admin-list-add-save': saveAdminList(view); break;
+            case 'admin-lists-refresh-all': refreshAllAdminLists(view); break;
+            case 'admin-list-refresh': refreshOneAdminList(view, el); break;
+            case 'admin-list-remove': removeAdminList(view, el); break;
         }
     }
 
-    // Sprint 215 — Helper functions for new actions
-    function refreshProviders(view) {
-        loadProvidersTab(view);
-    }
-
-    function refreshProvider(view, type) {
+    // Providers tab — test and save
+    function testProvider(view, type) {
         var urlEl = view.querySelector('#prov-' + type + '-url');
         var statusEl = view.querySelector('#prov-' + type + '-status');
         if (!urlEl || !statusEl) return;
         var url = (urlEl.value || '').trim();
-        if (!url) return;
+        if (!url) {
+            statusEl.textContent = 'Enter a URL first.';
+            statusEl.style.color = '#c87800';
+            return;
+        }
 
-        statusEl.textContent = 'Refreshing…';
+        statusEl.textContent = 'Testing…';
         statusEl.style.color = '';
 
         esFetch('/InfiniteDrive/TestUrl', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ Url: url })
+            body: JSON.stringify({ ManifestUrl: url })
         })
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.Ok) {
-                    statusEl.textContent = '✓ Connected' + (data.LatencyMs ? ' (' + data.LatencyMs + ' ms)' : '');
+                    statusEl.textContent = '✓ Connected' + (data.LatencyMs ? ' (' + data.LatencyMs + ' ms)' : '')
+                        + (data.AddonName ? ' — ' + data.AddonName : '');
                     statusEl.style.color = '#28a745';
                 } else {
                     statusEl.textContent = '✗ ' + (data.Message || 'Could not connect');
@@ -2315,6 +2594,264 @@ function (loading) {
                 statusEl.textContent = '✗ Connection failed';
                 statusEl.style.color = '#dc3545';
             });
+    }
+
+    // ── Float action helpers ──────────────────────────────────────────────
+    function saveCurrentTab(view) {
+        var active = view.querySelector('[data-es-tab].active');
+        var tab = active ? active.getAttribute('data-es-tab') : '';
+        if (tab === 'providers') saveProvidersTab(view);
+        else if (tab === 'libraries') saveLibrariesTab(view);
+        else if (tab === 'lists') saveListsSettings(view);
+        else if (tab === 'parental') saveParentalTab(view);
+    }
+
+    function runMarvinOrRefresh(view) {
+        var active = view.querySelector('[data-es-tab].active');
+        var tab = active ? active.getAttribute('data-es-tab') : '';
+        // Guard rails
+        if (tab === 'overview' || tab === 'inspector' || tab === 'security') {
+            // Check prerequisites
+            if (!_loadedConfig || !_loadedConfig.IsFirstRunComplete) {
+                esAlert('Libraries need to be configured first. Go to the Libraries tab.');
+                return;
+            }
+        }
+        if (!_loadedConfig || (!_loadedConfig.PrimaryManifestUrl && !_loadedConfig.SecondaryManifestUrl)) {
+            esAlert('Connect an AIOStreams manifest first. Go to the Providers tab.');
+            return;
+        }
+        // Trigger status refresh
+        esFetch('/InfiniteDrive/Status/Refresh', { method: 'POST' })
+            .then(function() { showFloatSaveConfirm(view); loadOverviewTab(view); })
+            .catch(function() {});
+    }
+
+    function saveProvidersTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+
+        // Primary manifest URL stored as-is (full URL)
+        cfg.PrimaryManifestUrl = ((view.querySelector('#prov-aio-url') || {}).value || '').trim();
+
+        // Backup manifest URL (stored as-is)
+        cfg.SecondaryManifestUrl = ((view.querySelector('#prov-backup-url') || {}).value || '').trim();
+
+        // Cinemeta checkbox
+        cfg.EnableCinemetaCatalog = !!(view.querySelector('#prov-cinemeta-enabled') || {}).checked;
+
+        // RSS feeds
+        cfg.SystemRssFeedUrls = (view.querySelector('#prov-rss-urls') || {}).value || '';
+        cfg.SystemRssFeedName = (view.querySelector('#prov-rss-name') || {}).value || '';
+
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                // Reload providers tab to update edit buttons and status
+                loadProvidersTab(view);
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    // ── Lists tab ────────────────────────────────────────────────────────────
+    function loadListsTab(view) {
+        loadAdminLists(view);
+        loadAdminProviders(view);
+    }
+
+    function loadAdminProviders(view) {
+        var sel = view.querySelector('#admin-list-provider');
+        if (!sel) return;
+        esFetch('/InfiniteDrive/Admin/Lists/Providers')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var providers = data.EnabledProviders || [];
+                sel.innerHTML = '';
+                if (providers.indexOf('mdblist') !== -1)
+                    sel.innerHTML += '<option value="mdblist">MDBList</option>';
+                if (providers.indexOf('trakt') !== -1)
+                    sel.innerHTML += '<option value="trakt">Trakt</option>';
+                if (providers.indexOf('tmdb') !== -1)
+                    sel.innerHTML += '<option value="tmdb">TMDB</option>';
+                if (providers.indexOf('anilist') !== -1)
+                    sel.innerHTML += '<option value="anilist">AniList</option>';
+                if (!sel.innerHTML) sel.innerHTML = '<option value="">No providers enabled</option>';
+            })
+            .catch(function() { sel.innerHTML = '<option value="">Error loading</option>'; });
+    }
+
+    function loadAdminLists(view) {
+        var grid = view.querySelector('#admin-lists-grid');
+        var empty = view.querySelector('#admin-lists-empty');
+        if (!grid) return;
+        grid.innerHTML = '';
+
+        esFetch('/InfiniteDrive/Admin/Lists')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var lists = data.Lists || [];
+                if (empty) empty.style.display = lists.length ? 'none' : '';
+                lists.forEach(function(l) {
+                    var html = '<div class="es-card" style="margin-bottom:.5em">' +
+                        '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em">' +
+                        '<div>' +
+                        '<div style="font-weight:600">' + esc(l.DisplayName) + '</div>' +
+                        '<div style="font-size:.8em;opacity:.6">' + esc(l.Provider) + ' &middot; ' + esc(l.ListUrl).substring(0, 45) + (l.ListUrl && l.ListUrl.length > 45 ? '…' : '') + '</div>' +
+                        (l.LastSyncedAt ? '<div style="font-size:.75em;opacity:.45">Last synced: ' + fmtRelative(l.LastSyncedAt) + '</div>' : '') +
+                        (l.LastSyncStatus && l.LastSyncStatus !== 'ok' ? '<div style="font-size:.75em;color:#dc3545">' + esc(l.LastSyncStatus) + '</div>' : '') +
+                        '</div>' +
+                        '<div style="display:flex;gap:.5em;flex-shrink:0">' +
+                        '<button type="button" is="emby-button" class="raised button" style="font-size:.8em" data-es-action="admin-list-refresh" data-list-id="' + esc(l.Id) + '">Refresh</button>' +
+                        '<button type="button" is="emby-button" class="raised button" style="font-size:.8em;color:#dc3545" data-es-action="admin-list-remove" data-list-id="' + esc(l.Id) + '" data-list-name="' + esc(l.DisplayName) + '">Remove</button>' +
+                        '</div>' +
+                        '</div></div>';
+                    grid.innerHTML += html;
+                });
+            })
+            .catch(function() { if (empty) empty.textContent = 'Failed to load lists.'; });
+    }
+
+    function saveListsSettings(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        cfg.TraktClientId = ((view.querySelector('#cfg-trakt-client-id') || {}).value || '').trim();
+        var tmdbKey = ((view.querySelector('#cfg-lists-tmdb-key') || {}).value || '').trim();
+        if (tmdbKey) cfg.TmdbApiKey = tmdbKey;
+        var limit = parseInt(((view.querySelector('#cfg-user-catalog-limit') || {}).value || '5'), 10);
+        cfg.UserCatalogLimit = (isNaN(limit) || limit < 0) ? 5 : (limit > 50 ? 50 : limit);
+
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                loadAdminProviders(view);
+                updateListLimitWarning(view);
+                Dashboard.alert('List settings saved.');
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    function updateListLimitWarning(view) {
+        var limitEl = view.querySelector('#cfg-user-catalog-limit');
+        var hintEl = view.querySelector('#es-list-limit-hint');
+        var warnEl = view.querySelector('#es-list-limit-warning');
+        if (!limitEl || !hintEl || !warnEl) return;
+
+        var limit = parseInt(limitEl.value, 10);
+        if (isNaN(limit)) limit = 5;
+
+        if (limit === 0) {
+            hintEl.textContent = 'Users will not see the My Lists tab on the Discover page.';
+            warnEl.style.display = 'none';
+            return;
+        }
+
+        hintEl.textContent = 'Maximum number of external lists each user can add. Default: 5.';
+
+        // Check existing user list count
+        esFetch('/InfiniteDrive/Admin/Lists/UserCount')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.TotalUserLists > limit) {
+                    warnEl.textContent = 'Some users may already have more lists than the new limit (' + data.TotalUserLists + ' active). Their existing lists remain, but they won\'t be able to add new ones.';
+                    warnEl.style.display = 'block';
+                } else {
+                    warnEl.style.display = 'none';
+                }
+            })
+            .catch(function() { warnEl.style.display = 'none'; });
+    }
+
+    function openAdminListModal(view) {
+        var form = view.querySelector('#admin-list-add-form');
+        if (!form) return;
+        form.style.display = 'block';
+        var fb = view.querySelector('#admin-list-add-feedback');
+        if (fb) fb.textContent = '';
+        var nameEl = view.querySelector('#admin-list-name');
+        var urlEl = view.querySelector('#admin-list-url');
+        if (nameEl) nameEl.value = '';
+        if (urlEl) urlEl.value = '';
+    }
+
+    function closeAdminListModal(view) {
+        var form = view.querySelector('#admin-list-add-form');
+        if (form) form.style.display = 'none';
+    }
+
+    function saveAdminList(view) {
+        var fb = view.querySelector('#admin-list-add-feedback');
+        var url = ((view.querySelector('#admin-list-url') || {}).value || '').trim();
+        var name = ((view.querySelector('#admin-list-name') || {}).value || '').trim();
+        if (!url) { if (fb) { fb.textContent = 'Enter a list URL.'; fb.style.color = '#c87800'; } return; }
+
+        if (fb) { fb.textContent = 'Validating…'; fb.style.color = ''; }
+
+        esFetch('/InfiniteDrive/Admin/Lists/Add?listUrl=' + encodeURIComponent(url) + '&displayName=' + encodeURIComponent(name), { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    if (fb) { fb.textContent = 'Found ' + (data.Fetched || 0) + ' items (' + (data.Added || 0) + ' added, ' + (data.Updated || 0) + ' updated) in ' + (data.ElapsedMs || 0) + 'ms'; fb.style.color = '#1e7e34'; }
+                    loadAdminLists(view);
+                    setTimeout(function() { closeAdminListModal(view); }, 1500);
+                } else {
+                    if (fb) { fb.textContent = data.Error || 'Failed to add list.'; fb.style.color = '#dc3545'; }
+                }
+            })
+            .catch(function(err) {
+                if (fb) { fb.textContent = 'Error: ' + (err && err.message || err); fb.style.color = '#dc3545'; }
+            });
+    }
+
+    function refreshAllAdminLists(view) {
+        var statusEl = view.querySelector('#admin-lists-refresh-status');
+        if (statusEl) { statusEl.textContent = 'Refreshing…'; statusEl.style.color = ''; }
+
+        esFetch('/InfiniteDrive/Admin/Lists/Refresh', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    if (statusEl) { statusEl.textContent = data.Lists + ' list(s) refreshed — ' + (data.Fetched || 0) + ' fetched in ' + (data.ElapsedMs || 0) + 'ms'; statusEl.style.color = '#1e7e34'; }
+                } else {
+                    if (statusEl) { statusEl.textContent = data.Error || 'Refresh failed'; statusEl.style.color = '#dc3545'; }
+                }
+                loadAdminLists(view);
+            })
+            .catch(function(err) {
+                if (statusEl) { statusEl.textContent = 'Error: ' + (err && err.message || err); statusEl.style.color = '#dc3545'; }
+            });
+    }
+
+    function refreshOneAdminList(view, el) {
+        var listId = el.getAttribute('data-list-id');
+        if (!listId) return;
+        el.textContent = 'Refreshing…';
+
+        esFetch('/InfiniteDrive/Admin/Lists/Refresh?catalogId=' + encodeURIComponent(listId), { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                el.textContent = data.Ok ? 'Done' : (data.Error || 'Error');
+                loadAdminLists(view);
+            })
+            .catch(function() { el.textContent = 'Error'; });
+    }
+
+    function removeAdminList(view, el) {
+        var listId = el.getAttribute('data-list-id');
+        var listName = el.getAttribute('data-list-name') || 'this list';
+        if (!listId) return;
+        if (!confirm('Remove "' + listName + '"? This can be undone by re-adding the list.')) return;
+
+        esFetch('/InfiniteDrive/Admin/Lists/Remove?catalogId=' + encodeURIComponent(listId), { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) loadAdminLists(view);
+                else Dashboard.alert(data.Error || 'Failed to remove list.');
+            })
+            .catch(function(err) { Dashboard.alert('Error: ' + (err && err.message || err)); });
     }
 
     function saveRssFeeds(view) {

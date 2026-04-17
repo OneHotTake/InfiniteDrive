@@ -3641,6 +3641,44 @@ CREATE INDEX IF NOT EXISTS idx_user_saves_item ON user_item_saves(media_item_id)
                 _logger.LogInformation("[InfiniteDrive] Schema V30 migration complete (last_verified_at added)");
                 version = 30;
             }
+
+            // ── V30 → V31: External list providers — relax user_catalogs constraints ────
+            if (version < 31)
+            {
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V31", version);
+
+                // SQLite cannot ALTER CHECK constraints — rebuild the table.
+                if (TableExists(conn, "user_catalogs"))
+                {
+                    ExecuteInline(conn, @"
+CREATE TABLE IF NOT EXISTS user_catalogs_v31 (
+    id                 TEXT PRIMARY KEY,
+    owner_user_id      TEXT NOT NULL,
+    source_type        TEXT NOT NULL DEFAULT 'external_list',
+    service            TEXT NOT NULL,
+    list_url           TEXT NOT NULL,
+    display_name       TEXT NOT NULL,
+    active             INTEGER NOT NULL DEFAULT 1,
+    last_synced_at     TEXT,
+    last_sync_status   TEXT,
+    created_at         TEXT NOT NULL
+);");
+                    ExecuteInline(conn, @"
+INSERT OR IGNORE INTO user_catalogs_v31
+    (id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at)
+SELECT id, owner_user_id, 'external_list', service, rss_url, display_name, active, last_synced_at, last_sync_status, created_at
+FROM user_catalogs;");
+                    ExecuteInline(conn, "DROP TABLE IF EXISTS user_catalogs;");
+                    ExecuteInline(conn, "ALTER TABLE user_catalogs_v31 RENAME TO user_catalogs;");
+                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_catalogs_owner ON user_catalogs(owner_user_id);");
+                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHERE active = 1;");
+                    ExecuteInline(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_catalogs_owner_url ON user_catalogs(owner_user_id, list_url);");
+                }
+
+                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (31);");
+                _logger.LogInformation("[InfiniteDrive] Schema V31 migration complete (external list providers)");
+                version = 31;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -5824,23 +5862,23 @@ LIMIT 1";
         public async Task<string> CreateUserCatalogAsync(
             string ownerUserId,
             string service,
-            string rssUrl,
+            string listUrl,
             string displayName,
             CancellationToken ct = default)
         {
             var id = Guid.NewGuid().ToString();
             const string sql = @"
                 INSERT INTO user_catalogs
-                    (id, owner_user_id, source_type, service, rss_url, display_name, active, created_at)
+                    (id, owner_user_id, source_type, service, list_url, display_name, active, created_at)
                 VALUES
-                    (@id, @owner_user_id, 'user_rss', @service, @rss_url, @display_name, 1, @created_at);";
+                    (@id, @owner_user_id, 'external_list', @service, @list_url, @display_name, 1, @created_at);";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@id", id);
                 BindText(cmd, "@owner_user_id", ownerUserId);
                 BindText(cmd, "@service", service);
-                BindText(cmd, "@rss_url", rssUrl);
+                BindText(cmd, "@list_url", listUrl);
                 BindText(cmd, "@display_name", displayName);
                 BindText(cmd, "@created_at", DateTimeOffset.UtcNow.ToString("o"));
             }, ct);
@@ -5857,8 +5895,8 @@ LIMIT 1";
             CancellationToken ct = default)
         {
             var sql = activeOnly
-                ? "SELECT id, owner_user_id, source_type, service, rss_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
-                : "SELECT id, owner_user_id, source_type, service, rss_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
+                ? "SELECT id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
+                : "SELECT id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
 
             var list = QueryListAsync(sql,
                 cmd => BindText(cmd, "@owner_user_id", ownerUserId),
@@ -5872,7 +5910,7 @@ LIMIT 1";
         public Task<IReadOnlyList<Models.UserCatalog>> GetAllActiveUserCatalogsAsync(CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, owner_user_id, source_type, service, rss_url, display_name, active,
+                SELECT id, owner_user_id, source_type, service, list_url, display_name, active,
                        last_synced_at, last_sync_status, created_at
                 FROM user_catalogs WHERE active = 1 ORDER BY created_at;";
 
@@ -5886,13 +5924,23 @@ LIMIT 1";
         public Task<Models.UserCatalog?> GetUserCatalogByIdAsync(string catalogId, CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, owner_user_id, source_type, service, rss_url, display_name, active,
+                SELECT id, owner_user_id, source_type, service, list_url, display_name, active,
                        last_synced_at, last_sync_status, created_at
                 FROM user_catalogs WHERE id = @id;";
 
             return QuerySingleAsync(sql,
                 cmd => BindText(cmd, "@id", catalogId),
                 ReadUserCatalog);
+        }
+
+        /// <summary>
+        /// Returns total count of active user catalogs across all non-SERVER owners.
+        /// Used by the admin Lists tab to warn when reducing the per-user limit.
+        /// </summary>
+        public async Task<int> GetActiveUserCatalogCountAsync()
+        {
+            const string sql = "SELECT COUNT(*) FROM user_catalogs WHERE active = 1 AND owner_user_id <> 'SERVER';";
+            return await QueryScalarIntAsync(sql);
         }
 
         private static Models.UserCatalog ReadUserCatalog(IResultSet row) =>
@@ -5902,7 +5950,7 @@ LIMIT 1";
                 OwnerUserId    = row.GetString(1),
                 SourceType     = row.GetString(2),
                 Service        = row.GetString(3),
-                RssUrl         = row.GetString(4),
+                ListUrl        = row.GetString(4),
                 DisplayName    = row.GetString(5),
                 Active         = row.GetInt(6) == 1,
                 LastSyncedAt   = row.IsDBNull(7) ? null : row.GetString(7),
@@ -6415,6 +6463,40 @@ LIMIT 1";
         }
 
         #endregion
+
+        // ── Version Slots ────────────────────────────────────────────────────────
+
+        /// <summary>Returns all version slot rows ordered by sort_order.</summary>
+        public Task<List<InfiniteDrive.Models.VersionSlot>> GetVersionSlotsAsync(CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT slot_key, label, resolution, hdr_classes, enabled, is_default, sort_order
+                FROM version_slots
+                ORDER BY sort_order;";
+
+            return QueryListAsync(sql, null, row => new InfiniteDrive.Models.VersionSlot
+            {
+                SlotKey    = row.GetString(0),
+                Label      = row.GetString(1),
+                Resolution = row.GetString(2),
+                HdrClasses = row.IsDBNull(3) ? string.Empty : row.GetString(3),
+                Enabled    = row.GetInt(4) != 0,
+                IsDefault  = row.GetInt(5) != 0,
+                SortOrder  = row.GetInt(6),
+            });
+        }
+
+        /// <summary>Enables or disables a single version slot by key.</summary>
+        public Task SetVersionSlotEnabledAsync(string slotKey, bool enabled, CancellationToken ct = default)
+        {
+            const string sql = "UPDATE version_slots SET enabled = @enabled, updated_at = datetime('now') WHERE slot_key = @slot_key AND is_default = 0;";
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindInt(stmt, "@enabled", enabled ? 1 : 0);
+            BindText(stmt, "@slot_key", slotKey);
+            stmt.MoveNext();
+            return Task.CompletedTask;
+        }
     }
 
     /// <summary>

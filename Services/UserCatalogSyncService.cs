@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Data;
@@ -30,9 +29,8 @@ namespace InfiniteDrive.Services
     }
 
     /// <summary>
-    /// Syncs user-owned public RSS catalogs (Trakt / MDBList) into the catalog_items table.
-    /// Singleton. Used by both the 6-hour CatalogSyncTask backstop and the
-    /// impatient-user POST /User/Catalogs/Refresh endpoint.
+    /// Syncs external list catalogs (MDBList, Trakt, TMDB, AniList) into the catalog_items table.
+    /// Used by the CatalogSyncTask backstop and the refresh endpoints.
     /// </summary>
     public class UserCatalogSyncService
     {
@@ -40,22 +38,20 @@ namespace InfiniteDrive.Services
         private readonly DatabaseManager _db;
         private readonly StrmWriterService _strmWriter;
         private readonly CooldownGate? _cooldown;
-
-        private static readonly HttpClient _http = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(20)
-        };
+        private readonly IdResolverService? _idResolver;
 
         public UserCatalogSyncService(
             ILogManager logManager,
             DatabaseManager db,
             StrmWriterService strmWriter,
-            CooldownGate? cooldown = null)
+            CooldownGate? cooldown = null,
+            IdResolverService? idResolver = null)
         {
             _logger    = new EmbyLoggerAdapter<UserCatalogSyncService>(logManager.GetLogger("InfiniteDrive"));
             _db        = db;
             _strmWriter = strmWriter;
             _cooldown  = cooldown;
+            _idResolver = idResolver;
         }
 
         /// <summary>
@@ -86,59 +82,75 @@ namespace InfiniteDrive.Services
                 catch (OperationCanceledException) { return Fail(catalogId, "Cancelled", sw); }
             }
 
-            // Fetch RSS feed
-            string xml;
-            try
+            // Fetch list via ListFetcher
+            var config = Plugin.Instance.Configuration;
+            var fetchResult = await ListFetcher.FetchAsync(
+                catalog.ListUrl,
+                config.TraktClientId,
+                config.TmdbApiKey,
+                _logger,
+                ct);
+
+            if (!fetchResult.Ok)
             {
-                using var resp = await _http.GetAsync(catalog.RssUrl, ct);
-                resp.EnsureSuccessStatusCode();
-                xml = await resp.Content.ReadAsStringAsync();
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                var msg = $"HTTP fetch failed: {ex.Message}";
-                _logger.LogWarning("[UserCatalogSync] {CatalogId} — {Msg}", catalogId, msg);
-                await _db.UpdateUserCatalogSyncStatusAsync(catalogId, DateTimeOffset.UtcNow, msg, ct);
-                return Fail(catalogId, msg, sw);
+                _logger.LogWarning("[UserCatalogSync] {CatalogId} — {Msg}", catalogId, fetchResult.Error);
+                await _db.UpdateUserCatalogSyncStatusAsync(catalogId, DateTimeOffset.UtcNow, fetchResult.Error, ct);
+                return Fail(catalogId, fetchResult.Error, sw);
             }
 
-            // Parse
-            var items = RssFeedParser.Parse(xml, _logger, out _, out var skippedNoImdb);
-
+            var items = fetchResult.Items;
             var added = 0;
             var updated = 0;
-            var seenImdbIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var skippedNoImdb = 0;
 
-            foreach (var rssItem in items)
+            foreach (var item in items)
             {
                 if (ct.IsCancellationRequested) break;
-                if (string.IsNullOrEmpty(rssItem.ImdbId)) continue;
+                if (string.IsNullOrEmpty(item.ImdbId)) { skippedNoImdb++; continue; }
 
-                seenImdbIds.Add(rssItem.ImdbId);
+                // Resolve non-tt IDs through IdResolverService (tmdb_, mal:, etc.)
+                var resolvedId = item.ImdbId;
+                if (_idResolver != null && !item.ImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                {
+                    try
+                    {
+                        var resolved = await _idResolver.ResolveAsync(
+                            item.ImdbId, string.Empty, item.MediaType ?? "movie", ct);
+                        resolvedId = resolved.CanonicalId;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex,
+                            "[UserCatalogSync] IdResolver failed for {RawId}, using native ID",
+                            item.ImdbId);
+                    }
+                }
 
-                var existing = await _db.GetCatalogItemByImdbIdAsync(rssItem.ImdbId);
+                if (string.IsNullOrEmpty(resolvedId)) { skippedNoImdb++; continue; }
+
+                var existing = await _db.GetCatalogItemByImdbIdAsync(resolvedId);
                 var isNew = existing == null;
 
                 var catalogItem = existing ?? new CatalogItem
                 {
                     Id        = Guid.NewGuid().ToString(),
-                    ImdbId    = rssItem.ImdbId,
-                    MediaType = "movie", // best guess; IdResolverService will refine on Sprint 160C
-                    Source    = "user_rss",
+                    ImdbId    = resolvedId,
+                    MediaType = item.MediaType ?? "movie",
+                    Source    = "external_list",
                 };
 
-                catalogItem.Title = rssItem.Title;
-                if (rssItem.Year.HasValue) catalogItem.Year = rssItem.Year;
-                catalogItem.Source = "user_rss";
+                catalogItem.Title = item.Title;
+                if (item.Year.HasValue) catalogItem.Year = item.Year;
+                catalogItem.Source = "external_list";
 
                 await _db.UpsertCatalogItemAsync(catalogItem, ct);
 
                 // Write .strm file
                 await _strmWriter.WriteAsync(catalogItem, SourceType.UserRss, catalog.OwnerUserId, ct);
 
-                // Link to this user catalog in source_memberships
+                // Link to this catalog in source_memberships
                 await _db.UpsertSourceMembershipWithCatalogAsync(
-                    "user_rss_" + catalog.OwnerUserId,
+                    "external_list_" + catalog.OwnerUserId,
                     catalogItem.Id,
                     catalog.Id,
                     ct);
@@ -171,7 +183,6 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Syncs all active catalogs owned by the given user, sequentially.
-        /// The cooldown gate handles politeness between calls.
         /// </summary>
         public async Task<IReadOnlyList<UserCatalogSyncResult>> SyncAllForOwnerAsync(
             string ownerUserId,
@@ -179,6 +190,23 @@ namespace InfiniteDrive.Services
         {
             var catalogs = await _db.GetUserCatalogsByOwnerAsync(ownerUserId, activeOnly: true, ct);
             var results  = new List<UserCatalogSyncResult>(catalogs.Count);
+
+            foreach (var catalog in catalogs)
+            {
+                if (ct.IsCancellationRequested) break;
+                results.Add(await SyncOneAsync(catalog.Id, ct));
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Syncs all active catalogs across all users (called by CatalogSyncTask).
+        /// </summary>
+        public async Task<IReadOnlyList<UserCatalogSyncResult>> SyncAllAsync(CancellationToken ct)
+        {
+            var catalogs = await _db.GetAllActiveUserCatalogsAsync(ct);
+            var results = new List<UserCatalogSyncResult>(catalogs.Count);
 
             foreach (var catalog in catalogs)
             {

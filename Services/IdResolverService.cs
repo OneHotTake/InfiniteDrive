@@ -100,6 +100,10 @@ namespace InfiniteDrive.Services
             {
                 aniDbId = manifestId.Substring(4); // MAL → use AniDb slot for AIOMetadata lookup
             }
+            else if (lower.StartsWith("anilist:") || lower.StartsWith("anilist_"))
+            {
+                aniDbId = manifestId.Substring(8); // AniList → same resolution path as kitsu/mal
+            }
             else if (lower.StartsWith("imdb:"))
             {
                 imdbId = manifestId.Substring(5);

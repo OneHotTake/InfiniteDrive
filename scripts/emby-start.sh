@@ -22,17 +22,19 @@ set -e
 
 export PATH="$PATH:$HOME/.dotnet"
 
-cd /home/onehottake/Projects/emby/InfiniteDrive
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$SCRIPT_DIR/.."
+cd "$PROJECT_DIR"
 
 echo "=== Building InfiniteDrive plugin ==="
 dotnet publish -c Release || { echo "Build failed"; exit 1; }
 
 echo "=== Deploying plugin to dev directory ==="
 mkdir -p ~/emby-dev-data/plugins/InfiniteDrive/libs
-cp bin/Release/net8.0/publish/InfiniteDrive.dll ~/emby-dev-data/plugins/
-cp bin/Release/net8.0/publish/Polly.dll ~/emby-dev-data/plugins/InfiniteDrive/libs/ 2>/dev/null || true
-cp bin/Release/net8.0/publish/Polly.Core.dll ~/emby-dev-data/plugins/InfiniteDrive/libs/ 2>/dev/null || true
-cp plugin.json ~/emby-dev-data/plugins/
+cp "$PROJECT_DIR/bin/Release/net8.0/publish/InfiniteDrive.dll" ~/emby-dev-data/plugins/
+cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.dll" ~/emby-dev-data/plugins/InfiniteDrive/libs/ 2>/dev/null || true
+cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" ~/emby-dev-data/plugins/InfiniteDrive/libs/ 2>/dev/null || true
+cp "$PROJECT_DIR/plugin.json" ~/emby-dev-data/plugins/
 
 echo "=== Checking for existing emby processes ==="
 pkill -f "emby-server" 2>/dev/null || true
@@ -42,7 +44,7 @@ echo "=== Starting Emby Server on port 8096 ==="
 export EMBY_DATA="$HOME/emby-dev-data"
 export XDG_CACHE_HOME="$EMBY_DATA/cache"
 
-cd "$(dirname "$(readlink -f "$0")")/../emby-beta/opt/emby-server"
+cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../emby-beta/opt/emby-server"
 
 nohup ./bin/emby-server \
   -port 8096 \

@@ -65,9 +65,11 @@
           <button id="id-refresh-all-btn" class="raised button">Refresh All</button>
         </div>
         <div id="id-lists-grid" class="id-lists-grid"></div>
+        <div id="id-lists-limit" style="font-size:.8em;opacity:.5;margin-top:.5em"></div>
+        <div id="id-lists-overlimit-warning" class="id-list-card" style="display:none;background:#3a2a0a;border:1px solid #c87800;margin-top:.5em;padding:.75em 1em"></div>
         <div id="id-lists-empty" class="id-empty" style="display:none">
-          <p>You don't have any custom lists yet.</p>
-          <p>Add a Trakt or MDBList RSS feed to get started.</p>
+          <p>You don't have any lists yet.</p>
+          <p>Add an external list from MDBList, Trakt, TMDB, or AniList.</p>
           <button id="id-add-list-empty-btn" class="raised button-submit">Add Your First List</button>
         </div>
         <div id="id-lists-loading" class="id-loading" style="display:none">
@@ -111,17 +113,23 @@
         <button class="id-modal-close" id="id-add-list-close">×</button>
         <h3>Add New List</h3>
         <div class="id-form-group">
+          <label for="id-list-provider-input">List Type</label>
+          <select id="id-list-provider-input" is="emby-select">
+            <option value="">Loading...</option>
+          </select>
+        </div>
+        <div class="id-form-group">
           <label for="id-list-name-input">List Name</label>
           <input type="text" id="id-list-name-input" placeholder="My Awesome List" is="emby-input" />
         </div>
         <div class="id-form-group">
-          <label for="id-list-url-input">RSS URL (Trakt or MDBList)</label>
-          <input type="url" id="id-list-url-input" placeholder="https://trakt.tv/users/..." is="emby-input" />
+          <label for="id-list-url-input">List URL</label>
+          <input type="url" id="id-list-url-input" placeholder="https://mdblist.com/lists/..." is="emby-input" />
         </div>
         <div id="id-add-list-error" class="id-error"></div>
         <div class="id-modal-actions">
           <button id="id-add-list-cancel" class="raised button">Cancel</button>
-          <button id="id-add-list-submit" class="raised button-submit">Add List</button>
+          <button id="id-add-list-submit" class="raised button-submit">Validate & Save</button>
         </div>
       </div>
     </div>
