@@ -632,6 +632,26 @@ namespace InfiniteDrive
         public bool BlockUnratedForRestricted { get; set; } = true;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  EXTERNAL LIST PROVIDERS                                              ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// Shared Trakt API Client ID for fetching public Trakt lists.
+        /// Enter once in admin settings; all users share it.
+        /// Free to create at trakt.tv/oauth.
+        /// When empty, Trakt is not available as a list source.
+        /// </summary>
+        [DataMember]
+        public string TraktClientId { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Maximum number of external lists a non-admin user may have.
+        /// Admin lists are unlimited. Default: 5.
+        /// </summary>
+        [DataMember]
+        public int UserCatalogLimit { get; set; } = 5;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  INSTANCE TYPE DETECTION                                             ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -726,6 +746,7 @@ namespace InfiniteDrive
             SignatureValidityDays    = Clamp(SignatureValidityDays,    1,     3650);
             SkipFutureEpisodes          = SkipFutureEpisodes;
             FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);
+            UserCatalogLimit          = Clamp(UserCatalogLimit, 0, 50);
 
             // Recompute instance type from manifest URL
             ResolvedInstanceType = DetectInstanceType(PrimaryManifestUrl);

@@ -77,7 +77,8 @@ namespace InfiniteDrive.Services
         /// </summary>
         Task<AioStreamsStreamResponse?> GetMovieStreamsAsync(
             string imdbId,
-            CancellationToken cancellationToken = default);
+            CancellationToken cancellationToken = default,
+            string? sel = null);
 
         /// <summary>
         /// Fetches streams for a TV episode.
@@ -86,7 +87,8 @@ namespace InfiniteDrive.Services
             string imdbId,
             int season,
             int episode,
-            CancellationToken cancellationToken = default);
+            CancellationToken cancellationToken = default,
+            string? sel = null);
 
         // ── Metadata ───────────────────────────────────────────────────────────
 

@@ -168,8 +168,8 @@ namespace InfiniteDrive.Services
     /// Fetches the AIOStreams manifest and returns every eligible catalog so the
     /// admin dashboard can render a pick-list of catalogs to sync.
     /// </summary>
-    [Route("/InfiniteDrive/Catalogs", "GET",
-        Summary = "Returns catalog definitions discovered from the AIOStreams manifest")]
+    [Route("/InfiniteDrive/Answer", "GET",
+        Summary = "The Answer to the Ultimate Question of Life, the Universe, and Everything")]
     public class AnswerRequest : IReturn<object> { }
 
     /// <summary>
@@ -1009,3 +1009,4 @@ body{{
             }
         }
 }
+

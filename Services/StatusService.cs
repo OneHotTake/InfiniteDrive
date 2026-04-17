@@ -340,6 +340,9 @@ namespace InfiniteDrive.Services
 
         /// <summary>ISO-8601 UTC timestamp of the last time this source was reachable.</summary>
         public string? LastReachedAt { get; set; }
+
+        /// <summary>Human-readable catalog name from the manifest, resolved from SourceKey.</summary>
+        public string? DisplayName { get; set; }
     }
 
     // ── Service ──────────────────────────────────────────────────────────────────
@@ -384,6 +387,7 @@ namespace InfiniteDrive.Services
         // Health check caching: cache indefinitely, only refresh on explicit user request
         private static ConnectionStatus? _cachedAioStreamsHealth;
         private static List<ProviderHealthEntry>? _cachedProviderHealth;
+        private static Dictionary<string, string> _cachedCatalogNames = new(StringComparer.OrdinalIgnoreCase);
         private static bool _healthChecked = false;
 
         // ── IRequiresRequest ─────────────────────────────────────────────────────
@@ -446,9 +450,10 @@ namespace InfiniteDrive.Services
                 _cachedAioStreamsHealth = await TestAioStreamsConnectionAsync(config);
 
                 // ── Provider health test ──────────────────────────────────────────────
-                // In v0.51+, only primary/secondary manifest URLs are supported.
-                // Provider health is tested via TestFailover endpoint instead.
-                _cachedProviderHealth = new List<ProviderHealthEntry>();
+                _cachedProviderHealth = await TestProviderHealthAsync(config);
+
+                // ── Catalog name resolution ───────────────────────────────────────────
+                _cachedCatalogNames = await FetchCatalogNamesAsync(config);
 
                 _healthChecked = true;
             }
@@ -575,6 +580,7 @@ namespace InfiniteDrive.Services
                         ConsecutiveFailures = state.ConsecutiveFailures,
                         LastError           = state.LastError,
                         LastReachedAt       = state.LastReachedAt,
+                        DisplayName         = _cachedCatalogNames.TryGetValue(state.SourceKey, out var dn) ? dn : null,
                     });
                 }
             }
@@ -775,6 +781,104 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
+        /// Tests both primary and secondary AIOStreams manifests and returns health entries.
+        /// </summary>
+        private async Task<List<ProviderHealthEntry>> TestProviderHealthAsync(PluginConfiguration config)
+        {
+            var results = new List<ProviderHealthEntry>();
+
+            // Test Primary
+            if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                try
+                {
+                    var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
+                    using var client = new AioStreamsClient(url ?? string.Empty, uuid ?? string.Empty, token ?? string.Empty, _logger);
+                    using var cts = new CancellationTokenSource(5_000);
+                    var (ok, err) = await client.TestConnectionAsync(cts.Token);
+                    sw.Stop();
+                    results.Add(new ProviderHealthEntry
+                    {
+                        DisplayName = "Primary",
+                        Ok = ok,
+                        LatencyMs = (int)sw.ElapsedMilliseconds,
+                        Message = ok ? "Connected" : (err ?? "Failed")
+                    });
+                }
+                catch (Exception ex)
+                {
+                    sw.Stop();
+                    results.Add(new ProviderHealthEntry { DisplayName = "Primary", Ok = false, LatencyMs = (int)sw.ElapsedMilliseconds, Message = ex.Message });
+                }
+            }
+
+            // Test Secondary
+            if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                try
+                {
+                    var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
+                    using var client = new AioStreamsClient(url ?? string.Empty, uuid ?? string.Empty, token ?? string.Empty, _logger);
+                    using var cts = new CancellationTokenSource(5_000);
+                    var (ok, err) = await client.TestConnectionAsync(cts.Token);
+                    sw.Stop();
+                    results.Add(new ProviderHealthEntry
+                    {
+                        DisplayName = "Secondary",
+                        Ok = ok,
+                        LatencyMs = (int)sw.ElapsedMilliseconds,
+                        Message = ok ? "Connected" : (err ?? "Failed")
+                    });
+                }
+                catch (Exception ex)
+                {
+                    sw.Stop();
+                    results.Add(new ProviderHealthEntry { DisplayName = "Secondary", Ok = false, LatencyMs = (int)sw.ElapsedMilliseconds, Message = ex.Message });
+                }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// Fetches the AIOStreams manifest and builds a map from source key
+        /// patterns (<c>aio:{type}:{catalogId}</c>) to human-readable catalog names.
+        /// </summary>
+        private async Task<Dictionary<string, string>> FetchCatalogNamesAsync(PluginConfiguration config)
+        {
+            var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
+                if (string.IsNullOrEmpty(url)) return names;
+
+                using var client = new AioStreamsClient(url, uuid ?? "", token ?? "", _logger);
+                using var cts = new CancellationTokenSource(5_000);
+                var manifest = await client.GetManifestAsync(cts.Token);
+                if (manifest?.Catalogs == null) return names;
+
+                foreach (var cat in manifest.Catalogs)
+                {
+                    if (string.IsNullOrEmpty(cat.Id)) continue;
+                    var type = cat.Type ?? "movie";
+                    // Build source key like what appears in sync_state: aio:{type}:{catalogId}
+                    var key = $"aio:{type}:{cat.Id}";
+                    if (!string.IsNullOrEmpty(cat.Name))
+                        names[key] = cat.Name;
+                }
+            }
+            catch
+            {
+                // Non-critical — display names are best-effort
+            }
+
+            return names;
+        }
+
+        /// <summary>
         /// Handles <c>POST /InfiniteDrive/Status/Refresh</c>.
         /// Clears cached health checks and forces fresh test on next status request.
         /// Called by the "Refresh" button in the dashboard.
@@ -788,6 +892,7 @@ namespace InfiniteDrive.Services
             _healthChecked = false;
             _cachedAioStreamsHealth = null;
             _cachedProviderHealth = null;
+            _cachedCatalogNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             _logger.LogInformation("[InfiniteDrive] Health check cache cleared by user request");
 

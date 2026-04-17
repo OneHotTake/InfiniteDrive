@@ -17,6 +17,8 @@ using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
 namespace InfiniteDrive.Services
 {
+    [Route("/InfiniteDrive/Catalogs", "GET",
+        Summary = "Returns catalog definitions discovered from the AIOStreams manifest")]
     public class CatalogsRequest : IReturn<object>
     {
         /// <summary>

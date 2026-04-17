@@ -91,11 +91,11 @@ namespace InfiniteDrive.Services
             if (item.MediaType == "movie")
             {
                 if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return null;
-                var folder = Path.Combine(
-                    config.SyncPathMovies,
-                    NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
+                var folderBareName = NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item));
+                var folder = Path.Combine(config.SyncPathMovies, folderBareName);
                 Directory.CreateDirectory(folder);
-                var fileName = $"{NamingPolicyService.SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
+                // File basename must match folder name for Emby version stacking
+                var fileName = $"{folderBareName}.strm";
                 var path = Path.Combine(folder, fileName);
                 WriteStrmFile(path, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
                 if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(path, item, originSourceType.ToDisplayString());

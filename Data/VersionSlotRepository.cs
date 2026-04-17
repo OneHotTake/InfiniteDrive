@@ -203,7 +203,10 @@ namespace InfiniteDrive.Data
 
         private IDatabaseConnection OpenConnection()
         {
-            return SQLite3.Open(_dbPath, ConnectionFlags.ReadWrite, null, true);
+            var conn = SQLite3.Open(_dbPath, ConnectionFlags.ReadWrite, null, true);
+            conn.Execute("PRAGMA journal_mode=WAL;");
+            conn.Execute("PRAGMA busy_timeout=30000;");
+            return conn;
         }
 
         private async Task ExecuteWriteAsync(string sql, Action<IStatement> bindParams, CancellationToken ct)

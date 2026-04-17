@@ -3,27 +3,27 @@ using System;
 namespace InfiniteDrive.Models
 {
     /// <summary>
-    /// Represents a user-owned public RSS catalog (Trakt or MDBList list).
-    /// Maps to the <c>user_catalogs</c> SQLite table (Sprint 158).
+    /// Represents an external list catalog (MDBList, Trakt, TMDB, AniList).
+    /// Maps to the <c>user_catalogs</c> SQLite table.
     /// </summary>
     public class UserCatalog
     {
         /// <summary>UUID primary key.</summary>
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        /// <summary>Emby user ID who owns this catalog.</summary>
+        /// <summary>Emby user ID who owns this catalog, or "SERVER" for admin lists.</summary>
         public string OwnerUserId { get; set; } = string.Empty;
 
-        /// <summary>Always "user_rss" — discriminator for future extension.</summary>
-        public string SourceType { get; set; } = "user_rss";
+        /// <summary>"external_list" — discriminator for future extension.</summary>
+        public string SourceType { get; set; } = "external_list";
 
-        /// <summary>"trakt" or "mdblist" — identifies the RSS provider.</summary>
+        /// <summary>"trakt", "mdblist", "tmdb", or "anilist".</summary>
         public string Service { get; set; } = string.Empty;
 
-        /// <summary>Public RSS feed URL (https only).</summary>
-        public string RssUrl { get; set; } = string.Empty;
+        /// <summary>List URL as entered by the user.</summary>
+        public string ListUrl { get; set; } = string.Empty;
 
-        /// <summary>Human-readable name; auto-seeded from feed &lt;title&gt;.</summary>
+        /// <summary>Human-readable name; auto-seeded from list metadata or user-provided.</summary>
         public string DisplayName { get; set; } = string.Empty;
 
         /// <summary>Whether this catalog participates in syncs. Soft-delete flag.</summary>

@@ -66,9 +66,9 @@ namespace InfiniteDrive.Models
 
         /// <summary>
         /// File naming suffix derived from the label.
-        /// "4K · HDR" → "4K HDR" (replace · with space, trim).
+        /// "4K · HDR" → "4K HDR" (split on ·, collapse whitespace).
         /// </summary>
-        public string FileSuffix => Label.Replace("·", " ").Trim();
+        public string FileSuffix => string.Join(" ", Label.Split('·', System.StringSplitOptions.RemoveEmptyEntries)).Trim();
 
         /// <summary>Whether this is the built-in HD Broad slot (permanent floor).</summary>
         public bool IsHdBroad => SlotKey == "hd_broad";

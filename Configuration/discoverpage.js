@@ -10,6 +10,7 @@ function (loading) {
     var _totalItems = 0;
     var _currentDetailItem = null;
     var _currentUserId = null;
+    var _userListLimit = -1; // -1 = not yet fetched
 
     // ── Authenticated fetch ───────────────────────────────────────────────────
     function idFetch(url, opts) {
@@ -51,6 +52,11 @@ function (loading) {
 
     // ── Tab switching ────────────────────────────────────────────────────────
     function switchTab(tabName) {
+        // Guard: if lists are disabled, redirect to discover
+        if (tabName === 'lists' && _userListLimit === 0) {
+            tabName = 'discover';
+        }
+
         // Update active tab button
         document.querySelectorAll('.id-tab').forEach(function(tab) {
             tab.classList.remove('active');
@@ -468,15 +474,32 @@ function (loading) {
         idFetch('/InfiniteDrive/User/Catalogs')
             .then(function(res) { return res.json(); })
             .then(function(data) {
-                var catalogs = data.catalogs || [];
+                var catalogs = data.Catalogs || [];
+                var limit = data.Limit != null ? data.Limit : 5;
+
+                // Admin-reduced-limit warning
+                var overLimitEl = q('id-lists-overlimit-warning');
+                var addListBtn = q('id-add-list-btn');
+                if (overLimitEl) {
+                    if (catalogs.length > limit && limit > 0) {
+                        overLimitEl.textContent = 'Your server\'s per-user list limit is ' + limit + '. You have ' + catalogs.length + ' lists. You can keep your existing lists, but won\'t be able to add new ones until you remove some.';
+                        overLimitEl.style.display = 'block';
+                    } else {
+                        overLimitEl.style.display = 'none';
+                    }
+                }
+                if (addListBtn) {
+                    addListBtn.disabled = catalogs.length >= limit && limit > 0;
+                }
 
                 if (catalogs.length === 0) {
                     q('id-lists-empty').style.display = 'block';
-                    q('id-add-list-empty-btn').addEventListener('click', function() {
-                        openAddListModal();
-                    });
+                    var limitEl = q('id-lists-limit');
+                    if (limitEl) limitEl.textContent = '';
                 } else {
                     renderListsGrid(catalogs);
+                    var limitEl = q('id-lists-limit');
+                    if (limitEl) limitEl.textContent = catalogs.length + ' of ' + limit + ' lists used';
                 }
 
                 setGridLoading('id-lists-grid', 'id-lists-loading', false);
@@ -493,24 +516,27 @@ function (loading) {
         if (!grid) return;
 
         var html = catalogs.map(function(cat) {
-            var icon = cat.url && cat.url.indexOf('trakt') >= 0 ? '🎬' : '📋';
-            var lastSync = cat.lastSyncAt ? new Date(cat.lastSyncAt).toLocaleDateString() : 'Never';
+            var providerIcons = { trakt: '🎬', mdblist: '📋', tmdb: '🎬', anilist: '🎌' };
+            var icon = providerIcons[cat.Provider] || '📋';
+            var lastSync = cat.LastSyncedAt ? new Date(cat.LastSyncedAt).toLocaleDateString() : 'Never';
+            var syncStatus = cat.LastSyncStatus || '';
 
-            return '<div class="id-list-card" data-id="' + esc(cat.id) + '">' +
+            return '<div class="id-list-card" data-id="' + esc(cat.Id) + '">' +
                 '<div class="id-list-header">' +
                     '<div class="id-list-icon">' + icon + '</div>' +
                     '<div class="id-list-info">' +
-                        '<h3>' + esc(cat.displayName || cat.id) + '</h3>' +
-                        '<div class="id-list-url">' + esc(cat.url || '') + '</div>' +
+                        '<h3>' + esc(cat.DisplayName || cat.Id) + '</h3>' +
+                        '<div class="id-list-url">' + esc(cat.Provider || '') + ' &middot; ' + esc((cat.ListUrl || '').substring(0, 50)) + (cat.ListUrl && cat.ListUrl.length > 50 ? '…' : '') + '</div>' +
                     '</div>' +
                 '</div>' +
                 '<div class="id-list-meta">' +
-                    '<span>' + (cat.itemCount || 0) + ' items</span>' +
+                    '<span>' + (cat.ItemCount || 0) + ' items</span>' +
                     '<span>Last sync: ' + lastSync + '</span>' +
+                    (syncStatus && syncStatus !== 'ok' ? '<span style="color:#dc3545">' + esc(syncStatus) + '</span>' : '') +
                 '</div>' +
                 '<div class="id-list-actions">' +
-                    '<button class="id-list-refresh" data-id="' + esc(cat.id) + '">Refresh</button>' +
-                    '<button class="id-list-remove" data-id="' + esc(cat.id) + '">Remove</button>' +
+                    '<button class="id-list-refresh" data-id="' + esc(cat.Id) + '">Refresh</button>' +
+                    '<button class="id-list-remove" data-id="' + esc(cat.Id) + '">Remove</button>' +
                 '</div>' +
             '</div>';
         }).join('');
@@ -537,7 +563,7 @@ function (loading) {
 
         // Refresh all button
         q('id-refresh-all-btn').addEventListener('click', function() {
-            refreshAllLists(catalogs);
+            refreshAllLists();
         });
     }
 
@@ -550,8 +576,12 @@ function (loading) {
         idFetch(url, { method: 'POST' })
             .then(function(res) { return res.json(); })
             .then(function(data) {
-                showToast(data.message || 'List refreshed', 'success');
-                loadLists(); // Reload to update counts
+                if (data.Ok) {
+                    showToast((data.Fetched || 0) + ' items refreshed', 'success');
+                } else {
+                    showToast(data.Error || 'Refresh failed', 'error');
+                }
+                loadLists();
             })
             .catch(function(err) {
                 console.error('Failed to refresh list:', err);
@@ -561,24 +591,24 @@ function (loading) {
             });
     }
 
-    function refreshAllLists(catalogs) {
+    function refreshAllLists() {
         var btn = q('id-refresh-all-btn');
         btn.disabled = true;
         btn.textContent = 'Refreshing all...';
 
-        var promises = catalogs.map(function(cat) {
-            var url = '/InfiniteDrive/User/Catalogs/Refresh?catalogId=' + encodeURIComponent(cat.id);
-            return idFetch(url, { method: 'POST' });
-        });
-
-        Promise.all(promises)
-            .then(function() {
-                showToast('All lists refreshed', 'success');
+        idFetch('/InfiniteDrive/User/Catalogs/Refresh', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    showToast(data.Lists + ' list(s) refreshed — ' + (data.Fetched || 0) + ' items', 'success');
+                } else {
+                    showToast(data.Error || 'Refresh failed', 'error');
+                }
                 loadLists();
             })
             .catch(function(err) {
                 console.error('Failed to refresh all lists:', err);
-                showToast('Some lists failed to refresh', 'error');
+                showToast('Failed to refresh lists', 'error');
             })
             .finally(function() {
                 btn.disabled = false;
@@ -590,12 +620,13 @@ function (loading) {
         var url = '/InfiniteDrive/User/Catalogs/Remove?catalogId=' + encodeURIComponent(catalogId);
 
         idFetch(url, { method: 'POST' })
-            .then(function(res) {
-                if (res.ok) {
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data.Ok) {
                     showToast('List removed', 'success');
                     loadLists();
                 } else {
-                    throw new Error('Remove failed');
+                    showToast(data.Error || 'Failed to remove list', 'error');
                 }
             })
             .catch(function(err) {
@@ -613,6 +644,34 @@ function (loading) {
         q('id-list-name-input').value = '';
         q('id-list-url-input').value = '';
         q('id-add-list-error').textContent = '';
+
+        // Load enabled providers
+        var sel = q('id-list-provider-input');
+        sel.innerHTML = '<option value="">Loading...</option>';
+        idFetch('/InfiniteDrive/User/Catalogs/Providers')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var providers = data.EnabledProviders || [];
+                var current = data.CurrentCount || 0;
+                var limit = data.Limit || 5;
+                sel.innerHTML = '';
+                if (current >= limit) {
+                    sel.innerHTML = '<option value="">List limit reached (' + limit + ')</option>';
+                    var errEl = q('id-add-list-error');
+                    if (errEl) errEl.textContent = 'Remove an existing list to add a new one.';
+                    return;
+                }
+                if (providers.indexOf('mdblist') !== -1)
+                    sel.innerHTML += '<option value="mdblist">MDBList</option>';
+                if (providers.indexOf('trakt') !== -1)
+                    sel.innerHTML += '<option value="trakt">Trakt</option>';
+                if (providers.indexOf('tmdb') !== -1)
+                    sel.innerHTML += '<option value="tmdb">TMDB</option>';
+                if (providers.indexOf('anilist') !== -1)
+                    sel.innerHTML += '<option value="anilist">AniList</option>';
+                if (!sel.innerHTML) sel.innerHTML = '<option value="">No providers available</option>';
+            })
+            .catch(function() { sel.innerHTML = '<option value="">Error loading providers</option>'; });
     }
 
     function setupAddListModal() {
@@ -641,44 +700,36 @@ function (loading) {
 
             errorEl.textContent = '';
 
-            if (!name) {
-                errorEl.textContent = 'Please enter a list name';
-                return;
-            }
-
             if (!url) {
-                errorEl.textContent = 'Please enter an RSS URL';
-                return;
-            }
-
-            // Validate URL is Trakt or MDBList
-            if (url.indexOf('trakt.tv') < 0 && url.indexOf('mdblist.com') < 0) {
-                errorEl.textContent = 'URL must be a Trakt or MDBList RSS feed';
+                errorEl.textContent = 'Please enter a list URL';
                 return;
             }
 
             var btn = this;
             btn.disabled = true;
-            btn.textContent = 'Adding...';
+            btn.textContent = 'Validating...';
 
             var apiUrl = '/InfiniteDrive/User/Catalogs/Add?' +
-                new URLSearchParams({ name: name, url: url }).toString();
+                new URLSearchParams({ listUrl: url, displayName: name }).toString();
 
             idFetch(apiUrl, { method: 'POST' })
-                .then(function(res) {
-                    if (res.ok) {
-                        showToast('List added successfully', 'success');
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    if (data.Ok) {
+                        showToast('List added — ' + (data.Fetched || 0) + ' items found', 'success');
                         closeModal('id-add-list-modal');
                         loadLists();
                     } else {
-                        return res.text().then(function(text) { throw new Error(text); });
+                        errorEl.textContent = data.Error || 'Failed to add list.';
+                        btn.disabled = false;
+                        btn.textContent = 'Validate & Save';
                     }
                 })
                 .catch(function(err) {
                     console.error('Failed to add list:', err);
                     errorEl.textContent = 'Failed to add list: ' + err.message;
                     btn.disabled = false;
-                    btn.textContent = 'Add List';
+                    btn.textContent = 'Validate & Save';
                 });
         });
     }
@@ -692,6 +743,27 @@ function (loading) {
         if (modalId === 'id-detail-modal') {
             _currentDetailItem = null;
         }
+    }
+
+    // ── List limit check ──────────────────────────────────────────────────
+    function checkListLimit() {
+        idFetch('/InfiniteDrive/User/Catalogs/Providers')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var limit = data.Limit != null ? data.Limit : 5;
+                _userListLimit = limit;
+
+                var listsTab = document.querySelector('.id-tab[data-tab="lists"]');
+                if (listsTab) {
+                    listsTab.style.display = limit === 0 ? 'none' : '';
+                }
+
+                // If currently on lists tab but it's now disabled, redirect
+                if (limit === 0 && _currentTab === 'lists') {
+                    switchTab('discover');
+                }
+            })
+            .catch(function() {});
     }
 
     // ── Tab setup ───────────────────────────────────────────────────────────
@@ -724,6 +796,7 @@ function (loading) {
             setupSearch();
             setupDetailModal();
             setupAddListModal();
+            checkListLimit();
 
             // Load initial content
             switchTab('discover');

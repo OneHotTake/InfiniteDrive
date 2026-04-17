@@ -3,31 +3,33 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using InfiniteDrive;
 using InfiniteDrive.Data;
 using InfiniteDrive.Logging;
+using InfiniteDrive.Models;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
+using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 
 namespace InfiniteDrive.Services
 {
     // ── Request / Response DTOs ──────────────────────────────────────────────────
 
-    /// <summary>Request for <c>GET /InfiniteDrive/User/Catalogs</c>.</summary>
-    [Route("/InfiniteDrive/User/Catalogs", "GET",
-        Summary = "Returns the caller's active external lists")]
-    public class GetUserCatalogsRequest : IReturn<GetUserCatalogsResponse> { }
+    /// <summary>Request for <c>GET /InfiniteDrive/Admin/Lists</c>.</summary>
+    [Route("/InfiniteDrive/Admin/Lists", "GET",
+        Summary = "Returns all server-wide external lists (admin only)")]
+    public class GetAdminListsRequest : IReturn<GetAdminListsResponse> { }
 
-    /// <summary>Response from <c>GET /InfiniteDrive/User/Catalogs</c>.</summary>
-    public class GetUserCatalogsResponse
+    /// <summary>Response from <c>GET /InfiniteDrive/Admin/Lists</c>.</summary>
+    public class GetAdminListsResponse
     {
-        public List<UserCatalogDto> Catalogs { get; set; } = new();
-        public int Limit { get; set; } = 5;
+        public List<AdminListDto> Lists { get; set; } = new();
     }
 
-    /// <summary>Wire DTO for a single user catalog.</summary>
-    public class UserCatalogDto
+    /// <summary>Wire DTO for a single admin list.</summary>
+    public class AdminListDto
     {
         public string Id            { get; set; } = string.Empty;
         public string Provider      { get; set; } = string.Empty;
@@ -38,10 +40,10 @@ namespace InfiniteDrive.Services
         public int ItemCount        { get; set; }
     }
 
-    /// <summary>Request for <c>POST /InfiniteDrive/User/Catalogs/Add</c>.</summary>
-    [Route("/InfiniteDrive/User/Catalogs/Add", "POST",
-        Summary = "Adds an external list (MDBList, Trakt, TMDB, AniList)")]
-    public class AddUserCatalogRequest : IReturn<AddUserCatalogResponse>
+    /// <summary>Request for <c>POST /InfiniteDrive/Admin/Lists/Add</c>.</summary>
+    [Route("/InfiniteDrive/Admin/Lists/Add", "POST",
+        Summary = "Adds a server-wide external list (admin only)")]
+    public class AddAdminListRequest : IReturn<AddAdminListResponse>
     {
         [ApiMember(Name = "listUrl", IsRequired = true, DataType = "string", ParameterType = "query")]
         public string ListUrl { get; set; } = string.Empty;
@@ -50,8 +52,8 @@ namespace InfiniteDrive.Services
         public string? DisplayName { get; set; }
     }
 
-    /// <summary>Response from <c>POST /InfiniteDrive/User/Catalogs/Add</c>.</summary>
-    public class AddUserCatalogResponse
+    /// <summary>Response from <c>POST /InfiniteDrive/Admin/Lists/Add</c>.</summary>
+    public class AddAdminListResponse
     {
         public bool   Ok          { get; set; }
         public string? CatalogId  { get; set; }
@@ -63,33 +65,33 @@ namespace InfiniteDrive.Services
         public string? Error      { get; set; }
     }
 
-    /// <summary>Request for <c>POST /InfiniteDrive/User/Catalogs/Remove</c>.</summary>
-    [Route("/InfiniteDrive/User/Catalogs/Remove", "POST",
-        Summary = "Soft-deletes a user catalog")]
-    public class RemoveUserCatalogRequest : IReturn<RemoveUserCatalogResponse>
+    /// <summary>Request for <c>POST /InfiniteDrive/Admin/Lists/Remove</c>.</summary>
+    [Route("/InfiniteDrive/Admin/Lists/Remove", "POST",
+        Summary = "Soft-deletes a server-wide external list (admin only)")]
+    public class RemoveAdminListRequest : IReturn<RemoveAdminListResponse>
     {
         [ApiMember(Name = "catalogId", IsRequired = true, DataType = "string", ParameterType = "query")]
         public string CatalogId { get; set; } = string.Empty;
     }
 
-    /// <summary>Response from <c>POST /InfiniteDrive/User/Catalogs/Remove</c>.</summary>
-    public class RemoveUserCatalogResponse
+    /// <summary>Response from <c>POST /InfiniteDrive/Admin/Lists/Remove</c>.</summary>
+    public class RemoveAdminListResponse
     {
         public bool   Ok    { get; set; }
         public string? Error { get; set; }
     }
 
-    /// <summary>Request for <c>POST /InfiniteDrive/User/Catalogs/Refresh</c>.</summary>
-    [Route("/InfiniteDrive/User/Catalogs/Refresh", "POST",
-        Summary = "Synchronously refreshes one or all of the caller's external lists")]
-    public class RefreshUserCatalogsRequest : IReturn<RefreshUserCatalogsResponse>
+    /// <summary>Request for <c>POST /InfiniteDrive/Admin/Lists/Refresh</c>.</summary>
+    [Route("/InfiniteDrive/Admin/Lists/Refresh", "POST",
+        Summary = "Refreshes one or all server-wide external lists (admin only)")]
+    public class RefreshAdminListsRequest : IReturn<RefreshAdminListsResponse>
     {
         [ApiMember(Name = "catalogId", IsRequired = false, DataType = "string", ParameterType = "query")]
         public string? CatalogId { get; set; }
     }
 
-    /// <summary>Response from <c>POST /InfiniteDrive/User/Catalogs/Refresh</c>.</summary>
-    public class RefreshUserCatalogsResponse
+    /// <summary>Response from <c>POST /InfiniteDrive/Admin/Lists/Refresh</c>.</summary>
+    public class RefreshAdminListsResponse
     {
         public bool   Ok       { get; set; }
         public int    Lists    { get; set; }
@@ -102,40 +104,49 @@ namespace InfiniteDrive.Services
         public string? Error   { get; set; }
     }
 
-    /// <summary>Request for <c>GET /InfiniteDrive/User/Catalogs/Providers</c>.</summary>
-    [Route("/InfiniteDrive/User/Catalogs/Providers", "GET",
-        Summary = "Returns which list providers are enabled and user's count/limit")]
-    public class GetProvidersRequest : IReturn<ProvidersResponse> { }
+    /// <summary>Request for <c>GET /InfiniteDrive/Admin/Lists/Providers</c>.</summary>
+    [Route("/InfiniteDrive/Admin/Lists/Providers", "GET",
+        Summary = "Returns which list providers are enabled (admin only)")]
+    public class GetAdminProvidersRequest : IReturn<AdminProvidersResponse> { }
 
     /// <summary>Response with enabled providers info.</summary>
-    public class ProvidersResponse
+    public class AdminProvidersResponse
     {
         public List<string> EnabledProviders { get; set; } = new();
-        public int CurrentCount { get; set; }
-        public int Limit { get; set; }
+    }
+
+    /// <summary>Request for <c>GET /InfiniteDrive/Admin/Lists/UserCount</c>.</summary>
+    [Route("/InfiniteDrive/Admin/Lists/UserCount", "GET",
+        Summary = "Returns total active user catalog count (admin only)")]
+    public class GetUserCatalogCountRequest : IReturn<UserCatalogCountResponse> { }
+
+    /// <summary>Response with total user catalog count.</summary>
+    public class UserCatalogCountResponse
+    {
+        public int TotalUserLists { get; set; }
     }
 
     // ── Service ──────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// REST API for user-owned external list catalogs.
-    /// All endpoints require an authenticated (non-admin) user.
+    /// REST API for admin-managed server-wide external lists.
+    /// All endpoints require admin authentication.
     /// </summary>
-    public class UserCatalogsService : IService, IRequiresRequest
+    public class AdminListService : IService, IRequiresRequest
     {
-        private readonly ILogger<UserCatalogsService> _logger;
+        private readonly ILogger<AdminListService> _logger;
         private readonly DatabaseManager _db;
         private readonly UserCatalogSyncService _syncService;
         private readonly IAuthorizationContext _authCtx;
 
+        private const string ServerOwner = "SERVER";
+
         /// <inheritdoc/>
         public IRequest Request { get; set; } = null!;
 
-        public UserCatalogsService(
-            ILogManager logManager,
-            IAuthorizationContext authCtx)
+        public AdminListService(ILogManager logManager, IAuthorizationContext authCtx)
         {
-            _logger      = new EmbyLoggerAdapter<UserCatalogsService>(logManager.GetLogger("InfiniteDrive"));
+            _logger      = new EmbyLoggerAdapter<AdminListService>(logManager.GetLogger("InfiniteDrive"));
             _db          = Plugin.Instance.DatabaseManager;
             _authCtx     = authCtx;
             _syncService = new UserCatalogSyncService(
@@ -146,21 +157,17 @@ namespace InfiniteDrive.Services
                 Plugin.Instance.IdResolverService);
         }
 
-        private int UserLimit => Plugin.Instance.Configuration.UserCatalogLimit;
+        // ── GET /InfiniteDrive/Admin/Lists ────────────────────────────────────────
 
-        // ── GET /InfiniteDrive/User/Catalogs ────────────────────────────────────────
-
-        public async Task<object> Get(GetUserCatalogsRequest req)
+        public async Task<object> Get(GetAdminListsRequest req)
         {
-            var userId = GetCurrentUserId();
-            if (userId == null)
-                return new GetUserCatalogsResponse { Limit = UserLimit };
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
 
-            var catalogs = await _db.GetUserCatalogsByOwnerAsync(userId, activeOnly: true);
-            return new GetUserCatalogsResponse
+            var catalogs = await _db.GetUserCatalogsByOwnerAsync(ServerOwner, activeOnly: true);
+            return new GetAdminListsResponse
             {
-                Limit    = UserLimit,
-                Catalogs = catalogs.Select(c => new UserCatalogDto
+                Lists = catalogs.Select(c => new AdminListDto
                 {
                     Id             = c.Id,
                     Provider       = c.Service,
@@ -172,50 +179,49 @@ namespace InfiniteDrive.Services
             };
         }
 
-        // ── GET /InfiniteDrive/User/Catalogs/Providers ──────────────────────────────
+        // ── GET /InfiniteDrive/Admin/Lists/Providers ──────────────────────────────
 
-        public object Get(GetProvidersRequest req)
+        public object Get(GetAdminProvidersRequest req)
         {
-            var userId = GetCurrentUserId();
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             var config = Plugin.Instance.Configuration;
-            var currentCount = 0;
-
-            if (userId != null)
-            {
-                var catalogs = _db.GetUserCatalogsByOwnerAsync(userId, activeOnly: true).Result;
-                currentCount = catalogs.Count;
-            }
-
-            return new ProvidersResponse
+            return new AdminProvidersResponse
             {
                 EnabledProviders = ListFetcher.GetEnabledProviders(config.TraktClientId, config.TmdbApiKey),
-                CurrentCount = currentCount,
-                Limit = UserLimit,
             };
         }
 
-        // ── POST /InfiniteDrive/User/Catalogs/Add ───────────────────────────────────
+        // ── GET /InfiniteDrive/Admin/Lists/UserCount ─────────────────────────────
 
-        public async Task<object> Post(AddUserCatalogRequest req)
+        public async Task<object> Get(GetUserCatalogCountRequest req)
         {
-            var userId = GetCurrentUserId();
-            if (userId == null)
-                return Err<AddUserCatalogResponse>("Not authenticated");
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
 
-            // Validate URL
+            var count = await _db.GetActiveUserCatalogCountAsync();
+            return new UserCatalogCountResponse { TotalUserLists = count };
+        }
+
+        // ── POST /InfiniteDrive/Admin/Lists/Add ───────────────────────────────────
+
+        public async Task<object> Post(AddAdminListRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
             if (string.IsNullOrWhiteSpace(req.ListUrl))
-                return Err<AddUserCatalogResponse>("List URL is required");
+                return Err<AddAdminListResponse>("List URL is required");
 
             if (!req.ListUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                return Err<AddUserCatalogResponse>("List URL must use HTTPS");
+                return Err<AddAdminListResponse>("List URL must use HTTPS");
 
-            // Detect provider
             var provider = ListFetcher.DetectProvider(req.ListUrl);
             if (provider == null)
-                return Err<AddUserCatalogResponse>(
+                return Err<AddAdminListResponse>(
                     "Unsupported list URL. Supported providers: mdblist.com, trakt.tv, themoviedb.org, anilist.co");
 
-            // Check provider is enabled
             var config = Plugin.Instance.Configuration;
             var enabled = ListFetcher.GetEnabledProviders(config.TraktClientId, config.TmdbApiKey);
             if (!enabled.Contains(provider))
@@ -226,21 +232,10 @@ namespace InfiniteDrive.Services
                     "tmdb" => "a TMDB API Key",
                     _ => null
                 };
-                return Err<AddUserCatalogResponse>(
+                return Err<AddAdminListResponse>(
                     neededKey != null
-                        ? $"{provider} is not available. Ask your admin to configure {neededKey}."
+                        ? $"{provider} is not available. Configure {neededKey} in plugin settings first."
                         : $"Provider '{provider}' is not available.");
-            }
-
-            // Enforce per-user catalog limit
-            var existing = await _db.GetUserCatalogsByOwnerAsync(userId, activeOnly: true);
-            if (existing.Count >= UserLimit)
-            {
-                return new AddUserCatalogResponse
-                {
-                    Ok    = false,
-                    Error = $"List limit reached. You can have at most {UserLimit} lists. Remove one to add another."
-                };
             }
 
             // Fetch list for validation
@@ -248,23 +243,22 @@ namespace InfiniteDrive.Services
                 req.ListUrl, config.TraktClientId, config.TmdbApiKey, _logger, CancellationToken.None);
 
             if (!fetchResult.Ok)
-                return Err<AddUserCatalogResponse>(fetchResult.Error);
+                return Err<AddAdminListResponse>(fetchResult.Error);
 
             if (fetchResult.Items.Count == 0)
-                return Err<AddUserCatalogResponse>("This list appears to be empty.");
+                return Err<AddAdminListResponse>("This list appears to be empty.");
 
             var displayName = !string.IsNullOrWhiteSpace(req.DisplayName)
                 ? req.DisplayName
                 : (!string.IsNullOrWhiteSpace(fetchResult.DisplayName) ? fetchResult.DisplayName : req.ListUrl);
 
-            // Insert catalog row
             var catalogId = await _db.CreateUserCatalogAsync(
-                userId, provider, req.ListUrl, displayName!);
+                ServerOwner, provider, req.ListUrl, displayName!);
 
             // Eager sync
             var result = await _syncService.SyncOneAsync(catalogId, CancellationToken.None);
 
-            return new AddUserCatalogResponse
+            return new AddAdminListResponse
             {
                 Ok        = result.Ok,
                 CatalogId = catalogId,
@@ -277,35 +271,33 @@ namespace InfiniteDrive.Services
             };
         }
 
-        // ── POST /InfiniteDrive/User/Catalogs/Remove ────────────────────────────────
+        // ── POST /InfiniteDrive/Admin/Lists/Remove ────────────────────────────────
 
-        public async Task<object> Post(RemoveUserCatalogRequest req)
+        public async Task<object> Post(RemoveAdminListRequest req)
         {
-            var userId = GetCurrentUserId();
-            if (userId == null)
-                return Err<RemoveUserCatalogResponse>("Not authenticated");
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
 
             if (string.IsNullOrWhiteSpace(req.CatalogId))
-                return Err<RemoveUserCatalogResponse>("catalogId is required");
+                return Err<RemoveAdminListResponse>("catalogId is required");
 
             var catalog = await _db.GetUserCatalogByIdAsync(req.CatalogId);
             if (catalog == null)
-                return Err<RemoveUserCatalogResponse>("List not found");
+                return Err<RemoveAdminListResponse>("List not found");
 
-            if (catalog.OwnerUserId != userId)
-                return new RemoveUserCatalogResponse { Ok = false, Error = "Forbidden" };
+            if (catalog.OwnerUserId != ServerOwner)
+                return Err<RemoveAdminListResponse>("Not a server list");
 
             await _db.SetUserCatalogActiveAsync(req.CatalogId, active: false);
-            return new RemoveUserCatalogResponse { Ok = true };
+            return new RemoveAdminListResponse { Ok = true };
         }
 
-        // ── POST /InfiniteDrive/User/Catalogs/Refresh ───────────────────────────────
+        // ── POST /InfiniteDrive/Admin/Lists/Refresh ───────────────────────────────
 
-        public async Task<object> Post(RefreshUserCatalogsRequest req)
+        public async Task<object> Post(RefreshAdminListsRequest req)
         {
-            var userId = GetCurrentUserId();
-            if (userId == null)
-                return new RefreshUserCatalogsResponse { Ok = false, Error = "Not authenticated" };
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
 
             var ct = CancellationToken.None;
 
@@ -313,13 +305,13 @@ namespace InfiniteDrive.Services
             {
                 var catalog = await _db.GetUserCatalogByIdAsync(req.CatalogId);
                 if (catalog == null)
-                    return new RefreshUserCatalogsResponse { Ok = false, Error = "List not found" };
+                    return new RefreshAdminListsResponse { Ok = false, Error = "List not found" };
 
-                if (catalog.OwnerUserId != userId)
-                    return new RefreshUserCatalogsResponse { Ok = false, Error = "Forbidden" };
+                if (catalog.OwnerUserId != ServerOwner)
+                    return new RefreshAdminListsResponse { Ok = false, Error = "Not a server list" };
 
                 var result = await _syncService.SyncOneAsync(req.CatalogId, ct);
-                return new RefreshUserCatalogsResponse
+                return new RefreshAdminListsResponse
                 {
                     Ok        = result.Ok,
                     Lists     = 1,
@@ -332,8 +324,16 @@ namespace InfiniteDrive.Services
                 };
             }
 
-            var results = await _syncService.SyncAllForOwnerAsync(userId, ct);
-            return new RefreshUserCatalogsResponse
+            var catalogs = await _db.GetUserCatalogsByOwnerAsync(ServerOwner, activeOnly: true, ct);
+            var results = new List<UserCatalogSyncResult>(catalogs.Count);
+
+            foreach (var catalog in catalogs)
+            {
+                if (ct.IsCancellationRequested) break;
+                results.Add(await _syncService.SyncOneAsync(catalog.Id, ct));
+            }
+
+            return new RefreshAdminListsResponse
             {
                 Ok        = results.All(r => r.Ok),
                 Lists     = results.Count,
@@ -342,25 +342,11 @@ namespace InfiniteDrive.Services
                 Updated   = results.Sum(r => r.Updated),
                 Removed   = results.Sum(r => r.Removed),
                 ElapsedMs = results.Sum(r => r.ElapsedMs),
-                PerList   = results.ToList(),
+                PerList   = results,
             };
         }
 
         // ── Private helpers ───────────────────────────────────────────────────────
-
-        private string? GetCurrentUserId()
-        {
-            try
-            {
-                var info = _authCtx.GetAuthorizationInfo(Request);
-                return info?.User?.Id.ToString("N");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[InfiniteDrive] UserCatalogsService: Failed to get current user ID");
-                return null;
-            }
-        }
 
         private static T Err<T>(string message) where T : class, new()
         {

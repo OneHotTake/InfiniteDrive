@@ -199,7 +199,12 @@ namespace InfiniteDrive.Data
         // ── SQLite helpers ────────────────────────────────────────────────────
 
         private IDatabaseConnection OpenConnection()
-            => SQLite3.Open(_db.GetDatabasePath(), ConnectionFlags.ReadWrite | ConnectionFlags.Create, null, true);
+        {
+            var conn = SQLite3.Open(_db.GetDatabasePath(), ConnectionFlags.ReadWrite | ConnectionFlags.Create, null, true);
+            conn.Execute("PRAGMA journal_mode=WAL;");
+            conn.Execute("PRAGMA busy_timeout=30000;");
+            return conn;
+        }
 
         private async Task ExecuteWriteAsync(
             string sql, Action<IStatement> bindParams, CancellationToken ct = default)

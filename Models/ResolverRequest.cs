@@ -6,7 +6,7 @@ namespace InfiniteDrive.Models
     /// <summary>
     /// Request model for /InfiniteDrive/Resolve endpoint.
     /// </summary>
-    [Route("/InfiniteDrive/Resolve", "GET", Summary = "Resolve AIOStreams stream and return M3U8 manifest")]
+    [Route("/InfiniteDrive/Resolve", "GET", Summary = "Resolve AIOStreams stream and redirect to proxy")]
     [Unauthenticated]
     public class ResolverRequest : IReturn<object>
     {
