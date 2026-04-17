@@ -503,6 +503,28 @@ namespace InfiniteDrive.Services
             }
         }
 
+        /// <summary>
+        /// Rehydrates multiple slots in a single pass — add enabled slots, remove disabled ones.
+        /// Called after bulk toggle to avoid concurrent rehydration tasks fighting over the DB.
+        /// </summary>
+        public async Task RehydrateSlotsAsync(List<(string SlotKey, bool Enabled)> changes, CancellationToken ct)
+        {
+            foreach (var (slotKey, enabled) in changes)
+            {
+                try
+                {
+                    if (enabled)
+                        await AddSlotAsync(slotKey, null, ct);
+                    else
+                        await RemoveSlotAsync(slotKey, null, ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[Rehydration] Error rehydrating slot {SlotKey}", slotKey);
+                }
+            }
+        }
+
         private static RehydrationResult Ok(string message, int processed, int skipped)
             => new() { Success = true, Message = message, ItemsProcessed = processed, ItemsSkipped = skipped };
 

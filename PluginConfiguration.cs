@@ -500,7 +500,7 @@ namespace InfiniteDrive
         /// not want Cinemeta items in your library.
         /// </summary>
         [DataMember]
-        public bool EnableCinemetaDefault { get; set; } = true;
+        public bool EnableCinemetaDefault { get; set; } = false;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  VERSIONED PLAYBACK                                                  ║
