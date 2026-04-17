@@ -193,7 +193,7 @@ namespace InfiniteDrive.Services
                     UserId = userId,
                     ConfigToken = configToken,
                     BaseUrl = baseUrl,
-                    ConfigureUrl = $"{baseUrl}/stremio/configure"
+                    ConfigureUrl = $"{baseUrl}/stremio/configure/{userId}"
                 };
             }
             catch

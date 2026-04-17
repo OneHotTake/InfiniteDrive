@@ -71,6 +71,9 @@ stop_emby() {
         return 1
     fi
 
+    # Clean stale SQLite WAL/SHM files (can cause "database is locked" on restart)
+    rm -f "$DATA_DIR/data/"*.db-wal "$DATA_DIR/data/"*.db-shm "$DATA_DIR/data/"*.db-journal 2>/dev/null || true
+
     log_info "Emby stopped"
 }
 
@@ -100,6 +103,9 @@ cleanup_state() {
         mkdir -p "$DATA_DIR/$dir"
     done
 
+    # Clean stale root plugin DLLs (Emby may cache old versions here)
+    rm -f "$DATA_DIR/plugins/InfiniteDrive.dll" 2>/dev/null || true
+
     # Ensure plugins directory exists
     mkdir -p "$DATA_DIR/plugins"
 
@@ -117,25 +123,44 @@ start_emby() {
     if [ "$force_build" = "true" ] || [ ! -f "$dll" ]; then
         log_info "Building InfiniteDrive plugin..."
         cd "$PROJECT_DIR"
+        rm -rf bin/Release/ obj/Release/
         dotnet publish -c Release || { log_error "Build failed"; exit 1; }
     fi
 
-    # Deploy plugin
+    # Verify DLL exists
+    if [ ! -f "$dll" ]; then
+        log_error "DLL not found at $dll"
+        exit 1
+    fi
+
+    # Deploy plugin to all three Emby cache locations
     log_info "Deploying plugin to $DATA_DIR/plugins/..."
     mkdir -p "$DATA_DIR/plugins/InfiniteDrive/libs"
+    mkdir -p "$DATA_DIR/plugins/configurations/InfiniteDrive"
 
-    cp "$PROJECT_DIR/bin/Release/net8.0/publish/InfiniteDrive.dll" "$DATA_DIR/plugins/" || { log_error "DLL not found"; exit 1; }
-    cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
-    cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
+    # 1. Root plugins/ (Emby primary scan)
+    cp "$dll" "$DATA_DIR/plugins/InfiniteDrive.dll"
     cp "$PROJECT_DIR/plugin.json" "$DATA_DIR/plugins/"
 
-    # Deploy UI files to both plugin dir and Emby's config cache
-    for dir in "$DATA_DIR/plugins/InfiniteDrive" "$DATA_DIR/plugins/configurations/InfiniteDrive"; do
-        mkdir -p "$dir" 2>/dev/null || true
-        cp "$PROJECT_DIR/Configuration/configurationpage.html" "$dir/" 2>/dev/null || true
-        cp "$PROJECT_DIR/Configuration/configurationpage.js" "$dir/" 2>/dev/null || true
-        cp "$PROJECT_DIR/bin/Release/net8.0/publish/InfiniteDrive.dll" "$dir/" 2>/dev/null || true
-    done
+    # 2. plugins/InfiniteDrive/ (Emby addon directory)
+    cp "$dll" "$DATA_DIR/plugins/InfiniteDrive/InfiniteDrive.dll"
+    cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
+    cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
+    cp "$PROJECT_DIR/Configuration/configurationpage.html" "$DATA_DIR/plugins/InfiniteDrive/" 2>/dev/null || true
+    cp "$PROJECT_DIR/Configuration/configurationpage.js" "$DATA_DIR/plugins/InfiniteDrive/" 2>/dev/null || true
+
+    # 3. plugins/configurations/InfiniteDrive/ (Emby config cache — must match)
+    cp "$dll" "$DATA_DIR/plugins/configurations/InfiniteDrive/InfiniteDrive.dll"
+    cp "$PROJECT_DIR/Configuration/configurationpage.html" "$DATA_DIR/plugins/configurations/InfiniteDrive/" 2>/dev/null || true
+    cp "$PROJECT_DIR/Configuration/configurationpage.js" "$DATA_DIR/plugins/configurations/InfiniteDrive/" 2>/dev/null || true
+
+    # 4. System plugin cache (Emby copies FROM here on startup — overrides everything)
+    local sys_plugin_dir="/opt/emby-server/system/plugins"
+    if [ -d "$sys_plugin_dir" ]; then
+        log_info "  Deploying to system plugin cache..."
+        sudo cp "$dll" "$sys_plugin_dir/InfiniteDrive.dll" 2>/dev/null || \
+            log_warn "  Could not copy to $sys_plugin_dir (need sudo?)"
+    fi
 
     # Ensure log directory exists
     mkdir -p "$DATA_DIR/logs"
@@ -154,15 +179,38 @@ start_emby() {
     local emby_pid=$!
     log_info "Emby started with PID $emby_pid, waiting for startup..."
 
-    # Wait for port to be listening
+    # Phase 1: Wait for port to be listening (up to 60s)
     local count=0
-    while [ $count -lt 30 ]; do
+    while [ $count -lt 60 ]; do
         if ss -tlnp 2>/dev/null | grep -q ":$EMBY_PORT "; then
-            log_info "Emby is UP on port $EMBY_PORT"
+            break
+        fi
+        # Check if process died
+        if ! kill -0 "$emby_pid" 2>/dev/null; then
+            log_error "Emby process died during startup"
+            tail -30 "$HOME/emby-dev.log" 2>/dev/null || echo "(no log)"
+            return 1
+        fi
+        sleep 1
+        ((count++))
+    done
+
+    if ! ss -tlnp 2>/dev/null | grep -q ":$EMBY_PORT "; then
+        log_error "Port $EMBY_PORT not listening after 60s"
+        tail -30 "$HOME/emby-dev.log" 2>/dev/null || echo "(no log file)"
+        return 1
+    fi
+
+    # Phase 2: Wait for HTTP to respond (up to 30s after port is open)
+    log_info "Port open, waiting for HTTP response..."
+    count=0
+    while [ $count -lt 30 ]; do
+        if curl -sf -o /dev/null "http://localhost:$EMBY_PORT/emby/System/Info/Public" 2>/dev/null; then
+            log_info "Emby is UP and responding on port $EMBY_PORT"
             echo ""
             echo "  Web UI:    http://localhost:$EMBY_PORT"
             echo "  Plugin:    http://localhost:$EMBY_PORT/web/configurationpage?name=InfiniteDrive"
-            echo "  Logs:      $LOG_FILE"
+            echo "  Logs:      $DATA_DIR/logs/"
             echo "  Dev log:   $HOME/emby-dev.log"
             return 0
         fi
@@ -170,11 +218,9 @@ start_emby() {
         ((count++))
     done
 
-    log_error "Port $EMBY_PORT not listening after 30s"
-    echo ""
-    echo "Last 30 log lines:"
-    tail -30 "$HOME/emby-dev.log" 2>/dev/null || tail -30 "$LOG_FILE" 2>/dev/null || echo "(no log file)"
-    return 1
+    log_warn "Port open but HTTP not responding after 30s (may still be initializing)"
+    echo "  Web UI:    http://localhost:$EMBY_PORT"
+    return 0
 }
 
 # =============================================================================

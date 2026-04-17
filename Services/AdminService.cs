@@ -139,6 +139,21 @@ namespace InfiniteDrive.Services
         public string Message { get; set; } = "";
     }
 
+    [Route("/InfiniteDrive/Admin/VersionSlots/ToggleBulk", "POST",
+        Summary = "Toggle multiple version slots in one DB transaction, then rehydrate once")]
+    public class ToggleBulkVersionSlotsRequest : IReturn<ToggleBulkVersionSlotsResponse>
+    {
+        [ApiMember(Name = "toggles", Description = "JSON array of {slotKey,enabled}", DataType = "string", ParameterType = "query")]
+        public string? TogglesJson { get; set; }
+    }
+
+    public class ToggleBulkVersionSlotsResponse
+    {
+        public bool Success { get; set; }
+        public int Updated { get; set; }
+        public string Message { get; set; } = "";
+    }
+
     [Route("/InfiniteDrive/Admin/VersionSlots/SetDefault", "POST",
         Summary = "Change the default version slot; triggers rehydration")]
     public class SetDefaultSlotRequest : IReturn<SetDefaultSlotResponse>
@@ -481,6 +496,67 @@ namespace InfiniteDrive.Services
                 _logger.LogError(ex, "[AdminService] Failed to toggle version slot {SlotKey}", req.SlotKey);
                 return new ToggleVersionSlotResponse { Success = false, Message = ex.Message };
             }
+        }
+
+        /// <summary>
+        /// Handles <c>POST /InfiniteDrive/Admin/VersionSlots/ToggleBulk</c>.
+        /// Toggles multiple slots in one pass, then triggers a single rehydration.
+        /// </summary>
+        public async Task<object> Post(ToggleBulkVersionSlotsRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            if (string.IsNullOrWhiteSpace(req.TogglesJson))
+                return new ToggleBulkVersionSlotsResponse { Success = false, Message = "togglesJson is required" };
+
+            try
+            {
+                var slotRepo = Plugin.Instance?.VersionSlotRepository;
+                if (slotRepo == null)
+                    return new ToggleBulkVersionSlotsResponse { Success = false, Message = "VersionSlotRepository not initialized" };
+
+                var toggles = System.Text.Json.JsonSerializer.Deserialize<List<ToggleEntry>>(req.TogglesJson);
+                if (toggles == null || toggles.Count == 0)
+                    return new ToggleBulkVersionSlotsResponse { Success = false, Message = "No toggles provided" };
+
+                var updated = 0;
+                var slotsToRehydrate = new List<(string SlotKey, bool Enabled)>();
+
+                foreach (var t in toggles)
+                {
+                    if (string.IsNullOrWhiteSpace(t.SlotKey)) continue;
+                    var slot = await slotRepo.GetSlotAsync(t.SlotKey, CancellationToken.None);
+                    if (slot == null) continue;
+                    if (slot.IsDefault && !t.Enabled) continue;
+
+                    slot.Enabled = t.Enabled;
+                    await slotRepo.UpsertSlotAsync(slot, CancellationToken.None);
+                    slotsToRehydrate.Add((t.SlotKey, t.Enabled));
+                    updated++;
+                }
+
+                // Single rehydration pass for all changed slots
+                if (slotsToRehydrate.Count > 0)
+                {
+                    var rehydrationService = new RehydrationService(_logger);
+                    _ = rehydrationService.RehydrateSlotsAsync(slotsToRehydrate, CancellationToken.None);
+                }
+
+                _logger.LogInformation("[AdminService] Bulk toggled {Count} version slots", updated);
+                return new ToggleBulkVersionSlotsResponse { Success = true, Updated = updated, Message = $"{updated} slots updated" };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[AdminService] Failed to bulk toggle version slots");
+                return new ToggleBulkVersionSlotsResponse { Success = false, Message = ex.Message };
+            }
+        }
+
+        private class ToggleEntry
+        {
+            public string? SlotKey { get; set; }
+            public bool Enabled { get; set; }
         }
 
         /// <summary>

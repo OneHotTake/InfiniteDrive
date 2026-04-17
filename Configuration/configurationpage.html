@@ -205,10 +205,7 @@
 <!-- ════════════════════════════ TAB — Providers ════════════════════════════ -->
 <div class="es-tab-content" id="es-tab-content-providers">
 
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1em">
-    <h1 style="margin:0;font-size:1.35em;font-weight:700">Providers</h1>
-    <button type="button" is="emby-button" class="raised button-submit" data-es-action="prov-save-all">Save</button>
-  </div>
+  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Providers</h1>
 
   <!-- Inline health banner -->
   <div class="es-health-banner" id="es-prov-health-banner">
@@ -257,8 +254,8 @@
     </div>
   </div>
 
-  <!-- Cinemeta card -->
-  <div class="es-card">
+  <!-- Cinemeta card (disabled) -->
+  <div class="es-card" style="display:none">
     <div class="es-card-title">Cinemeta</div>
     <p class="es-card-text">Stremio's public catalog. When enabled, used as a last-resort metadata fallback.</p>
     <label class="checkboxContainer">
@@ -495,12 +492,7 @@
 <!-- ════════════════════════════ TAB — Sources ════════════════════════════ -->
 <div class="es-tab-content" id="es-tab-content-sources">
 
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1em">
-    <h1 style="margin:0;font-size:1.35em;font-weight:700">Sources</h1>
-    <div class="es-btn-row" style="margin-top:0">
-      <button type="button" is="emby-button" class="raised button" data-es-action="src-refresh">Refresh Sources</button>
-    </div>
-  </div>
+  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Sources</h1>
 
   <div class="es-card" style="margin-bottom:1em">
     <p class="es-card-text" style="margin:0">These are all enabled sources across your configured providers. Items are synced from these catalogs into your Emby library.</p>
@@ -1131,14 +1123,14 @@
 </div><!-- /inspector tab -->
 
 
-<!-- Float action buttons (Save / Sync / Refresh) -->
+<!-- Float action buttons (Save / Sync Catalogs / Rebuild Library) -->
 <div id="es-float-actions" style="display:none">
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-save-btn"
           data-es-action="float-save" style="display:none">Save</button>
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-sync-btn"
-          data-es-action="float-sync" style="display:none;background:#17a2b8">Sync</button>
+          data-es-action="float-sync" style="display:none;background:#17a2b8">Sync Catalogs</button>
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-refresh-btn"
-          data-es-action="float-refresh" style="display:none">Refresh</button>
+          data-es-action="float-refresh" style="display:none">Rebuild Library</button>
   <div id="es-float-save-confirm">Saved!</div>
 </div>
 

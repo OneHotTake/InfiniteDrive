@@ -79,10 +79,19 @@ function (loading) {
     }
     function fmtRelative(d) {
         var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+        if (diff < 0)    return 'just now';       // clock skew or future date
         if (diff < 60)    return diff + 's ago';
         if (diff < 3600)  return Math.floor(diff/60)  + 'm ago';
         if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
         return Math.floor(diff/86400) + 'd ago';
+    }
+    function parseManifestUrl(url) {
+        if (!url) return null;
+        try {
+            var m = url.match(/^(https?:\/\/[^\/]+)\/stremio\/([^\/]+)/i);
+            if (!m) return null;
+            return { baseUrl: m[1], userId: m[2], configureUrl: m[1] + '/stremio/configure/' + m[2] };
+        } catch(e) { return null; }
     }
 
     // ── Sources tab ───────────────────────────────────────────────────────────
@@ -95,7 +104,6 @@ function (loading) {
         esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                // Use SyncStates instead of CatalogSources (API change compatibility)
                 var sources = data.SyncStates || [];
                 if (!sources.length) {
                     tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">No sources configured yet.</td></tr>';
@@ -104,29 +112,47 @@ function (loading) {
 
                 var html = '';
                 sources.forEach(function(src) {
-                    var statusBadge = src.LastReachedAt ? '<span class="es-badge es-badge-ok">Active</span>' : '<span class="es-badge es-badge-warn">Not reachable</span>';
-                    var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
+                    var key = src.SourceKey || '';
                     var type = 'source';
-                    if (src.SourceKey.indexOf(':movie:') !== -1) type = 'movie';
-                    else if (src.SourceKey.indexOf(':series:') !== -1) type = 'series';
-                    else if (src.SourceKey.indexOf(':anime:') !== -1) type = 'anime';
+                    if (key.indexOf(':movie:') !== -1) type = 'movie';
+                    else if (key.indexOf(':series:') !== -1) type = 'series';
+                    else if (key.indexOf(':anime:') !== -1) type = 'anime';
 
-                    var providerName = src.DisplayName
-                        ? esc(src.DisplayName) + ' <span class="es-type-badge" style="background:rgba(128,128,128,.12);color:inherit;opacity:.6">' + esc(type) + '</span>'
-                        : esc(type);
+                    // Derive a readable label from the source key
+                    var label;
+                    if (key === 'aiostreams') {
+                        label = 'All Sources';
+                        type = 'aggregate';
+                    } else if (key.indexOf(':') !== -1) {
+                        // e.g. "aio:movie:b49e3b0.tmdb.top" → catalog name from DisplayName
+                        label = src.DisplayName || key.split(':').slice(2).join(':');
+                    } else {
+                        label = key;
+                    }
+
+                    var providerName = esc(label) + ' <span class="es-type-badge" style="background:rgba(128,128,128,.12);color:inherit;opacity:.6">' + esc(type) + '</span>';
+
+                    // Status: use LastSyncAt as indicator of successful contact
+                    var hasSynced = !!src.LastSyncAt;
+                    var statusBadge = hasSynced
+                        ? '<span class="es-badge es-badge-ok">Active</span>'
+                        : '<span class="es-badge es-badge-warn">Pending</span>';
+
+                    var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
+                    var itemCount = src.ItemCount || 0;
 
                     html += '<tr>' +
-                        '<td>' + esc(src.SourceKey || 'Unknown') + '</td>' +
+                        '<td>' + esc(label) + '</td>' +
                         '<td>' + providerName + '</td>' +
                         '<td>' + statusBadge + '</td>' +
                         '<td>' + lastSync + '</td>' +
-                        '<td>' + (src.ItemCount || 0) + '</td>' +
+                        '<td>' + itemCount + '</td>' +
                         '</tr>';
                 });
                 tbody.innerHTML = html;
             })
             .catch(function(err) {
-                tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">Failed to load sources: ' + esc(err.message) + '</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">Failed to load sources</td></tr>';
             });
     }
 
@@ -338,6 +364,23 @@ function (loading) {
                 updateStatusPills(view, data);
             }).catch(function() {});
 
+        // Backup edit button — derive configure URL from backup manifest URL
+        function updateBackupEditBtn() {
+            var backupEditBtn = view.querySelector('#prov-backup-edit-btn');
+            if (!backupEditBtn) return;
+            var url = (view.querySelector('#prov-backup-url') || {}).value || '';
+            var parsed = parseManifestUrl(url);
+            if (parsed) {
+                backupEditBtn._configureUrl = parsed.configureUrl;
+                backupEditBtn.style.display = '';
+            } else {
+                backupEditBtn.style.display = 'none';
+            }
+        }
+        updateBackupEditBtn();
+        var backupInput = view.querySelector('#prov-backup-url');
+        if (backupInput) backupInput.addEventListener('input', updateBackupEditBtn);
+
         // Display "last rotated" timestamp
         var agoEl = view.querySelector('#sec-rotated-ago');
         if (agoEl) {
@@ -506,33 +549,26 @@ function (loading) {
             if (chk.disabled) continue; // skip default slot
             var key = chk.getAttribute('data-slot-key');
             var enabled = chk.checked;
-            toggles.push({ key: key, enabled: enabled });
+            toggles.push({ slotKey: key, enabled: enabled });
         }
         if (!toggles.length) return;
 
         var statusEl = view.querySelector('#lib-slots-save-status');
+        if (statusEl) { statusEl.textContent = 'Saving…'; statusEl.style.color = ''; }
 
-        // Serialize toggles to avoid database locking
-        var chain = Promise.resolve();
-        var results = [];
-        toggles.forEach(function(t) {
-            chain = chain.then(function() {
-                return esFetch('/InfiniteDrive/Admin/VersionSlots/Toggle?slotKey=' + encodeURIComponent(t.key) + '&enabled=' + t.enabled, {
-                    method: 'POST'
-                }).then(function(r) { return r.json(); })
-                .then(function(result) { results.push(result); })
-                .catch(function() { results.push({ Success: false, Message: 'Request failed' }); });
-            });
-        });
-
-        chain.then(function() {
-            var failures = results.filter(function(r) { return !r.Success; });
-            if (failures.length === 0) {
-                esFetch('/InfiniteDrive/Trigger?task=library_readoption', { method: 'POST' }).catch(function(){});
+        esFetch('/InfiniteDrive/Admin/VersionSlots/ToggleBulk?togglesJson=' + encodeURIComponent(JSON.stringify(toggles)), {
+            method: 'POST'
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.Success) {
                 if (statusEl) { statusEl.textContent = '✓ Saved — rehydration triggered'; statusEl.style.color = '#28a745'; }
             } else {
-                if (statusEl) { statusEl.textContent = '✗ ' + failures.map(function(f){ return f.Message; }).join('; '); statusEl.style.color = '#dc3545'; }
+                if (statusEl) { statusEl.textContent = '✗ ' + (data.Message || 'Failed'); statusEl.style.color = '#dc3545'; }
             }
+        })
+        .catch(function(err) {
+            if (statusEl) { statusEl.textContent = '✗ Request failed'; statusEl.style.color = '#dc3545'; }
         });
     }
 
@@ -737,11 +773,12 @@ function (loading) {
         _unsavedChanges = false;
         var btn  = view.querySelector('#es-float-save-btn');
         var conf = view.querySelector('#es-float-save-confirm');
-        if (btn)  btn.textContent = 'Save Settings';
+        if (btn)  btn.textContent = 'Saved ✓';
         if (conf) {
-            conf.style.display = 'inline';
-            setTimeout(function() { conf.style.display = 'none'; }, 3000);
+            conf.classList.add('visible');
+            setTimeout(function() { conf.classList.remove('visible'); }, 3000);
         }
+        setTimeout(function() { if (btn) btn.textContent = 'Save'; }, 3000);
     }
 
     function openProviderEdit(view, configureUrl) {
@@ -1523,7 +1560,7 @@ function (loading) {
             // External Lists
             TraktClientId:              esVal(view, 'cfg-trakt-client-id') || '',
             UserCatalogLimit:           esInt(view, 'cfg-user-catalog-limit', 5),
-            IsFirstRunComplete:         _loadedConfig ? !!_loadedConfig.IsFirstRunComplete : false
+            IsFirstRunComplete:         true
         };
         // CONF-JSON: validate CatalogItemLimitsJson before saving
         if (cfg.CatalogItemLimitsJson) {
@@ -1857,7 +1894,7 @@ function (loading) {
             .then(function(data) {
                 if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = origText; }
                 if (data.Status === 'ok') {
-                    if (typeof Dashboard !== 'undefined') Dashboard.alert({ message: 'Task started — see Health tab for progress.' });
+                    if (typeof Dashboard !== 'undefined') Dashboard.alert({ message: 'Task started. Check the Inspector tab for progress.' });
                     setTimeout(function() { refreshDashboard(view); }, 3000);
                     setTimeout(function() { refreshDashboard(view); }, 10000);
                     if (taskKey === 'catalog_sync') { startCatalogPoll(view, 'cfg'); startCatalogPoll(view, 'wiz'); }
@@ -2622,9 +2659,17 @@ function (loading) {
             return;
         }
         // Trigger status refresh
+        var btn = view.querySelector('#es-float-refresh-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
         esFetch('/InfiniteDrive/Status/Refresh', { method: 'POST' })
-            .then(function() { showFloatSaveConfirm(view); loadOverviewTab(view); })
-            .catch(function() {});
+            .then(function() {
+                if (btn) { btn.textContent = 'Refreshed ✓'; }
+                var conf = view.querySelector('#es-float-save-confirm');
+                if (conf) { conf.textContent = 'Refreshed!'; conf.classList.add('visible'); setTimeout(function() { conf.classList.remove('visible'); }, 3000); }
+                loadOverviewTab(view);
+                setTimeout(function() { if (btn) { btn.textContent = 'Refresh'; btn.disabled = false; } }, 3000);
+            })
+            .catch(function() { if (btn) { btn.textContent = 'Refresh'; btn.disabled = false; } });
     }
 
     function saveProvidersTab(view) {
@@ -2649,8 +2694,7 @@ function (loading) {
                 _loadedConfig = cfg;
                 _unsavedChanges = false;
                 showFloatSaveConfirm(view);
-                // Reload providers tab to update edit buttons and status
-                loadProvidersTab(view);
+                try { loadProvidersTab(view); } catch(e) {}
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
