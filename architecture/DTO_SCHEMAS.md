@@ -1,6 +1,6 @@
 # InfiniteDrive — DTO Schemas
 
-> Last reconciled: 2026-04-15 (post Sprint 362)
+> Last reconciled: 2026-04-18 (post Language & Localization sprint)
 
 All types are defined in the `InfiniteDrive.Models` namespace unless otherwise noted.
 
@@ -243,3 +243,57 @@ public record EnrichmentResult(int EnrichedCount, int BlockedCount, int SkippedC
 **Defined in:** `Models/SaveReason.cs`
 
 `Explicit`, `WatchedEpisode`, `AdminOverride`
+
+## Stream Candidate
+
+### StreamCandidate
+
+**Defined in:** `Models/StreamCandidate.cs`
+**Table:** `stream_candidates`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `Id` | `string` | UUID primary key |
+| `ImdbId` | `string` | IMDb ID |
+| `Season` | `int?` | Season number; null for movies |
+| `Episode` | `int?` | Episode number; null for movies |
+| `Rank` | `int` | Zero-based rank (0 = best) |
+| `ProviderKey` | `string` | Provider service key (e.g. `realdebrid`) |
+| `StreamType` | `string` | Stream type (`debrid`, `usenet`, `http`) |
+| `Url` | `string` | Direct playable HTTP URL |
+| `HeadersJson` | `string?` | JSON-serialized HTTP headers |
+| `QualityTier` | `string?` | Quality tier (`remux`, `2160p`, `1080p`, etc.) |
+| `FileName` | `string?` | Original filename from AIOStreams |
+| `FileSize` | `long?` | File size in bytes |
+| `BitrateKbps` | `int?` | Bitrate in kbps |
+| `IsCached` | `bool` | True when cached at provider CDN |
+| `InfoHash` | `string?` | SHA1 info-hash |
+| `FileIdx` | `int?` | File index within torrent |
+| `StreamKey` | `string?` | Stable deduplication key |
+| `BingeGroup` | `string?` | Binge-group identifier |
+| `Languages` | `string?` | Comma-separated ISO 639-1 audio language codes (e.g. `"ja,en"`) |
+| `ResolvedAt` | `string` | UTC timestamp when resolved |
+| `ExpiresAt` | `string` | UTC timestamp when URL should be re-validated |
+| `Status` | `string` | `valid`, `suspect`, or `failed` |
+
+### DiscoverItem
+
+**Defined in:** `Services/DiscoverService.cs`
+**Route:** Discover browse/search responses
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ImdbId` | `string` | IMDb ID |
+| `Title` | `string` | Display title |
+| `Year` | `int?` | Release year |
+| `MediaType` | `string` | `movie` or `series` |
+| `PosterUrl` | `string?` | Poster image URL |
+| `BackdropUrl` | `string?` | Backdrop image URL |
+| `Overview` | `string?` | Synopsis text |
+| `Genres` | `string?` | Comma-separated genre names |
+| `ImdbRating` | `double?` | IMDb rating (0-10) |
+| `Certification` | `string?` | MPAA/TV rating |
+| `InLibrary` | `bool` | True if in user's Emby library |
+| `EmbyItemId` | `string?` | Emby internal item ID |
+| `CatalogSource` | `string` | Source catalog |
+| `AudioLanguages` | `string?` | Comma-separated audio language codes from previous resolution |

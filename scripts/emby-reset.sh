@@ -2,6 +2,7 @@
 # emby-reset.sh — Clean build, wipe state, redeploy DLL, restart on port 8096
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 EMBY_BIN="$(dirname "$(readlink -f "$0")")/../emby-beta/opt/emby-server/bin/emby-server"
 DATA_DIR="$HOME/emby-dev-data"
 LOG_FILE="$DATA_DIR/logs/embyserver.txt"
@@ -46,19 +47,19 @@ echo "      Done."
 
 # ── 4. Build and deploy DLL ───────────────────────────────────────────────────
 echo "[4/5] Building InfiniteDrive..."
-cd "$SCRIPT_DIR"
+cd "$PROJECT_DIR"
 dotnet publish -c Release || { echo "BUILD FAILED — aborting."; exit 1; }
 
-DLL="$SCRIPT_DIR/bin/Release/net8.0/publish/InfiniteDrive.dll"
+DLL="$PROJECT_DIR/bin/Release/net8.0/publish/InfiniteDrive.dll"
 if [ ! -f "$DLL" ]; then
     echo "ERROR: DLL not found at $DLL"; exit 1
 fi
 cp "$DLL" "$DATA_DIR/plugins/InfiniteDrive.dll"
 mkdir -p "$DATA_DIR/plugins/InfiniteDrive/libs"
-cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
-cp "$SCRIPT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
+cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
+cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
 echo "      DLL deployed to $DATA_DIR/plugins/"
-cp "$SCRIPT_DIR/plugin.json" "$DATA_DIR/plugins/"
+cp "$PROJECT_DIR/plugin.json" "$DATA_DIR/plugins/"
 echo "      plugin.json deployed to $DATA_DIR/plugins/"
 
 # ── 5. Start Emby on port 8096 ────────────────────────────────────────────────

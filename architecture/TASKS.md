@@ -1,6 +1,6 @@
 # InfiniteDrive — Background Tasks Reference
 
-> Last reconciled: 2026-04-15 (post Sprint 362)
+> Last reconciled: 2026-04-18 (post Language & Localization sprint)
 
 All tasks implement `IScheduledTask` and are instantiated by Emby's MEF framework via parameterless constructors. Services are accessed through `Plugin.Instance`.
 

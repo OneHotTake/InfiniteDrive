@@ -1,6 +1,6 @@
 # InfiniteDrive — Service Inventory
 
-> Last reconciled: 2026-04-15 (post Sprint 362)
+> Last reconciled: 2026-04-18 (post Language & Localization sprint)
 
 ## Decomposed API Endpoints (Services/Api/)
 
@@ -208,6 +208,8 @@ Returns `ResolutionResult` with structured failure modes (Success/Throttled/Cont
 | `AddToLibrary(itemId, userId)` | Add item to user's library |
 | `RemoveFromLibrary(itemId, userId)` | Remove item from user's library |
 
+Responses include `AudioLanguages` field for previously-resolved items (populated from `stream_candidates.languages`).
+
 ### SavedService
 
 **Purpose:** Per-user saved items management.
@@ -225,3 +227,33 @@ Returns `ResolutionResult` with structured failure modes (Success/Throttled/Cont
 |---------|-------|-------------|
 | `ResolverService` | `/InfiniteDrive/resolve?token=...` | Sync pipeline movie resolution |
 | `StreamEndpointService` | `/InfiniteDrive/Stream?id=...&sig=...` | Series episode streaming |
+
+**Language-aware resolution (Language sprint):** ResolverService uses `IAuthorizationContext` to read the authenticated user's `PreferredMetadataLanguage`. When multiple cached candidates exist with different languages, candidates whose `Languages` field matches the user's preference are selected first. Falls through to rank-order if no match.
+
+### AioMediaSourceProvider
+
+**Purpose:** Populates Emby's version picker with live AIOStreams streams. Implements `IMediaSourceProvider`.
+
+| Method | Description |
+|--------|-------------|
+| `GetMediaSources(item, ct)` | Returns `List<MediaSourceInfo>` for an item |
+| `MapStreamToSource(stream)` | Maps `AioStreamsStream` → `MediaSourceInfo` with populated `MediaStreams` |
+| `MapCandidateToSource(candidate)` | Maps `StreamCandidate` → `MediaSourceInfo` with audio `MediaStreams` from `Languages` field |
+
+**MediaStreams population (Language sprint):** `MapStreamToSource()` builds `MediaStreams` list from:
+- Audio streams: one per language in `ParsedFile.Languages`, with title `"lang - channels audioTags"`
+- Subtitle streams: one per `Subtitles[]` entry, marked `IsExternal` with `DeliveryUrl` pointing to subtitle URL
+
+Sources are sorted by configured `MetadataLanguage` preference. Matching audio streams are marked `IsDefault = true`.
+
+### CertificationResolver
+
+**Purpose:** Fetches MPAA/TV certifications from TMDB for discover catalog items.
+
+**Country locale (Language sprint):** Uses `PluginConfiguration.MetadataCountryCode` (default `"US"`) instead of hardcoded `"US"` to filter `release_dates` results.
+
+### ListFetcher
+
+**Purpose:** URL-sniffing dispatcher for external list providers (MDBList, Trakt, TMDB, AniList).
+
+**TMDB locale (Language sprint):** TMDB list API calls use `language={MetadataLanguage}-{MetadataCountryCode}` instead of hardcoded `language=en-US`.
