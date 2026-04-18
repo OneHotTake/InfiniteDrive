@@ -295,6 +295,9 @@ namespace InfiniteDrive.Services
             catch { /* non-critical */ }
 
             if (string.IsNullOrEmpty(userLang))
+                userLang = Config.MetadataLanguage;
+
+            if (string.IsNullOrEmpty(userLang))
                 return candidates[0];
 
             // Prefer first candidate whose Languages contains user's preferred language

@@ -40,12 +40,13 @@ All resolved URLs passed to the `.strm` files must be signed via `PlaybackTokenS
 
 ## 6. Language-Aware Resolution
 
-When multiple cached candidates exist for an item (from `stream_candidates`), the `ResolverService` applies user language preference:
+When multiple cached candidates exist for an item (from `stream_candidates`), the `ResolverService` applies a language fallback chain:
 
 1. Parse `X-Emby-Token` from request headers via `IAuthorizationContext`
 2. Read the user's `PreferredMetadataLanguage`
-3. If candidates have different `Languages` fields, prefer those matching the user's language
-4. Falls through to rank-order selection if no language match found
+3. If empty, fall back to `Config.MetadataLanguage` (global plugin setting)
+4. If candidates have different `Languages` fields, prefer those matching the resolved language
+5. Falls through to rank-order selection if no language match found
 
 ### MediaStreams (Version Picker)
 
@@ -61,4 +62,4 @@ When multiple cached candidates exist for an item (from `stream_candidates`), th
 - `IsExternal = true`, `DeliveryUrl` and `Path` set to subtitle URL
 - Language from `subtitle.Lang`
 
-**Language sorting** — sources are sorted so those matching `PluginConfiguration.MetadataLanguage` appear first. Matching audio streams are marked `IsDefault = true`.
+**Language sorting** — sources are sorted by a fallback chain: `PluginConfiguration.MetadataLanguage` → library's `PreferredMetadataLanguage` (looked up via `ILibraryManager.GetVirtualFolders()`) → no sort. Matching audio streams are marked `IsDefault = true`.

@@ -168,8 +168,8 @@ Emby player requests .strm file
   │   ├── Parse HMAC token → extract IMDB ID + quality
   │   ├── TryGetCachedUrlAsync()
   │   │   ├── Query stream_candidates by IMDB ID
-  │   │   ├── PreferLanguageMatch() — read user's PreferredMetadataLanguage
-  │   │   │   via IAuthorizationContext → prefer candidates whose Languages match
+  │   │   ├── PreferLanguageMatch() — language fallback chain:
+  │   │   │   user.PreferredMetadataLanguage → Config.MetadataLanguage → rank-order
   │   │   └── If cache hit → 302 redirect
   │   ├── Cache miss → ResolveWithFallbackAsync()
   │   │   → Try primary provider → secondary (circuit breaker)
@@ -182,7 +182,7 @@ Emby player requests .strm file
   │   │   ├── Audio streams from ParsedFile.Languages + Channels + AudioTags
   │   │   └── Subtitle streams from Subtitles[] (IsExternal, DeliveryUrl)
   │   ├── MapCandidateToSource() → audio MediaStreams from Languages field
-  │   ├── SortByLanguagePreference() → boost sources matching MetadataLanguage
+  │   ├── SortByLanguagePreference() → MetadataLanguage → library language → no sort
   │   └── Emby displays audio language names and subtitle tracks in player
   │
   └── StreamEndpointService (series):

@@ -27,6 +27,7 @@ namespace InfiniteDrive.Services
     {
         private readonly ILogger<AioMediaSourceProvider> _logger;
         private readonly IMediaSourceManager _mediaSourceManager;
+        private readonly ILibraryManager _libraryManager;
 
         // In-memory cache: key = "imdbId" or "imdbId:S{season}E{episode}", value = (sources, expiry)
         private static readonly ConcurrentDictionary<string, (List<MediaSourceInfo> Sources, DateTime Expires)> _cache
@@ -35,10 +36,12 @@ namespace InfiniteDrive.Services
 
         public AioMediaSourceProvider(
             ILogManager logManager,
-            IMediaSourceManager mediaSourceManager)
+            IMediaSourceManager mediaSourceManager,
+            ILibraryManager libraryManager)
         {
             _logger = new EmbyLoggerAdapter<AioMediaSourceProvider>(logManager.GetLogger("InfiniteDrive"));
             _mediaSourceManager = mediaSourceManager;
+            _libraryManager = libraryManager;
         }
 
         public Task<List<MediaSourceInfo>> GetMediaSources(BaseItem item, CancellationToken cancellationToken)
@@ -112,7 +115,7 @@ namespace InfiniteDrive.Services
 
                         if (sources.Count > 0)
                         {
-                            SortByLanguagePreference(sources, config);
+                            SortByLanguagePreference(sources, config, item.Path);
                             _cache[cacheKey] = (sources, DateTime.UtcNow.Add(CacheTtl));
                             return sources;
                         }
@@ -128,7 +131,7 @@ namespace InfiniteDrive.Services
             var liveSources = ResolveFromAioStreams(imdbId, mediaType, season, episode, config);
             if (liveSources.Count > 0)
             {
-                SortByLanguagePreference(liveSources, config);
+                SortByLanguagePreference(liveSources, config, item.Path);
                 _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(CacheTtl));
                 CacheToDb(db, imdbId, season, episode, liveSources);
 
@@ -418,9 +421,12 @@ namespace InfiniteDrive.Services
             return langs.Count > 0 ? string.Join(",", langs) : null;
         }
 
-        private static void SortByLanguagePreference(List<MediaSourceInfo> sources, PluginConfiguration config)
+        private void SortByLanguagePreference(List<MediaSourceInfo> sources, PluginConfiguration config, string? itemPath)
         {
+            // Priority: config.MetadataLanguage → library language → no sort
             var prefLang = config.MetadataLanguage;
+            if (string.IsNullOrEmpty(prefLang))
+                prefLang = GetLibraryLanguage(itemPath);
             if (string.IsNullOrEmpty(prefLang) || sources.Count <= 1) return;
 
             sources.Sort((a, b) =>
@@ -441,6 +447,36 @@ namespace InfiniteDrive.Services
                     if (ms.IsDefault) hasMatch = true;
                 }
             }
+        }
+
+        /// <summary>
+        /// Looks up the library's PreferredMetadataLanguage by matching itemPath against
+        /// virtual folder locations. Returns null if not found.
+        /// </summary>
+        private string? GetLibraryLanguage(string? itemPath)
+        {
+            if (string.IsNullOrEmpty(itemPath)) return null;
+            try
+            {
+                var folders = _libraryManager.GetVirtualFolders();
+                if (folders == null) return null;
+
+                foreach (var folder in folders)
+                {
+                    if (folder.Locations == null) continue;
+                    foreach (var location in folder.Locations)
+                    {
+                        if (!string.IsNullOrEmpty(location) &&
+                            itemPath.StartsWith(location, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return folder.LibraryOptions?.PreferredMetadataLanguage;
+                        }
+                    }
+                }
+            }
+            catch { /* non-critical */ }
+
+            return null;
         }
 
         private static bool HasLanguageMatch(MediaSourceInfo source, string lang)
