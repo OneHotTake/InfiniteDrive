@@ -24,7 +24,7 @@ InfiniteDrive is designed to be manifest-agnostic. The logic follows a "Cascadin
 ## 3. Throttling & "The Days-Long Hydration"
 Because we throttle heavily to stay within AIOStreams' limits:
 - The **Optimistic Phase** assumes every item is a `Success`.
-- The **Pessimistic Hydration** phase uses a "Back-off" strategy. 
+- The **Pessimistic Hydration** phase uses a "Back-off" strategy.
 - If a `Throttled` status is received, the `HydrationManager` must cease requests for that specific provider for the duration of the `RetryAfter` window.
 
 ## 4. Playback Strategy
@@ -34,6 +34,31 @@ During a live playback request (`/resolve`):
 - If the Fast-Path returns `Throttled`, we attempt to serve a lower-quality cached version or a secondary manifest link before returning a 429 to the client.
 
 ## 5. Security (HMAC)
-All resolved URLs passed to the `.strm` files must be signed via `PlaybackTokenService`. 
+All resolved URLs passed to the `.strm` files must be signed via `PlaybackTokenService`.
 - **Rule:** No URL leaves the system without a signature.
 - **Rule:** Signatures must have an expiry matching the provider's token TTL (if known).
+
+## 6. Language-Aware Resolution
+
+When multiple cached candidates exist for an item (from `stream_candidates`), the `ResolverService` applies user language preference:
+
+1. Parse `X-Emby-Token` from request headers via `IAuthorizationContext`
+2. Read the user's `PreferredMetadataLanguage`
+3. If candidates have different `Languages` fields, prefer those matching the user's language
+4. Falls through to rank-order selection if no language match found
+
+### MediaStreams (Version Picker)
+
+`AioMediaSourceProvider` populates `MediaSourceInfo.MediaStreams` for each stream:
+
+**Audio streams** — built from `AioStreamsStream.ParsedFile`:
+- One `MediaStream` per language in `ParsedFile.Languages`
+- Title format: `"{language} - {channels} {audioTags}"` (e.g. "Japanese - 5.1 Atmos")
+- First language marked `IsDefault = true`
+
+**Subtitle streams** — built from `AioStreamsStream.Subtitles`:
+- One `MediaStream` per subtitle entry
+- `IsExternal = true`, `DeliveryUrl` and `Path` set to subtitle URL
+- Language from `subtitle.Lang`
+
+**Language sorting** — sources are sorted so those matching `PluginConfiguration.MetadataLanguage` appear first. Matching audio streams are marked `IsDefault = true`.

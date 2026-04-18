@@ -1,6 +1,6 @@
 # InfiniteDrive — Control Flow
 
-> Last reconciled: 2026-04-15 (post Sprint 362)
+> Last reconciled: 2026-04-18 (post Language & Localization sprint)
 
 ## 1. Catalog Sync Pipeline (CatalogSyncTask)
 
@@ -166,11 +166,24 @@ Emby player requests .strm file
   │
   ├── ResolverService (movies):
   │   ├── Parse HMAC token → extract IMDB ID + quality
-  │   ├── StreamResolutionHelper.SyncResolveViaProvidersAsync()
-  │   │   → Try primary provider
-  │   │   → If fail: try secondary provider (circuit breaker)
-  │   │   → Returns ResolutionResult (Success/Throttled/ContentMissing/ProviderDown)
+  │   ├── TryGetCachedUrlAsync()
+  │   │   ├── Query stream_candidates by IMDB ID
+  │   │   ├── PreferLanguageMatch() — read user's PreferredMetadataLanguage
+  │   │   │   via IAuthorizationContext → prefer candidates whose Languages match
+  │   │   └── If cache hit → 302 redirect
+  │   ├── Cache miss → ResolveWithFallbackAsync()
+  │   │   → Try primary provider → secondary (circuit breaker)
+  │   │   → Returns ResolutionResult
   │   └── Return 302 redirect to stream URL
+  │
+  ├── AioMediaSourceProvider (version picker / long-press):
+  │   ├── GetMediaSources(item) → DB cache or live AIOStreams resolve
+  │   ├── MapStreamToSource() → MediaSourceInfo with populated MediaStreams:
+  │   │   ├── Audio streams from ParsedFile.Languages + Channels + AudioTags
+  │   │   └── Subtitle streams from Subtitles[] (IsExternal, DeliveryUrl)
+  │   ├── MapCandidateToSource() → audio MediaStreams from Languages field
+  │   ├── SortByLanguagePreference() → boost sources matching MetadataLanguage
+  │   └── Emby displays audio language names and subtitle tracks in player
   │
   └── StreamEndpointService (series):
       ├── Validate stream ID + signature

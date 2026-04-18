@@ -1,6 +1,6 @@
 # InfiniteDrive — Architecture Overview
 
-> Last reconciled: 2026-04-15 (post Sprint 362)
+> Last reconciled: 2026-04-18 (post Language & Localization sprint)
 
 ## System Purpose
 
@@ -65,7 +65,7 @@ The system transitioned from a monolithic StatusService + "God Task" pattern (pr
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        Data Layer                                    │
 │                                                                      │
-│  DatabaseManager (SQLite)  — schema V27+                             │
+│  DatabaseManager (SQLite)  — schema V32+                             │
 │  Repositories: Catalog, Candidate, Snapshot, MaterializedVersion,    │
 │                ResolutionCache, VersionSlot                          │
 └──────────────────────────────────────────────────────────────────────┘

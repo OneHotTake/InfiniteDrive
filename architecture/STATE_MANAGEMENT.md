@@ -1,6 +1,6 @@
 # InfiniteDrive — State Management
 
-> Last reconciled: 2026-04-15 (post Sprint 362)
+> Last reconciled: 2026-04-18 (post Language & Localization sprint)
 
 ## 1. Manifest State Lifecycle
 
@@ -226,3 +226,23 @@ Per-provider circuit state. When failures exceed threshold, provider is marked "
 | `LastError` | string | Last error message |
 
 Used by `CatalogSyncTask` for interval-gated incremental sync.
+
+## 6. Language & Localization
+
+**Authority:** `PluginConfiguration.MetadataLanguage` + `PluginConfiguration.MetadataCountryCode`
+**Default:** `en` / `US`
+
+### Where language config is used
+
+| Consumer | Config Field | Usage |
+|----------|-------------|-------|
+| `AioMediaSourceProvider.SortByLanguagePreference()` | `MetadataLanguage` | Sorts version picker sources by language match |
+| `AioMediaSourceProvider.BuildMediaStreams()` | — | Builds audio/subtitle `MediaStream` list from AIOStreams parsed data |
+| `ResolverService.PreferLanguageMatch()` | User's `PreferredMetadataLanguage` | Prefers cached candidates matching user language at playback time |
+| `ListFetcher.GetTmdbLanguage()` | `MetadataLanguage` + `MetadataCountryCode` | TMDB list API `language` parameter |
+| `CertificationResolver.FetchMovieCertificationInternalAsync()` | `MetadataCountryCode` | Filters TMDB `release_dates` by country code |
+| `DiscoverService.GetAudioLanguages()` | — | Populates `AudioLanguages` from `stream_candidates.languages` |
+
+### Languages column (stream_candidates)
+
+Added in schema V32. Comma-separated ISO 639-1 codes (e.g. `"ja,en"`). Populated when streams are resolved via `AioStreamsClient` — the `ParsedFile.Languages` array is serialized into this field. Used by `MapCandidateToSource()` to build audio `MediaStreams` for cached candidates, and by `ResolverService.PreferLanguageMatch()` for per-user language preference.

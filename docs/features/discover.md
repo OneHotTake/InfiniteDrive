@@ -130,13 +130,16 @@ GET /EmbyStreams/Discover/Browse?limit=20&offset=0
       "backdropUrl": "https://...",
       "overview": "...",
       "inLibrary": false,
-      "catalogSource": "aiostreams"
+      "catalogSource": "aiostreams",
+      "audioLanguages": null
     }
   ],
   "total": 5243,
   "offset": 0
 }
 ```
+
+The `audioLanguages` field is populated from `stream_candidates.languages` for items that have been previously resolved/played. It contains comma-separated ISO 639-1 codes (e.g. `"ja,en"`). Items never played will have `null`.
 
 ### Search Catalog
 
@@ -164,7 +167,8 @@ GET /EmbyStreams/Discover/Detail?imdbId=tt0371746
     "backdropUrl": "https://...",
     "overview": "...",
     "inLibrary": false,
-    "catalogSource": "aiostreams"
+    "catalogSource": "aiostreams",
+    "audioLanguages": "en"
   }
 }
 ```

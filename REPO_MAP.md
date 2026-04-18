@@ -94,3 +94,9 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - One-pass series episode sync from AIOStreams meta endpoint
 - RefreshTask fetches Videos[] from AIOStreams directly, falls back to Stremio on failure
 - StrmWriterService.WriteEpisodesFromVideosJsonAsync for one-pass episode writing
+
+## Language & Localization Sprint Complete (2026-04-18)
+- MediaStreams populated from AIOStreams audio languages + subtitles
+- Language-aware version picker sorting, per-user candidate preference in ResolverService
+- TMDB locale configurable (ListFetcher + CertificationResolver), schema V32
+- DiscoverItem.AudioLanguages from stream_candidates
