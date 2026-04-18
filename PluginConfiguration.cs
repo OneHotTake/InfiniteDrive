@@ -196,7 +196,7 @@ namespace InfiniteDrive
         /// Requires the Emby Anime Plugin to be installed.
         /// </summary>
         [DataMember]
-        public bool EnableAnimeLibrary { get; set; } = false;
+        public bool EnableAnimeLibrary { get; set; } = true;
 
         /// <summary>
         /// Absolute path where anime .strm files are written.
@@ -592,6 +592,27 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public string AioMetadataBaseUrl { get; set; } = string.Empty;
+
+        /// <summary>
+        /// JSON census of all provider ID types seen across catalog items,
+        /// written by CatalogSyncTask after each sync.
+        /// Format: <c>{"Kitsu":"142","MAL":"89","AniDB":"210"}</c>
+        /// Keys are provider names; values are item counts as strings.
+        /// </summary>
+        [DataMember]
+        public string MetadataIdTypeCensus { get; set; } = "{}";
+
+        /// <summary>
+        /// JSON array of provider ID types the user has opted in to for
+        /// metadata resolution via IRemoteMetadataProvider.
+        /// Format: <c>["Kitsu","MAL","AniDB","AniList"]</c>
+        ///
+        /// When empty and census is non-empty, the metadata provider
+        /// treats ALL non-Emby-native types as opted-in (auto-opt-in
+        /// for fresh installs).
+        /// </summary>
+        [DataMember]
+        public string MetadataEnabledIdTypes { get; set; } = "[]";
 
         /// <summary>
         /// Newline-separated list of system-wide RSS feed URLs.

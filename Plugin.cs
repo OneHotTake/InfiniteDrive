@@ -62,6 +62,11 @@ namespace InfiniteDrive
         private bool _secretEnsured;
 
         /// <summary>
+        /// Shared logger for use by auto-discovered providers (e.g. AioMetadataProvider).
+        /// </summary>
+        public ILogger<Plugin> Logger => _logger;
+
+        /// <summary>
         /// Global synchronization lock for catalog-mutating operations.
         /// Ensures only one catalog sync or Marvin task runs at a time.
         /// (Sprint 100A-10)

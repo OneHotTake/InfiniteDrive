@@ -15,61 +15,40 @@ namespace InfiniteDrive.Services
     /// <summary>
     /// Category of HTTP operation. Each kind maps to a different base delay in the profile.
     /// </summary>
-    public enum CooldownKind { CatalogFetch, StreamResolve, Enrichment, Cinemeta }
+    public enum CooldownKind { CatalogFetch, StreamResolve, Enrichment }
 
     /// <summary>
-    /// Compiled-in throttle constants per instance type.
-    /// Not user-editable from UI. Advanced users can edit InfiniteDrive.xml directly.
+    /// Throttle constants per instance type.
+    /// Delays are zeroed — no artificial throttling on first-time loads.
+    /// 429 backoff (Tripped) is still active for rate-limit protection.
     /// </summary>
     public sealed class CooldownProfile
     {
         public int HttpBaseDelayMs { get; init; }
         public int JitterMs { get; init; }
         public int HttpTimeoutSeconds { get; init; }
-        public int CatalogSourcesPerRun { get; init; }
-        public int EnrichmentPerRun { get; init; }
-        public int RehydrationPerRun { get; init; }
-        public int CinemetaDelayMs { get; init; }
         public int GlobalCooldownSeconds { get; init; }
 
         public static readonly CooldownProfile Shared = new()
         {
-            HttpBaseDelayMs       = 1000,
-            JitterMs              = 300,
-            HttpTimeoutSeconds    = 8,
-            CatalogSourcesPerRun  = 2,
-            EnrichmentPerRun      = 42,
-            RehydrationPerRun     = 500,
-            CinemetaDelayMs       = 700,
-            GlobalCooldownSeconds = 900,
+            HttpBaseDelayMs       = 0,
+            JitterMs              = 0,
+            HttpTimeoutSeconds    = 10,
+            GlobalCooldownSeconds = 60,
         };
 
         public static readonly CooldownProfile Private = new()
         {
-            HttpBaseDelayMs       = 200,
-            JitterMs              = 80,
-            HttpTimeoutSeconds    = 12,
-            CatalogSourcesPerRun  = 6,
-            EnrichmentPerRun      = 150,
-            RehydrationPerRun     = 2000,
-            CinemetaDelayMs       = 200,
-            GlobalCooldownSeconds = 120,
+            HttpBaseDelayMs       = 0,
+            JitterMs              = 0,
+            HttpTimeoutSeconds    = 15,
+            GlobalCooldownSeconds = 30,
         };
 
         public static CooldownProfile For(InstanceType type) =>
             type == InstanceType.Private ? Private : Shared;
 
-        /// <summary>
-        /// Returns the base delay in milliseconds for the given operation kind.
-        /// </summary>
-        public int DelayFor(CooldownKind kind) => kind switch
-        {
-            CooldownKind.CatalogFetch  => HttpBaseDelayMs,
-            CooldownKind.StreamResolve => HttpBaseDelayMs,
-            CooldownKind.Enrichment    => HttpBaseDelayMs,
-            CooldownKind.Cinemeta      => CinemetaDelayMs,
-            _ => HttpBaseDelayMs,
-        };
+        public int DelayFor(CooldownKind kind) => HttpBaseDelayMs;
     }
 
     /// <summary>

@@ -138,6 +138,7 @@
   <button class="es-tab" data-es-tab="parental">Content Filtering</button>
   <button class="es-tab" data-es-tab="security">Security</button>
   <button class="es-tab" data-es-tab="inspector">Inspector</button>
+  <button class="es-tab" data-es-tab="metadata">Metadata</button>
 </div>
 
 <!-- ════════════════════════════ TAB — Overview ════════════════════════════ -->
@@ -254,16 +255,6 @@
     </div>
   </div>
 
-  <!-- Cinemeta card (disabled) -->
-  <div class="es-card" style="display:none">
-    <div class="es-card-title">Cinemeta</div>
-    <p class="es-card-text">Stremio's public catalog. When enabled, used as a last-resort metadata fallback.</p>
-    <label class="checkboxContainer">
-      <input type="checkbox" is="emby-checkbox" id="prov-cinemeta-enabled" />
-      <span class="checkboxLabel">Use Cinemeta as a metadata fallback</span>
-    </label>
-  </div>
-
 
 </div><!-- /providers tab -->
 
@@ -301,7 +292,7 @@
       <div class="inputContainer" style="margin:0">
         <label class="inputLabel inputLabelUnfocused" for="lib-name-anime">Anime library name</label>
         <input id="lib-name-anime" type="text" is="emby-input" placeholder="Streamed Anime" />
-        <div class="es-hint">Anime is always created as a separate library.</div>
+        <div class="es-hint">Anime items are stored alongside series. This name is used for the library if you prefer a separate view.</div>
       </div>
     </div>
     </div><!-- /es-lib-paths-fields -->
@@ -312,11 +303,11 @@
   <div class="es-card">
     <div class="es-card-title">Emby Server</div>
 
-    <!-- Base URL Warning (shown when localhost detected) -->
-    <div id="es-base-url-warning" class="es-alert es-alert-warn" style="display:none">
+    <!-- Base URL Note (shown when localhost detected) -->
+    <div id="es-base-url-warning" class="es-alert es-alert-info" style="display:none">
       <strong>Localhost URL detected</strong><br/>
-      Your Emby base URL is set to localhost. Remote clients won't be able to play streams outside your network.
-      Suggested URL: <code id="es-base-url-suggested"></code>
+      If you access Emby remotely, update this to your external URL. Local network playback works fine as-is.
+      Detected external URL: <code id="es-base-url-suggested"></code>
     </div>
 
     <p class="es-card-text">The URL this Emby server is accessible at. Used when generating playback links.</p>
@@ -326,15 +317,18 @@
     </div>
   </div>
 
-  <!-- Stream Versions card -->
+  <!-- Default Quality card -->
   <div class="es-card">
-    <div class="es-card-title">Stream Versions</div>
-    <p class="es-card-text">Select which quality tiers to sync. Each enabled tier creates a separate version in Emby — your player picks the best one automatically. Changes trigger a background rewrite of stream files.</p>
-    <div id="lib-slots-loading" style="opacity:.5;font-size:.85em">Loading quality tiers…</div>
-    <div id="lib-slots-list" style="display:none">
-      <div style="display:grid;gap:.4em;margin-bottom:.75em" id="lib-slots-grid"></div>
-      <div class="es-hint" style="margin-top:.35em">Default version used when your player doesn't request a specific quality: <span id="lib-slots-default-label" style="font-weight:600"></span></div>
-      <div id="lib-slots-save-status" style="font-size:.82em;margin-top:.4em"></div>
+    <div class="es-card-title">Default Quality</div>
+    <p class="es-card-text">Sets the quality used when you press Play without choosing a version. All available versions are resolved live from AIOStreams at play time — no extra files needed.</p>
+    <div class="selectContainer">
+      <label class="selectLabel" for="es-default-quality">Default quality tier</label>
+      <select id="es-default-quality" is="emby-select" class="emby-select-withcolor">
+        <option value="4k_hdr">4K · HDR/DV</option>
+        <option value="4k_sdr">4K · SDR</option>
+        <option value="hd_broad">HD · 1080p</option>
+        <option value="sd_broad">SD · 720p/480p</option>
+      </select>
     </div>
   </div>
 
@@ -401,9 +395,6 @@
 
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1em">
     <h1 style="margin:0;font-size:1.35em;font-weight:700">Lists</h1>
-    <div>
-      <button type="button" is="emby-button" class="raised button-submit" data-es-action="lists-save-settings">Save</button>
-    </div>
   </div>
 
   <!-- Description card -->
@@ -495,33 +486,18 @@
   <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Sources</h1>
 
   <div class="es-card" style="margin-bottom:1em">
-    <p class="es-card-text" style="margin:0">These are all enabled sources across your configured providers. Items are synced from these catalogs into your Emby library.</p>
+    <p class="es-card-text" style="margin:0">These catalogs are synced from your AIOStreams providers into your Emby library. Use <strong>Sync Sources</strong> to fetch new items.</p>
   </div>
 
   <!-- Sources table -->
   <div class="es-card">
     <div style="overflow-x:auto">
       <table class="es-sources-table">
-        <thead><tr><th>Source</th><th>Provider</th><th>Status</th><th>Last Sync</th><th>Items</th></tr></thead>
+        <thead><tr><th>Catalog Name</th><th>Type</th><th>Items</th><th>Status</th><th>Last Sync</th></tr></thead>
         <tbody id="es-sources-body"><tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">Loading sources…</td></tr></tbody>
       </table>
     </div>
   </div>
-
-  <!-- Catalog panel -->
-  <div class="es-card">
-    <div id="es-catalog-panel-src" class="es-catalog-prog-wrap">
-      <span style="display:block;padding:.5em;opacity:.45;font-size:.85em">Click Sync on the floating action bar to fetch sources.</span>
-    </div>
-    <div id="es-catalog-progress-src" style="margin-top:.5em"></div>
-    <div class="es-hint" style="margin-top:.5em">
-      <a style="cursor:pointer;color:var(--theme-button-background,#00a4dc)" data-es-select="src" data-es-select-val="true">Select All</a> &middot;
-      <a style="cursor:pointer;color:var(--theme-button-background,#00a4dc)" data-es-select="src" data-es-select-val="false">Select None</a>
-      — if none selected, all available sources are synced.
-    </div>
-    <div style="margin-top:.75em;font-size:.82em;opacity:.6">Last sync: <span id="src-last-sync">—</span></div>
-  </div>
-
 
 </div><!-- /sources tab -->
 
@@ -726,10 +702,6 @@
     <div class="es-card" id="health-card-meta" style="display:none">
       <div class="es-card-title" style="font-size:.85em">AIOMetadata</div>
       <div id="health-meta-status">—</div>
-    </div>
-    <div class="es-card" id="health-card-cinemeta">
-      <div class="es-card-title" style="font-size:.85em">Cinemeta</div>
-      <div id="health-cinemeta-status">—</div>
     </div>
   </div>
 
@@ -1044,12 +1016,6 @@
       <button type="button" is="emby-button" class="raised button-submit" data-es-task="catalog_sync">Force Source Sync Now</button>
     </div>
     <hr style="margin:1em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
-    <div style="margin-bottom:1.5em">
-      <h4 style="font-size:.95em;margin:0 0 .5em">Version Slots</h4>
-      <p class="es-hint">Apply pending slot changes (add/remove quality tiers) across all catalog items.</p>
-      <button type="button" is="emby-button" class="raised button-submit" data-es-task="infinitedrive_rehydration">Run Pending Rehydration</button>
-    </div>
-    <hr style="margin:1em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
     <div>
       <h4 style="font-size:.95em;margin:0 0 .5em">Pre-Warm Cache</h4>
       <p class="es-hint">Attempt to resolve stream URLs for all catalog items and store them in cache. This is <strong>optimistic</strong> — success depends on whether upstream debrid providers have the content cached and are not rate-limiting. Items that fail will simply be resolved on-demand when played.</p>
@@ -1123,14 +1089,55 @@
 </div><!-- /inspector tab -->
 
 
-<!-- Float action buttons (Save / Sync Catalogs / Rebuild Library) -->
+<!-- ════════════════════════════ TAB — Metadata ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-metadata">
+
+  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Metadata Providers</h1>
+
+  <div class="es-alert es-alert-info" style="margin-bottom:1.2em">
+    InfiniteDrive can provide metadata to Emby for items that Emby can't identify natively.
+    When you opt in to an ID type below, Emby will ask us for metadata when it encounters
+    items with those IDs. New ID types discovered from your catalogs appear here automatically
+    after each catalog sync.
+  </div>
+
+  <div class="es-card">
+    <h3>Provider ID Types</h3>
+    <div style="overflow-x:auto">
+      <table class="es-table" id="es-metadata-types-table">
+        <thead>
+          <tr>
+            <th>ID Type</th>
+            <th style="text-align:right">Items</th>
+            <th>Opt In</th>
+          </tr>
+        </thead>
+        <tbody id="es-metadata-types-body">
+          <tr><td colspan="3" style="opacity:.4;text-align:center;padding:2em">Loading metadata types…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:.75em;display:flex;gap:.6em;align-items:center">
+      <button type="button" is="emby-button" class="raised button-submit" data-es-action="save-metadata">Save Metadata Settings</button>
+      <span id="es-metadata-save-result" style="font-size:.85em"></span>
+    </div>
+  </div>
+
+  <div class="es-hint" style="margin-top:.5em">
+    Changes take effect after Emby restart. IMDB/TMDB/TVDB types are Emby-native and unchecked by default.
+  </div>
+
+</div><!-- /metadata tab -->
+
+
+<!-- Float action buttons (Save / Sync Sources / Refresh) -->
 <div id="es-float-actions" style="display:none">
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-save-btn"
           data-es-action="float-save" style="display:none">Save</button>
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-sync-btn"
-          data-es-action="float-sync" style="display:none;background:#17a2b8">Sync Catalogs</button>
+          data-es-action="float-sync" style="display:none;background:#17a2b8">Sync Sources</button>
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-refresh-btn"
-          data-es-action="float-refresh" style="display:none">Rebuild Library</button>
+          data-es-action="float-refresh" style="display:none">Refresh</button>
   <div id="es-float-save-confirm">Saved!</div>
 </div>
 

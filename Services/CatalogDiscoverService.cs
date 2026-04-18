@@ -244,11 +244,9 @@ namespace InfiniteDrive.Services
                         : null;
 
                     // Create discover catalog entry
-                    var animeEnabled = Plugin.Instance?.Configuration?.EnableAnimeLibrary ?? false;
-                    var mediaType = NormalizeMediaType(meta.Type ?? catalogDef.Type ?? "movie", animeEnabled);
+                    var mediaType = NormalizeMediaType(meta.Type ?? catalogDef.Type ?? "movie");
                     if (mediaType == null)
                     {
-                        // Anime item filtered out (anime library disabled)
                         continue;
                     }
 
@@ -288,12 +286,12 @@ namespace InfiniteDrive.Services
         /// Normalizes media type to standard values: "movie", "series", or "anime".
         /// When anime is disabled, <c>null</c> is returned for anime items (filtered out).
         /// </summary>
-        private static string? NormalizeMediaType(string type, bool animeEnabled)
+        private static string? NormalizeMediaType(string type)
         {
             return type.ToLowerInvariant() switch
             {
                 "series" or "tv" or "tvshow" or "tvshows" => "series",
-                "anime" => animeEnabled ? "anime" : null,
+                "anime" => "anime",
                 _ => "movie"
             };
         }

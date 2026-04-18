@@ -106,47 +106,52 @@ function (loading) {
             .then(function(data) {
                 var sources = data.SyncStates || [];
                 if (!sources.length) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">No sources configured yet.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">No sources synced yet. Click Sync Sources to fetch catalogs.</td></tr>';
                     return;
                 }
 
                 var html = '';
                 sources.forEach(function(src) {
                     var key = src.SourceKey || '';
-                    var type = 'source';
+                    var type = 'other';
                     if (key.indexOf(':movie:') !== -1) type = 'movie';
                     else if (key.indexOf(':series:') !== -1) type = 'series';
                     else if (key.indexOf(':anime:') !== -1) type = 'anime';
 
-                    // Derive a readable label from the source key
+                    // Derive a readable catalog name from the source key
                     var label;
                     if (key === 'aiostreams') {
                         label = 'All Sources';
                         type = 'aggregate';
                     } else if (key.indexOf(':') !== -1) {
-                        // e.g. "aio:movie:b49e3b0.tmdb.top" → catalog name from DisplayName
+                        // e.g. "aio:movie:b49e3b0.tmdb.top" → catalog name
                         label = src.DisplayName || key.split(':').slice(2).join(':');
                     } else {
                         label = key;
                     }
 
-                    var providerName = esc(label) + ' <span class="es-type-badge" style="background:rgba(128,128,128,.12);color:inherit;opacity:.6">' + esc(type) + '</span>';
+                    var typeStyle = type==='movie'?'background:rgba(0,164,220,0.2);color:#7ecbdf':
+                                    type==='series'?'background:rgba(40,167,69,0.2);color:#7de98d':
+                                    type==='anime'?'background:rgba(255,193,7,0.2);color:#ffd454':
+                                    'background:rgba(128,128,128,.12);color:inherit';
 
-                    // Status: use LastSyncAt as indicator of successful contact
-                    var hasSynced = !!src.LastSyncAt;
-                    var statusBadge = hasSynced
-                        ? '<span class="es-badge es-badge-ok">Active</span>'
-                        : '<span class="es-badge es-badge-warn">Pending</span>';
+                    var statusBadge = src.Status === 'ok'
+                        ? '<span class="es-badge es-badge-ok">OK</span>'
+                        : src.Status === 'running'
+                        ? '<span class="es-badge es-badge-running">Running</span>'
+                        : src.Status === 'error'
+                        ? '<span class="es-badge es-badge-error">Error</span>'
+                        : '<span class="es-badge es-badge-never">' + esc(src.Status || 'Pending') + '</span>';
 
                     var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
                     var itemCount = src.ItemCount || 0;
 
                     html += '<tr>' +
                         '<td>' + esc(label) + '</td>' +
-                        '<td>' + providerName + '</td>' +
-                        '<td>' + statusBadge + '</td>' +
-                        '<td>' + lastSync + '</td>' +
+                        '<td><span class="es-type-badge" style="' + typeStyle + '">' + esc(type) + '</span></td>' +
                         '<td>' + itemCount + '</td>' +
+                        '<td>' + statusBadge + '</td>' +
+                        '<td style="font-size:.85em;opacity:.6">' + lastSync + '</td>' +
                         '</tr>';
                 });
                 tbody.innerHTML = html;
@@ -175,9 +180,10 @@ function (loading) {
         // Tab-specific load actions
         if (name === 'overview')   { loadOverviewTab(view); }
         if (name === 'providers')  { loadProvidersTab(view); }
-        if (name === 'libraries')  { populateLibrariesTab(view, _loadedConfig); loadVersionSlots(view); }
-        if (name === 'sources')    { refreshSourcesTab(view); loadCatalogs(view, 'src'); }
+        if (name === 'libraries')  { populateLibrariesTab(view, _loadedConfig); loadDefaultQuality(view); }
+        if (name === 'sources')    { refreshSourcesTab(view); }
         if (name === 'lists')      { loadListsTab(view); }
+        if (name === 'metadata')   { loadMetadataTab(view); }
         if (name === 'parental')   { loadBlockedItems(view); }
         if (name === 'inspector')  { refreshDashboard(view); loadImprobabilityStatus(view);
                                           if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 10000); }
@@ -192,14 +198,10 @@ function (loading) {
         if (!bar) return;
         bar.style.display = 'flex';
 
-        var showSave    = (tab === 'providers' || tab === 'libraries' || tab === 'lists' || tab === 'parental');
-        var showSync    = (tab === 'lists' || tab === 'sources');
-        var showRefresh = (tab !== 'lists' || true) && tab !== 'providers'; // refresh on all except... actually per plan
-
         // Per-plan visibility
         var saveTabs    = ['providers','libraries','lists','parental'];
         var syncTabs    = ['lists','sources'];
-        var refreshTabs = ['overview','providers','libraries','sources','parental','security','inspector'];
+        var refreshTabs = ['overview','sources','inspector'];
 
         var saveBtn = view.querySelector('#es-float-save-btn');
         var syncBtn = view.querySelector('#es-float-sync-btn');
@@ -340,10 +342,6 @@ function (loading) {
         var metaChk = view.querySelector('#prov-meta-enabled');
         if (metaChk) metaChk.checked = !!(cfg.AioMetadataBaseUrl);
 
-        var cineChk = view.querySelector('#prov-cinemeta-enabled');
-        if (cineChk) cineChk.checked =
-            cfg.EnableCinemetaCatalog != null ? cfg.EnableCinemetaCatalog : true;
-
         var metaFields = view.querySelector('#prov-meta-fields');
         if (metaFields) metaFields.style.display =
             (cfg.AioMetadataBaseUrl) ? 'block' : 'none';
@@ -432,21 +430,28 @@ function (loading) {
         if (!pillAio) return;
 
         // Only show pills when a manifest is actually configured
-        var hasManifest = _loadedConfig && !!_loadedConfig.AioStreamsUrl;
+        var hasManifest = _loadedConfig && !!_loadedConfig.PrimaryManifestUrl;
         if (!hasManifest) {
             pillAio.className = 'es-status-pill es-pill-hidden';
             if (pillBackup) pillBackup.className = 'es-status-pill es-pill-hidden';
             return;
         }
 
-        var aioOnline = !!(data && data.AioStreamsOnline);
+        var aioOnline = data && data.AioStreams && data.AioStreams.Ok;
         pillAio.textContent = 'AIO ' + (aioOnline ? '✅' : '🔴');
         pillAio.className = 'es-status-pill ' + (aioOnline ? 'es-pill-ok' : 'es-pill-err');
 
-        if (data && data.BackupConfigured) {
+        var hasBackup = _loadedConfig && !!_loadedConfig.SecondaryManifestUrl;
+        if (hasBackup) {
             if (pillBackup) {
                 pillBackup.style.display = '';
-                var backupOnline = !!(data.BackupAioStreamsOnline);
+                // Check backup status from providers array
+                var backupOnline = false;
+                if (data && data.Providers) {
+                    data.Providers.forEach(function(p) {
+                        if ((p.DisplayName || '').toLowerCase() === 'secondary' && p.Ok) backupOnline = true;
+                    });
+                }
                 pillBackup.textContent = 'Backup ' + (backupOnline ? '✅' : '🔴');
                 pillBackup.className = 'es-status-pill ' + (backupOnline ? 'es-pill-ok' : 'es-pill-err');
             }
@@ -499,76 +504,31 @@ function (loading) {
         if (animeEl) animeEl.checked = true; // anime always enabled
     }
 
-    function loadVersionSlots(view) {
-        var loadingEl = view.querySelector('#lib-slots-loading');
-        var listEl    = view.querySelector('#lib-slots-list');
-        var gridEl    = view.querySelector('#lib-slots-grid');
-        var defaultEl = view.querySelector('#lib-slots-default-label');
-        if (!gridEl) return;
+    function loadDefaultQuality(view) {
+        var select = view.querySelector('#es-default-quality');
+        if (!select) return;
 
-        esFetch('/InfiniteDrive/Admin/VersionSlots')
+        // Set current value from loaded config
+        var cfg = _loadedConfig;
+        if (cfg && cfg.DefaultSlotKey) {
+            select.value = cfg.DefaultSlotKey;
+        } else {
+            select.value = 'hd_broad';
+        }
+
+        // Wire change event to save
+        select.addEventListener('change', function() {
+            var val = select.value;
+            esFetch('/InfiniteDrive/Admin/SaveConfig', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ DefaultSlotKey: val })
+            })
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (loadingEl) loadingEl.style.display = 'none';
-                if (listEl) listEl.style.display = 'block';
-                if (!data.Slots || !data.Slots.length) {
-                    gridEl.innerHTML = '<span style="opacity:.5;font-size:.85em">No quality tiers available.</span>';
-                    return;
-                }
-                var defaultSlot = (data.Slots.find(function(s) { return s.IsDefault; }) || {}).SlotKey || 'hd_broad';
-                if (defaultEl) defaultEl.textContent = (data.Slots.find(function(s) { return s.IsDefault; }) || {}).Label || 'HD · Broad';
-
-                var html = '';
-                data.Slots.forEach(function(slot) {
-                    html += '<label class="checkboxContainer" style="margin:0">'
-                        + '<input type="checkbox" is="emby-checkbox"'
-                        + ' class="lib-slot-chk"'
-                        + ' data-slot-key="' + slot.SlotKey + '"'
-                        + (slot.Enabled ? ' checked' : '')
-                        + (slot.IsDefault ? ' disabled title="Default slot cannot be disabled"' : '')
-                        + '/>'
-                        + '<span class="checkboxLabel">'
-                        + slot.Label
-                        + ' <span style="opacity:.45;font-size:.8em">(' + slot.Resolution + (slot.HdrClass ? ' · ' + slot.HdrClass : '') + ')</span>'
-                        + (slot.IsDefault ? ' <span style="opacity:.5;font-size:.75em">[default]</span>' : '')
-                        + '</span>'
-                        + '</label>';
-                });
-                gridEl.innerHTML = html;
+                if (_loadedConfig) _loadedConfig.DefaultSlotKey = val;
             })
-            .catch(function() {
-                if (loadingEl) loadingEl.textContent = 'Could not load quality tiers — check server connection.';
-            });
-    }
-
-    function saveVersionSlots(view) {
-        var checkboxes = view.querySelectorAll('.lib-slot-chk');
-        var toggles = [];
-        for (var i = 0; i < checkboxes.length; i++) {
-            var chk = checkboxes[i];
-            if (chk.disabled) continue; // skip default slot
-            var key = chk.getAttribute('data-slot-key');
-            var enabled = chk.checked;
-            toggles.push({ slotKey: key, enabled: enabled });
-        }
-        if (!toggles.length) return;
-
-        var statusEl = view.querySelector('#lib-slots-save-status');
-        if (statusEl) { statusEl.textContent = 'Saving…'; statusEl.style.color = ''; }
-
-        esFetch('/InfiniteDrive/Admin/VersionSlots/ToggleBulk?togglesJson=' + encodeURIComponent(JSON.stringify(toggles)), {
-            method: 'POST'
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            if (data.Success) {
-                if (statusEl) { statusEl.textContent = '✓ Saved — rehydration triggered'; statusEl.style.color = '#28a745'; }
-            } else {
-                if (statusEl) { statusEl.textContent = '✗ ' + (data.Message || 'Failed'); statusEl.style.color = '#dc3545'; }
-            }
-        })
-        .catch(function(err) {
-            if (statusEl) { statusEl.textContent = '✗ Request failed'; statusEl.style.color = '#dc3545'; }
+            .catch(function() {});
         });
     }
 
@@ -591,11 +551,13 @@ function (loading) {
         cfg.EnableAnimeLibrary = true; // anime always enabled
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
-                _loadedConfig = cfg;
                 _unsavedChanges = false;
                 showFloatSaveConfirm(view);
+                // Re-fetch full config so all tabs see server-side state
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
                 esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'}).catch(function(){});
-                saveVersionSlots(view);
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
@@ -799,13 +761,14 @@ function (loading) {
     function saveParentalTab(view) {
         if (!_loadedConfig) return;
         var cfg = JSON.parse(JSON.stringify(_loadedConfig));
-        cfg.TmdbApiKey              = (view.querySelector('#cfg-lists-tmdb-key') || {}).value || '';
         cfg.BlockUnratedForRestricted = !!(view.querySelector('#cfg-block-unrated') || {}).checked;
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
-                _loadedConfig = cfg;
                 _unsavedChanges = false;
                 showFloatSaveConfirm(view);
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
                 updateFilterStatus(view, cfg.TmdbApiKey);
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
@@ -818,8 +781,6 @@ function (loading) {
         function chk(id, v) { var el = q(view, id); if (el) el.checked = !!v; }
         set('src-aio-url',      cfg.PrimaryManifestUrl   || '');
         set('src-duck-url',     cfg.SecondaryManifestUrl || '');
-        chk('src-use-cinemeta', cfg.EnableCinemetaCatalog != null ? cfg.EnableCinemetaCatalog : true);
-        set('src-cinemeta-url', cfg.CinemetaUrl || 'https://v3-cinemeta.strem.io/manifest.json');
         updateSourcesStatusStrip(view, cfg);
     }
 
@@ -838,21 +799,16 @@ function (loading) {
         }
         setStrip('es-src-dot-aio',      'es-src-status-aio',      cfg && cfg.PrimaryManifestUrl);
         setStrip('es-src-dot-duck',     'es-src-status-duck',     cfg && cfg.SecondaryManifestUrl);
-        setStrip('es-src-dot-cinemeta', 'es-src-status-cinemeta', cfg && cfg.EnableCinemetaCatalog && cfg.CinemetaUrl);
     }
 
     function saveSourcesTab(view) {
         var aioUrl      = esVal(view, 'src-aio-url').trim();
         var duckUrl     = esVal(view, 'src-duck-url').trim();
-        var useCinemeta = esChk(view, 'src-use-cinemeta');
-        var cinemetaUrl = esVal(view, 'src-cinemeta-url').trim() || 'https://v3-cinemeta.strem.io/manifest.json';
 
         // Merge into existing config
         var base = _loadedConfig ? JSON.parse(JSON.stringify(_loadedConfig)) : {};
         base.PrimaryManifestUrl   = aioUrl;
         base.SecondaryManifestUrl = duckUrl;
-        base.EnableCinemetaCatalog = useCinemeta;
-        base.CinemetaUrl           = cinemetaUrl;
         // Also sync to cfg-manifest-url for settings tab compatibility
         var cfgEl = q(view, 'cfg-manifest-url');
         if (cfgEl) cfgEl.value = aioUrl;
@@ -897,10 +853,10 @@ function (loading) {
     }
 
     function testSource(view, type) {
-        var urlMap    = { aio: 'src-aio-url', duck: 'src-duck-url', cinemeta: 'src-cinemeta-url' };
-        var statusMap = { aio: 'src-aio-status', duck: 'src-duck-status', cinemeta: 'src-cinemeta-status' };
-        var dotMap    = { aio: 'es-src-dot-aio', duck: 'es-src-dot-duck', cinemeta: 'es-src-dot-cinemeta' };
-        var stripMap  = { aio: 'es-src-status-aio', duck: 'es-src-status-duck', cinemeta: 'es-src-status-cinemeta' };
+        var urlMap    = { aio: 'src-aio-url', duck: 'src-duck-url' };
+        var statusMap = { aio: 'src-aio-status', duck: 'src-duck-status' };
+        var dotMap    = { aio: 'es-src-dot-aio', duck: 'es-src-dot-duck' };
+        var stripMap  = { aio: 'es-src-status-aio', duck: 'es-src-status-duck' };
 
         var url       = esVal(view, urlMap[type]).trim();
         var statusEl  = q(view, statusMap[type]);
@@ -960,7 +916,6 @@ function (loading) {
     function testAllSources(view) {
         testSource(view, 'aio');
         testSource(view, 'duck');
-        testSource(view, 'cinemeta');
     }
 
     // ── Accordion toggle ──────────────────────────────────────────────────────
@@ -1192,14 +1147,16 @@ function (loading) {
                         .then(function() {
                             if (warningEl && suggestedEl) {
                                 suggestedEl.textContent = cfg.EmbyBaseUrl;
+                                warningEl.className = 'es-alert es-alert-info';
                                 warningEl.style.display = 'block';
                             }
                         })
                         .catch(function() {});
                 } else if (cfg.EmbyBaseUrl && (cfg.EmbyBaseUrl.indexOf('localhost') !== -1 || cfg.EmbyBaseUrl.indexOf('127.0.0.1') !== -1)) {
-                    // Show warning if still using localhost
+                    // Show informational note if using localhost
                     if (warningEl && suggestedEl) {
                         suggestedEl.textContent = window.location.origin;
+                        warningEl.className = 'es-alert es-alert-info';
                         warningEl.style.display = 'block';
                     }
                 } else {
@@ -1268,7 +1225,7 @@ function (loading) {
         var roaRow = q(view, 'cfg-readonly-anime-row');
         if (rom) rom.textContent = base + '/movies';
         if (ros) ros.textContent = base + '/shows';
-        if (roa && roaRow && cfg.EnableAnimeLibrary && cfg.SyncPathAnime) {
+        if (roa && roaRow && cfg.SyncPathAnime) {
             roa.textContent = cfg.SyncPathAnime;
             roaRow.style.display = 'block';
         }
@@ -1319,11 +1276,10 @@ function (loading) {
         set('cfg-lists-tmdb-key',         cfg.TmdbApiKey || '');
         set('cfg-user-catalog-limit',     cfg.UserCatalogLimit || 5);
 
-        // Sprint 64: Anime library config
-        checkAnimePluginStatus(view);
-        set('cfg-enable-anime',           cfg.EnableAnimeLibrary);
+        // Anime library config — always enabled
         set('cfg-anime-path',             cfg.SyncPathAnime || '/media/infinitedrive/anime');
-        toggleAnimePathVisibility(view, cfg.EnableAnimeLibrary);
+        var animeWrapper = q(view, 'es-anime-path-wrapper');
+        if (animeWrapper) animeWrapper.style.display = '';
 
         // v0.60.3: PluginSecret warning — show banner if empty or too short
         var secretWarn = view.querySelector('#es-secret-empty-warning');
@@ -1552,7 +1508,7 @@ function (loading) {
             DontPanic:                  esChk(view, 'cfg-dont-panic'),
             PluginSecret:               esVal(view, 'cfg-plugin-secret'),
             CatalogItemLimitsJson:      getCatalogLimitsJson(),
-            EnableAnimeLibrary:         esChk(view, 'cfg-enable-anime'),
+            EnableAnimeLibrary:         true, // always enabled
             SyncPathAnime:              esVal(view, 'cfg-anime-path') || '/media/infinitedrive/anime',
             // Sprint 209: Parental Controls
             TmdbApiKey:                 esVal(view, 'cfg-tmdb-api-key') || '',
@@ -2315,11 +2271,6 @@ function (loading) {
             var el = view.querySelector('#' + id);
             if (el) el.addEventListener('change', function() { markDirty(view); });
         });
-        var cineEl = view.querySelector('#prov-cinemeta-enabled');
-        if (cineEl) {
-            cineEl.addEventListener('change', function() { markDirty(view); });
-            cineEl.addEventListener('click', function() { markDirty(view); });
-        }
 
         // Sprint 215: Wire Enter key on parental block search
         var parSearch = view.querySelector('#par-block-search');
@@ -2384,13 +2335,7 @@ function (loading) {
             updateUrlExample();
         }
 
-        // Sprint 64: Anime toggle → show/hide path field
-        var animeToggle = q(view, 'cfg-enable-anime');
-        if (animeToggle) {
-            animeToggle.addEventListener('change', function() {
-                toggleAnimePathVisibility(view, animeToggle.checked);
-            });
-        }
+        // Sprint 64: Anime toggle — always enabled, no listener needed
 
         // Sprint 209: TMDB API key → update filter status
         var tmdbKeyInput = q(view, 'cfg-tmdb-api-key');
@@ -2541,10 +2486,8 @@ function (loading) {
     function dispatchAction(view, act, el) {
         switch (act) {
             case 'test-connection':    testConnection(view);    break;
-            case 'save-and-sync':      saveAndSync(view);       break;
             case 'refresh-dashboard':  refreshDashboard(view);  break;
             case 'refresh-sources':    refreshSourcesTab(view); break;
-            case 'save-settings':      saveSettings(view);      break;
             case 'validate-settings':  validateSetup(view, 'es-validate-result-settings'); break;
             case 'clear-profiles':     clearClientProfiles(view); break;
             case 'inspect':            inspect(view);           break;
@@ -2555,6 +2498,7 @@ function (loading) {
             case 'toggle-debug':             toggleDebug(view);                       break;
             case 'toggle-cfg-conn-details':  toggleConnDetails(view, 'cfg-conn');     break;
             case 'purge-catalog-confirm': purgeCatalogConfirm(view); break;
+            case 'save-metadata':         saveMetadataTab(view);    break;
             case 'purge-cancel':        purgeCatalogCancel(view); break;
             case 'purge-catalog-execute': purgeCatalogExecute(view); break;
             case 'nuclear-step1':       nuclearStep1(view);      break;
@@ -2585,8 +2529,7 @@ function (loading) {
             case 'test-tmdb-key':     testTmdbKey(view); break;
             case 'float-save':         saveCurrentTab(view); break;
             case 'float-sync':         runTask(view, 'catalog_sync', el); break;
-            case 'float-refresh':      runMarvinOrRefresh(view); break;
-            case 'lists-save-settings': saveListsSettings(view); break;
+            case 'float-refresh':      refreshDashboard(view); break;
             case 'admin-list-add-open': openAdminListModal(view); break;
             case 'admin-list-add-cancel': closeAdminListModal(view); break;
             case 'admin-list-add-save': saveAdminList(view); break;
@@ -2630,6 +2573,87 @@ function (loading) {
             .catch(function() {
                 statusEl.textContent = '✗ Connection failed';
                 statusEl.style.color = '#dc3545';
+            });
+    }
+
+    // ── Metadata tab ──────────────────────────────────────────────────────
+    var _metadataKnownNames = {
+        'Kitsu': 'Kitsu', 'MAL': 'MyAnimeList', 'AniDB': 'AniDB',
+        'AniList': 'AniList', 'IMDB': 'IMDb', 'TMDB': 'TheMovieDB', 'TVDB': 'TheTVDB'
+    };
+    var _nativeTypes = ['IMDB', 'TMDB', 'TVDB'];
+
+    function loadMetadataTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = _loadedConfig;
+        var census = {};
+        try { census = JSON.parse(cfg.MetadataIdTypeCensus || '{}'); } catch(e) {}
+
+        var enabled = [];
+        try { enabled = JSON.parse(cfg.MetadataEnabledIdTypes || '[]'); } catch(e) {}
+
+        var body = q(view, 'es-metadata-types-body');
+        if (!body) return;
+
+        var keys = Object.keys(census);
+        if (keys.length === 0) {
+            body.innerHTML = '<tr><td colspan="3" style="opacity:.4;text-align:center;padding:2em">No ID types discovered yet. Run a catalog sync first.</td></tr>';
+            return;
+        }
+
+        // Sort: native types first, then by count desc
+        keys.sort(function(a, b) {
+            var aNative = _nativeTypes.indexOf(a) >= 0 ? 0 : 1;
+            var bNative = _nativeTypes.indexOf(b) >= 0 ? 0 : 1;
+            if (aNative !== bNative) return aNative - bNative;
+            return (parseInt(census[b]) || 0) - (parseInt(census[a]) || 0);
+        });
+
+        // Auto-opt-in: if enabled is empty, all non-native are checked
+        var autoOptIn = enabled.length === 0;
+        var enabledSet = {};
+        enabled.forEach(function(t) { enabledSet[t.toLowerCase()] = true; });
+
+        var html = '';
+        keys.forEach(function(key) {
+            var count = parseInt(census[key]) || 0;
+            var displayName = _metadataKnownNames[key] || (key.charAt(0).toUpperCase() + key.slice(1).toLowerCase());
+            var isNative = _nativeTypes.indexOf(key) >= 0;
+            var checked = autoOptIn ? !isNative : !!enabledSet[key.toLowerCase()];
+            var nativeLabel = isNative ? ' <span style="font-size:.78em;opacity:.5">(Emby)</span>' : '';
+
+            html += '<tr>'
+                  + '<td><strong>' + esc(displayName) + '</strong>' + nativeLabel + '</td>'
+                  + '<td style="text-align:right">' + count.toLocaleString() + '</td>'
+                  + '<td><label class="emby-checkbox-label">'
+                  + '<input type="checkbox" data-es-metadata-type="' + esc(key) + '"' + (checked ? ' checked' : '') + ' />'
+                  + '<span></span></label></td>'
+                  + '</tr>';
+        });
+
+        body.innerHTML = html;
+    }
+
+    function saveMetadataTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+
+        var checks = view.querySelectorAll('[data-es-metadata-type]');
+        var enabled = [];
+        checks.forEach(function(cb) {
+            if (cb.checked) enabled.push(cb.getAttribute('data-es-metadata-type'));
+        });
+
+        cfg.MetadataEnabledIdTypes = JSON.stringify(enabled);
+
+        var resultEl = q(view, 'es-metadata-save-result');
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                if (resultEl) { resultEl.textContent = 'Saved! Restart Emby for changes to take effect.'; resultEl.style.color = '#28a745'; }
+            })
+            .catch(function(err) {
+                if (resultEl) { resultEl.textContent = 'Save failed: ' + (err.message || err); resultEl.style.color = '#dc3545'; }
             });
     }
 
@@ -2682,18 +2706,18 @@ function (loading) {
         // Backup manifest URL (stored as-is)
         cfg.SecondaryManifestUrl = ((view.querySelector('#prov-backup-url') || {}).value || '').trim();
 
-        // Cinemeta checkbox
-        cfg.EnableCinemetaCatalog = !!(view.querySelector('#prov-cinemeta-enabled') || {}).checked;
-
         // RSS feeds
         cfg.SystemRssFeedUrls = (view.querySelector('#prov-rss-urls') || {}).value || '';
         cfg.SystemRssFeedName = (view.querySelector('#prov-rss-name') || {}).value || '';
 
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
-                _loadedConfig = cfg;
                 _unsavedChanges = false;
                 showFloatSaveConfirm(view);
+                // Re-fetch full config so all tabs see server-side state
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
                 try { loadProvidersTab(view); } catch(e) {}
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
@@ -2768,12 +2792,13 @@ function (loading) {
 
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
-                _loadedConfig = cfg;
                 _unsavedChanges = false;
                 showFloatSaveConfirm(view);
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
                 loadAdminProviders(view);
                 updateListLimitWarning(view);
-                Dashboard.alert('List settings saved.');
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
