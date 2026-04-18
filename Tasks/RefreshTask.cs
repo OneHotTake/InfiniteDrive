@@ -32,8 +32,7 @@ namespace InfiniteDrive.Tasks
         private const string TaskName     = "InfiniteDrive Refresh Worker";
         private const string TaskKey      = "InfiniteDriveRefresh";
         private const string TaskCategory = "InfiniteDrive";
-        // Batch cap read from CooldownProfile.EnrichmentPerRun (Sprint 155)
-        private int NotifyLimit => Plugin.Instance?.CooldownGate?.Profile.EnrichmentPerRun ?? 42;
+        private const int NotifyLimit = 50;
 
         // ── Fields ───────────────────────────────────────────────────────────────
 

@@ -23,7 +23,7 @@ namespace InfiniteDrive.Services
 
         // ── SEL expressions per quality tier ─────────────────────────────────
 
-        private static readonly Dictionary<string, string> TierToSel = new()
+        internal static readonly Dictionary<string, string> TierToSel = new()
         {
             ["4k_hdr"]   = "slice(resolution(visualTag(streams,'DV','HDR','HDR10+'),'2160p'),0,1)",
             ["4k_sdr"]   = "slice(resolution(streams,'2160p'),0,1)",
@@ -33,7 +33,7 @@ namespace InfiniteDrive.Services
 
         private const string AnySel = "slice(streams,0,1)";
 
-        private static readonly Dictionary<string, string[]> TierFallbacks = new()
+        internal static readonly Dictionary<string, string[]> TierFallbacks = new()
         {
             ["4k_hdr"]   = new[] { "4k_hdr", "4k_sdr", "hd_broad", "sd_broad" },
             ["4k_sdr"]   = new[] { "4k_sdr", "hd_broad", "sd_broad" },
@@ -96,6 +96,12 @@ namespace InfiniteDrive.Services
 
             // Cache the resolved URL (fire-and-forget)
             _ = CacheResolvedUrlAsync(db, req, resolved);
+
+            // Binge prefetch: fire-and-forget resolve of next episode
+            if (req.IdType == "series" && req.Season.HasValue && req.Episode.HasValue)
+                _ = BingePrefetchService.PrefetchNextEpisodeAsync(
+                    req.Id, req.Season.Value, req.Episode.Value,
+                    _logger);
 
             // 302 redirect to binary proxy
             return RedirectToStream(resolved.PlaybackUrl);

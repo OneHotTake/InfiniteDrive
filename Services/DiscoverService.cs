@@ -710,7 +710,7 @@ namespace InfiniteDrive.Services
                 {
                     "movie" => config.SyncPathMovies,
                     "series" => config.SyncPathShows,
-                    "anime" => config.EnableAnimeLibrary ? config.SyncPathAnime : null,
+                    "anime" => config.SyncPathAnime,
                     _ => null
                 };
 

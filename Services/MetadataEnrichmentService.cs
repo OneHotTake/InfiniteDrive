@@ -92,7 +92,7 @@ namespace InfiniteDrive.Services
                     if (meta != null)
                     {
                         // ── Success ────────────────────────────────────
-                        await WriteEnrichedNfoAsync(item, meta, db, cancellationToken);
+                        // NFO writing removed — metadata now served via IRemoteMetadataProvider
                         await db.SetNfoStatusAsync(item.Id, "Enriched", cancellationToken);
                         await db.UpdateItemRetryInfoAsync(item.Id, 0, null, cancellationToken);
 
@@ -150,26 +150,6 @@ namespace InfiniteDrive.Services
             }
 
             return new EnrichmentResult(enrichedCount, blockedCount, skippedCount);
-        }
-
-        private static async Task WriteEnrichedNfoAsync(
-            EnrichmentRequest item,
-            AioMetadataClient.EnrichedMetadata meta,
-            DatabaseManager db,
-            CancellationToken ct)
-        {
-            CatalogItem? catalogItem = item.CatalogItem;
-
-            // MarvinTask path: no CatalogItem supplied, look up by IMDB
-            if (catalogItem == null && !string.IsNullOrEmpty(item.ImdbId))
-            {
-                catalogItem = await db.GetCatalogItemByImdbIdAsync(item.ImdbId!);
-            }
-
-            if (catalogItem == null || string.IsNullOrEmpty(catalogItem.StrmPath))
-                return;
-
-            await NfoWriterService.WriteEnrichedNfoForSlots(catalogItem.StrmPath!, catalogItem.Title, catalogItem, meta);
         }
     }
 }

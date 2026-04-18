@@ -116,7 +116,6 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Writes a full enriched NFO with all available metadata.
-        /// Used by MarvinTask, RefreshTask, MetadataFallbackTask during Pessimistic phase.
         /// </summary>
         public static void WriteEnrichedNfo(string nfoPath, CatalogItem item, AioMeta meta)
         {

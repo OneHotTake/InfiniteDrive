@@ -35,10 +35,6 @@ namespace InfiniteDrive.UI
 
         // ── Toggles ──
 
-        [DisplayName("Enable Anime Library")]
-        [Description("Route anime items to a dedicated library. Requires Emby Anime Plugin.")]
-        public bool EnableAnimeLibrary { get; set; }
-
         [DisplayName("Write .nfo Hints")]
         [Description("Write minimal .nfo files with IMDB/TMDB IDs alongside .strm files for better metadata matching.")]
         public bool EnableNfoHints { get; set; } = true;
@@ -96,7 +92,7 @@ namespace InfiniteDrive.UI
             LibraryNameMovies = cfg.LibraryNameMovies;
             LibraryNameSeries = cfg.LibraryNameSeries;
             LibraryNameAnime = cfg.LibraryNameAnime;
-            EnableAnimeLibrary = cfg.EnableAnimeLibrary;
+            // EnableAnimeLibrary removed — always true
             EnableNfoHints = cfg.EnableNfoHints;
             DeleteStrmOnReadoption = cfg.DeleteStrmOnReadoption;
             MetadataLanguage = cfg.MetadataLanguage;
@@ -116,7 +112,7 @@ namespace InfiniteDrive.UI
             cfg.LibraryNameMovies = LibraryNameMovies;
             cfg.LibraryNameSeries = LibraryNameSeries;
             cfg.LibraryNameAnime = LibraryNameAnime;
-            cfg.EnableAnimeLibrary = EnableAnimeLibrary;
+            cfg.EnableAnimeLibrary = true;
             cfg.EnableNfoHints = EnableNfoHints;
             cfg.DeleteStrmOnReadoption = DeleteStrmOnReadoption;
             cfg.MetadataLanguage = MetadataLanguage;

@@ -54,7 +54,7 @@ namespace InfiniteDrive.Services
                 "tvshows",
                 config.SyncPathShows);
 
-            if (config.EnableAnimeLibrary && !string.IsNullOrWhiteSpace(config.SyncPathAnime))
+            if (!string.IsNullOrWhiteSpace(config.SyncPathAnime))
             {
                 await ProvisionOneAsync(
                     config,

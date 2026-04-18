@@ -234,7 +234,7 @@ namespace InfiniteDrive.Services
                 "movie" => _config.SyncPathMovies,
                 "series" => _config.SyncPathShows,
                 // For anime, check if primary ID is AniList/AniDB
-                _ when IsAnimeMediaId(item) => _config.EnableAnimeLibrary ? _config.SyncPathAnime : _config.SyncPathShows,
+                _ when IsAnimeMediaId(item) => _config.SyncPathAnime,
                 _ => _config.SyncPathMovies
             };
 

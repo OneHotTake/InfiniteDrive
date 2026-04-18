@@ -180,15 +180,6 @@ namespace InfiniteDrive.Tasks
 
             logger.LogInformation("[InfiniteDrive] Discovered {Count} AIOStreams catalog(s) to sync", catalogs.Count);
 
-            // Cap sources per run from CooldownProfile (Sprint 155)
-            var sourcesCap = Plugin.Instance?.CooldownGate?.Profile.CatalogSourcesPerRun ?? catalogs.Count;
-            if (catalogs.Count > sourcesCap)
-            {
-                logger.LogInformation("[InfiniteDrive] Capping catalog sync to {Cap} of {Total} sources (profile limit)",
-                    sourcesCap, catalogs.Count);
-                catalogs = catalogs.Take(sourcesCap).ToList();
-            }
-
             // 2. Fetch each catalog — failures are per-catalog, not provider-level.
             foreach (var catalog in catalogs)
             {
@@ -501,12 +492,12 @@ namespace InfiniteDrive.Tasks
             // ── FIX-216-02: Force anime mediaType for anime catalogs ────────────
             // Items from anime catalogs always route to the anime directory,
             // regardless of their per-item type (series/movie).
-            var animeEnabled = Plugin.Instance?.Configuration?.EnableAnimeLibrary ?? false;
+            // Anime library is always created — route anime catalogs to anime directory
 
             string? mediaType;
             if (isAnimeCatalog)
             {
-                mediaType = animeEnabled ? "anime" : null;
+                mediaType = "anime";
             }
             else
             {
@@ -997,6 +988,9 @@ namespace InfiniteDrive.Tasks
                 _logger.LogWarning(ex, "[InfiniteDrive] CatalogSyncTask: error syncing user catalogs (non-fatal)");
             }
 
+            // 5. Write ID type census from all active catalog items
+            await WriteIdTypeCensusAsync(db, config);
+
             progress.Report(100);
 
             _logger.LogInformation("[InfiniteDrive] CatalogSyncTask complete");
@@ -1021,6 +1015,60 @@ namespace InfiniteDrive.Tasks
                 // Sprint 100A-10: Release global sync lock
                 Plugin.SyncLock.Release();
                 Plugin.Pipeline.Clear();
+            }
+        }
+
+        // ── Private: ID type census ────────────────────────────────────────────
+
+        private static async Task WriteIdTypeCensusAsync(Data.DatabaseManager db, PluginConfiguration config)
+        {
+            try
+            {
+                var items = await db.GetActiveCatalogItemsAsync();
+                var census = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var item in items)
+                {
+                    if (string.IsNullOrEmpty(item.UniqueIdsJson)) continue;
+                    try
+                    {
+                        var ids = db.ParseUniqueIdsJson(item.UniqueIdsJson);
+                        foreach (var kvp in ids)
+                        {
+                            if (!string.IsNullOrEmpty(kvp.Key) && !string.IsNullOrEmpty(kvp.Value))
+                            {
+                                if (!census.TryGetValue(kvp.Key, out var count))
+                                    count = 0;
+                                census[kvp.Key] = count + 1;
+                            }
+                        }
+                    }
+                    catch { /* malformed JSON — skip */ }
+                }
+
+                if (census.Count == 0) return;
+
+                // Sort by count descending
+                var sorted = census
+                    .OrderByDescending(kvp => kvp.Value)
+                    .ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToString());
+
+                config.MetadataIdTypeCensus = JsonSerializer.Serialize(sorted);
+
+                // Auto-opt-in: if enabled types is empty, populate with all non-native types
+                if (string.IsNullOrWhiteSpace(config.MetadataEnabledIdTypes) || config.MetadataEnabledIdTypes == "[]")
+                {
+                    var native = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "IMDB", "TMDB", "TVDB" };
+                    var autoTypes = sorted.Keys.Where(k => !native.Contains(k)).ToList();
+                    if (autoTypes.Count > 0)
+                        config.MetadataEnabledIdTypes = JsonSerializer.Serialize(autoTypes);
+                }
+
+                Plugin.Instance?.SaveConfiguration();
+            }
+            catch (Exception)
+            {
+                // Non-fatal — census is best-effort
             }
         }
 
@@ -1448,8 +1496,7 @@ namespace InfiniteDrive.Tasks
 
                 Check(config.SyncPathMovies, "movies", "Movies");
                 Check(config.SyncPathShows,  "tvshows", "TV Shows");
-                if (config.EnableAnimeLibrary)
-                    Check(config.SyncPathAnime, "mixed", "Anime");
+                Check(config.SyncPathAnime, "mixed", "Anime");
             }
             catch (Exception ex)
             {
@@ -1484,7 +1531,7 @@ namespace InfiniteDrive.Tasks
                 Directory.CreateDirectory(config.SyncPathMovies);
             if (!string.IsNullOrWhiteSpace(config.SyncPathShows))
                 Directory.CreateDirectory(config.SyncPathShows);
-            if (config.EnableAnimeLibrary && !string.IsNullOrWhiteSpace(config.SyncPathAnime))
+            if (!string.IsNullOrWhiteSpace(config.SyncPathAnime))
                 Directory.CreateDirectory(config.SyncPathAnime);
         }
 

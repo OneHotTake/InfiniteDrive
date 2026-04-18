@@ -94,15 +94,6 @@ namespace InfiniteDrive.Services
             if (items == null || items.Count == 0)
                 return Ok("No active catalog items to process", 0, 0);
 
-            // Cap items per run from CooldownProfile (Sprint 155)
-            var rehyCap = Plugin.Instance?.CooldownGate?.Profile.RehydrationPerRun ?? 500;
-            if (items.Count > rehyCap)
-            {
-                _logger.LogInformation("[Rehydration] Capping to {Cap} of {Total} items (profile limit)",
-                    rehyCap, items.Count);
-                items = items.Take(rehyCap).ToList();
-            }
-
             int processed = 0;
             int skipped = 0;
             int total = items.Count;
