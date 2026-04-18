@@ -137,13 +137,14 @@ namespace InfiniteDrive.Services
                 if (!doc.RootElement.TryGetProperty("results", out var results))
                     return null;
 
-                // Find US certification
+                // Find certification for configured country
+                var countryCode = Plugin.Instance?.Configuration?.MetadataCountryCode ?? "US";
                 string? certification = null;
                 int priority = -1;
 
                 foreach (var item in results.EnumerateArray())
                 {
-                    if (item.TryGetProperty("iso_3166_1", out var iso) && iso.GetString() == "US")
+                    if (item.TryGetProperty("iso_3166_1", out var iso) && iso.GetString() == countryCode)
                     {
                         // Priority: theatrical (3) > digital (4) > premiere (1) > any
                         int currentPriority = item.TryGetProperty("type", out var typeProp)

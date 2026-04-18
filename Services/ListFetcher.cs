@@ -43,6 +43,14 @@ namespace InfiniteDrive.Services
             Timeout = TimeSpan.FromSeconds(30)
         };
 
+        private static string GetTmdbLanguage()
+        {
+            var config = Plugin.Instance?.Configuration;
+            var lang = config?.MetadataLanguage ?? "en";
+            var country = config?.MetadataCountryCode ?? "US";
+            return $"{lang}-{country}";
+        }
+
         // ── Public API ──────────────────────────────────────────────────────────
 
         /// <summary>
@@ -334,7 +342,7 @@ namespace InfiniteDrive.Services
 
             // Fetch list from TMDB API
             var apiBase = "https://api.themoviedb.org/3";
-            var listUrl = $"{apiBase}/list/{listId}?api_key={apiKey}&language=en-US";
+            var listUrl = $"{apiBase}/list/{listId}?api_key={apiKey}&language={GetTmdbLanguage()}";
 
             try
             {

@@ -33,7 +33,7 @@ namespace InfiniteDrive.Data
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 30;
+        private const int CurrentSchemaVersion = 32;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
@@ -1320,13 +1320,15 @@ namespace InfiniteDrive.Data
                      provider_key, stream_type, url, headers_json,
                      quality_tier, file_name, file_size, bitrate_kbps,
                      is_cached, resolved_at, expires_at, status,
-                     info_hash, file_idx, stream_key, binge_group)
+                     info_hash, file_idx, stream_key, binge_group,
+                     languages)
                 VALUES
                     (@id, @imdb_id, @season, @episode, @rank,
                      @provider_key, @stream_type, @url, @headers_json,
                      @quality_tier, @file_name, @file_size, @bitrate_kbps,
                      @is_cached, @resolved_at, @expires_at, @status,
-                     @info_hash, @file_idx, @stream_key, @binge_group);";
+                     @info_hash, @file_idx, @stream_key, @binge_group,
+                     @languages);";
 
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
@@ -1368,6 +1370,7 @@ namespace InfiniteDrive.Data
                         BindNullableInt(insStmt,  "@file_idx",    cand.FileIdx);
                         BindNullableText(insStmt, "@stream_key",  cand.StreamKey);
                         BindNullableText(insStmt, "@binge_group", cand.BingeGroup);
+                        BindNullableText(insStmt, "@languages",   cand.Languages);
                         while (insStmt.MoveNext()) { }
                     }
                 });
@@ -1398,13 +1401,15 @@ namespace InfiniteDrive.Data
                      provider_key, stream_type, url, headers_json,
                      quality_tier, file_name, file_size, bitrate_kbps,
                      is_cached, resolved_at, expires_at, status,
-                     info_hash, file_idx, stream_key, binge_group)
+                     info_hash, file_idx, stream_key, binge_group,
+                     languages)
                 VALUES
                     (@id, @imdb_id, @season, @episode, @rank,
                      @provider_key, @stream_type, @url, @headers_json,
                      @quality_tier, @file_name, @file_size, @bitrate_kbps,
                      @is_cached, @resolved_at, @expires_at, @status,
-                     @info_hash, @file_idx, @stream_key, @binge_group);";
+                     @info_hash, @file_idx, @stream_key, @binge_group,
+                     @languages);";
 
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
@@ -1454,6 +1459,7 @@ namespace InfiniteDrive.Data
                             BindNullableInt(insStmt,  "@file_idx",    cand.FileIdx);
                             BindNullableText(insStmt, "@stream_key",  cand.StreamKey);
                             BindNullableText(insStmt, "@binge_group", cand.BingeGroup);
+                            BindNullableText(insStmt, "@languages",   cand.Languages);
                             while (insStmt.MoveNext()) { }
                         }
                     }
@@ -1479,7 +1485,8 @@ namespace InfiniteDrive.Data
                        provider_key, stream_type, url, headers_json,
                        quality_tier, file_name, file_size, bitrate_kbps,
                        is_cached, resolved_at, expires_at, status,
-                       info_hash, file_idx, stream_key, binge_group
+                       info_hash, file_idx, stream_key, binge_group,
+                       languages
                 FROM stream_candidates
                 WHERE imdb_id = @imdb_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
@@ -3683,6 +3690,17 @@ FROM user_catalogs;");
                 _logger.LogInformation("[InfiniteDrive] Schema V31 migration complete (external list providers)");
                 version = 31;
             }
+
+            // ── V31 → V32: Language tracking on stream candidates ────
+            if (version < 32)
+            {
+                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V32", version);
+                if (!ColumnExists(conn, "stream_candidates", "languages"))
+                    ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN languages TEXT;");
+                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (32);");
+                _logger.LogInformation("[InfiniteDrive] Schema V32 migration complete (languages column)");
+                version = 32;
+            }
             }
 
             // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
@@ -4610,6 +4628,7 @@ LIMIT 1";
             FileIdx     = r.IsDBNull(18) ? null : r.GetInt(18),
             StreamKey   = r.IsDBNull(19) ? null : r.GetString(19),
             BingeGroup  = r.IsDBNull(20) ? null : r.GetString(20),
+            Languages   = r.IsDBNull(21) ? null : r.GetString(21),
         };
 
         private static PlaybackEntry ReadPlaybackEntry(IResultSet r) => new PlaybackEntry
