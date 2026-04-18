@@ -112,6 +112,7 @@ namespace InfiniteDrive.Services
 
                         if (sources.Count > 0)
                         {
+                            SortByLanguagePreference(sources, config);
                             _cache[cacheKey] = (sources, DateTime.UtcNow.Add(CacheTtl));
                             return sources;
                         }
@@ -127,6 +128,7 @@ namespace InfiniteDrive.Services
             var liveSources = ResolveFromAioStreams(imdbId, mediaType, season, episode, config);
             if (liveSources.Count > 0)
             {
+                SortByLanguagePreference(liveSources, config);
                 _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(CacheTtl));
                 CacheToDb(db, imdbId, season, episode, liveSources);
 
@@ -302,6 +304,9 @@ namespace InfiniteDrive.Services
             if (stream.Headers != null && stream.Headers.Count > 0)
                 source.RequiredHttpHeaders = new Dictionary<string, string>(stream.Headers);
 
+            // Build MediaStreams from parsed language/subtitle data
+            source.MediaStreams = BuildMediaStreams(stream);
+
             return source;
         }
 
@@ -309,7 +314,7 @@ namespace InfiniteDrive.Services
         {
             if (string.IsNullOrEmpty(candidate.Url)) return null;
 
-            return new MediaSourceInfo
+            var source = new MediaSourceInfo
             {
                 Id = candidate.Url.GetHashCode(StringComparison.Ordinal).ToString("x"),
                 Name = $"[{candidate.ProviderKey}] {candidate.QualityTier}",
@@ -319,6 +324,131 @@ namespace InfiniteDrive.Services
                 SupportsTranscoding = false,
                 IsInfiniteStream = false,
             };
+
+            // Build audio MediaStreams from stored languages
+            source.MediaStreams = BuildMediaStreamsFromLanguages(candidate.Languages);
+
+            return source;
+        }
+
+        private static List<MediaStream> BuildMediaStreams(AioStreamsStream stream)
+        {
+            var streams = new List<MediaStream>();
+
+            // Audio streams from parsed languages
+            if (stream.ParsedFile?.Languages?.Count > 0)
+            {
+                for (int i = 0; i < stream.ParsedFile.Languages.Count; i++)
+                {
+                    var lang = stream.ParsedFile.Languages[i];
+                    var channels = stream.ParsedFile.Channels;
+                    var audioTags = stream.ParsedFile.AudioTags;
+
+                    var title = lang;
+                    if (!string.IsNullOrEmpty(channels))
+                        title += $" - {channels}";
+                    if (audioTags?.Count > 0)
+                        title += $" {string.Join(" ", audioTags)}";
+
+                    streams.Add(new MediaStream
+                    {
+                        Type = MediaStreamType.Audio,
+                        Language = lang,
+                        Title = title.Trim(),
+                        IsDefault = i == 0,
+                        Index = streams.Count,
+                    });
+                }
+            }
+
+            // Subtitle streams
+            if (stream.Subtitles?.Count > 0)
+            {
+                foreach (var sub in stream.Subtitles)
+                {
+                    if (string.IsNullOrEmpty(sub.Url)) continue;
+
+                    streams.Add(new MediaStream
+                    {
+                        Type = MediaStreamType.Subtitle,
+                        Language = sub.Lang ?? "und",
+                        IsExternal = true,
+                        DeliveryUrl = sub.Url,
+                        Path = sub.Url,
+                        IsDefault = false,
+                        Index = streams.Count,
+                    });
+                }
+            }
+
+            return streams;
+        }
+
+        private static List<MediaStream> BuildMediaStreamsFromLanguages(string? languages)
+        {
+            var streams = new List<MediaStream>();
+            if (string.IsNullOrEmpty(languages)) return streams;
+
+            foreach (var lang in languages.Split(',', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var trimmed = lang.Trim();
+                if (string.IsNullOrEmpty(trimmed)) continue;
+
+                streams.Add(new MediaStream
+                {
+                    Type = MediaStreamType.Audio,
+                    Language = trimmed,
+                    Title = trimmed,
+                    IsDefault = streams.Count == 0,
+                    Index = streams.Count,
+                });
+            }
+
+            return streams;
+        }
+
+        private static string? ExtractLanguagesFromMediaStreams(List<MediaStream>? mediaStreams)
+        {
+            if (mediaStreams == null || mediaStreams.Count == 0) return null;
+            var langs = mediaStreams
+                .Where(ms => ms.Type == MediaStreamType.Audio && !string.IsNullOrEmpty(ms.Language))
+                .Select(ms => ms.Language)
+                .Distinct()
+                .ToList();
+            return langs.Count > 0 ? string.Join(",", langs) : null;
+        }
+
+        private static void SortByLanguagePreference(List<MediaSourceInfo> sources, PluginConfiguration config)
+        {
+            var prefLang = config.MetadataLanguage;
+            if (string.IsNullOrEmpty(prefLang) || sources.Count <= 1) return;
+
+            sources.Sort((a, b) =>
+            {
+                var aMatch = HasLanguageMatch(a, prefLang) ? 0 : 1;
+                var bMatch = HasLanguageMatch(b, prefLang) ? 0 : 1;
+                return aMatch.CompareTo(bMatch);
+            });
+
+            // Mark preferred language stream as default
+            foreach (var source in sources)
+            {
+                if (source.MediaStreams == null) continue;
+                var hasMatch = false;
+                foreach (var ms in source.MediaStreams.Where(ms => ms.Type == MediaStreamType.Audio))
+                {
+                    ms.IsDefault = !hasMatch && string.Equals(ms.Language, prefLang, StringComparison.OrdinalIgnoreCase);
+                    if (ms.IsDefault) hasMatch = true;
+                }
+            }
+        }
+
+        private static bool HasLanguageMatch(MediaSourceInfo source, string lang)
+        {
+            if (source.MediaStreams == null) return false;
+            return source.MediaStreams.Any(ms =>
+                ms.Type == MediaStreamType.Audio &&
+                string.Equals(ms.Language, lang, StringComparison.OrdinalIgnoreCase));
         }
 
         private void CacheToDb(
@@ -359,7 +489,8 @@ namespace InfiniteDrive.Services
                         FileName = s.Name,
                         Status = "valid",
                         ResolvedAt = now.ToString("o"),
-                        ExpiresAt = now.Add(CacheTtl).ToString("o")
+                        ExpiresAt = now.Add(CacheTtl).ToString("o"),
+                        Languages = ExtractLanguagesFromMediaStreams(s.MediaStreams),
                     }).ToList();
 
                     await db.UpsertResolutionResultAsync(entry, candidates);

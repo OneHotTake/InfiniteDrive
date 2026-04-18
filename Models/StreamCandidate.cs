@@ -119,6 +119,14 @@ namespace InfiniteDrive.Models
         /// </summary>
         public string? BingeGroup { get; set; }
 
+        // ── Language ───────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Comma-separated ISO 639-1 audio language codes (e.g. "ja,en").
+        /// Populated from AIOStreams <c>parsedFile.languages</c>.
+        /// </summary>
+        public string? Languages { get; set; }
+
         // ── Lifecycle ───────────────────────────────────────────────────────────
 
         /// <summary>UTC timestamp when this candidate was resolved.</summary>

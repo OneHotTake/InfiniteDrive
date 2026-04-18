@@ -247,6 +247,9 @@ namespace InfiniteDrive.Services
 
         /// <summary>Source catalog (for tracking).</summary>
         public string CatalogSource { get; set; } = string.Empty;
+
+        /// <summary>Comma-separated audio language codes from previous stream resolution (e.g. "ja,en").</summary>
+        public string? AudioLanguages { get; set; }
     }
 
     // ── Service ──────────────────────────────────────────────────────────────────
@@ -969,8 +972,24 @@ namespace InfiniteDrive.Services
                 Certification = entry.Certification,
                 InLibrary = inLibrary,
                 EmbyItemId = embyItemId,
-                CatalogSource = entry.CatalogSource
+                CatalogSource = entry.CatalogSource,
+                AudioLanguages = GetAudioLanguages(entry.ImdbId),
             };
+        }
+
+        private string? GetAudioLanguages(string imdbId)
+        {
+            try
+            {
+                var candidates = _db.GetStreamCandidatesAsync(imdbId, null, null)
+                    .GetAwaiter().GetResult();
+                var langs = candidates?
+                    .Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Languages))
+                    .Select(c => c.Languages)
+                    .FirstOrDefault();
+                return langs;
+            }
+            catch { return null; }
         }
 
         /// <summary>

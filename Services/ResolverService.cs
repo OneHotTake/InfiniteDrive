@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using MediaBrowser.Controller.Net;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,7 @@ namespace InfiniteDrive.Services
         private readonly ILogger<ResolverService> _logger;
         private readonly ResolverHealthTracker _healthTracker;
         private readonly RateLimiter _rateLimiter;
+        private readonly IAuthorizationContext? _authCtx;
 
         // ── SEL expressions per quality tier ─────────────────────────────────
 
@@ -43,9 +45,10 @@ namespace InfiniteDrive.Services
 
         // ── Constructor ──────────────────────────────────────────────────────
 
-        public ResolverService(ILogManager logManager)
+        public ResolverService(ILogManager logManager, IAuthorizationContext? authCtx = null)
         {
             _logger = new EmbyLoggerAdapter<ResolverService>(logManager.GetLogger("InfiniteDrive"));
+            _authCtx = authCtx;
             _healthTracker = Plugin.Instance?.ResolverHealthTracker
                 ?? new ResolverHealthTracker(_logger);
             _rateLimiter = new RateLimiter(
@@ -244,8 +247,14 @@ namespace InfiniteDrive.Services
                 var candidates = await db.GetStreamCandidatesAsync(
                     req.Id, req.Season, req.Episode);
 
-                var top = candidates?
-                    .FirstOrDefault(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Url));
+                var validCandidates = candidates?
+                    .Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Url))
+                    .ToList();
+
+                if (validCandidates == null || validCandidates.Count == 0)
+                    return null;
+
+                var top = PreferLanguageMatch(validCandidates);
 
                 if (top == null)
                     return null;
@@ -266,6 +275,42 @@ namespace InfiniteDrive.Services
                 _logger.LogDebug(ex, "[Resolve] Cache lookup failed for {Id}, falling through to live", req.Id);
                 return null;
             }
+        }
+
+        private StreamCandidate PreferLanguageMatch(List<StreamCandidate> candidates)
+        {
+            if (candidates.Count == 1)
+                return candidates[0];
+
+            string? userLang = null;
+            try
+            {
+                if (_authCtx != null && Request != null)
+                {
+                    var authInfo = _authCtx.GetAuthorizationInfo(Request);
+                    var user = authInfo?.User;
+                    userLang = user?.PreferredMetadataLanguage;
+                }
+            }
+            catch { /* non-critical */ }
+
+            if (string.IsNullOrEmpty(userLang))
+                return candidates[0];
+
+            // Prefer first candidate whose Languages contains user's preferred language
+            var match = candidates.FirstOrDefault(c =>
+                !string.IsNullOrEmpty(c.Languages) &&
+                c.Languages.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .Any(l => string.Equals(l.Trim(), userLang, StringComparison.OrdinalIgnoreCase)));
+
+            if (match != null)
+            {
+                _logger.LogDebug("[Resolve] Preferring language-matched candidate ({Lang}) for {Id}",
+                    userLang, match.ImdbId);
+                return match;
+            }
+
+            return candidates[0];
         }
 
         /// <summary>
