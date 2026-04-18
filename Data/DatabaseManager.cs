@@ -1016,6 +1016,63 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
+        /// Last-resort catalog lookup by title (and optionally year / mediaType).
+        /// Tries exact match first, then LIKE fallback.
+        /// </summary>
+        public async Task<CatalogItem?> GetCatalogItemByTitleAsync(string title, int? year, string? mediaType)
+        {
+            const string sql = @"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at, nfo_status,
+                       retry_count, next_retry_at,
+                       blocked_at, blocked_by, first_added_by_user_id,
+                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
+                FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND title = @title
+                  AND (@year IS NULL OR year = @year)
+                  AND (@mediaType IS NULL OR media_type = @mediaType)
+                LIMIT 1";
+
+            var result = await QuerySingleAsync(sql,
+                cmd =>
+                {
+                    BindText(cmd, "@title", title);
+                    BindNullableInt(cmd, "@year", year);
+                    BindNullableText(cmd, "@mediaType", mediaType);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+
+            if (result != null) return result;
+
+            const string sqlLike = @"
+                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                       source, source_list_id, seasons_json, strm_path,
+                       added_at, updated_at, removed_at,
+                       local_path, local_source, resurrection_count,
+                       item_state, pin_source, pinned_at, nfo_status,
+                       retry_count, next_retry_at,
+                       blocked_at, blocked_by, first_added_by_user_id,
+                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
+                FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND title LIKE '%' || @title || '%'
+                  AND (@mediaType IS NULL OR media_type = @mediaType)
+                LIMIT 1";
+
+            return await QuerySingleAsync(sqlLike,
+                cmd =>
+                {
+                    BindText(cmd, "@title", title);
+                    BindNullableText(cmd, "@mediaType", mediaType);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Returns all client compatibility profiles, ordered by client_type.
         /// Used by the health dashboard to show learned per-client streaming behaviour.
         /// </summary>

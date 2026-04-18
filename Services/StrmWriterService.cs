@@ -70,7 +70,6 @@ namespace InfiniteDrive.Services
                     var animeFileName = $"{NamingPolicyService.SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
                     var animePath = Path.Combine(animeFolder, animeFileName);
                     WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
-                    if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(animePath, item, originSourceType.ToDisplayString());
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animePath;
                 }
@@ -80,7 +79,6 @@ namespace InfiniteDrive.Services
                     Directory.CreateDirectory(animeSeasonDir);
                     var animeStrmPath = Path.Combine(animeSeasonDir, $"{NamingPolicyService.SanitisePath(item.Title)} S01E01.strm");
                     WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
-                    if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(animeStrmPath, item, originSourceType.ToDisplayString());
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animeStrmPath;
                 }
@@ -96,7 +94,6 @@ namespace InfiniteDrive.Services
                 var fileName = $"{folderBareName}.strm";
                 var path = Path.Combine(folder, fileName);
                 WriteStrmFile(path, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
-                if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(path, item, originSourceType.ToDisplayString());
                 await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                 return path;
             }
@@ -109,7 +106,6 @@ namespace InfiniteDrive.Services
             Directory.CreateDirectory(seasonDir);
             var strmPath = Path.Combine(seasonDir, $"{NamingPolicyService.SanitisePath(item.Title)} S01E01.strm");
             WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
-            if (config.EnableNfoHints) NfoWriterService.WriteSeedNfo(strmPath, item, originSourceType.ToDisplayString());
             await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
             return strmPath;
         }
@@ -161,9 +157,6 @@ namespace InfiniteDrive.Services
 
             var url = BuildSignedStrmUrl(config, seriesItem.ImdbId, "series", season, episode);
             WriteStrmFile(filePath, url);
-
-            if (config.EnableNfoHints)
-                NfoWriterService.WriteSeedEpisodeNfo(filePath, seriesItem.Title, season, episode, episodeTitle);
 
             _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode {FilePath}", filePath);
             return Task.FromResult((string?)filePath);
@@ -238,10 +231,6 @@ namespace InfiniteDrive.Services
 
             var url = BuildSignedStrmUrl(config, seriesItem.ImdbId, "series", seasonNumber, episodeNumber);
             WriteStrmFile(filePath, url);
-
-            // Write episode NFO if enabled
-            if (config.EnableNfoHints)
-                NfoWriterService.WriteSeedEpisodeNfo(filePath, seriesItem.Title, seasonNumber, episodeNumber, episodeTitle);
 
             _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode {FilePath}", filePath);
             return filePath;
@@ -475,14 +464,6 @@ namespace InfiniteDrive.Services
                             filePath);
                     }
                 }
-            }
-
-            // Write tvshow.nfo if enabled
-            if (config.EnableNfoHints)
-            {
-                var nfoPath = Path.Combine(seriesPath, "tvshow.nfo");
-                if (!File.Exists(nfoPath))
-                    NfoWriterService.WriteSeedNfo(nfoPath, item, "AIOStreams");
             }
 
             _logger.LogInformation(

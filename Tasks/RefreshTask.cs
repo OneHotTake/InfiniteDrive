@@ -612,11 +612,10 @@ namespace InfiniteDrive.Tasks
                 cancellationToken.ThrowIfCancellationRequested();
 
                 // Skip hint for series/anime items — SeriesPreExpansionService already
-                // wrote tvshow.nfo + per-episode NFOs during WriteStepAsync
+                // handled during WriteStepAsync
                 var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
                             || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
-                if (isSeries && !string.IsNullOrEmpty(item.StrmPath)
-                    && File.Exists(Path.Combine(item.StrmPath, "tvshow.nfo")))
+                if (isSeries && !string.IsNullOrEmpty(item.StrmPath))
                 {
                     item.NfoStatus = "Expanded";
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
@@ -624,45 +623,9 @@ namespace InfiniteDrive.Tasks
                     continue;
                 }
 
-                var folderName = NamingPolicyService.BuildFolderName(item);
-                var folderPath = item.StrmPath ?? folderName;
-                var baseName = Path.GetFileNameWithoutExtension(folderName);
-
-                // Determine uniqueid type and value
-                string uniqueidType;
-                string uniqueidValue;
-
-                if (!string.IsNullOrEmpty(item.TmdbId))
-                {
-                    uniqueidType = "tmdb";
-                    uniqueidValue = item.TmdbId;
-                }
-                else if (!string.IsNullOrEmpty(item.ImdbId))
-                {
-                    uniqueidType = "imdb";
-                    uniqueidValue = item.ImdbId;
-                }
-                else
-                {
-                    // No known IDs — mark as NeedsEnrich
-                    item.NfoStatus = "NeedsEnrich";
-                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-                    _logger.LogDebug("[InfiniteDrive] No IDs for item {Title}, marked as NeedsEnrich", item.Title);
-                    continue;
-                }
-
-                // Write Identity Hint NFO for each slot
+                // NFO no longer needed — folder name provides ID hints to Emby
                 foreach (var slot in slots)
-                {
                     cancellationToken.ThrowIfCancellationRequested();
-
-                    var rootElement = item.MediaType == "movie" ? "movie" : "tvshow";
-                    var fileName = (_materializer ?? throw new InvalidOperationException("Materializer not initialized")).GetFileName(baseName, slot, defaultSlot, ".nfo");
-                    var fullPath = Path.Combine(folderPath, fileName);
-
-                    NfoWriterService.WriteIdentityHintNfo(fullPath, uniqueidType, uniqueidValue, rootElement);
-                    _logger.LogDebug("[InfiniteDrive] Wrote Identity Hint .nfo: {Path}", fullPath);
-                }
 
                 // Update NFO status
                 item.NfoStatus = "Hinted";
