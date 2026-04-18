@@ -236,12 +236,22 @@ Used by `CatalogSyncTask` for interval-gated incremental sync.
 
 | Consumer | Config Field | Usage |
 |----------|-------------|-------|
-| `AioMediaSourceProvider.SortByLanguagePreference()` | `MetadataLanguage` | Sorts version picker sources by language match |
+| `AioMediaSourceProvider.SortByLanguagePreference()` | `MetadataLanguage` → library lang | Sorts version picker sources by language match (falls back to library's `PreferredMetadataLanguage`) |
 | `AioMediaSourceProvider.BuildMediaStreams()` | — | Builds audio/subtitle `MediaStream` list from AIOStreams parsed data |
-| `ResolverService.PreferLanguageMatch()` | User's `PreferredMetadataLanguage` | Prefers cached candidates matching user language at playback time |
+| `ResolverService.PreferLanguageMatch()` | User `PreferredMetadataLanguage` → `MetadataLanguage` | Prefers cached candidates matching user language, then config language, then rank-order |
 | `ListFetcher.GetTmdbLanguage()` | `MetadataLanguage` + `MetadataCountryCode` | TMDB list API `language` parameter |
 | `CertificationResolver.FetchMovieCertificationInternalAsync()` | `MetadataCountryCode` | Filters TMDB `release_dates` by country code |
 | `DiscoverService.GetAudioLanguages()` | — | Populates `AudioLanguages` from `stream_candidates.languages` |
+
+### Language Fallback Chain
+
+```
+Playback language selection priority:
+1. User's PreferredMetadataLanguage (Emby user settings → Display)
+2. Plugin's MetadataLanguage (admin config)
+3. Library's PreferredMetadataLanguage (Emby library settings — AioMediaSourceProvider only)
+4. Rank-order (no preference — best available)
+```
 
 ### Languages column (stream_candidates)
 

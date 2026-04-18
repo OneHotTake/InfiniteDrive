@@ -21,13 +21,16 @@ namespace InfiniteDrive.Services
     {
         private readonly ILogger<AioProviderEntryPoint> _logger;
         private readonly IMediaSourceManager _mediaSourceManager;
+        private readonly ILibraryManager _libraryManager;
         private readonly ILogManager _logManager;
 
         public AioProviderEntryPoint(
             IMediaSourceManager mediaSourceManager,
+            ILibraryManager libraryManager,
             ILogManager logManager)
         {
             _mediaSourceManager = mediaSourceManager;
+            _libraryManager = libraryManager;
             _logManager = logManager;
             _logger = new EmbyLoggerAdapter<AioProviderEntryPoint>(logManager.GetLogger("InfiniteDrive"));
         }
@@ -36,7 +39,7 @@ namespace InfiniteDrive.Services
         {
             try
             {
-                var provider = new AioMediaSourceProvider(_logManager, _mediaSourceManager);
+                var provider = new AioMediaSourceProvider(_logManager, _mediaSourceManager, _libraryManager);
                 _mediaSourceManager.AddParts(new[] { provider });
                 _logger.LogInformation("[InfiniteDrive] Registered AioMediaSourceProvider");
             }
