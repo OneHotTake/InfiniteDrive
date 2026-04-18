@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Models;
@@ -51,6 +53,155 @@ namespace InfiniteDrive.Services
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null) return null;
             return await db.GetCatalogItemByProviderIdAsync(providerKey, providerValue).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Multi-tier catalog lookup:
+        ///   Tier 1: info.ProviderIds (Emby parsed from folder name [imdbid-XXX])
+        ///   Tier 2: Parse directory name for [imdbid-XXX], [tmdbid-XXX], [tvdbid-XXX]
+        ///   Tier 3: Read .strm file, extract &amp;id= from InfiniteDrive resolve URL
+        ///   Tier 4: Title+year search in catalog DB (last resort)
+        /// </summary>
+        internal static async Task<(CatalogItem? item, string? matchedKey)> ResolveCatalogItemAsync(
+            Dictionary<string, string> providerIds,
+            string? itemPath,
+            string? itemName,
+            int? itemYear,
+            HashSet<string> enabledTypes)
+        {
+            // Tier 1: Provider IDs already set by Emby
+            foreach (var kvp in providerIds)
+            {
+                if (enabledTypes.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
+                {
+                    var found = await FindInDb(kvp.Key, kvp.Value).ConfigureAwait(false);
+                    if (found != null) return (found, kvp.Key);
+                }
+            }
+
+            // Tier 2: Parse directory name for ID hints
+            if (!string.IsNullOrEmpty(itemPath))
+            {
+                var fromPath = await ResolveFromPathNameAsync(itemPath, enabledTypes).ConfigureAwait(false);
+                if (fromPath != null) return (fromPath, "path");
+            }
+
+            // Tier 3: Read .strm file, extract &id= from InfiniteDrive URL
+            if (!string.IsNullOrEmpty(itemPath))
+            {
+                var fromStrm = await ResolveFromStrmFileAsync(itemPath, enabledTypes).ConfigureAwait(false);
+                if (fromStrm != null) return (fromStrm, "strm");
+            }
+
+            // Tier 4: Title+year search (last resort)
+            if (!string.IsNullOrEmpty(itemName))
+            {
+                var db = Plugin.Instance?.DatabaseManager;
+                if (db != null)
+                {
+                    var fromTitle = await db.GetCatalogItemByTitleAsync(itemName, itemYear, null).ConfigureAwait(false);
+                    if (fromTitle != null) return (fromTitle, "title");
+                }
+            }
+
+            return (null, null);
+        }
+
+        private static readonly Regex IdTagPattern = new(
+            @"[[{](imdbid|tmdbid|tvdbid)[=-](.+?)[\]}}]",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static async Task<CatalogItem?> ResolveFromPathNameAsync(string path, HashSet<string> enabledTypes)
+        {
+            var dirName = path;
+            if (File.Exists(path))
+                dirName = Path.GetDirectoryName(path) ?? path;
+
+            var folderName = Path.GetFileName(dirName);
+            if (string.IsNullOrEmpty(folderName)) return null;
+
+            foreach (Match m in IdTagPattern.Matches(folderName))
+            {
+                var key = char.ToUpper(m.Groups[1].Value[0]) + m.Groups[1].Value[1..];
+                var value = m.Groups[2].Value;
+
+                if (!enabledTypes.Contains(key)) continue;
+
+                var item = await FindInDb(key, value).ConfigureAwait(false);
+                if (item != null) return item;
+            }
+
+            return null;
+        }
+
+        private static async Task<CatalogItem?> ResolveFromStrmFileAsync(string itemPath, HashSet<string> enabledTypes)
+        {
+            string? strmContent = null;
+
+            if (itemPath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase) && File.Exists(itemPath))
+            {
+                try { strmContent = await File.ReadAllTextAsync(itemPath).ConfigureAwait(false); }
+                catch { return null; }
+            }
+            else if (Directory.Exists(itemPath))
+            {
+                try
+                {
+                    var strmFile = Directory.GetFiles(itemPath, "*.strm", SearchOption.AllDirectories).FirstOrDefault();
+                    if (strmFile != null)
+                        strmContent = await File.ReadAllTextAsync(strmFile).ConfigureAwait(false);
+                }
+                catch { return null; }
+            }
+            else if (File.Exists(itemPath))
+            {
+                var dir = Path.GetDirectoryName(itemPath);
+                if (!string.IsNullOrEmpty(dir))
+                {
+                    try
+                    {
+                        var strmFile = Directory.GetFiles(dir, "*.strm").FirstOrDefault();
+                        if (strmFile != null)
+                            strmContent = await File.ReadAllTextAsync(strmFile).ConfigureAwait(false);
+                    }
+                    catch { return null; }
+                }
+            }
+
+            if (string.IsNullOrEmpty(strmContent)) return null;
+
+            // Guard: only parse InfiniteDrive URLs
+            if (!strmContent.Contains("/InfiniteDrive/resolve", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            var idMatch = Regex.Match(strmContent, @"[?&]id=([^&\s]+)");
+            if (!idMatch.Success) return null;
+
+            var idValue = Uri.UnescapeDataString(idMatch.Groups[1].Value);
+
+            // IMDB: ttXXXXXX
+            if (idValue.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!enabledTypes.Contains("IMDB")) return null;
+                return await FindInDb("IMDB", idValue).ConfigureAwait(false);
+            }
+
+            // Kitsu: kitsu:XXXXX
+            if (idValue.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase))
+            {
+                var kitsuId = idValue["kitsu:".Length..];
+                if (!enabledTypes.Contains("Kitsu")) return null;
+                return await FindInDb("Kitsu", kitsuId).ConfigureAwait(false);
+            }
+
+            // Numeric: try as TMDB
+            if (int.TryParse(idValue, out _))
+            {
+                if (!enabledTypes.Contains("TMDB")) return null;
+                return await FindInDb("TMDB", idValue).ConfigureAwait(false);
+            }
+
+            return null;
         }
 
         internal static Dictionary<string, string> ParseUniqueIds(string? json)
@@ -161,24 +312,15 @@ namespace InfiniteDrive.Services
             var enabledTypes = AioMetadataHelper.GetEnabledTypes(config);
             if (enabledTypes == null) return result;
 
-            CatalogItem? catalogItem = null;
-            string? matchedKey = null;
-
-            foreach (var kvp in info.ProviderIds)
-            {
-                if (enabledTypes.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
-                {
-                    catalogItem = await AioMetadataHelper.FindInDb(kvp.Key, kvp.Value).ConfigureAwait(false);
-                    if (catalogItem != null) { matchedKey = kvp.Key; break; }
-                }
-            }
+            var (catalogItem, matchedKey) = await AioMetadataHelper.ResolveCatalogItemAsync(
+                info.ProviderIds, info.Path, info.Name, info.Year, enabledTypes).ConfigureAwait(false);
 
             if (catalogItem == null || string.IsNullOrEmpty(catalogItem.RawMetaJson))
                 return result;
 
             var logger = Plugin.Instance?.Logger;
-            logger?.LogDebug("[InfiniteDrive] MetadataProvider: lookup by {Key}={Value} -> hit ({Title})",
-                matchedKey, info.ProviderIds.GetValueOrDefault(matchedKey ?? ""), catalogItem.Title);
+            logger?.LogDebug("[InfiniteDrive] MetadataProvider: lookup by {Key} -> hit ({Title})",
+                matchedKey, catalogItem.Title);
 
             var meta = JsonSerializer.Deserialize<AioMeta>(catalogItem.RawMetaJson);
             if (meta == null) return result;
@@ -209,24 +351,15 @@ namespace InfiniteDrive.Services
             var enabledTypes = AioMetadataHelper.GetEnabledTypes(config);
             if (enabledTypes == null) return result;
 
-            CatalogItem? catalogItem = null;
-            string? matchedKey = null;
-
-            foreach (var kvp in info.ProviderIds)
-            {
-                if (enabledTypes.Contains(kvp.Key, StringComparer.OrdinalIgnoreCase))
-                {
-                    catalogItem = await AioMetadataHelper.FindInDb(kvp.Key, kvp.Value).ConfigureAwait(false);
-                    if (catalogItem != null) { matchedKey = kvp.Key; break; }
-                }
-            }
+            var (catalogItem, matchedKey) = await AioMetadataHelper.ResolveCatalogItemAsync(
+                info.ProviderIds, info.Path, info.Name, info.Year, enabledTypes).ConfigureAwait(false);
 
             if (catalogItem == null || string.IsNullOrEmpty(catalogItem.RawMetaJson))
                 return result;
 
             var logger = Plugin.Instance?.Logger;
-            logger?.LogDebug("[InfiniteDrive] MetadataProvider: lookup by {Key}={Value} -> hit ({Title})",
-                matchedKey, info.ProviderIds.GetValueOrDefault(matchedKey ?? ""), catalogItem.Title);
+            logger?.LogDebug("[InfiniteDrive] MetadataProvider: lookup by {Key} -> hit ({Title})",
+                matchedKey, catalogItem.Title);
 
             var meta = JsonSerializer.Deserialize<AioMeta>(catalogItem.RawMetaJson);
             if (meta == null) return result;
