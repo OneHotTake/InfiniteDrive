@@ -1059,11 +1059,15 @@
     after each catalog sync.
   </div>
 
-  <div class="es-card">
+  <div class="es-card" id="es-metadata-card">
     <h3>Provider ID Types</h3>
+    <p id="es-metadata-empty" style="display:none;opacity:.6;margin:0 0 1em;font-size:.9em">
+      No ID types discovered yet. This table populates automatically after your first catalog sync —
+      just add a provider on the Sources tab and let Marvin or a sync run.
+    </p>
     <div style="overflow-x:auto">
       <table class="es-table" id="es-metadata-types-table">
-        <thead>
+        <thead id="es-metadata-thead">
           <tr>
             <th>ID Type</th>
             <th style="text-align:right">Items</th>
@@ -1075,14 +1079,14 @@
         </tbody>
       </table>
     </div>
-    <div style="margin-top:.75em;display:flex;gap:.6em;align-items:center">
+    <div style="margin-top:.75em;display:flex;gap:.6em;align-items:center" id="es-metadata-save-row">
       <button type="button" is="emby-button" class="raised button-submit" data-es-action="save-metadata">Save Metadata Settings</button>
       <span id="es-metadata-save-result" style="font-size:.85em"></span>
     </div>
   </div>
 
   <div class="es-hint" style="margin-top:.5em">
-    Changes take effect after Emby restart. IMDB/TMDB/TVDB types are Emby-native and unchecked by default.
+    Changes take effect after the next library scan. IMDB/TMDB/TVDB types are Emby-native and unchecked by default.
   </div>
 
 </div><!-- /metadata tab -->

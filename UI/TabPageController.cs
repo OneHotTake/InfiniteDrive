@@ -11,12 +11,15 @@ namespace InfiniteDrive.UI
     {
         private readonly Func<IPluginUIView> _viewFactory;
 
-        public TabPageController(string name, string displayName, Func<IPluginUIView> viewFactory)
+        public TabPageController(string name, string displayName, Func<IPluginUIView> viewFactory,
+            bool enableInMainMenu = false, bool isMainConfigPage = false)
         {
             PageInfo = new PluginPageInfo
             {
                 Name = name,
-                DisplayName = displayName
+                DisplayName = displayName,
+                EnableInMainMenu = enableInMainMenu,
+                IsMainConfigPage = isMainConfigPage
             };
             _viewFactory = viewFactory;
         }

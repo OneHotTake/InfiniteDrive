@@ -794,16 +794,20 @@ function (loading) {
         setTimeout(function() { if (btn) btn.textContent = 'Save'; }, 3000);
     }
 
-    // Sprint 403: Post-save state refresh — clear health cache, summon Marvin, refresh UI
-    function afterSave(view) {
-        // 1. Clear health check cache so next status fetch re-tests providers
-        esFetch('/InfiniteDrive/Status/Refresh', {method:'POST'}).then(function(r) { return r.json(); })
-            .then(function(freshData) {
-                // 2. Refresh Overview tab with fresh data (even if not currently visible)
-                try { loadOverviewTab(view); } catch(e) {}
-            }).catch(function() {});
+    // Sprint 403: Post-save state refresh — summon Marvin, refresh UI
+    // Only pass {refreshProviders:true} when provider URLs actually changed (Providers tab)
+    function afterSave(view, opts) {
+        // 1. If providers changed, re-test them; otherwise just refresh UI with cached data
+        if (opts && opts.refreshProviders) {
+            esFetch('/InfiniteDrive/Status/Refresh', {method:'POST'}).then(function(r) { return r.json(); })
+                .then(function(freshData) {
+                    try { loadOverviewTab(view); } catch(e) {}
+                }).catch(function() {});
+        } else {
+            try { loadOverviewTab(view); } catch(e) {}
+        }
 
-        // 3. Summon Marvin if not already running (fire and forget)
+        // 2. Summon Marvin if not already running (fire and forget)
         try { summonMarvinQuiet(); } catch(e) {}
     }
 
@@ -2668,7 +2672,14 @@ function (loading) {
     var _nativeTypes = ['IMDB', 'TMDB', 'TVDB'];
 
     function loadMetadataTab(view) {
-        if (!_loadedConfig) return;
+        if (!_loadedConfig) {
+            // Config not loaded yet — fetch it, then render
+            ApiClient.getPluginConfiguration(pluginId).then(function(cfg) {
+                _loadedConfig = cfg;
+                loadMetadataTab(view);
+            }).catch(function() {});
+            return;
+        }
         var cfg = _loadedConfig;
         var census = {};
         try { census = JSON.parse(cfg.MetadataIdTypeCensus || '{}'); } catch(e) {}
@@ -2680,10 +2691,21 @@ function (loading) {
         if (!body) return;
 
         var keys = Object.keys(census);
+        var emptyEl = q(view, 'es-metadata-empty');
+        var thead = q(view, 'es-metadata-thead');
+        var saveRow = q(view, 'es-metadata-save-row');
+
         if (keys.length === 0) {
-            body.innerHTML = '<tr><td colspan="3" style="opacity:.4;text-align:center;padding:2em">No ID types discovered yet. Run a catalog sync first.</td></tr>';
+            body.innerHTML = '';
+            if (emptyEl) emptyEl.style.display = '';
+            if (thead) thead.style.display = 'none';
+            if (saveRow) saveRow.style.display = 'none';
             return;
         }
+
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (thead) thead.style.display = '';
+        if (saveRow) saveRow.style.display = '';
 
         // Sort: native types first, then by count desc
         keys.sort(function(a, b) {
@@ -2803,7 +2825,7 @@ function (loading) {
                     .then(function(full) { _loadedConfig = full; })
                     .catch(function() { _loadedConfig = cfg; });
                 try { loadProvidersTab(view); } catch(e) {}
-                afterSave(view);
+                afterSave(view, {refreshProviders: true});
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
