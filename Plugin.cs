@@ -194,6 +194,12 @@ namespace InfiniteDrive
         public Models.ActiveProviderState ActiveProviderState { get; private set; } = new();
 
         /// <summary>
+        /// Centralized state engine for system health evaluation (Sprint 401).
+        /// Initialized during InitialiseDatabaseManager().
+        /// </summary>
+        public Services.SystemStateService SystemStateService { get; private set; } = null!;
+
+        /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.
         /// Heavy initialization (database, repositories, PluginSecret) is deferred to
         /// InfiniteDriveInitializationService.Run() via IServerEntryPoint.
@@ -392,6 +398,10 @@ namespace InfiniteDrive
                 DatabaseManager = new DatabaseManager(dbDirectory, _logger);
                 DatabaseManager.Initialise();
                 _logger.LogInformation("[InfiniteDrive] Database initialised at {DbDir}", dbDirectory);
+
+                // Initialise SystemStateService (Sprint 401: State Engine)
+                SystemStateService = new Services.SystemStateService(DatabaseManager);
+                _logger.LogInformation("[InfiniteDrive] SystemStateService initialised");
 
                 // Initialise repository layer (Sprint 104D-02)
                 CatalogRepository = new CatalogRepository(DatabaseManager, _logManager);
