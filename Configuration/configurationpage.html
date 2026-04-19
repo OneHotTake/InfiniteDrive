@@ -146,58 +146,60 @@
 
   <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Overview</h1>
 
-  <!-- Setup checklist -->
-  <div class="es-card es-card-accent" id="es-card-getting-started">
-    <div class="es-card-title" id="es-gs-title">Getting Started</div>
-    <div id="es-gs-body" class="es-card-text">
-      Complete these steps to get InfiniteDrive up and running.
+  <!-- System State card — single authority -->
+  <div class="es-card es-card-accent" id="es-card-state">
+    <div style="display:flex;align-items:center;gap:.75em;margin-bottom:.75em">
+      <div id="es-ov-state-dot" class="es-health-dot es-health-dot-err" style="width:16px;height:16px;flex-shrink:0"></div>
+      <div>
+        <div id="es-ov-state-label" style="font-weight:700;font-size:1.1em">Checking…</div>
+        <div id="es-ov-state-desc" style="font-size:.85em;opacity:.65"></div>
+      </div>
     </div>
-    <div id="es-gs-checklist" style="font-size:.85em;margin-top:.5em"></div>
-  </div>
 
-  <!-- Sync status card -->
-  <div class="es-card">
-    <div class="es-card-title">Sync Status</div>
-    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:.75em">
-      <div class="es-stat">
-        <div class="es-stat-value" id="es-ov-last-sync">—</div>
-        <div class="es-stat-label">Last Sync</div>
-      </div>
-      <div class="es-stat">
-        <div class="es-stat-value" id="es-ov-catalog-count">—</div>
-        <div class="es-stat-label">Catalog Items</div>
-      </div>
-      <div class="es-stat">
-        <div class="es-stat-value" id="es-ov-coverage">—</div>
-        <div class="es-stat-label">Resolution Coverage</div>
-      </div>
-      <div class="es-stat">
-        <div class="es-stat-value" id="es-ov-aio-status">—</div>
-        <div class="es-stat-label">AIOStreams</div>
-      </div>
+    <!-- Setup steps (shown when unconfigured) -->
+    <div id="es-ov-setup-steps" style="display:none;font-size:.88em;margin-bottom:.75em">
+      <div id="es-ov-step-provider" class="es-checklist-step"><span class="es-check-icon">1.</span> <a href="#" data-es-tab="providers">Connect a Provider</a></div>
+      <div id="es-ov-step-libraries" class="es-checklist-step"><span class="es-check-icon">2.</span> <a href="#" data-es-tab="libraries">Set up Libraries</a></div>
     </div>
-  </div>
 
-  <!-- Quick health grid -->
-  <div class="es-card">
-    <div class="es-card-title">Quick Health</div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:.75em">
-      <div style="text-align:center;padding:.5em">
-        <div id="es-ov-provider-dot" class="es-health-dot es-health-dot-err" style="margin:0 auto .3em"></div>
-        <div style="font-size:.85em;font-weight:600">Provider</div>
-        <div id="es-ov-provider-text" style="font-size:.78em;opacity:.6">Not configured</div>
-      </div>
-      <div style="text-align:center;padding:.5em">
-        <div id="es-ov-library-dot" class="es-health-dot es-health-dot-err" style="margin:0 auto .3em"></div>
-        <div style="font-size:.85em;font-weight:600">Library</div>
-        <div id="es-ov-library-text" style="font-size:.78em;opacity:.6">Not set up</div>
-      </div>
-      <div style="text-align:center;padding:.5em">
-        <div id="es-ov-filter-dot" class="es-health-dot es-health-dot-warn" style="margin:0 auto .3em"></div>
-        <div style="font-size:.85em;font-weight:600">Content Filtering</div>
-        <div id="es-ov-filter-text" style="font-size:.78em;opacity:.6">Disabled</div>
-      </div>
+    <!-- Stats row (shown when configured) -->
+    <div id="es-ov-stats" style="display:none">
+      <div class="es-stat"><div class="es-stat-value" id="es-ov-catalog-count">—</div><div class="es-stat-label">Items</div></div>
+      <div class="es-stat"><div class="es-stat-value" id="es-ov-last-sync">—</div><div class="es-stat-label">Last Sync</div></div>
+      <div class="es-stat"><div class="es-stat-value" id="es-ov-coverage">—</div><div class="es-stat-label">Coverage</div></div>
+      <div class="es-stat"><div class="es-stat-value" id="es-ov-aio-status">—</div><div class="es-stat-label">AIOStreams</div></div>
     </div>
+
+    <!-- Action buttons -->
+    <div style="display:flex;gap:.75em;flex-wrap:wrap">
+      <button type="button" is="emby-button" class="raised button-submit" id="es-ov-summon-btn"
+              data-es-action="ov-summon-marvin" style="display:none">Summon Marvin</button>
+      <button type="button" is="emby-button" class="raised button" id="es-ov-purge-btn"
+              data-es-action="ov-reset-purge" style="display:none">Reset &amp; Purge</button>
+    </div>
+
+    <!-- Reset & Purge dialog -->
+    <div id="es-ov-purge-dialog" style="display:none;margin-top:1em;background:rgba(220,53,69,0.06);border:1px solid rgba(220,53,69,0.2);border-radius:6px;padding:1em">
+      <div style="font-weight:600;color:#dc3545;margin-bottom:.5em">Reset &amp; Purge</div>
+      <div style="margin-bottom:.75em">
+        <label style="display:block;font-size:.88em;margin-bottom:.4em"><input type="radio" name="es-purge-mode" value="settings" checked /> Reset Settings — clear config, keep .strm files</label>
+        <label style="display:block;font-size:.88em;margin-bottom:.4em"><input type="radio" name="es-purge-mode" value="catalog" /> Purge Source Data — delete .strm files and catalog</label>
+        <label style="display:block;font-size:.88em;margin-bottom:.4em"><input type="radio" name="es-purge-mode" value="nuclear" /> Total Existence Failure — delete everything</label>
+      </div>
+      <div id="es-ov-purge-nuclear-confirm" style="display:none;margin-bottom:.5em">
+        <p style="font-size:.85em;margin:0 0 .4em">Type <code style="font-weight:700">VOGON</code> to confirm:</p>
+        <input id="es-ov-purge-input" type="text" is="emby-input" placeholder="VOGON" autocomplete="off"
+               style="width:140px;font-family:monospace;text-transform:uppercase" />
+      </div>
+      <div class="es-btn-row">
+        <button type="button" is="emby-button" class="raised button-cancel" data-es-action="ov-purge-execute">Execute</button>
+        <button type="button" is="emby-button" class="raised button" data-es-action="ov-purge-cancel">Cancel</button>
+      </div>
+      <div id="es-ov-purge-result" style="margin-top:.5em;display:none"></div>
+    </div>
+
+    <!-- Marvin status (inline) -->
+    <div id="es-ov-marvin-status" style="display:none;margin-top:.75em;font-size:.85em;opacity:.7"></div>
   </div>
 
 </div><!-- /overview tab -->
@@ -493,8 +495,8 @@
   <div class="es-card">
     <div style="overflow-x:auto">
       <table class="es-sources-table">
-        <thead><tr><th>Catalog Name</th><th>Type</th><th>Items</th><th>Status</th><th>Last Sync</th></tr></thead>
-        <tbody id="es-sources-body"><tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">Loading sources…</td></tr></tbody>
+        <thead><tr><th style="width:40px"></th><th>Catalog Name</th><th>Type</th><th>Items</th><th>Status</th><th>Last Sync</th></tr></thead>
+        <tbody id="es-sources-body"><tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">Loading sources…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -1020,69 +1022,6 @@
       <h4 style="font-size:.95em;margin:0 0 .5em">Pre-Warm Cache</h4>
       <p class="es-hint">Attempt to resolve stream URLs for all catalog items and store them in cache. This is <strong>optimistic</strong> — success depends on whether upstream debrid providers have the content cached and are not rate-limiting. Items that fail will simply be resolved on-demand when played.</p>
       <button type="button" is="emby-button" class="raised button-submit" data-es-task="link_resolver">Pre-Warm Cache Now</button>
-    </div>
-  </div>
-
-  <!-- Danger Zone card -->
-  <div class="es-card" style="border-color:rgba(220,53,69,0.35);background:rgba(220,53,69,0.04)">
-    <h3 style="color:#dc3545">Danger Zone</h3>
-
-    <div style="margin-bottom:1.2em">
-      <h4 style="font-size:.95em;margin:0 0 .5em">Recovery</h4>
-      <p style="font-size:.9em;opacity:.8;margin:0 0 .8em">Start fresh by clearing all InfiniteDrive settings. Your Emby library and .strm files are preserved — only configuration is reset.</p>
-      <button type="button" is="emby-button" class="raised button" data-es-action="reset-settings-confirm">Reset All Settings</button>
-      <div id="es-reset-result" style="margin-top:.6em;display:none"></div>
-    </div>
-
-    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
-
-    <div style="margin-bottom:1.2em">
-      <h4 style="font-size:.95em;margin:0 0 .5em">Purge Source Data</h4>
-      <p class="es-hint">Wipes all catalog items, .strm files and sync state from disk. Resolution cache is preserved.</p>
-      <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-confirm">Purge Source Data</button>
-      <div id="es-purge-confirm" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.25);border-radius:6px;padding:.8em;margin-top:.65em">
-        <div style="font-size:.9em;font-weight:600;color:#dc3545;margin-bottom:.4em">Are you sure?</div>
-        <p style="font-size:.85em;margin:0 0 .6em">All .strm files will be deleted from disk and source data wiped from the database. You'll need to run a Source Sync to rebuild. Your stream resolution cache is kept.</p>
-        <div class="es-btn-row">
-          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="purge-catalog-execute">Yes, Purge Source Data</button>
-          <button type="button" is="emby-button" class="raised button" data-es-action="purge-cancel">Cancel</button>
-        </div>
-      </div>
-    </div>
-
-    <hr style="margin:1.5em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
-
-    <div>
-      <h4 style="font-size:.95em;margin:0 0 .5em;color:#dc3545">Total Existence Failure</h4>
-      <p class="es-hint">Wipes <strong>everything</strong> — database, .strm files, <em>and</em> all configuration. Cannot be undone.</p>
-      <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step1">Total Existence Failure</button>
-      <div id="es-nuclear-step1" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.3);border-radius:6px;padding:.9em;margin-top:.5em">
-        <div style="font-size:1.1em;font-weight:900;color:#dc3545;letter-spacing:.05em;margin-bottom:.5em">STOP. READ THIS.</div>
-        <p style="font-size:.88em;line-height:1.6;margin:0 0 .5em">You are about to activate <strong>Total Perspective Vortex</strong> for InfiniteDrive. Unlike the original, this one will not merely show you your own insignificance in the universe — it will <strong>delete every trace of InfiniteDrive from your system</strong>:</p>
-        <ul style="font-size:.85em;line-height:1.8;margin:.25em 0 .5em 1.2em;padding:0">
-          <li>All source items, stream candidates, and resolution cache</li>
-          <li>All sync state, playback history, and client profiles</li>
-          <li>Every .strm and .nfo file written to your movie and shows folders</li>
-          <li><strong>Every configuration field</strong> — URLs, API keys, paths, everything</li>
-        </ul>
-        <p style="font-size:.85em;margin:0 0 .65em">Your AIOStreams instance itself is unaffected. <em style="color:#52b54b;font-weight:600">Don't Panic</em> — but maybe think twice.</p>
-        <div class="es-btn-row">
-          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-step2">I understand — continue →</button>
-          <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel (wise choice)</button>
-        </div>
-      </div>
-      <div id="es-nuclear-step2" style="display:none;background:rgba(220,53,69,0.08);border:1px solid rgba(220,53,69,0.4);border-radius:6px;padding:.9em;margin-top:.5em">
-        <div style="font-size:1em;font-weight:800;color:#dc3545;margin-bottom:.5em">ONE MORE WARNING.</div>
-        <p style="font-size:.88em;line-height:1.55;margin:0 0 .6em">The Vogon Constructor Fleet does not offer refunds. There is no undo button. No backup. No safety net. This is a <strong>one-way hyperspace bypass</strong>.</p>
-        <p style="font-size:.88em;margin:0 0 .6em">To confirm, type <code style="font-size:1em;font-weight:700;letter-spacing:.05em">VOGON</code> below:</p>
-        <div style="display:flex;gap:.6em;align-items:center;flex-wrap:wrap">
-          <input id="es-nuclear-confirm-input" type="text" is="emby-input" placeholder="type VOGON" autocomplete="off" style="width:140px;flex:0 0 auto;font-family:monospace;text-transform:uppercase" />
-          <button type="button" is="emby-button" class="raised button-cancel" data-es-action="nuclear-execute">EXECUTE — So Long, and Thanks for All the Streams</button>
-          <button type="button" is="emby-button" class="raised button" data-es-action="nuclear-cancel">Cancel</button>
-        </div>
-        <div id="es-nuclear-confirm-error" style="display:none;color:#dc3545;font-size:.82em;margin-top:.35em"></div>
-      </div>
-      <div id="es-nuclear-done" style="display:none"></div>
     </div>
   </div>
 
