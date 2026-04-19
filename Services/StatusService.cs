@@ -232,6 +232,10 @@ namespace InfiniteDrive.Services
 
         /// <summary>Summary of the last catalog-first episode sync run.</summary>
         public EpisodeSyncSummary? EpisodeSyncSummary { get; set; }
+
+        // Sprint 401: System state engine fields
+        public string SystemState { get; set; } = "unconfigured";
+        public string SystemStateDescription { get; set; } = string.Empty;
     }
 
     /// <summary>Connection status for an upstream service.</summary>
@@ -434,6 +438,15 @@ namespace InfiniteDrive.Services
                 AioStreamsIsStreamOnly   = config.AioStreamsIsStreamOnly,
                 AioStreamsStreamPrefixes = config.AioStreamsStreamIdPrefixes,
             };
+
+            // ── Sprint 401: System state engine ─────────────────────────────────
+            var stateService = Plugin.Instance?.SystemStateService;
+            if (stateService != null)
+            {
+                var state = await stateService.GetStateAsync();
+                response.SystemState = state.State.ToString().ToLowerInvariant();
+                response.SystemStateDescription = state.Description;
+            }
 
             // ── Manifest URL parsing for "Edit Manifest" button ─────────────────
             var manifestComponents = ManifestUrlParser.Parse(config.PrimaryManifestUrl);
