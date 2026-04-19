@@ -224,46 +224,94 @@ function (loading) {
                 // ── System state from Sprint 401 ────────────────────────────────
                 var state = data.SystemState || 'unconfigured';
                 var stateDesc = data.SystemStateDescription || '';
-                var isReady = state === 'ready' || state === 'degraded';
                 var isUnconfigured = state === 'unconfigured';
+                var isError = state === 'error';
+                var isConfigured = !isUnconfigured;
 
                 // State dot & label
                 var dotEl = q(view, 'es-ov-state-dot');
                 var labelEl = q(view, 'es-ov-state-label');
                 var descEl = q(view, 'es-ov-state-desc');
                 if (dotEl) {
-                    var dotClass = state === 'ready' ? 'es-health-dot es-health-dot-ok'
-                                 : state === 'degraded' ? 'es-health-dot es-health-dot-warn'
-                                 : 'es-health-dot es-health-dot-err';
-                    dotEl.className = dotClass;
+                    dotEl.className = state === 'ready' ? 'es-health-dot es-health-dot-ok'
+                                    : state === 'degraded' ? 'es-health-dot es-health-dot-warn'
+                                    : state === 'provisioning' ? 'es-health-dot es-health-dot-warn'
+                                    : 'es-health-dot es-health-dot-err';
                 }
                 if (labelEl) {
                     labelEl.textContent = state === 'ready' ? 'System Healthy'
                                         : state === 'degraded' ? 'Degraded'
+                                        : state === 'provisioning' ? 'Provisioning'
                                         : state === 'error' ? 'Error'
                                         : 'Setup Required';
+                    labelEl.style.color = state === 'ready' ? '#28a745'
+                                        : state === 'degraded' ? '#ffc107'
+                                        : state === 'provisioning' ? '#ffc107'
+                                        : '#dc3545';
                 }
                 if (descEl) descEl.textContent = stateDesc;
 
-                // Show/hide sections based on state
+                // ── Setup steps (when unconfigured) ─────────────────────────────
                 var setupSteps = view.querySelector('#es-ov-setup-steps');
+                var healthGrid = view.querySelector('#es-ov-health-grid');
                 var statsGrid = view.querySelector('#es-ov-stats');
                 var summonBtn = q(view, 'es-ov-summon-btn');
                 var purgeBtn = q(view, 'es-ov-purge-btn');
 
-                if (isUnconfigured) {
-                    if (setupSteps) setupSteps.style.display = 'block';
+                var hasProvider = !!(cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl);
+                var hasLibrary = !!(cfg.IsFirstRunComplete);
+                var hasLists = !!(cfg.TmdbApiKey || cfg.TraktClientId);
+
+                if (isUnconfigured || isError) {
+                    // Show setup steps with checkmarks
+                    if (setupSteps) {
+                        setupSteps.style.display = 'block';
+                        var stepProv = q(view, 'es-ov-step-provider');
+                        var stepLib = q(view, 'es-ov-step-libraries');
+                        var stepLists = q(view, 'es-ov-step-lists');
+                        if (stepProv) stepProv.innerHTML = '<span class="es-check-icon">' + (hasProvider ? '✅' : '1.') + '</span> ' + (hasProvider ? 'Provider connected' : '<a href="#" data-es-tab="providers">Connect a Provider</a>');
+                        if (stepLib) stepLib.innerHTML = '<span class="es-check-icon">' + (hasLibrary ? '✅' : '2.') + '</span> ' + (hasLibrary ? 'Libraries configured' : '<a href="#" data-es-tab="libraries">Set up Libraries</a>');
+                        if (stepLists) stepLists.innerHTML = '<span class="es-check-icon">' + (hasLists ? '✅' : '3.') + '</span> ' + (hasLists ? 'Lists added' : '<a href="#" data-es-tab="lists">Add Lists</a>') + ' <span style="opacity:.5">(optional)</span>';
+                    }
+                    if (healthGrid) healthGrid.style.display = 'none';
                     if (statsGrid) statsGrid.style.display = 'none';
                     if (summonBtn) summonBtn.style.display = 'none';
-                    if (purgeBtn) purgeBtn.style.display = 'none';
+                    if (purgeBtn) purgeBtn.style.display = hasProvider || hasLibrary ? '' : 'none';
                 } else {
+                    // Configured — show health grid and stats
                     if (setupSteps) setupSteps.style.display = 'none';
+
+                    // Health grid
+                    if (healthGrid) {
+                        healthGrid.style.display = 'grid';
+                        var provDot = q(view, 'es-ov-provider-dot');
+                        var provText = q(view, 'es-ov-provider-text');
+                        if (provDot && provText) {
+                            var aioOk = data.AioStreams && data.AioStreams.Ok;
+                            provDot.className = 'es-health-dot ' + (hasProvider ? (aioOk ? 'es-health-dot-ok' : 'es-health-dot-err') : 'es-health-dot-err');
+                            provText.textContent = hasProvider ? (aioOk ? 'Connected' : 'Unreachable') : 'Not configured';
+                        }
+                        var libDot = q(view, 'es-ov-library-dot');
+                        var libText = q(view, 'es-ov-library-text');
+                        if (libDot && libText) {
+                            libDot.className = 'es-health-dot ' + (hasLibrary ? 'es-health-dot-ok' : 'es-health-dot-err');
+                            libText.textContent = hasLibrary ? (data.CatalogItemCount || 0) + ' items' : 'Not set up';
+                        }
+                        var filterDot = q(view, 'es-ov-filter-dot');
+                        var filterText = q(view, 'es-ov-filter-text');
+                        if (filterDot && filterText) {
+                            var hasKey = !!(cfg.TmdbApiKey);
+                            filterDot.className = 'es-health-dot ' + (hasKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
+                            filterText.textContent = hasKey ? 'Enabled' : 'Disabled';
+                        }
+                    }
+
+                    // Stats
                     if (statsGrid) {
                         statsGrid.style.display = 'grid';
                         statsGrid.style.gridTemplateColumns = 'repeat(auto-fill,minmax(120px,1fr))';
                         statsGrid.style.gap = '.75em';
                         statsGrid.style.marginBottom = '.75em';
-                        // Populate stats
                         var countEl = q(view, 'es-ov-catalog-count');
                         if (countEl) countEl.textContent = data.CatalogItemCount || 0;
                         var syncEl = q(view, 'es-ov-last-sync');
@@ -279,6 +327,7 @@ function (loading) {
                             aioEl.style.color = data.AioStreams && data.AioStreams.Ok ? '#28a745' : '#dc3545';
                         }
                     }
+
                     if (summonBtn) summonBtn.style.display = '';
                     if (purgeBtn) purgeBtn.style.display = '';
                 }
@@ -364,26 +413,19 @@ function (loading) {
                         editBtn.style.display = 'none';
                     }
                 }
+                // Secondary edit button from server-side parsed URL
+                var backupEditBtn = view.querySelector('#prov-backup-edit-btn');
+                if (backupEditBtn) {
+                    if (data.SecondaryManifestConfigureUrl) {
+                        backupEditBtn._configureUrl = data.SecondaryManifestConfigureUrl;
+                        backupEditBtn.style.display = '';
+                    } else {
+                        backupEditBtn.style.display = 'none';
+                    }
+                }
                 // Status pills
                 updateStatusPills(view, data);
             }).catch(function() {});
-
-        // Backup edit button — derive configure URL from backup manifest URL
-        function updateBackupEditBtn() {
-            var backupEditBtn = view.querySelector('#prov-backup-edit-btn');
-            if (!backupEditBtn) return;
-            var url = (view.querySelector('#prov-backup-url') || {}).value || '';
-            var parsed = parseManifestUrl(url);
-            if (parsed) {
-                backupEditBtn._configureUrl = parsed.configureUrl;
-                backupEditBtn.style.display = '';
-            } else {
-                backupEditBtn.style.display = 'none';
-            }
-        }
-        updateBackupEditBtn();
-        var backupInput = view.querySelector('#prov-backup-url');
-        if (backupInput) backupInput.addEventListener('input', updateBackupEditBtn);
 
         // Display "last rotated" timestamp
         var agoEl = view.querySelector('#sec-rotated-ago');
