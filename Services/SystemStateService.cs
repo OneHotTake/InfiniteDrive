@@ -10,12 +10,11 @@ namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Centralized state engine for InfiniteDrive system health.
-    /// Persists state snapshots to DatabaseManager metadata store.
+    /// Always evaluates live — config fields and DB counts are cheap.
     /// </summary>
     public class SystemStateService
     {
         private const string CacheKey = "system_state_snapshot";
-        private const int CacheTtlMinutes = 30;
 
         private readonly DatabaseManager _database;
 
@@ -29,7 +28,7 @@ namespace InfiniteDrive.Services
             var config = Plugin.Instance?.Configuration;
             var snapshot = new SystemSnapshot { EvaluatedAt = DateTime.UtcNow.ToString("o") };
 
-            // Provider health
+            // Provider health — derive reachability from StatusService health cache
             snapshot.PrimaryProvider = EvaluateProvider("primary", config?.PrimaryManifestUrl);
             snapshot.SecondaryProvider = EvaluateProvider("secondary", config?.SecondaryManifestUrl);
 
@@ -39,26 +38,22 @@ namespace InfiniteDrive.Services
             // Overall state
             DetermineSystemState(snapshot);
 
-            // Persist
+            // Persist for diagnostics
             await PersistStateAsync(snapshot, ct);
             return snapshot;
         }
 
         public async Task<SystemSnapshot> GetStateAsync(CancellationToken ct = default)
         {
-            var json = _database.GetMetadata(CacheKey);
-            if (!string.IsNullOrEmpty(json))
-            {
-                try { return JsonSerializer.Deserialize<SystemSnapshot>(json) ?? new SystemSnapshot(); }
-                catch { /* corrupt cache, re-evaluate */ }
-            }
+            // Always re-evaluate — config changes must be reflected immediately
             return await EvaluateStateAsync(ct);
         }
 
         public async Task<SystemSnapshot> UpdateProviderTestAsync(
             string providerId, bool isReachable, int latencyMs, string message, CancellationToken ct = default)
         {
-            var snapshot = await GetStateAsync(ct);
+            // Re-evaluate then override the specific provider's reachability
+            var snapshot = await EvaluateStateAsync(ct);
             var provider = providerId.Equals("primary", StringComparison.OrdinalIgnoreCase)
                 ? snapshot.PrimaryProvider : snapshot.SecondaryProvider;
 
@@ -66,7 +61,6 @@ namespace InfiniteDrive.Services
             provider.LastTestAt = DateTime.UtcNow.ToString("o");
             provider.LatencyMs = latencyMs;
             provider.Message = message;
-            provider.ExpiresAt = DateTime.UtcNow.AddMinutes(CacheTtlMinutes).ToString("o");
 
             DetermineSystemState(snapshot);
             await PersistStateAsync(snapshot, ct);
@@ -158,15 +152,10 @@ namespace InfiniteDrive.Services
                 s.Description = "Some providers unreachable";
                 return;
             }
-            if (!s.AnyProviderReachable && (s.PrimaryProvider.IsConfigured || s.SecondaryProvider.IsConfigured))
-            {
-                // Configured but never tested — treat as Ready (trust config)
-                s.State = SystemStateEnum.Ready;
-                s.Description = "System ready (providers not yet tested)";
-                return;
-            }
+            // Configured (and libraries configured) = Ready
+            // Provider reachability comes from explicit tests — absence = trust config
             s.State = SystemStateEnum.Ready;
-            s.Description = "System healthy";
+            s.Description = s.AnyProviderReachable ? "System healthy" : "System ready (providers not yet tested)";
         }
 
         private async Task PersistStateAsync(SystemSnapshot snapshot, CancellationToken ct)

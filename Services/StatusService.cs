@@ -175,6 +175,9 @@ namespace InfiniteDrive.Services
         /// <summary>URL to edit the AIOStreams manifest configuration.</summary>
         public string? ManifestConfigureUrl { get; set; }
 
+        /// <summary>URL to edit the secondary AIOStreams manifest configuration.</summary>
+        public string? SecondaryManifestConfigureUrl { get; set; }
+
         /// <summary>Host of the AIOStreams instance.</summary>
         public string? ManifestHost { get; set; }
 
@@ -448,10 +451,13 @@ namespace InfiniteDrive.Services
                 response.SystemStateDescription = state.Description;
             }
 
-            // ── Manifest URL parsing for "Edit Manifest" button ─────────────────
+            // ── Manifest URL parsing for "Edit Manifest" buttons ─────────────────
             var manifestComponents = ManifestUrlParser.Parse(config.PrimaryManifestUrl);
             response.ManifestConfigureUrl = manifestComponents?.ConfigureUrl;
             response.ManifestHost = manifestComponents?.Host;
+
+            var secondaryComponents = ManifestUrlParser.Parse(config.SecondaryManifestUrl);
+            response.SecondaryManifestConfigureUrl = secondaryComponents?.ConfigureUrl;
 
             // ── Health check caching: test once on first call, then cache indefinitely ─
             // Users can click a "Refresh" button to manually re-test.
@@ -469,6 +475,36 @@ namespace InfiniteDrive.Services
                 _cachedCatalogNames = await FetchCatalogNamesAsync(config);
 
                 _healthChecked = true;
+
+                // Feed test results into state engine so state reflects reachability
+                try
+                {
+                    var sysState = Plugin.Instance?.SystemStateService;
+                    if (sysState != null)
+                    {
+                        if (_cachedAioStreamsHealth != null && !string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+                        {
+                            await sysState.UpdateProviderTestAsync("primary",
+                                _cachedAioStreamsHealth.Ok,
+                                _cachedAioStreamsHealth.LatencyMs,
+                                _cachedAioStreamsHealth.Message ?? "",
+                                CancellationToken.None);
+                        }
+                        // Secondary provider from Providers list
+                        if (_cachedProviderHealth != null)
+                        {
+                            var secondary = _cachedProviderHealth.Find(p =>
+                                (p.DisplayName ?? "").IndexOf("secondary", StringComparison.OrdinalIgnoreCase) >= 0);
+                            if (secondary != null && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+                            {
+                                await sysState.UpdateProviderTestAsync("secondary",
+                                    secondary.Ok, secondary.LatencyMs,
+                                    secondary.Message ?? "", CancellationToken.None);
+                            }
+                        }
+                    }
+                }
+                catch { /* best effort — don't fail status if state update fails */ }
             }
 
             // Use cached results

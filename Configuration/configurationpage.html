@@ -148,11 +148,11 @@
 
   <!-- System State card — single authority -->
   <div class="es-card es-card-accent" id="es-card-state">
-    <div style="display:flex;align-items:center;gap:.75em;margin-bottom:.75em">
-      <div id="es-ov-state-dot" class="es-health-dot es-health-dot-err" style="width:16px;height:16px;flex-shrink:0"></div>
+    <div style="display:flex;align-items:center;gap:.75em;margin-bottom:.5em">
+      <div id="es-ov-state-dot" class="es-health-dot es-health-dot-err" style="width:14px;height:14px;flex-shrink:0"></div>
       <div>
-        <div id="es-ov-state-label" style="font-weight:700;font-size:1.1em">Checking…</div>
-        <div id="es-ov-state-desc" style="font-size:.85em;opacity:.65"></div>
+        <div id="es-ov-state-label" style="font-weight:700;font-size:1.05em">Checking…</div>
+        <div id="es-ov-state-desc" style="font-size:.82em;opacity:.65"></div>
       </div>
     </div>
 
@@ -160,24 +160,46 @@
     <div id="es-ov-setup-steps" style="display:none;font-size:.88em;margin-bottom:.75em">
       <div id="es-ov-step-provider" class="es-checklist-step"><span class="es-check-icon">1.</span> <a href="#" data-es-tab="providers">Connect a Provider</a></div>
       <div id="es-ov-step-libraries" class="es-checklist-step"><span class="es-check-icon">2.</span> <a href="#" data-es-tab="libraries">Set up Libraries</a></div>
+      <div id="es-ov-step-lists" class="es-checklist-step"><span class="es-check-icon">3.</span> <a href="#" data-es-tab="lists">Add Lists</a> <span style="opacity:.5">(optional)</span></div>
     </div>
 
-    <!-- Stats row (shown when configured) -->
+    <!-- Health grid — always visible when configured -->
+    <div id="es-ov-health-grid" style="display:none;grid-template-columns:repeat(3,1fr);gap:.5em;margin-bottom:.75em">
+      <div style="text-align:center;padding:.5em">
+        <div id="es-ov-provider-dot" class="es-health-dot es-health-dot-err" style="margin:0 auto .3em"></div>
+        <div style="font-size:.82em;font-weight:600">Provider</div>
+        <div id="es-ov-provider-text" style="font-size:.75em;opacity:.55">Unknown</div>
+      </div>
+      <div style="text-align:center;padding:.5em">
+        <div id="es-ov-library-dot" class="es-health-dot es-health-dot-err" style="margin:0 auto .3em"></div>
+        <div style="font-size:.82em;font-weight:600">Library</div>
+        <div id="es-ov-library-text" style="font-size:.75em;opacity:.55">Unknown</div>
+      </div>
+      <div style="text-align:center;padding:.5em">
+        <div id="es-ov-filter-dot" class="es-health-dot es-health-dot-warn" style="margin:0 auto .3em"></div>
+        <div style="font-size:.82em;font-weight:600">Filtering</div>
+        <div id="es-ov-filter-text" style="font-size:.75em;opacity:.55">Unknown</div>
+      </div>
+    </div>
+
+    <!-- Stats row -->
     <div id="es-ov-stats" style="display:none">
       <div class="es-stat"><div class="es-stat-value" id="es-ov-catalog-count">—</div><div class="es-stat-label">Items</div></div>
       <div class="es-stat"><div class="es-stat-value" id="es-ov-last-sync">—</div><div class="es-stat-label">Last Sync</div></div>
       <div class="es-stat"><div class="es-stat-value" id="es-ov-coverage">—</div><div class="es-stat-label">Coverage</div></div>
       <div class="es-stat"><div class="es-stat-value" id="es-ov-aio-status">—</div><div class="es-stat-label">AIOStreams</div></div>
     </div>
+  </div>
 
-    <!-- Action buttons -->
+  <!-- Actions card -->
+  <div class="es-card">
+    <div class="es-card-title">Actions</div>
     <div style="display:flex;gap:.75em;flex-wrap:wrap">
       <button type="button" is="emby-button" class="raised button-submit" id="es-ov-summon-btn"
               data-es-action="ov-summon-marvin" style="display:none">Summon Marvin</button>
       <button type="button" is="emby-button" class="raised button" id="es-ov-purge-btn"
               data-es-action="ov-reset-purge" style="display:none">Reset &amp; Purge</button>
     </div>
-
     <!-- Reset & Purge dialog -->
     <div id="es-ov-purge-dialog" style="display:none;margin-top:1em;background:rgba(220,53,69,0.06);border:1px solid rgba(220,53,69,0.2);border-radius:6px;padding:1em">
       <div style="font-weight:600;color:#dc3545;margin-bottom:.5em">Reset &amp; Purge</div>
@@ -197,9 +219,6 @@
       </div>
       <div id="es-ov-purge-result" style="margin-top:.5em;display:none"></div>
     </div>
-
-    <!-- Marvin status (inline) -->
-    <div id="es-ov-marvin-status" style="display:none;margin-top:.75em;font-size:.85em;opacity:.7"></div>
   </div>
 
 </div><!-- /overview tab -->
