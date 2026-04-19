@@ -1,7 +1,8 @@
-<div id="InfiniteDriveConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
-     data-require="emby-input,emby-button,emby-checkbox,emby-textarea"
-     data-controller="__plugin/InfiniteDriveConfigJS">
- <div class="content-primary">
+<div is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
+     data-bindheader="true" data-controller="__plugin/InfiniteDriveConfigJS"
+     data-title="InfiniteDrive">
+<div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
 
 <style>
 /* All colors use rgba(128,128,128,...) so they adapt to both Emby light and dark themes. */
@@ -1186,5 +1187,5 @@
 
 </div><!-- #es-page -->
 
-  </div><!-- content-primary -->
-</div><!-- InfiniteDriveConfigPage -->
+</div><!-- scrollSlider -->
+</div><!-- emby-scroller -->

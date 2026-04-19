@@ -1,5 +1,5 @@
-define(['loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea'],
-function (loading) {
+define(['baseView', 'loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea'],
+function (BaseView, loading) {
     'use strict';
 
     var pluginId = '3c45a87e-2b4f-4d1a-9e73-8f12c3456789';
@@ -3704,17 +3704,22 @@ function (loading) {
         }
     }
 
-    // ── Module export — simple function pattern (like HomeScreenCompanion) ──────
-    return function (view) {
-        // Bind all event listeners
+    // ── Module export — BaseView pattern (required for is="emby-scroller" pages) ──
+    function View(view, params) {
+        BaseView.apply(this, arguments);
         initView(view);
+    }
 
-        // Load config on view show
-        view.addEventListener('viewshow', function () {
-            loadConfig(view);
-        });
+    Object.assign(View.prototype, BaseView.prototype);
 
-        // Cleanup on view hide
-        view.addEventListener('viewhide', cleanup);
+    View.prototype.onResume = function (options) {
+        BaseView.prototype.onResume.apply(this, arguments);
+        loadConfig(this.view);
     };
+
+    View.prototype.onPause = function () {
+        cleanup();
+    };
+
+    return View;
 });
