@@ -182,7 +182,7 @@ function (loading) {
         if (name === 'metadata')   { loadMetadataTab(view); }
         if (name === 'parental')   { loadBlockedItems(view); }
         if (name === 'inspector')  { refreshDashboard(view); loadImprobabilityStatus(view);
-                                          if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 10000); }
+                                          if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 30000); }
         if (name !== 'inspector') {
             if (_dashInterval) { clearInterval(_dashInterval); _dashInterval = null; }
         }
@@ -1931,7 +1931,7 @@ function (loading) {
                 if (data.Status === 'ok') {
                     if (typeof Dashboard !== 'undefined') Dashboard.alert({ message: 'Task started. Check the Inspector tab for progress.' });
                     setTimeout(function() { refreshDashboard(view); }, 3000);
-                    setTimeout(function() { refreshDashboard(view); }, 10000);
+                    setTimeout(function() { refreshDashboard(view); }, 30000);
                     if (taskKey === 'catalog_sync') { startCatalogPoll(view, 'cfg'); startCatalogPoll(view, 'wiz'); }
                 } else { Dashboard.alert('Error: ' + (data.Message || 'unknown')); }
             })
