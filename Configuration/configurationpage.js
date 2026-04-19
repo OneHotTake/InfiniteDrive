@@ -99,14 +99,14 @@ function (loading) {
         var tbody = q(view, 'es-sources-body');
         if (!tbody) return;
 
-        tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">Loading sources…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">Loading sources…</td></tr>';
 
         esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var sources = data.SyncStates || [];
                 if (!sources.length) {
-                    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">No sources synced yet. Click Sync Sources to fetch catalogs.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">No sources synced yet. Click Sync Sources to fetch catalogs.</td></tr>';
                     return;
                 }
 
@@ -118,22 +118,15 @@ function (loading) {
                     else if (key.indexOf(':series:') !== -1) type = 'series';
                     else if (key.indexOf(':anime:') !== -1) type = 'anime';
 
-                    // Derive a readable catalog name from the source key
                     var label;
                     if (key === 'aiostreams') {
                         label = 'All Sources';
                         type = 'aggregate';
                     } else if (key.indexOf(':') !== -1) {
-                        // e.g. "aio:movie:b49e3b0.tmdb.top" → catalog name
                         label = src.DisplayName || key.split(':').slice(2).join(':');
                     } else {
                         label = key;
                     }
-
-                    var typeStyle = type==='movie'?'background:rgba(0,164,220,0.2);color:#7ecbdf':
-                                    type==='series'?'background:rgba(40,167,69,0.2);color:#7de98d':
-                                    type==='anime'?'background:rgba(255,193,7,0.2);color:#ffd454':
-                                    'background:rgba(128,128,128,.12);color:inherit';
 
                     var statusBadge = src.Status === 'ok'
                         ? '<span class="es-badge es-badge-ok">OK</span>'
@@ -145,10 +138,13 @@ function (loading) {
 
                     var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
                     var itemCount = src.ItemCount || 0;
+                    var enabled = src.Enabled !== false;
+                    var chkId = 'es-src-chk-' + key.replace(/[^a-zA-Z0-9]/g, '_');
 
                     html += '<tr>' +
+                        '<td><input type="checkbox" is="emby-checkbox" id="' + chkId + '" data-src-key="' + esc(key) + '"' + (enabled ? ' checked' : '') + ' /></td>' +
                         '<td>' + esc(label) + '</td>' +
-                        '<td><span class="es-type-badge" style="' + typeStyle + '">' + esc(type) + '</span></td>' +
+                        '<td style="opacity:.65">' + esc(type) + '</td>' +
                         '<td>' + itemCount + '</td>' +
                         '<td>' + statusBadge + '</td>' +
                         '<td style="font-size:.85em;opacity:.6">' + lastSync + '</td>' +
@@ -157,7 +153,7 @@ function (loading) {
                 tbody.innerHTML = html;
             })
             .catch(function(err) {
-                tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4;text-align:center;padding:2em">Failed to load sources</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">Failed to load sources</td></tr>';
             });
     }
 
@@ -222,58 +218,69 @@ function (loading) {
         if (!_loadedConfig) return;
         var cfg = _loadedConfig;
 
-        // Setup checklist
-        evaluateGettingStarted(view, cfg);
-
-        // Sync status and health
         esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                // Last sync
-                var syncEl = q(view, 'es-ov-last-sync');
-                if (syncEl) syncEl.textContent = data.RefreshLastRunAt ? fmtDate(data.RefreshLastRunAt) : 'Never';
+                // ── System state from Sprint 401 ────────────────────────────────
+                var state = data.SystemState || 'unconfigured';
+                var stateDesc = data.SystemStateDescription || '';
+                var isReady = state === 'ready' || state === 'degraded';
+                var isUnconfigured = state === 'unconfigured';
 
-                // Catalog count
-                var countEl = q(view, 'es-ov-catalog-count');
-                if (countEl) countEl.textContent = data.CatalogItemCount || 0;
-
-                // Coverage
-                var covEl = q(view, 'es-ov-coverage');
-                if (covEl) {
-                    var pct = data.Coverage && data.Coverage.Total > 0 ? Math.round(data.Coverage.Valid / data.Coverage.Total * 100) : 0;
-                    covEl.textContent = pct + '%';
+                // State dot & label
+                var dotEl = q(view, 'es-ov-state-dot');
+                var labelEl = q(view, 'es-ov-state-label');
+                var descEl = q(view, 'es-ov-state-desc');
+                if (dotEl) {
+                    var dotClass = state === 'ready' ? 'es-health-dot es-health-dot-ok'
+                                 : state === 'degraded' ? 'es-health-dot es-health-dot-warn'
+                                 : 'es-health-dot es-health-dot-err';
+                    dotEl.className = dotClass;
                 }
-
-                // AIO status
-                var aioEl = q(view, 'es-ov-aio-status');
-                if (aioEl) {
-                    aioEl.textContent = data.AioStreams && data.AioStreams.Ok ? 'Online' : 'Offline';
-                    aioEl.style.color = data.AioStreams && data.AioStreams.Ok ? '#28a745' : '#dc3545';
+                if (labelEl) {
+                    labelEl.textContent = state === 'ready' ? 'System Healthy'
+                                        : state === 'degraded' ? 'Degraded'
+                                        : state === 'error' ? 'Error'
+                                        : 'Setup Required';
                 }
+                if (descEl) descEl.textContent = stateDesc;
 
-                // Quick health grid
-                var provDot = q(view, 'es-ov-provider-dot');
-                var provText = q(view, 'es-ov-provider-text');
-                if (provDot && provText) {
-                    var hasProvider = cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl;
-                    provDot.className = 'es-health-dot ' + (hasProvider ? (data.AioStreams && data.AioStreams.Ok ? 'es-health-dot-ok' : 'es-health-dot-err') : 'es-health-dot-err');
-                    provText.textContent = hasProvider ? (data.AioStreams && data.AioStreams.Ok ? 'Connected' : 'Unreachable') : 'Not configured';
-                }
+                // Show/hide sections based on state
+                var setupSteps = view.querySelector('#es-ov-setup-steps');
+                var statsGrid = view.querySelector('#es-ov-stats');
+                var summonBtn = q(view, 'es-ov-summon-btn');
+                var purgeBtn = q(view, 'es-ov-purge-btn');
 
-                var libDot = q(view, 'es-ov-library-dot');
-                var libText = q(view, 'es-ov-library-text');
-                if (libDot && libText) {
-                    var hasLib = cfg.IsFirstRunComplete;
-                    libDot.className = 'es-health-dot ' + (hasLib ? 'es-health-dot-ok' : 'es-health-dot-err');
-                    libText.textContent = hasLib ? (data.CatalogItemCount || 0) + ' items synced' : 'Not set up';
-                }
-
-                var filterDot = q(view, 'es-ov-filter-dot');
-                var filterText = q(view, 'es-ov-filter-text');
-                if (filterDot && filterText) {
-                    var hasKey = !!(cfg.TmdbApiKey);
-                    filterDot.className = 'es-health-dot ' + (hasKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
-                    filterText.textContent = hasKey ? 'Enabled' : 'Disabled';
+                if (isUnconfigured) {
+                    if (setupSteps) setupSteps.style.display = 'block';
+                    if (statsGrid) statsGrid.style.display = 'none';
+                    if (summonBtn) summonBtn.style.display = 'none';
+                    if (purgeBtn) purgeBtn.style.display = 'none';
+                } else {
+                    if (setupSteps) setupSteps.style.display = 'none';
+                    if (statsGrid) {
+                        statsGrid.style.display = 'grid';
+                        statsGrid.style.gridTemplateColumns = 'repeat(auto-fill,minmax(120px,1fr))';
+                        statsGrid.style.gap = '.75em';
+                        statsGrid.style.marginBottom = '.75em';
+                        // Populate stats
+                        var countEl = q(view, 'es-ov-catalog-count');
+                        if (countEl) countEl.textContent = data.CatalogItemCount || 0;
+                        var syncEl = q(view, 'es-ov-last-sync');
+                        if (syncEl) syncEl.textContent = data.RefreshLastRunAt ? fmtRelative(new Date(data.RefreshLastRunAt)) : 'Never';
+                        var covEl = q(view, 'es-ov-coverage');
+                        if (covEl) {
+                            var pct = data.Coverage && data.Coverage.Total > 0 ? Math.round(data.Coverage.Valid / data.Coverage.Total * 100) : 0;
+                            covEl.textContent = pct + '%';
+                        }
+                        var aioEl = q(view, 'es-ov-aio-status');
+                        if (aioEl) {
+                            aioEl.textContent = data.AioStreams && data.AioStreams.Ok ? 'Online' : 'Offline';
+                            aioEl.style.color = data.AioStreams && data.AioStreams.Ok ? '#28a745' : '#dc3545';
+                        }
+                    }
+                    if (summonBtn) summonBtn.style.display = '';
+                    if (purgeBtn) purgeBtn.style.display = '';
                 }
 
                 // Provider inline health
@@ -315,7 +322,6 @@ function (loading) {
                 // Security: show Generated date
                 var genDateEl = q(view, 'sec-generated-date');
                 if (genDateEl) {
-                    // Best guess: if never rotated, generated ~= plugin install time
                     genDateEl.textContent = 'at plugin setup' + (cfg.PluginSecretRotatedAt ? '' : ' (never rotated)');
                 }
 
@@ -2536,6 +2542,11 @@ function (loading) {
             case 'admin-lists-refresh-all': refreshAllAdminLists(view); break;
             case 'admin-list-refresh': refreshOneAdminList(view, el); break;
             case 'admin-list-remove': removeAdminList(view, el); break;
+            // Sprint 402 — Overview actions
+            case 'ov-summon-marvin':    summonMarvin(view); break;
+            case 'ov-reset-purge':      toggleOvPurgeDialog(view, true); break;
+            case 'ov-purge-cancel':     toggleOvPurgeDialog(view, false); break;
+            case 'ov-purge-execute':    executeOvPurge(view); break;
         }
     }
 
@@ -3074,6 +3085,71 @@ function (loading) {
 
 
 
+    // ── Sprint 402: Overview Reset & Purge ───────────────────────────────────
+    function toggleOvPurgeDialog(view, show) {
+        var dlg = view.querySelector('#es-ov-purge-dialog');
+        if (!dlg) return;
+        dlg.style.display = show ? 'block' : 'none';
+        var resultEl = view.querySelector('#es-ov-purge-result');
+        if (resultEl) resultEl.style.display = 'none';
+        // Listen for radio changes to show/hide nuclear confirm
+        var radios = dlg.querySelectorAll('input[name="es-purge-mode"]');
+        function updateNuclear() {
+            var sel = dlg.querySelector('input[name="es-purge-mode"]:checked');
+            var nucConfirm = view.querySelector('#es-ov-purge-nuclear-confirm');
+            if (nucConfirm) nucConfirm.style.display = (sel && sel.value === 'nuclear') ? 'block' : 'none';
+        }
+        radios.forEach(function(r) { r.onchange = updateNuclear; });
+        updateNuclear();
+    }
+
+    function executeOvPurge(view) {
+        var dlg = view.querySelector('#es-ov-purge-dialog');
+        if (!dlg) return;
+        var sel = dlg.querySelector('input[name="es-purge-mode"]:checked');
+        var mode = sel ? sel.value : 'settings';
+        var resultEl = view.querySelector('#es-ov-purge-result');
+
+        if (mode === 'nuclear') {
+            var inp = q(view, 'es-ov-purge-input');
+            var confirm = inp ? inp.value.trim().toUpperCase() : '';
+            if (confirm !== 'VOGON') {
+                if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '<span style="color:#dc3545">Type VOGON to confirm.</span>'; }
+                return;
+            }
+        }
+
+        if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '⏳ Executing…'; }
+
+        if (mode === 'settings') {
+            resetSettingsConfirm(view);
+            if (resultEl) { resultEl.innerHTML = '✓ Settings reset. Reloading…'; setTimeout(function() { window.location.reload(); }, 1500); }
+        } else if (mode === 'catalog') {
+            esFetch('/InfiniteDrive/Trigger?task=purge_catalog', {method:'POST'})
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (resultEl) resultEl.innerHTML = d.Status === 'ok'
+                        ? '✓ Source data purged.'
+                        : '<span style="color:#dc3545">✗ ' + esc(d.Message || 'Failed') + '</span>';
+                })
+                .catch(function(err) {
+                    if (resultEl) resultEl.innerHTML = '<span style="color:#dc3545">✗ ' + esc(err.message) + '</span>';
+                });
+        } else if (mode === 'nuclear') {
+            esFetch('/InfiniteDrive/Trigger?task=reset_all', {method:'POST'})
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (resultEl) resultEl.innerHTML = d.Status === 'ok'
+                        ? '✓ Everything deleted. Reloading…'
+                        : '<span style="color:#dc3545">✗ ' + esc(d.Message || 'Failed') + '</span>';
+                    if (d.Status === 'ok') setTimeout(function() { window.location.reload(); }, 1500);
+                })
+                .catch(function(err) {
+                    if (resultEl) resultEl.innerHTML = '<span style="color:#dc3545">✗ ' + esc(err.message) + '</span>';
+                });
+        }
+    }
+
     // ── Advanced settings & debug collapsibles ────────────────────────────────
 
     function toggleAdvanced(view) {
@@ -3177,7 +3253,7 @@ function (loading) {
             doneEl.innerHTML = '<div class="es-alert es-alert-info" style="margin:0">⏳ The Vogon Constructor Fleet is at work… deleting everything… please wait…</div>';
         }
 
-        esFetch('/InfiniteDrive/Trigger?task=nuclear_reset', {method:'POST'})
+        esFetch('/InfiniteDrive/Trigger?task=reset_all', {method:'POST'})
             .then(function(r) { return r.json(); })
             .then(function(d) {
                 if (d.Status === 'ok') {
