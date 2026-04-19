@@ -1,5 +1,5 @@
-define(['baseView', 'loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea'],
-function (BaseView, loading) {
+define(['loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea'],
+function (loading) {
     'use strict';
 
     var pluginId = '3c45a87e-2b4f-4d1a-9e73-8f12c3456789';
@@ -3704,22 +3704,16 @@ function (BaseView, loading) {
         }
     }
 
-    // ── Module export — BaseView pattern (required for is="emby-scroller" pages) ──
-    function View(view, params) {
-        BaseView.apply(this, arguments);
+    // ── Module export ──────────────────────────────────────────────────────────
+    return function (view) {
         initView(view);
-    }
-
-    Object.assign(View.prototype, BaseView.prototype);
-
-    View.prototype.onResume = function (options) {
-        BaseView.prototype.onResume.apply(this, arguments);
-        loadConfig(this.view);
+        view.addEventListener('viewshow', function () {
+            // Emby keeps restored views at their original DOM position (position:absolute).
+            // Later-appended pages paint on top, so move this view to the end of its
+            // parent so it is always topmost when navigated to.
+            if (view.parentNode) { view.parentNode.appendChild(view); }
+            loadConfig(view);
+        });
+        view.addEventListener('viewhide', cleanup);
     };
-
-    View.prototype.onPause = function () {
-        cleanup();
-    };
-
-    return View;
 });
