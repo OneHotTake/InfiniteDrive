@@ -605,7 +605,10 @@ function (loading) {
                 ApiClient.getPluginConfiguration(pluginId)
                     .then(function(full) { _loadedConfig = full; })
                     .catch(function() { _loadedConfig = cfg; });
-                esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'}).catch(function(){});
+                esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'})
+                    .then(function(r) { if (!r.ok) console.warn('[InfiniteDrive] ProvisionLibraries failed:', r.status); })
+                    .catch(function(e) { console.warn('[InfiniteDrive] ProvisionLibraries error:', e); });
+                afterSave(view);
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
@@ -791,6 +794,29 @@ function (loading) {
         setTimeout(function() { if (btn) btn.textContent = 'Save'; }, 3000);
     }
 
+    // Sprint 403: Post-save state refresh — clear health cache, summon Marvin, refresh UI
+    function afterSave(view) {
+        // 1. Clear health check cache so next status fetch re-tests providers
+        esFetch('/InfiniteDrive/Status/Refresh', {method:'POST'}).then(function(r) { return r.json(); })
+            .then(function(freshData) {
+                // 2. Refresh Overview tab with fresh data (even if not currently visible)
+                try { loadOverviewTab(view); } catch(e) {}
+            }).catch(function() {});
+
+        // 3. Summon Marvin if not already running (fire and forget)
+        try { summonMarvinQuiet(); } catch(e) {}
+    }
+
+    // Summon Marvin without UI feedback (quiet mode for post-save)
+    function summonMarvinQuiet() {
+        ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
+            var task = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveMarvin'; });
+            if (task && task.State !== 'Running') {
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) });
+            }
+        }).catch(function() {});
+    }
+
     function openProviderEdit(view, configureUrl) {
         if (!configureUrl) return;
         ApiClient.getCurrentUser().then(function(user) {
@@ -818,6 +844,7 @@ function (loading) {
                     .then(function(full) { _loadedConfig = full; })
                     .catch(function() { _loadedConfig = cfg; });
                 updateFilterStatus(view, cfg.TmdbApiKey);
+                afterSave(view);
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
@@ -880,7 +907,9 @@ function (loading) {
                 animateSyncProgress(view);
 
                 // Trigger catalog sync
-                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'}).catch(function(){});
+                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'})
+                    .then(function(r) { if (!r.ok) console.warn('[InfiniteDrive] catalog_sync trigger failed:', r.status); })
+                    .catch(function(e) { console.warn('[InfiniteDrive] catalog_sync trigger error:', e); });
 
                 // Start catalog progress polling
                 startCatalogPoll(view, 'cfg');
@@ -1440,7 +1469,9 @@ function (loading) {
                 animateSyncProgress(view);
                 // Create Emby libraries automatically
                 createEmbyLibraries(cfg);
-                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'}).catch(function(){});
+                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'})
+                    .then(function(r) { if (!r.ok) console.warn('[InfiniteDrive] catalog_sync trigger failed:', r.status); })
+                    .catch(function(e) { console.warn('[InfiniteDrive] catalog_sync trigger error:', e); });
             })
             .then(function() {
                 // Re-fetch full config so tabs show all fields
@@ -2772,6 +2803,7 @@ function (loading) {
                     .then(function(full) { _loadedConfig = full; })
                     .catch(function() { _loadedConfig = cfg; });
                 try { loadProvidersTab(view); } catch(e) {}
+                afterSave(view);
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
@@ -2852,7 +2884,7 @@ function (loading) {
                     .catch(function() { _loadedConfig = cfg; });
                 loadAdminProviders(view);
                 updateListLimitWarning(view);
-            })
+                afterSave(view);
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
 
@@ -2985,6 +3017,7 @@ function (loading) {
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
                 _loadedConfig = cfg;
+                afterSave(view);
                 Dashboard.alert('RSS feeds saved.');
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });

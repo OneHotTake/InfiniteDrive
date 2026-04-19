@@ -108,26 +108,15 @@ namespace InfiniteDrive.Tasks
         {
             _logger.LogInformation("[InfiniteDrive] MarvinTask started");
 
-            // Sprint 401: Phase 0 — System state validation
+            // Sprint 401/403: Phase 0 — Log system state but NEVER skip.
+            // Marvin exists to heal problems — skipping defeats its purpose.
             Plugin.Pipeline.SetPhase("Marvin", "ValidateSystemState");
             progress?.Report(0.05);
             var stateService = Plugin.Instance?.SystemStateService;
             if (stateService != null)
             {
                 var state = await stateService.GetStateAsync(cancellationToken);
-                if (state.State == SystemStateEnum.Unconfigured)
-                {
-                    _logger.LogInformation("[State] System Unconfigured — Marvin skipped");
-                    Plugin.Pipeline.Clear();
-                    return;
-                }
-                if (state.State == SystemStateEnum.Error)
-                {
-                    _logger.LogWarning("[State] System Error — Marvin skipped: {Desc}", state.Description);
-                    Plugin.Pipeline.Clear();
-                    return;
-                }
-                _logger.LogInformation("[State] Marvin proceeding — state={State}", state.State);
+                _logger.LogInformation("[State] Marvin proceeding — state={State}, desc={Desc}", state.State, state.Description);
             }
 
             // Sprint 311: Restore primary provider if it's back up
