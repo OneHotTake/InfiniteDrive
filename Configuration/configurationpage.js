@@ -144,7 +144,7 @@ function (BaseView, loading) {
                     var chkId = 'es-src-chk-' + key.replace(/[^a-zA-Z0-9]/g, '_');
 
                     html += '<tr>' +
-                        '<td><input type="checkbox" is="emby-checkbox" id="' + chkId + '" data-src-key="' + esc(key) + '"' + (enabled ? ' checked' : '') + ' /></td>' +
+                        '<td><input type="checkbox" id="' + chkId + '" data-src-key="' + esc(key) + '"' + (enabled ? ' checked' : '') + ' /></td>' +
                         '<td>' + esc(label) + '</td>' +
                         '<td style="opacity:.65">' + esc(type) + '</td>' +
                         '<td>' + itemCount + '</td>' +
@@ -861,7 +861,7 @@ function (BaseView, loading) {
             try { loadOverviewTab(view); } catch(e) {}
         }
 
-        // 2. Summon Marvin if not already running (fire and forget)
+        // 2. Summon Marvin (which now includes Sync + Populate + Resolve + Repair)
         try { summonMarvinQuiet(); } catch(e) {}
     }
 
@@ -3001,7 +3001,10 @@ function (BaseView, loading) {
         if (fb) { fb.textContent = 'Validating…'; fb.style.color = ''; }
 
         esFetch('/InfiniteDrive/Admin/Lists/Add?listUrl=' + encodeURIComponent(url) + '&displayName=' + encodeURIComponent(name), { method: 'POST' })
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                if (!r.ok) return r.text().then(function(t) { throw new Error(t.replace(/<[^>]*>/g, '').trim()); });
+                return r.json();
+            })
             .then(function(data) {
                 if (data.Ok) {
                     if (fb) { fb.textContent = 'Found ' + (data.Fetched || 0) + ' items (' + (data.Added || 0) + ' added, ' + (data.Updated || 0) + ' updated) in ' + (data.ElapsedMs || 0) + 'ms'; fb.style.color = '#1e7e34'; }

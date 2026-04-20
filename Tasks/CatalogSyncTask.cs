@@ -810,6 +810,7 @@ namespace InfiniteDrive.Tasks
     ///
     /// Default schedule: every 30 minutes.
     /// </summary>
+    [Obsolete("MarvinTask now orchestrates the full pipeline. Kept for backward-compat IScheduledTask registration.")]
     public class CatalogSyncTask : IScheduledTask
     {
         // ── Constants ───────────────────────────────────────────────────────────
@@ -884,15 +885,45 @@ namespace InfiniteDrive.Tasks
             await Plugin.SyncLock.WaitAsync(cancellationToken);
             try
             {
-                _logger.LogInformation("[InfiniteDrive] CatalogSyncTask started");
-                progress.Report(0);
-
-                var config = Plugin.Instance?.Configuration;
-                if (config == null)
+                await RunSyncAsync(cancellationToken, progress);
+            }
+            finally
+            {
+                // Sprint 102A-03: Persist last sync time
+                if (Plugin.Instance?.DatabaseManager != null)
                 {
-                    _logger.LogWarning("[InfiniteDrive] Plugin configuration not available — aborting sync");
-                    return;
+                    try
+                    {
+                        await Plugin.Instance.DatabaseManager.PersistMetadataAsync(
+                            "last_sync_time",
+                            DateTimeOffset.UtcNow.ToString("o"),
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to persist last_sync_time");
+                    }
                 }
+                // Sprint 100A-10: Release global sync lock
+                Plugin.SyncLock.Release();
+                Plugin.Pipeline.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Internal entry point for MarvinTask to call directly (no jitter, no SyncLock — Marvin holds the lock).
+        /// </summary>
+        internal async Task RunSyncAsync(CancellationToken cancellationToken, IProgress<double> progress)
+        {
+            _logger.LogInformation("[InfiniteDrive] CatalogSyncTask started");
+            progress?.Report(0);
+
+            var config = Plugin.Instance?.Configuration;
+            if (config == null)
+            {
+                _logger.LogWarning("[InfiniteDrive] Plugin configuration not available — aborting sync");
+                return;
+            }
 
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null)
@@ -907,13 +938,13 @@ namespace InfiniteDrive.Tasks
             if (providers.Count == 0)
             {
                 _logger.LogInformation("[InfiniteDrive] No catalog sources enabled — nothing to sync");
-                progress.Report(100);
+                progress?.Report(100);
                 return;
             }
 
             // 2. Fetch from all providers (with interval guard + health recording)
             Plugin.Pipeline.SetPhase("CatalogSync", "Fetch");
-            progress.Report(5);
+            progress?.Report(5);
             var (allItems, fetchedSourceIds, attemptedProviders) = await FetchFromAllProvidersAsync(providers, config, db, cancellationToken);
             _logger.LogInformation(
                 "[InfiniteDrive] Fetched {Count} raw catalog items from all sources (attempted {Attempted} providers)",
@@ -939,14 +970,14 @@ namespace InfiniteDrive.Tasks
             }
 
             // 3. Deduplicate and upsert
-            progress.Report(20);
+            progress?.Report(20);
             cancellationToken.ThrowIfCancellationRequested();
 
             var deduplicated = DeduplicateItems(allItems);
             _logger.LogInformation("[InfiniteDrive] {Count} items after deduplication", deduplicated.Count);
 
             await UpsertItemsAsync(db, deduplicated, cancellationToken);
-            progress.Report(40);
+            progress?.Report(40);
 
             // 3b. Prune items removed from their sources (with safety check)
             await PruneRemovedItemsAsync(db, fetchedSourceIds, attemptedProviders, cancellationToken);
@@ -954,14 +985,9 @@ namespace InfiniteDrive.Tasks
             // 4. Check that Emby libraries cover the sync paths; warn if not
             WarnIfLibrariesMissing(config);
 
-            // Sprint 147: CatalogSyncTask no longer writes .strm files
-            // Items are persisted with ItemState = Queued for RefreshTask to process
-            // RefreshTask handles: Write -> Hint -> Notify -> Verify -> Promote
-            // MarvinTask handles: Validation, Enrichment, Token Renewal
-            progress.Report(90);
+            progress?.Report(90);
 
             // Sprint 158: Backstop sync for all active user RSS catalogs (Trakt / MDBList).
-            // Runs after the system-catalog pass. Sequentially — cooldown gate handles politeness.
             try
             {
                 var userCatalogs = await db.GetAllActiveUserCatalogsAsync(cancellationToken);
@@ -991,31 +1017,9 @@ namespace InfiniteDrive.Tasks
             // 5. Write ID type census from all active catalog items
             await WriteIdTypeCensusAsync(db, config);
 
-            progress.Report(100);
+            progress?.Report(100);
 
             _logger.LogInformation("[InfiniteDrive] CatalogSyncTask complete");
-            }
-            finally
-            {
-                // Sprint 102A-03: Persist last sync time
-                if (Plugin.Instance?.DatabaseManager != null)
-                {
-                    try
-                    {
-                        await Plugin.Instance.DatabaseManager.PersistMetadataAsync(
-                            "last_sync_time",
-                            DateTimeOffset.UtcNow.ToString("o"),
-                            CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to persist last_sync_time");
-                    }
-                }
-                // Sprint 100A-10: Release global sync lock
-                Plugin.SyncLock.Release();
-                Plugin.Pipeline.Clear();
-            }
         }
 
         // ── Private: ID type census ────────────────────────────────────────────

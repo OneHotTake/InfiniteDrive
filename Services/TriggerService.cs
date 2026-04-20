@@ -150,7 +150,7 @@ namespace InfiniteDrive.Services
             switch (taskKey)
             {
                 case TaskCatalogSync:
-                    FireAndForget(ct => new CatalogSyncTask(_libraryManager, _logManager)
+                    FireAndForget(ct => new MarvinTask(_logManager, _libraryManager)
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
@@ -402,8 +402,8 @@ namespace InfiniteDrive.Services
                 await db.ClearAllSyncStatesAsync();
                 _logger.LogInformation("[InfiniteDrive] All sync states cleared - next catalog sync will run immediately");
                 
-                // Trigger a sync immediately
-                FireAndForget(ct => new CatalogSyncTask(_libraryManager, _logManager)
+                // Trigger a sync immediately (via Marvin, which now includes sync)
+                FireAndForget(ct => new MarvinTask(_logManager, _libraryManager)
                     .Execute(ct, new Progress<double>()), "catalog_sync");
                 
                 return new TriggerResponse
