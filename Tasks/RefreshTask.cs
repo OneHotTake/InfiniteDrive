@@ -25,6 +25,7 @@ namespace InfiniteDrive.Tasks
     ///
     /// Runs on a 6-minute cycle, processing only incremental changes since the last run.
     /// </summary>
+    [Obsolete("MarvinTask now orchestrates the full pipeline. Kept for backward-compat IScheduledTask registration.")]
     public class RefreshTask : IScheduledTask
     {
         // ── Constants ────────────────────────────────────────────────────────────
@@ -116,7 +117,18 @@ namespace InfiniteDrive.Tasks
 
         private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[InfiniteDrive] RefreshTask started");
+            // Backward compat: run both halves in sequence (Marvin calls them individually)
+            var writtenItems = await RunPopulateAsync(cancellationToken, progress);
+            await RunResolveAsync(cancellationToken, progress, writtenItems);
+        }
+
+        /// <summary>
+        /// Populate phase: Collect + Write + Hint (steps 1-3).
+        /// Marvin calls this directly as Phase 2.
+        /// </summary>
+        internal async Task<List<CatalogItem>> RunPopulateAsync(CancellationToken cancellationToken, IProgress<double> progress)
+        {
+            _logger.LogInformation("[InfiniteDrive] RefreshTask Populate started");
 
             var runStartedAt = DateTime.UtcNow;
 
@@ -169,64 +181,71 @@ namespace InfiniteDrive.Tasks
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
 
-                // Step 4: Enrich (inline, no-ID items from this run only)
-                if (writtenItems.Any())
-                {
-                    Plugin.Pipeline.SetPhase("Refresh", "Enrich");
-                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "enrich", cancellationToken);
-                    progress?.Report(0.67);
-                    var enriched = await EnrichStepAsync(runStartedAt, cancellationToken);
-                    if (enriched > 0)
-                    {
-                        _logger.LogInformation("[InfiniteDrive] RefreshTask: Enriched {Count} no-ID items", enriched);
-                        totalItemsAffected += enriched;
-                        await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
-                    }
-                }
+                await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "populate_complete", totalItemsAffected, "Populate steps completed", cancellationToken);
 
-                // Step 5: Notify (42-item bound)
-                Plugin.Pipeline.SetPhase("Refresh", "Notify");
-                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "notify", cancellationToken);
-                progress?.Report(0.83);
-                var notified = await NotifyStepAsync(cancellationToken);
-                if (notified > 0)
-                {
-                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Notified {Count} items to Emby", notified);
-                    totalItemsAffected += notified;
-                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
-                }
-
-                // Step 6: Verify (42-item bound + token renewal)
-                Plugin.Pipeline.SetPhase("Refresh", "Verify");
-                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "verify", cancellationToken);
-                progress?.Report(1.0);
-                var verified = await VerifyStepAsync(cancellationToken);
-                if (verified > 0)
-                {
-                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Verified {Count} items", verified);
-                    totalItemsAffected += verified;
-                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
-                }
-
-                _logger.LogInformation("[InfiniteDrive] RefreshTask completed successfully. Total affected: {Count}", totalItemsAffected);
-
-                // Clear active step and persist last run time
-                // TODO: Fix NOT NULL constraint error with plugin_metadata.value
-                // await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "", cancellationToken);
-                // await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("last_refresh_run_time", DateTime.UtcNow.ToString("o"), cancellationToken);
-
-                await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "complete", totalItemsAffected, "All steps completed", cancellationToken);
+                return writtenItems;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[InfiniteDrive] RefreshTask failed");
-                await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "error", 0, ex.Message, cancellationToken);
+                _logger.LogError(ex, "[InfiniteDrive] RefreshTask Populate failed");
+                try { await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "error", 0, ex.Message, cancellationToken); } catch { }
                 throw;
             }
-            finally
+        }
+
+        /// <summary>
+        /// Resolve phase: Enrich + Notify + Verify (steps 4-6).
+        /// Marvin calls this directly as Phase 3.
+        /// </summary>
+        internal async Task RunResolveAsync(CancellationToken cancellationToken, IProgress<double> progress, List<CatalogItem>? writtenItems = null)
+        {
+            _logger.LogInformation("[InfiniteDrive] RefreshTask Resolve started");
+
+            var runStartedAt = DateTime.UtcNow;
+            var totalItemsAffected = 0;
+
+            // Step 4: Enrich (inline, no-ID items from this run only)
+            if (writtenItems != null && writtenItems.Any())
             {
-                Plugin.Pipeline.Clear();
+                Plugin.Pipeline.SetPhase("Refresh", "Enrich");
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "enrich", cancellationToken);
+                progress?.Report(0.67);
+                var enriched = await EnrichStepAsync(runStartedAt, cancellationToken);
+                if (enriched > 0)
+                {
+                    _logger.LogInformation("[InfiniteDrive] RefreshTask: Enriched {Count} no-ID items", enriched);
+                    totalItemsAffected += enriched;
+                    await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
+                }
             }
+
+            // Step 5: Notify (42-item bound)
+            Plugin.Pipeline.SetPhase("Refresh", "Notify");
+            await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "notify", cancellationToken);
+            progress?.Report(0.83);
+            var notified = await NotifyStepAsync(cancellationToken);
+            if (notified > 0)
+            {
+                _logger.LogInformation("[InfiniteDrive] RefreshTask: Notified {Count} items to Emby", notified);
+                totalItemsAffected += notified;
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
+            }
+
+            // Step 6: Verify (42-item bound + token renewal)
+            Plugin.Pipeline.SetPhase("Refresh", "Verify");
+            await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "verify", cancellationToken);
+            progress?.Report(1.0);
+            var verified = await VerifyStepAsync(cancellationToken);
+            if (verified > 0)
+            {
+                _logger.LogInformation("[InfiniteDrive] RefreshTask: Verified {Count} items", verified);
+                totalItemsAffected += verified;
+                await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
+            }
+
+            _logger.LogInformation("[InfiniteDrive] RefreshTask Resolve completed. Total affected: {Count}", totalItemsAffected);
+
+            Plugin.Pipeline.Clear();
         }
 
         // ── Step 1: Collect ──────────────────────────────────────────────────────

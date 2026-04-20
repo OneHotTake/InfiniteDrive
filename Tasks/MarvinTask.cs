@@ -18,9 +18,11 @@ using Microsoft.Extensions.Logging;
 namespace InfiniteDrive.Tasks
 {
     /// <summary>
-    /// Marvin scheduled task for 18-24 hour validation cycles.
-    /// Handles full library validation, orphan cleanup, enriched metadata trickle,
-    /// token renewal, and integrity checks.
+    /// Marvin: unified 4-phase pipeline orchestrator.
+    /// Phase 1 — Sync (CatalogSyncTask): fetch manifests → deduplicate → upsert to DB.
+    /// Phase 2 — Populate (RefreshTask): collect queued items → write .strm → write NFO hints.
+    /// Phase 3 — Resolve (RefreshTask): enrich metadata → notify Emby → verify items.
+    /// Phase 4 — Repair: validate system state, orphan cleanup, token renewal, enrichment trickle.
     /// </summary>
     public class MarvinTask : IScheduledTask
     {
@@ -34,8 +36,10 @@ namespace InfiniteDrive.Tasks
 
         private readonly ILogger<MarvinTask> _logger;
         private readonly ILibraryManager       _libraryManager;
+        private readonly ILogManager           _logManager;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
+        private static bool _isColdStart = true;
 
         // ── Constructor ──────────────────────────────────────────────────────────
 
@@ -45,6 +49,7 @@ namespace InfiniteDrive.Tasks
         {
             _logger         = new EmbyLoggerAdapter<MarvinTask>(logManager.GetLogger("InfiniteDrive"));
             _libraryManager = libraryManager;
+            _logManager     = logManager;
         }
 
         // ── IScheduledTask ───────────────────────────────────────────────────────
@@ -57,7 +62,7 @@ namespace InfiniteDrive.Tasks
 
         /// <inheritdoc/>
         public string Description =>
-            "Full library validation: orphan cleanup, token renewal, metadata enrichment with retry backoff.";
+            "Unified pipeline: Sync catalogs → Populate .strm files → Resolve metadata → Repair library.";
 
         /// <inheritdoc/>
         public string Category => TaskCategory;
@@ -69,7 +74,7 @@ namespace InfiniteDrive.Tasks
                 new TaskTriggerInfo
                 {
                     Type          = TaskTriggerInfo.TriggerInterval,
-                    IntervalTicks = TimeSpan.FromHours(18).Ticks,
+                    IntervalTicks = TimeSpan.FromMinutes(10).Ticks,
                 }
             };
 
@@ -85,6 +90,13 @@ namespace InfiniteDrive.Tasks
 
             try
             {
+                // Cold-start jitter: only the first invocation (Emby startup trigger) waits
+                if (_isColdStart)
+                {
+                    _isColdStart = false;
+                    await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
+                }
+
                 // Acquire global sync lock to prevent conflicts with other sync operations
                 await Plugin.SyncLock.WaitAsync(cancellationToken);
                 try
@@ -102,50 +114,77 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        // ── Internal execution ─────────────────────────────────────────────────
+        // ── Internal execution: 4-phase pipeline ──────────────────────────────
 
         private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            _logger.LogInformation("[InfiniteDrive] MarvinTask started");
-
-            // Sprint 401/403: Phase 0 — Log system state but NEVER skip.
-            // Marvin exists to heal problems — skipping defeats its purpose.
-            Plugin.Pipeline.SetPhase("Marvin", "ValidateSystemState");
-            progress?.Report(0.05);
-            var stateService = Plugin.Instance?.SystemStateService;
-            if (stateService != null)
-            {
-                var state = await stateService.GetStateAsync(cancellationToken);
-                _logger.LogInformation("[State] Marvin proceeding — state={State}, desc={Desc}", state.State, state.Description);
-            }
+            _logger.LogInformation("[InfiniteDrive] MarvinTask started (4-phase pipeline)");
 
             // Sprint 311: Restore primary provider if it's back up
             _ = TryRestorePrimaryAsync();
 
             try
             {
-                // Phase 1: Validation pass
-                Plugin.Pipeline.SetPhase("Marvin", "Validation");
-                progress?.Report(0.2);
+                // ── Phase 1: Sync (0-25%) ─────────────────────────────────────
+                Plugin.Pipeline.SetPhase("Marvin", "Sync");
+                progress?.Report(0.0);
+
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 1: Sync");
+#pragma warning disable CS0618 // CatalogSyncTask is obsolete but still functional
+                var syncProgress = new Progress<double>(p => progress?.Report(p * 0.25));
+                await new CatalogSyncTask(_libraryManager, _logManager)
+                    .RunSyncAsync(cancellationToken, syncProgress);
+#pragma warning restore CS0618
+
+                progress?.Report(0.25);
+
+                // ── Phase 2: Populate (25-55%) ───────────────────────────────
+                Plugin.Pipeline.SetPhase("Marvin", "Populate");
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 2: Populate");
+
+                var populateProgress = new Progress<double>(p => progress?.Report(0.25 + p * 0.30));
+#pragma warning disable CS0618 // RefreshTask is obsolete but still functional
+                var refreshWorker = new RefreshTask(_logManager, _libraryManager);
+                var writtenItems = await refreshWorker.RunPopulateAsync(cancellationToken, populateProgress);
+#pragma warning restore CS0618
+
+                progress?.Report(0.55);
+
+                // ── Phase 3: Resolve (55-80%) ────────────────────────────────
+                Plugin.Pipeline.SetPhase("Marvin", "Resolve");
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 3: Resolve");
+
+                var resolveProgress = new Progress<double>(p => progress?.Report(0.55 + p * 0.25));
+#pragma warning disable CS0618
+                await refreshWorker.RunResolveAsync(cancellationToken, resolveProgress, writtenItems);
+#pragma warning restore CS0618
+
+                progress?.Report(0.80);
+
+                // ── Phase 4: Repair (80-100%) ────────────────────────────────
+                Plugin.Pipeline.SetPhase("Marvin", "Repair");
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 4: Repair");
+
+                // Sprint 401/403: Log system state but NEVER skip.
+                var stateService = Plugin.Instance?.SystemStateService;
+                if (stateService != null)
+                {
+                    var state = await stateService.GetStateAsync(cancellationToken);
+                    _logger.LogInformation("[State] Marvin proceeding — state={State}, desc={Desc}", state.State, state.Description);
+                }
+
                 await ValidationPassAsync(cancellationToken);
-
-                // Phase 2: Enrichment trickle
-                Plugin.Pipeline.SetPhase("Marvin", "Enrichment");
-                progress?.Report(0.5);
-                await EnrichmentTrickleAsync(cancellationToken);
-
-                // Phase 3: Token renewal
-                Plugin.Pipeline.SetPhase("Marvin", "TokenRenewal");
-                progress?.Report(0.8);
-                await TokenRenewalAsync(cancellationToken);
-
-                // Phase 4: Save maintenance
-                Plugin.Pipeline.SetPhase("Marvin", "SaveMaintenance");
                 progress?.Report(0.85);
+
+                await EnrichmentTrickleAsync(cancellationToken);
+                progress?.Report(0.90);
+
+                await TokenRenewalAsync(cancellationToken);
+                progress?.Report(0.95);
+
                 await SaveMaintenancePassAsync(cancellationToken);
 
                 // Persist last run time
-                progress?.Report(0.95);
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync(
                     "last_marvin_run_time",
                     DateTime.UtcNow.ToString("o"),
@@ -155,7 +194,7 @@ namespace InfiniteDrive.Tasks
                 await PersistEnrichmentCountsAsync(cancellationToken);
 
                 progress?.Report(1.0);
-                _logger.LogInformation("[InfiniteDrive] MarvinTask completed successfully");
+                _logger.LogInformation("[InfiniteDrive] MarvinTask completed successfully (4-phase pipeline)");
             }
             catch (Exception ex)
             {
@@ -168,7 +207,7 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        // ── Phase 1: Validation Pass ───────────────────────────────────────
+        // ── Phase 4 sub-operations ────────────────────────────────────────────
 
         // ── Sprint 311: Primary provider health restore ──────────────────────────
 
@@ -195,7 +234,6 @@ namespace InfiniteDrive.Tasks
                     state.Current = Models.ActiveProvider.Primary;
                     _logger.LogInformation("[Failover] Primary restored");
 
-                    // Persist restored state so it survives restart
                     try
                     {
                         await Plugin.Instance!.DatabaseManager.SetActiveProviderAsync("Primary");
@@ -227,10 +265,8 @@ namespace InfiniteDrive.Tasks
                 {
                     if (!string.IsNullOrEmpty(item.StrmPath))
                     {
-                        // Check .strm file exists on disk
                         if (!Directory.Exists(item.StrmPath))
                         {
-                            // Transition to Queued (will be re-written by RefreshTask)
                             item.ItemState = ItemState.Queued;
                             item.UpdatedAt = DateTime.UtcNow.ToString("o");
                             await db.UpsertCatalogItemAsync(item, cancellationToken);
@@ -242,10 +278,8 @@ namespace InfiniteDrive.Tasks
                 }
                 else if (item.ItemState == ItemState.Retired)
                 {
-                    // Verify real file still exists at local_path
                     if (!string.IsNullOrEmpty(item.LocalPath) && !File.Exists(item.LocalPath))
                     {
-                        // Transition back to Queued (resurrection)
                         item.ItemState = ItemState.Queued;
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await db.UpsertCatalogItemAsync(item, cancellationToken);
@@ -256,7 +290,6 @@ namespace InfiniteDrive.Tasks
                 }
             }
 
-            // Scan filesystem for orphan .strm files
             await CleanupOrphanFilesAsync(cancellationToken);
         }
 
@@ -265,7 +298,6 @@ namespace InfiniteDrive.Tasks
             var db = Plugin.Instance!.DatabaseManager;
             var config = Plugin.Instance!.Configuration;
 
-            // Collect all strm_paths from active items
             var activeStrmPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var activeItems = await db.GetActiveCatalogItemsAsync();
             foreach (var item in activeItems)
@@ -274,7 +306,6 @@ namespace InfiniteDrive.Tasks
                     activeStrmPaths.Add(item.StrmPath!);
             }
 
-            // Scan library directories for orphan .strm files
             var orphanedCount = 0;
             var libraryPaths = new[] { config.SyncPathMovies, config.SyncPathShows, config.SyncPathAnime };
 
@@ -296,26 +327,15 @@ namespace InfiniteDrive.Tasks
                         _logger.LogDebug("[InfiniteDrive] Deleted orphan .strm: {Path}", orphanFile);
                         orphanedCount++;
 
-                        // Delete orphan .nfo alongside .strm
                         var nfoPath = Path.ChangeExtension(orphanFile, ".nfo");
                         if (File.Exists(nfoPath))
-                        {
                             File.Delete(nfoPath);
-                        }
 
-                        // Delete empty parent folder
                         var parentDir = Path.GetDirectoryName(orphanFile);
                         if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
                         {
-                            try
-                            {
-                                Directory.Delete(parentDir);
-                                _logger.LogDebug("[InfiniteDrive] Deleted empty folder: {Path}", parentDir);
-                            }
-                            catch
-                            {
-                                // Folder may not be empty, skip
-                            }
+                            try { Directory.Delete(parentDir); }
+                            catch { /* Folder may not be empty */ }
                         }
                     }
                     catch (Exception ex)
@@ -326,18 +346,13 @@ namespace InfiniteDrive.Tasks
             }
 
             if (orphanedCount > 0)
-            {
                 _logger.LogInformation("[InfiniteDrive] Cleanup: Deleted {Count} orphan files", orphanedCount);
-            }
         }
-
-        // ── Phase 2: Enrichment Trickle ─────────────────────────────────────
 
         private async Task EnrichmentTrickleAsync(CancellationToken cancellationToken)
         {
             var db = Plugin.Instance!.DatabaseManager;
 
-            // Query items with nfo_status = 'NeedsEnrich', prioritizing no-ID items first
             var needsEnrichQuery = @"
                 SELECT * FROM catalog_items
                 WHERE nfo_status = 'NeedsEnrich'
@@ -380,13 +395,11 @@ namespace InfiniteDrive.Tasks
                 "[InfiniteDrive] Enrichment: {Total} items, {Enriched} enriched, {Blocked} blocked, {Skipped} skipped",
                 needsEnrichItems.Count, result.EnrichedCount, result.BlockedCount, result.SkippedCount);
 
-            // Notify Emby of updated NFO files
             if (result.EnrichedCount > 0)
             {
                 try
                 {
                     _libraryManager.QueueLibraryScan();
-                    _logger.LogInformation("[InfiniteDrive] Enrichment: Triggered library scan for {Count} enriched items", result.EnrichedCount);
                 }
                 catch (Exception ex)
                 {
@@ -395,17 +408,12 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-
-        // ── Phase 3: Token Renewal ─────────────────────────────────────────
-
         private async Task TokenRenewalAsync(CancellationToken cancellationToken)
         {
             var db = Plugin.Instance!.DatabaseManager;
 
-            // Query items with tokens expiring within 90 days
             var expiringItems = await db.GetCatalogItemsWithExpiringTokensAsync(
-                int.MaxValue, // No limit for token renewal
-                cancellationToken);
+                int.MaxValue, cancellationToken);
 
             if (!expiringItems.Any())
                 return;
@@ -432,7 +440,6 @@ namespace InfiniteDrive.Tasks
 
                 try
                 {
-                    // Rewrite .strm files with fresh tokens
                     foreach (var slot in slots)
                     {
                         cancellationToken.ThrowIfCancellationRequested();
@@ -453,13 +460,11 @@ namespace InfiniteDrive.Tasks
                         File.Move(tmpPath, fullPath, overwrite: true);
                     }
 
-                    // Update token expiry timestamp
                     item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
                     item.UpdatedAt = DateTime.UtcNow.ToString("o");
                     await db.UpsertCatalogItemAsync(item, cancellationToken);
 
                     renewedCount++;
-                    _logger.LogDebug("[InfiniteDrive] Token renewal: {Imdb}", item.ImdbId);
                 }
                 catch (Exception ex)
                 {
@@ -468,18 +473,13 @@ namespace InfiniteDrive.Tasks
             }
 
             if (renewedCount > 0)
-            {
                 _logger.LogInformation("[InfiniteDrive] Token renewal: Renewed {Count} items", renewedCount);
-            }
         }
-
-        // ── Phase 4: Save Maintenance ─────────────────────────────────────
 
         private async Task SaveMaintenancePassAsync(CancellationToken cancellationToken)
         {
             var db = Plugin.Instance!.DatabaseManager;
 
-            // Clean up orphaned saves (media_item no longer exists)
             var orphans = await db.GetOrphanedUserSavesAsync(cancellationToken);
             var orphanCount = 0;
             foreach (var (saveId, userId, mediaItemId) in orphans)
@@ -490,38 +490,28 @@ namespace InfiniteDrive.Tasks
             }
 
             if (orphanCount > 0)
-            {
                 _logger.LogInformation("[InfiniteDrive] Save maintenance: Removed {Count} orphaned saves", orphanCount);
-            }
 
-            // Re-sync global saved flags for items marked as saved but with no user saves
             var savedItems = await db.GetItemsBySavedAsync(true, cancellationToken);
             var reSyncedCount = 0;
             foreach (var item in savedItems)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var hasSave = await db.HasUserSaveAsync("", item.Id, cancellationToken);
-                // If checking with empty user returns false, do a full re-sync
-                // Actually, SyncGlobalSavedFlagAsync handles this atomically
                 await db.SyncGlobalSavedFlagAsync(item.Id, cancellationToken);
                 reSyncedCount++;
             }
 
             if (reSyncedCount > 0)
-            {
                 _logger.LogDebug("[InfiniteDrive] Save maintenance: Re-synced {Count} global saved flags", reSyncedCount);
-            }
         }
 
         private async Task PersistEnrichmentCountsAsync(CancellationToken cancellationToken)
         {
             var db = Plugin.Instance!.DatabaseManager;
 
-            // Count items with nfo_status = 'Blocked'
             var blockedQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'Blocked' AND removed_at IS NULL;";
             var blockedCount = await db.QueryScalarIntAsync(blockedQuery, cancellationToken);
 
-            // Count items with nfo_status = 'NeedsEnrich'
             var needsEnrichQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'NeedsEnrich' AND removed_at IS NULL;";
             var needsEnrichCount = await db.QueryScalarIntAsync(needsEnrichQuery, cancellationToken);
 
@@ -531,14 +521,8 @@ namespace InfiniteDrive.Tasks
 
         private static string GetEmbyBaseUrl(PluginConfiguration config)
         {
-            // Use configured Emby base URL for resolve tokens
-            // This ensures .strm files point to the local Emby server for proxying
             if (!string.IsNullOrEmpty(config.EmbyBaseUrl))
-            {
                 return config.EmbyBaseUrl.TrimEnd('/');
-            }
-
-            // Fallback to localhost if not configured
             return "http://localhost:8096";
         }
 
