@@ -1,5 +1,5 @@
-define(['loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea'],
-function (loading) {
+define(['baseView', 'loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea', 'emby-scroller'],
+function (BaseView, loading) {
     'use strict';
 
     var pluginId = '3c45a87e-2b4f-4d1a-9e73-8f12c3456789';
@@ -10,6 +10,7 @@ function (loading) {
     var _searchTimer        = null;
     var _catalogLimits      = {};
     var _loadedConfig       = null;
+    var _lastStatusData     = null;
     var _unsavedChanges     = false;
     var _authExpired        = false;
 
@@ -90,7 +91,7 @@ function (loading) {
         try {
             var m = url.match(/^(https?:\/\/[^\/]+)\/stremio\/([^\/]+)/i);
             if (!m) return null;
-            return { baseUrl: m[1], userId: m[2], configureUrl: m[1] + '/stremio/configure/' + m[2] };
+            return { baseUrl: m[1], userId: m[2], configureUrl: m[1] + '/stremio/configure' };
         } catch(e) { return null; }
     }
 
@@ -106,23 +107,24 @@ function (loading) {
             .then(function(data) {
                 var sources = data.SyncStates || [];
                 if (!sources.length) {
-                    tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">No sources synced yet. Click Sync Sources to fetch catalogs.</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">No catalogs synced yet. Save your provider settings first.</td></tr>';
                     return;
                 }
 
                 var html = '';
                 sources.forEach(function(src) {
                     var key = src.SourceKey || '';
+
+                    // Skip aggregate row
+                    if (key === 'aiostreams') return;
+
                     var type = 'other';
                     if (key.indexOf(':movie:') !== -1) type = 'movie';
                     else if (key.indexOf(':series:') !== -1) type = 'series';
                     else if (key.indexOf(':anime:') !== -1) type = 'anime';
 
                     var label;
-                    if (key === 'aiostreams') {
-                        label = 'All Sources';
-                        type = 'aggregate';
-                    } else if (key.indexOf(':') !== -1) {
+                    if (key.indexOf(':') !== -1) {
                         label = src.DisplayName || key.split(':').slice(2).join(':');
                     } else {
                         label = key;
@@ -151,6 +153,12 @@ function (loading) {
                         '</tr>';
                 });
                 tbody.innerHTML = html;
+
+                // Wire checkbox changes to mark dirty
+                var checkboxes = tbody.querySelectorAll('input[type="checkbox"]');
+                for (var ci = 0; ci < checkboxes.length; ci++) {
+                    checkboxes[ci].addEventListener('change', function() { _unsavedChanges = true; });
+                }
             })
             .catch(function(err) {
                 tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">Failed to load sources</td></tr>';
@@ -159,7 +167,7 @@ function (loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        var tabs = ['overview','providers','libraries','lists','sources','parental','security','inspector'];
+        var tabs = ['overview','providers','libraries','lists','sources','parental','security','inspector','metadata'];
 
         tabs.forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
@@ -192,23 +200,18 @@ function (loading) {
     function updateFloatActions(view, tab) {
         var bar = view.querySelector('#es-float-actions');
         if (!bar) return;
-        bar.style.display = 'flex';
 
         // Per-plan visibility
-        var saveTabs    = ['providers','libraries','lists','parental'];
-        var syncTabs    = ['lists','sources'];
-        var refreshTabs = ['overview','sources','inspector'];
+        var saveTabs    = ['providers','libraries','lists','sources','parental','metadata'];
+        var refreshTabs = ['overview','inspector'];
 
         var saveBtn = view.querySelector('#es-float-save-btn');
-        var syncBtn = view.querySelector('#es-float-sync-btn');
         var refreshBtn = view.querySelector('#es-float-refresh-btn');
         if (saveBtn) saveBtn.style.display = saveTabs.indexOf(tab) !== -1 ? '' : 'none';
-        if (syncBtn) syncBtn.style.display = syncTabs.indexOf(tab) !== -1 ? '' : 'none';
         if (refreshBtn) refreshBtn.style.display = refreshTabs.indexOf(tab) !== -1 ? '' : 'none';
 
         // Hide bar entirely if no buttons visible
         var anyVisible = (saveBtn && saveBtn.style.display !== 'none') ||
-                         (syncBtn && syncBtn.style.display !== 'none') ||
                          (refreshBtn && refreshBtn.style.display !== 'none');
         bar.style.display = anyVisible ? 'flex' : 'none';
     }
@@ -221,6 +224,7 @@ function (loading) {
         esFetch('/InfiniteDrive/Status')
             .then(function(r) { return r.json(); })
             .then(function(data) {
+                _lastStatusData = data;
                 // ── System state from Sprint 401 ────────────────────────────────
                 var state = data.SystemState || 'unconfigured';
                 var stateDesc = data.SystemStateDescription || '';
@@ -259,10 +263,12 @@ function (loading) {
                 var purgeBtn = q(view, 'es-ov-purge-btn');
 
                 var hasProvider = !!(cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl);
-                var hasLibrary = !!(cfg.IsFirstRunComplete);
+                var hasLibrary = !!(data.LibraryConfigured);
                 var hasLists = !!(cfg.TmdbApiKey || cfg.TraktClientId);
 
-                if (isUnconfigured || isError) {
+                var showSteps = !hasLibrary || isUnconfigured || isError;
+                var allDone = hasProvider && hasLibrary;
+                if (showSteps) {
                     // Show setup steps with checkmarks
                     if (setupSteps) {
                         setupSteps.style.display = 'block';
@@ -273,7 +279,32 @@ function (loading) {
                         if (stepLib) stepLib.innerHTML = '<span class="es-check-icon">' + (hasLibrary ? '✅' : '2.') + '</span> ' + (hasLibrary ? 'Libraries configured' : '<a href="#" data-es-tab="libraries">Set up Libraries</a>');
                         if (stepLists) stepLists.innerHTML = '<span class="es-check-icon">' + (hasLists ? '✅' : '3.') + '</span> ' + (hasLists ? 'Lists added' : '<a href="#" data-es-tab="lists">Add Lists</a>') + ' <span style="opacity:.5">(optional)</span>';
                     }
-                    if (healthGrid) healthGrid.style.display = 'none';
+                    // Show health grid alongside steps when provider is configured
+                    if (healthGrid && hasProvider) {
+                        healthGrid.style.display = 'grid';
+                        var provDot = q(view, 'es-ov-provider-dot');
+                        var provText = q(view, 'es-ov-provider-text');
+                        if (provDot && provText) {
+                            var aioOk = data.AioStreams && data.AioStreams.Ok;
+                            provDot.className = 'es-health-dot ' + (hasProvider ? (aioOk ? 'es-health-dot-ok' : 'es-health-dot-err') : 'es-health-dot-err');
+                            provText.textContent = hasProvider ? (aioOk ? 'Connected' : 'Unreachable') : 'Not configured';
+                        }
+                        var libDot = q(view, 'es-ov-library-dot');
+                        var libText = q(view, 'es-ov-library-text');
+                        if (libDot && libText) {
+                            libDot.className = 'es-health-dot ' + (hasLibrary ? 'es-health-dot-ok' : 'es-health-dot-err');
+                            libText.textContent = hasLibrary ? (data.CatalogItemCount || 0) + ' items' : 'Not set up';
+                        }
+                        var filterDot = q(view, 'es-ov-filter-dot');
+                        var filterText = q(view, 'es-ov-filter-text');
+                        if (filterDot && filterText) {
+                            var hasKey = !!(cfg.TmdbApiKey);
+                            filterDot.className = 'es-health-dot ' + (hasKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
+                            filterText.textContent = hasKey ? 'Enabled' : 'Disabled';
+                        }
+                    } else {
+                        if (healthGrid) healthGrid.style.display = 'none';
+                    }
                     if (statsGrid) statsGrid.style.display = 'none';
                     if (summonBtn) summonBtn.style.display = 'none';
                     if (purgeBtn) purgeBtn.style.display = hasProvider || hasLibrary ? '' : 'none';
@@ -347,14 +378,14 @@ function (loading) {
                 var libHealthDot = q(view, 'es-lib-health-dot');
                 var libHealthText = q(view, 'es-lib-health-text');
                 if (libHealthDot && libHealthText) {
-                    libHealthDot.className = 'es-health-dot ' + (cfg.IsFirstRunComplete ? 'es-health-dot-ok' : 'es-health-dot-err');
-                    libHealthText.textContent = cfg.IsFirstRunComplete ? 'Libraries created' : 'Libraries not yet created';
+                    libHealthDot.className = 'es-health-dot ' + (hasLibrary ? 'es-health-dot-ok' : 'es-health-dot-err');
+                    libHealthText.textContent = hasLibrary ? 'Libraries created' : 'Libraries not yet created';
                 }
 
                 // Lock library paths after first run
                 var pathsFields = view.querySelector('#es-lib-paths-fields');
                 var lockedNote = q(view, 'es-lib-locked-note');
-                if (cfg.IsFirstRunComplete) {
+                if (hasLibrary) {
                     if (pathsFields) pathsFields.classList.add('es-field-locked');
                     if (lockedNote) lockedNote.style.display = 'block';
                 }
@@ -365,7 +396,11 @@ function (loading) {
                 if (filterHealthDot && filterHealthText) {
                     var tmdbKey = cfg.TmdbApiKey;
                     filterHealthDot.className = 'es-health-dot ' + (tmdbKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
-                    filterHealthText.textContent = tmdbKey ? 'Content filtering active' : 'No TMDB key configured';
+                    if (tmdbKey) {
+                        filterHealthText.textContent = 'Content filtering active';
+                    } else {
+                        filterHealthText.innerHTML = 'No TMDB key configured — <a href="#" data-es-tab="lists">add one on the Lists tab</a>';
+                    }
                 }
 
                 // Security: show Generated date
@@ -423,6 +458,25 @@ function (loading) {
                         backupEditBtn.style.display = 'none';
                     }
                 }
+
+                // Display parsed userId near edit buttons
+                var primaryParsed = parseManifestUrl(cfg.PrimaryManifestUrl);
+                var primaryUserEl = view.querySelector('#prov-aio-userid');
+                if (primaryUserEl && primaryParsed && primaryParsed.userId) {
+                    primaryUserEl.style.display = '';
+                    primaryUserEl.querySelector('code').textContent = primaryParsed.userId;
+                } else if (primaryUserEl) {
+                    primaryUserEl.style.display = 'none';
+                }
+
+                var backupParsed = parseManifestUrl(cfg.SecondaryManifestUrl);
+                var backupUserEl = view.querySelector('#prov-backup-userid');
+                if (backupUserEl && backupParsed && backupParsed.userId) {
+                    backupUserEl.style.display = '';
+                    backupUserEl.querySelector('code').textContent = backupParsed.userId;
+                } else if (backupUserEl) {
+                    backupUserEl.style.display = 'none';
+                }
                 // Status pills
                 updateStatusPills(view, data);
             }).catch(function() {});
@@ -442,7 +496,7 @@ function (loading) {
         if (!card) return;
 
         var step1 = !!(cfg.PrimaryManifestUrl);
-        var step2 = !!(cfg.IsFirstRunComplete);
+        var step2 = !!(cfg.SyncPathMovies && cfg.LibraryNameMovies && cfg.LibraryNameSeries);
         var step3 = !!(cfg.TmdbApiKey || cfg.TraktClientId);
 
         if (step1 && step2) {
@@ -881,54 +935,28 @@ function (loading) {
     }
 
     function saveSourcesTab(view) {
-        var aioUrl      = esVal(view, 'src-aio-url').trim();
-        var duckUrl     = esVal(view, 'src-duck-url').trim();
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
 
-        // Merge into existing config
-        var base = _loadedConfig ? JSON.parse(JSON.stringify(_loadedConfig)) : {};
-        base.PrimaryManifestUrl   = aioUrl;
-        base.SecondaryManifestUrl = duckUrl;
-        // Also sync to cfg-manifest-url for settings tab compatibility
-        var cfgEl = q(view, 'cfg-manifest-url');
-        if (cfgEl) cfgEl.value = aioUrl;
+        // Collect disabled source keys from checkboxes
+        var disabledKeys = [];
+        var checkboxes = view.querySelectorAll('#es-sources-body input[type="checkbox"]');
+        for (var i = 0; i < checkboxes.length; i++) {
+            if (!checkboxes[i].checked) {
+                var key = checkboxes[i].getAttribute('data-src-key');
+                if (key) disabledKeys.push(key);
+            }
+        }
+        cfg.DisabledSourceKeysJson = JSON.stringify(disabledKeys);
 
-        ApiClient.updatePluginConfiguration(pluginId, base)
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
-                _loadedConfig = base;
-                updateSourcesStatusStrip(view, base);
-
-                // Auto-create directories and libraries
-                var cfg = {
-                    SyncPathMovies: base.SyncPathMovies || (base.BaseSyncPath || '/media/infinitedrive') + '/movies',
-                    SyncPathShows:  base.SyncPathShows  || (base.BaseSyncPath || '/media/infinitedrive') + '/shows',
-                    BaseSyncPath:   base.BaseSyncPath || '/media/infinitedrive'
-                };
-                createEmbyLibraries(cfg);
-
-                // Show progress bar
-                var prog = q(view, 'es-sync-progress');
-                if (prog) prog.style.display = 'block';
-                animateSyncProgress(view);
-
-                // Trigger catalog sync
-                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'})
-                    .then(function(r) { if (!r.ok) console.warn('[InfiniteDrive] catalog_sync trigger failed:', r.status); })
-                    .catch(function(e) { console.warn('[InfiniteDrive] catalog_sync trigger error:', e); });
-
-                // Start catalog progress polling
-                startCatalogPoll(view, 'cfg');
-
-                // Show catalog picker when catalogs load
-                setTimeout(function() {
-                    var picker = q(view, 'es-catalog-picker-setup');
-                    if (picker) picker.style.display = 'block';
-                    loadCatalogs(view, 'cfg');
-                }, 5000);
-
-                // Re-fetch full config
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
                 ApiClient.getPluginConfiguration(pluginId)
-                    .then(function(fullCfg) { _loadedConfig = fullCfg; })
-                    .catch(function() {});
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
+                afterSave(view);
             })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
@@ -1462,8 +1490,7 @@ function (loading) {
             EnableDiscoverChannel:   esChk(view, 'es-enable-discover'),
             EnableAioStreamsCatalog: enableAio,
             AioStreamsCatalogIds:    getSelectedCatalogIds(view, 'wiz'),
-            CatalogItemLimitsJson:   getCatalogLimitsJson(),
-            IsFirstRunComplete:      true
+            CatalogItemLimitsJson:   getCatalogLimitsJson()
         };
         ApiClient.updatePluginConfiguration(pluginId, cfg)
             .then(function() {
@@ -1598,8 +1625,7 @@ function (loading) {
             BlockUnratedForRestricted:  esChk(view, 'cfg-block-unrated'),
             // External Lists
             TraktClientId:              esVal(view, 'cfg-trakt-client-id') || '',
-            UserCatalogLimit:           esInt(view, 'cfg-user-catalog-limit', 5),
-            IsFirstRunComplete:         true
+            UserCatalogLimit:           esInt(view, 'cfg-user-catalog-limit', 5)
         };
         // CONF-JSON: validate CatalogItemLimitsJson before saving
         if (cfg.CatalogItemLimitsJson) {
@@ -2533,7 +2559,7 @@ function (loading) {
                     var srcSave         = el.getAttribute('data-es-src-save');
                     var accordionHdr    = el.classList && el.classList.contains('es-accordion-hdr');
                     var navigateItem   = el.getAttribute('data-es-navigate-item');
-                    if (tab)  { e.stopPropagation(); showTab(view, tab); return; }
+                    if (tab)  { e.preventDefault(); e.stopPropagation(); showTab(view, tab); return; }
                     if (navigateItem) { e.stopPropagation(); Dashboard.navigate('item?id=' + navigateItem); return; }
                     if (srcTest !== null) { e.stopPropagation(); testSource(view, srcTest); return; }
                     if (srcTestAll !== null) { e.stopPropagation(); testAllSources(view); return; }
@@ -2614,7 +2640,6 @@ function (loading) {
             case 'float-sync':         runTask(view, 'catalog_sync', el); break;
             case 'float-refresh':      refreshDashboard(view); break;
             case 'admin-list-add-open': openAdminListModal(view); break;
-            case 'admin-list-add-cancel': closeAdminListModal(view); break;
             case 'admin-list-add-save': saveAdminList(view); break;
             case 'admin-lists-refresh-all': refreshAllAdminLists(view); break;
             case 'admin-list-refresh': refreshOneAdminList(view, el); break;
@@ -2770,7 +2795,9 @@ function (loading) {
         if (tab === 'providers') saveProvidersTab(view);
         else if (tab === 'libraries') saveLibrariesTab(view);
         else if (tab === 'lists') saveListsSettings(view);
+        else if (tab === 'sources') saveSourcesTab(view);
         else if (tab === 'parental') saveParentalTab(view);
+        else if (tab === 'metadata') saveMetadataTab(view);
     }
 
     function runMarvinOrRefresh(view) {
@@ -2779,7 +2806,7 @@ function (loading) {
         // Guard rails
         if (tab === 'overview' || tab === 'inspector' || tab === 'security') {
             // Check prerequisites
-            if (!_loadedConfig || !_loadedConfig.IsFirstRunComplete) {
+            if (!_loadedConfig || !(_loadedConfig.SyncPathMovies && _loadedConfig.LibraryNameMovies)) {
                 esAlert('Libraries need to be configured first. Go to the Libraries tab.');
                 return;
             }
@@ -2834,6 +2861,9 @@ function (loading) {
     function loadListsTab(view) {
         loadAdminLists(view);
         loadAdminProviders(view);
+        // Ensure add form is always visible
+        var form = view.querySelector('#admin-list-add-form');
+        if (form) form.style.display = '';
     }
 
     function loadAdminProviders(view) {
@@ -2863,29 +2893,40 @@ function (loading) {
         if (!grid) return;
         grid.innerHTML = '';
 
-        esFetch('/InfiniteDrive/Admin/Lists')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var lists = data.Lists || [];
-                if (empty) empty.style.display = lists.length ? 'none' : '';
-                lists.forEach(function(l) {
-                    var html = '<div class="es-card" style="margin-bottom:.5em">' +
-                        '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em">' +
-                        '<div>' +
-                        '<div style="font-weight:600">' + esc(l.DisplayName) + '</div>' +
-                        '<div style="font-size:.8em;opacity:.6">' + esc(l.Provider) + ' &middot; ' + esc(l.ListUrl).substring(0, 45) + (l.ListUrl && l.ListUrl.length > 45 ? '…' : '') + '</div>' +
-                        (l.LastSyncedAt ? '<div style="font-size:.75em;opacity:.45">Last synced: ' + fmtRelative(l.LastSyncedAt) + '</div>' : '') +
-                        (l.LastSyncStatus && l.LastSyncStatus !== 'ok' ? '<div style="font-size:.75em;color:#dc3545">' + esc(l.LastSyncStatus) + '</div>' : '') +
-                        '</div>' +
-                        '<div style="display:flex;gap:.5em;flex-shrink:0">' +
-                        '<button type="button" is="emby-button" class="raised button" style="font-size:.8em" data-es-action="admin-list-refresh" data-list-id="' + esc(l.Id) + '">Refresh</button>' +
-                        '<button type="button" is="emby-button" class="raised button" style="font-size:.8em;color:#dc3545" data-es-action="admin-list-remove" data-list-id="' + esc(l.Id) + '" data-list-name="' + esc(l.DisplayName) + '">Remove</button>' +
-                        '</div>' +
-                        '</div></div>';
-                    grid.innerHTML += html;
-                });
-            })
-            .catch(function() { if (empty) empty.textContent = 'Failed to load lists.'; });
+        // Load both admin (server) and user lists in parallel
+        var adminPromise = esFetch('/InfiniteDrive/Admin/Lists').then(function(r) { return r.json(); }).catch(function() { return { Lists: [] }; });
+        var userPromise = esFetch('/InfiniteDrive/Lists').then(function(r) { return r.json(); }).catch(function() { return { Lists: [] }; });
+
+        Promise.all([adminPromise, userPromise]).then(function(results) {
+            var adminLists = (results[0] && results[0].Lists) || [];
+            var userListData = (results[1] && results[1].Lists) || [];
+
+            // Tag and merge
+            var allLists = [];
+            adminLists.forEach(function(l) { l._type = 'server'; allLists.push(l); });
+            userListData.forEach(function(l) { l._type = 'user'; allLists.push(l); });
+
+            if (empty) empty.style.display = allLists.length ? 'none' : '';
+            allLists.forEach(function(l) {
+                var badge = l._type === 'user'
+                    ? '<span style="font-size:.72em;padding:.1em .4em;border-radius:2px;background:rgba(0,164,220,0.15);color:var(--theme-button-background,#00a4dc);font-weight:700;margin-left:.4em">user</span>'
+                    : '<span style="font-size:.72em;padding:.1em .4em;border-radius:2px;background:rgba(40,167,69,0.15);color:#28a745;font-weight:700;margin-left:.4em">server</span>';
+                var html = '<div class="es-card" style="margin-bottom:.5em">' +
+                    '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em">' +
+                    '<div style="flex:1;min-width:0">' +
+                    '<div style="font-weight:600">' + esc(l.DisplayName) + badge + '</div>' +
+                    '<div style="font-size:.8em;opacity:.6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(l.Provider) + ' &middot; ' + esc(l.ListUrl).substring(0, 45) + (l.ListUrl && l.ListUrl.length > 45 ? '…' : '') + '</div>' +
+                    (l.LastSyncedAt ? '<div style="font-size:.75em;opacity:.45">Last synced: ' + fmtRelative(l.LastSyncedAt) + '</div>' : '') +
+                    (l.LastSyncStatus && l.LastSyncStatus !== 'ok' ? '<div style="font-size:.75em;color:#dc3545">' + esc(l.LastSyncStatus) + '</div>' : '') +
+                    '</div>' +
+                    '<div style="display:flex;gap:.5em;flex-shrink:0">' +
+                    '<button type="button" is="emby-button" class="raised button" style="font-size:.8em" data-es-action="admin-list-refresh" data-list-id="' + esc(l.Id) + '">Refresh</button>' +
+                    (l._type === 'server' ? '<button type="button" is="emby-button" class="raised button" style="font-size:.8em;color:#dc3545" data-es-action="admin-list-remove" data-list-id="' + esc(l.Id) + '" data-list-name="' + esc(l.DisplayName) + '">Remove</button>' : '') +
+                    '</div>' +
+                    '</div></div>';
+                grid.innerHTML += html;
+            });
+        });
     }
 
     function saveListsSettings(view) {
@@ -2907,6 +2948,7 @@ function (loading) {
                 loadAdminProviders(view);
                 updateListLimitWarning(view);
                 afterSave(view);
+            })
             .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
     }
 
@@ -2942,20 +2984,12 @@ function (loading) {
     }
 
     function openAdminListModal(view) {
-        var form = view.querySelector('#admin-list-add-form');
-        if (!form) return;
-        form.style.display = 'block';
         var fb = view.querySelector('#admin-list-add-feedback');
         if (fb) fb.textContent = '';
         var nameEl = view.querySelector('#admin-list-name');
         var urlEl = view.querySelector('#admin-list-url');
         if (nameEl) nameEl.value = '';
         if (urlEl) urlEl.value = '';
-    }
-
-    function closeAdminListModal(view) {
-        var form = view.querySelector('#admin-list-add-form');
-        if (form) form.style.display = 'none';
     }
 
     function saveAdminList(view) {
@@ -3704,16 +3738,22 @@ function (loading) {
         }
     }
 
-    // ── Module export ──────────────────────────────────────────────────────────
-    return function (view) {
-        initView(view);
-        view.addEventListener('viewshow', function () {
-            // Emby keeps restored views at their original DOM position (position:absolute).
-            // Later-appended pages paint on top, so move this view to the end of its
-            // parent so it is always topmost when navigated to.
-            if (view.parentNode) { view.parentNode.appendChild(view); }
-            loadConfig(view);
-        });
-        view.addEventListener('viewhide', cleanup);
+    // ── Module export — BaseView pattern (required for is="emby-scroller") ──
+    function View(view, params) {
+        BaseView.apply(this, arguments);
+        try { initView(view); } catch(e) { console.error('initView error:', e); }
+    }
+
+    Object.assign(View.prototype, BaseView.prototype);
+
+    View.prototype.onResume = function (options) {
+        BaseView.prototype.onResume.apply(this, arguments);
+        try { loadConfig(this.view); } catch(e) { console.error('loadConfig error:', e); }
     };
+
+    View.prototype.onPause = function () {
+        try { cleanup(); } catch(e) { console.error('cleanup error:', e); }
+    };
+
+    return View;
 });

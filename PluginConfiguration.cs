@@ -621,6 +621,13 @@ namespace InfiniteDrive
         [DataMember]
         public string SystemRssFeedUrls { get; set; } = string.Empty;
 
+        /// <summary>
+        /// JSON array of SourceKey strings that the user has disabled on the Catalogs tab.
+        /// Empty string or "[]" means all catalogs are enabled.
+        /// </summary>
+        [DataMember]
+        public string DisabledSourceKeysJson { get; set; } = string.Empty;
+
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  FIRST-RUN WIZARD                                                    ║
         // ╚══════════════════════════════════════════════════════════════════════╝

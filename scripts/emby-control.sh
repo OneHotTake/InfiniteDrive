@@ -103,8 +103,10 @@ cleanup_state() {
         mkdir -p "$DATA_DIR/$dir"
     done
 
-    # Clean stale root plugin DLLs (Emby may cache old versions here)
+    # Clean stale root plugin DLLs and loose HTML/JS (Emby loads loose files over embedded)
     rm -f "$DATA_DIR/plugins/InfiniteDrive.dll" 2>/dev/null || true
+    rm -rf "$DATA_DIR/plugins/InfiniteDrive/" 2>/dev/null || true
+    rm -rf "$DATA_DIR/plugins/configurations/InfiniteDrive/" 2>/dev/null || true
 
     # Ensure plugins directory exists
     mkdir -p "$DATA_DIR/plugins"
@@ -143,25 +145,14 @@ start_emby() {
     cp "$PROJECT_DIR/plugin.json" "$DATA_DIR/plugins/"
 
     # 2. plugins/InfiniteDrive/ (Emby addon directory)
-    cp "$dll" "$DATA_DIR/plugins/InfiniteDrive/InfiniteDrive.dll"
-    cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
-    cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
-    cp "$PROJECT_DIR/Configuration/configurationpage.html" "$DATA_DIR/plugins/InfiniteDrive/" 2>/dev/null || true
-    cp "$PROJECT_DIR/Configuration/configurationpage.js" "$DATA_DIR/plugins/InfiniteDrive/" 2>/dev/null || true
+    #cp "$dll" "$DATA_DIR/plugins/InfiniteDrive/InfiniteDrive.dll"
+    #cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
+    #cp "$PROJECT_DIR/bin/Release/net8.0/publish/Polly.Core.dll" "$DATA_DIR/plugins/InfiniteDrive/libs/" 2>/dev/null || true
 
-    # 3. plugins/configurations/InfiniteDrive/ (Emby config cache — must match)
-    cp "$dll" "$DATA_DIR/plugins/configurations/InfiniteDrive/InfiniteDrive.dll"
-    cp "$PROJECT_DIR/Configuration/configurationpage.html" "$DATA_DIR/plugins/configurations/InfiniteDrive/" 2>/dev/null || true
-    cp "$PROJECT_DIR/Configuration/configurationpage.js" "$DATA_DIR/plugins/configurations/InfiniteDrive/" 2>/dev/null || true
+    # 3. plugins/configurations/InfiniteDrive/ (Emby config cache — DLL only)
+    #cp "$dll" "$DATA_DIR/plugins/configurations/InfiniteDrive/InfiniteDrive.dll"
 
     # 4. System plugin cache (Emby copies FROM here on startup — overrides everything)
-    local sys_plugin_dir="/opt/emby-server/system/plugins"
-    if [ -d "$sys_plugin_dir" ]; then
-        log_info "  Deploying to system plugin cache..."
-        sudo cp "$dll" "$sys_plugin_dir/InfiniteDrive.dll" 2>/dev/null || \
-            log_warn "  Could not copy to $sys_plugin_dir (need sudo?)"
-    fi
-
     # Ensure log directory exists
     mkdir -p "$DATA_DIR/logs"
 

@@ -239,6 +239,12 @@ namespace InfiniteDrive.Services
         // Sprint 401: System state engine fields
         public string SystemState { get; set; } = "unconfigured";
         public string SystemStateDescription { get; set; } = string.Empty;
+
+        /// <summary>True when library paths and names are configured (from state engine).</summary>
+        public bool LibraryConfigured { get; set; }
+
+        /// <summary>True when library paths exist on disk (from state engine).</summary>
+        public bool LibraryAccessible { get; set; }
     }
 
     /// <summary>Connection status for an upstream service.</summary>
@@ -435,7 +441,7 @@ namespace InfiniteDrive.Services
             var response = new StatusResponse
             {
                 Version                  = Plugin.Instance?.PluginVersion ?? "unknown",
-                IsConfigured             = config.IsFirstRunComplete,
+                IsConfigured             = false, // populated from state engine below
                 AioStreamsAddonName      = config.AioStreamsDiscoveredName,
                 AioStreamsAddonVersion   = config.AioStreamsDiscoveredVersion,
                 AioStreamsIsStreamOnly   = config.AioStreamsIsStreamOnly,
@@ -449,6 +455,9 @@ namespace InfiniteDrive.Services
                 var state = await stateService.GetStateAsync();
                 response.SystemState = state.State.ToString().ToLowerInvariant();
                 response.SystemStateDescription = state.Description;
+                response.LibraryConfigured = state.Library?.IsConfigured ?? false;
+                response.LibraryAccessible = state.Library?.IsAccessible ?? false;
+                response.IsConfigured = state.State != SystemStateEnum.Unconfigured && state.State != SystemStateEnum.Error;
             }
 
             // ── Manifest URL parsing for "Edit Manifest" buttons ─────────────────

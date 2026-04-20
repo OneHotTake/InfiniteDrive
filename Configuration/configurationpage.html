@@ -1,7 +1,8 @@
-<div id="InfiniteDriveConfigPage" data-role="page" class="page type-interior pluginConfigurationPage"
+<div id="InfiniteDriveConfigPage" is="emby-scroller" class="view flex flex-direction-column scrollFrameY flex-grow"
+     data-horizontal="false" data-forcescrollbar="true" data-centerfocus="true"
      data-require="emby-input,emby-button,emby-checkbox,emby-textarea"
-     data-controller="__plugin/InfiniteDriveConfigJS">
- <div class="content-primary">
+     data-controller="__plugin/InfiniteDriveConfigJS" data-title="InfiniteDrive">
+ <div class="scrollSlider flex-grow flex-direction-column padded-left padded-left-page padded-right padded-top-page padded-bottom-page">
 
 <style>
 /* All colors use rgba(128,128,128,...) so they adapt to both Emby light and dark themes. */
@@ -134,7 +135,7 @@
   </button>
   <button class="es-tab" data-es-tab="libraries">Libraries</button>
   <button class="es-tab" data-es-tab="lists">Lists</button>
-  <button class="es-tab" data-es-tab="sources">Sources</button>
+  <button class="es-tab" data-es-tab="sources">Catalogs</button>
   <button class="es-tab" data-es-tab="parental">Content Filtering</button>
   <button class="es-tab" data-es-tab="security">Security</button>
   <button class="es-tab" data-es-tab="inspector">Inspector</button>
@@ -205,7 +206,7 @@
       <div style="font-weight:600;color:#dc3545;margin-bottom:.5em">Reset &amp; Purge</div>
       <div style="margin-bottom:.75em">
         <label style="display:block;font-size:.88em;margin-bottom:.4em"><input type="radio" name="es-purge-mode" value="settings" checked /> Reset Settings — clear config, keep .strm files</label>
-        <label style="display:block;font-size:.88em;margin-bottom:.4em"><input type="radio" name="es-purge-mode" value="catalog" /> Purge Source Data — delete .strm files and catalog</label>
+        <label style="display:block;font-size:.88em;margin-bottom:.4em"><input type="radio" name="es-purge-mode" value="catalog" /> Purge Catalog Data — delete .strm files and catalog</label>
         <label style="display:block;font-size:.88em;margin-bottom:.4em"><input type="radio" name="es-purge-mode" value="nuclear" /> Total Existence Failure — delete everything</label>
       </div>
       <div id="es-ov-purge-nuclear-confirm" style="display:none;margin-bottom:.5em">
@@ -238,7 +239,7 @@
   <!-- AIOStreams Primary card -->
   <div class="es-card es-card-accent">
     <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.5em">
-      <div class="es-card-title" style="margin:0">AIOStreams — Primary</div>
+      <div class="es-card-title" style="margin:0">Primary</div>
       <span style="font-size:.75em;font-weight:600;color:var(--theme-button-background,#00a4dc);
                    background:rgba(0,164,220,.12);padding:.15em .55em;border-radius:99px">REQUIRED</span>
     </div>
@@ -255,13 +256,14 @@
     <div class="es-btn-row">
       <button type="button" is="emby-button" class="raised button" data-es-action="prov-aio-test">Test</button>
       <button type="button" is="emby-button" class="raised button" data-es-action="prov-aio-edit" id="prov-aio-edit-btn" style="display:none">Edit ↗</button>
+      <span id="prov-aio-userid" style="font-size:.82em;opacity:.65;display:none">Username: <code></code></span>
       <span id="prov-aio-status" style="font-size:.85em;margin-left:.25em"></span>
     </div>
   </div>
 
   <!-- AIOStreams Backup card -->
   <div class="es-card">
-    <div class="es-card-title">AIOStreams — Backup</div>
+    <div class="es-card-title">Backup Provider</div>
     <p class="es-card-text">If your primary is unreachable, InfiniteDrive falls back to this URL. Leave blank to disable backup.</p>
     <div class="inputContainer" style="margin-bottom:.5em">
       <label class="inputLabel inputLabelUnfocused" for="prov-backup-url">Backup Manifest URL</label>
@@ -272,6 +274,7 @@
     <div class="es-btn-row">
       <button type="button" is="emby-button" class="raised button" data-es-action="prov-backup-test">Test</button>
       <button type="button" is="emby-button" class="raised button" data-es-action="prov-backup-edit" id="prov-backup-edit-btn" style="display:none">Edit ↗</button>
+      <span id="prov-backup-userid" style="font-size:.82em;opacity:.65;display:none">Username: <code></code></span>
       <span id="prov-backup-status" style="font-size:.85em;margin-left:.25em"></span>
     </div>
   </div>
@@ -447,31 +450,9 @@
     </div>
   </div>
 
-  <!-- Server Lists card -->
-  <div class="es-card">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.5em">
-      <div class="es-card-title" style="margin:0">Server Lists</div>
-      <button type="button" is="emby-button" class="raised button" data-es-action="admin-list-add-open" style="font-size:.85em">+ Add List</button>
-    </div>
-    <p class="es-card-text">Server-wide lists are visible to all users. No limit on the number of lists.</p>
-
-    <div id="admin-lists-container">
-      <div id="admin-lists-empty" style="text-align:center;padding:2em;opacity:.5">No server lists added yet.</div>
-      <div id="admin-lists-grid"></div>
-    </div>
-
-    <div class="es-btn-row" style="margin-top:.75em">
-      <button type="button" is="emby-button" class="raised button" data-es-action="admin-lists-refresh-all">Refresh All</button>
-      <span id="admin-lists-refresh-status" style="font-size:.85em;margin-left:.5em"></span>
-    </div>
-  </div>
-
-  <!-- Add List (inline, hidden by default) -->
-  <div class="es-card" id="admin-list-add-form" style="display:none">
-    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.5em">
-      <div class="es-card-title" style="margin:0">Add External List</div>
-      <button type="button" is="emby-button" class="raised button" data-es-action="admin-list-add-cancel" style="font-size:.85em">Cancel</button>
-    </div>
+  <!-- Add External List card — always visible -->
+  <div class="es-card" id="admin-list-add-form">
+    <div class="es-card-title" style="margin:0 0 .5em">Add External List</div>
 
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75em">
       <div class="inputContainer" style="margin:0">
@@ -498,19 +479,34 @@
     <div id="admin-list-add-feedback" style="margin-top:.5em;font-size:.88em"></div>
   </div>
 
+  <!-- Lists card (server + user lists combined) -->
+  <div class="es-card">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:.5em">
+      <div class="es-card-title" style="margin:0">Lists</div>
+      <button type="button" is="emby-button" class="raised button" data-es-action="admin-lists-refresh-all" style="font-size:.85em">Refresh All</button>
+    </div>
+
+    <div id="admin-lists-container">
+      <div id="admin-lists-empty" style="text-align:center;padding:2em;opacity:.5">No lists added yet.</div>
+      <div id="admin-lists-grid"></div>
+    </div>
+
+    <span id="admin-lists-refresh-status" style="font-size:.85em;margin-left:.5em"></span>
+  </div>
+
 </div><!-- /lists tab -->
 
 
-<!-- ════════════════════════════ TAB — Sources ════════════════════════════ -->
+<!-- ════════════════════════════ TAB — Catalogs ════════════════════════════ -->
 <div class="es-tab-content" id="es-tab-content-sources">
 
-  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Sources</h1>
+  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Catalogs</h1>
 
   <div class="es-card" style="margin-bottom:1em">
-    <p class="es-card-text" style="margin:0">These catalogs are synced from your AIOStreams providers into your Emby library. Use <strong>Sync Sources</strong> to fetch new items.</p>
+    <p class="es-card-text" style="margin:0">These catalogs are synced from your AIOStreams providers into your Emby library. Enable or disable catalogs, then Save to apply.</p>
   </div>
 
-  <!-- Sources table -->
+  <!-- Catalogs table -->
   <div class="es-card">
     <div style="overflow-x:auto">
       <table class="es-sources-table">
@@ -768,7 +764,7 @@
       <thead><tr><th>Task</th><th>Action</th><th>Description</th><th style="text-align:center">Schedule</th></tr></thead>
       <tbody>
       <tr>
-        <td style="padding-right:1.5em;opacity:.8;font-size:.88em">Source Sync</td>
+        <td style="padding-right:1.5em;opacity:.8;font-size:.88em">Catalog Sync</td>
         <td><button type="button" is="emby-button" class="raised button-submit" data-es-task="catalog_sync">Run Now</button></td>
         <td style="padding-left:.75em;font-size:.78em;opacity:.45">Fetches sources &amp; writes .strm files</td>
         <td style="padding-left:.75em;font-size:.78em;opacity:.6;text-align:center" id="es-task-schedule-catalog">Daily</td>
@@ -1032,9 +1028,9 @@
   <div class="es-card">
     <div class="es-card-title">Content Management</div>
     <div style="margin-bottom:1.5em">
-      <h4 style="font-size:.95em;margin:0 0 .5em">Source Sync</h4>
+      <h4 style="font-size:.95em;margin:0 0 .5em">Catalog Sync</h4>
       <p class="es-hint">Manually trigger catalog sync.</p>
-      <button type="button" is="emby-button" class="raised button-submit" data-es-task="catalog_sync">Force Source Sync Now</button>
+      <button type="button" is="emby-button" class="raised button-submit" data-es-task="catalog_sync">Force Catalog Sync Now</button>
     </div>
     <hr style="margin:1em 0;border:0;border-top:1px solid rgba(128,128,128,0.15)" />
     <div>
@@ -1063,7 +1059,7 @@
     <h3>Provider ID Types</h3>
     <p id="es-metadata-empty" style="display:none;opacity:.6;margin:0 0 1em;font-size:.9em">
       No ID types discovered yet. This table populates automatically after your first catalog sync —
-      just add a provider on the Sources tab and let Marvin or a sync run.
+      just add a provider on the Catalogs tab and let Marvin or a sync run.
     </p>
     <div style="overflow-x:auto">
       <table class="es-table" id="es-metadata-types-table">
@@ -1092,12 +1088,10 @@
 </div><!-- /metadata tab -->
 
 
-<!-- Float action buttons (Save / Sync Sources / Refresh) -->
+<!-- Float action buttons (Save / Refresh) -->
 <div id="es-float-actions" style="display:none">
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-save-btn"
           data-es-action="float-save" style="display:none">Save</button>
-  <button type="button" is="emby-button" class="raised button-submit" id="es-float-sync-btn"
-          data-es-action="float-sync" style="display:none;background:#17a2b8">Sync Sources</button>
   <button type="button" is="emby-button" class="raised button-submit" id="es-float-refresh-btn"
           data-es-action="float-refresh" style="display:none">Refresh</button>
   <div id="es-float-save-confirm">Saved!</div>
@@ -1186,5 +1180,5 @@
 
 </div><!-- #es-page -->
 
-  </div><!-- content-primary -->
+  </div><!-- scrollSlider -->
 </div><!-- InfiniteDriveConfigPage -->
