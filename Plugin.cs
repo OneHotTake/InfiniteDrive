@@ -300,6 +300,11 @@ namespace InfiniteDrive
                     EnableInMainMenu = true,
                     DisplayName = "Discover",
                     MenuIcon = "explore"
+                },
+                new PluginPageInfo
+                {
+                    Name = "InfiniteDiscoverJS",
+                    EmbeddedResourcePath = "InfiniteDrive.Configuration.discoverpage.js"
                 }
             };
         }
