@@ -38,6 +38,7 @@ namespace InfiniteDrive.Services
         public string? LastSyncedAt { get; set; }
         public string? LastSyncStatus { get; set; }
         public int ItemCount        { get; set; }
+        public bool   Active        { get; set; } = true;
     }
 
     /// <summary>Request for <c>POST /InfiniteDrive/Admin/Lists/Add</c>.</summary>
@@ -78,6 +79,23 @@ namespace InfiniteDrive.Services
     public class RemoveAdminListResponse
     {
         public bool   Ok    { get; set; }
+        public string? Error { get; set; }
+    }
+
+    /// <summary>Request for <c>POST /InfiniteDrive/Admin/Lists/Toggle</c>.</summary>
+    [Route("/InfiniteDrive/Admin/Lists/Toggle", "POST",
+        Summary = "Toggles active state of a server-wide external list")]
+    public class ToggleAdminListRequest : IReturn<ToggleAdminListResponse>
+    {
+        [ApiMember(Name = "catalogId", IsRequired = true, DataType = "string", ParameterType = "query")]
+        public string CatalogId { get; set; } = string.Empty;
+    }
+
+    /// <summary>Response from <c>POST /InfiniteDrive/Admin/Lists/Toggle</c>.</summary>
+    public class ToggleAdminListResponse
+    {
+        public bool   Ok     { get; set; }
+        public bool   Active { get; set; }
         public string? Error { get; set; }
     }
 
@@ -164,7 +182,7 @@ namespace InfiniteDrive.Services
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
 
-            var catalogs = await _db.GetUserCatalogsByOwnerAsync(ServerOwner, activeOnly: true);
+            var catalogs = await _db.GetUserCatalogsByOwnerAsync(ServerOwner, activeOnly: false);
             return new GetAdminListsResponse
             {
                 Lists = catalogs.Select(c => new AdminListDto
@@ -175,6 +193,7 @@ namespace InfiniteDrive.Services
                     DisplayName    = c.DisplayName,
                     LastSyncedAt   = c.LastSyncedAt,
                     LastSyncStatus = c.LastSyncStatus,
+                    Active         = c.Active,
                 }).ToList(),
             };
         }
@@ -211,64 +230,72 @@ namespace InfiniteDrive.Services
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
 
-            if (string.IsNullOrWhiteSpace(req.ListUrl))
-                return Err<AddAdminListResponse>("List URL is required");
-
-            if (!req.ListUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
-                return Err<AddAdminListResponse>("List URL must use HTTPS");
-
-            var provider = ListFetcher.DetectProvider(req.ListUrl);
-            if (provider == null)
-                return Err<AddAdminListResponse>(
-                    "Unsupported list URL. Supported providers: mdblist.com, trakt.tv, themoviedb.org, anilist.co");
-
-            var config = Plugin.Instance.Configuration;
-            var enabled = ListFetcher.GetEnabledProviders(config.TraktClientId, config.TmdbApiKey);
-            if (!enabled.Contains(provider))
+            try
             {
-                var neededKey = provider switch
+                if (string.IsNullOrWhiteSpace(req.ListUrl))
+                    return Err<AddAdminListResponse>("List URL is required");
+
+                if (!req.ListUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    return Err<AddAdminListResponse>("List URL must use HTTPS");
+
+                var provider = ListFetcher.DetectProvider(req.ListUrl);
+                if (provider == null)
+                    return Err<AddAdminListResponse>(
+                        "Unsupported list URL. Supported providers: mdblist.com, trakt.tv, themoviedb.org, anilist.co");
+
+                var config = Plugin.Instance.Configuration;
+                var enabled = ListFetcher.GetEnabledProviders(config.TraktClientId, config.TmdbApiKey);
+                if (!enabled.Contains(provider))
                 {
-                    "trakt" => "a Trakt Client ID",
-                    "tmdb" => "a TMDB API Key",
-                    _ => null
+                    var neededKey = provider switch
+                    {
+                        "trakt" => "a Trakt Client ID",
+                        "tmdb" => "a TMDB API Key",
+                        _ => null
+                    };
+                    return Err<AddAdminListResponse>(
+                        neededKey != null
+                            ? $"{provider} is not available. Configure {neededKey} in plugin settings first."
+                            : $"Provider '{provider}' is not available.");
+                }
+
+                // Fetch list for validation
+                var fetchResult = await ListFetcher.FetchAsync(
+                    req.ListUrl, config.TraktClientId, config.TmdbApiKey, _logger, CancellationToken.None);
+
+                if (!fetchResult.Ok)
+                    return Err<AddAdminListResponse>(fetchResult.Error);
+
+                if (fetchResult.Items.Count == 0)
+                    return Err<AddAdminListResponse>("This list appears to be empty.");
+
+                var displayName = !string.IsNullOrWhiteSpace(req.DisplayName)
+                    ? req.DisplayName
+                    : (!string.IsNullOrWhiteSpace(fetchResult.DisplayName) ? fetchResult.DisplayName : req.ListUrl);
+
+                var catalogId = await _db.CreateUserCatalogAsync(
+                    ServerOwner, provider, req.ListUrl, displayName!);
+
+                // Eager sync
+                var result = await _syncService.SyncOneAsync(catalogId, CancellationToken.None);
+
+                return new AddAdminListResponse
+                {
+                    Ok        = result.Ok,
+                    CatalogId = catalogId,
+                    Provider  = provider,
+                    Fetched   = fetchResult.Items.Count,
+                    Added     = result.Added,
+                    Updated   = result.Updated,
+                    ElapsedMs = result.ElapsedMs,
+                    Error     = result.Error,
                 };
-                return Err<AddAdminListResponse>(
-                    neededKey != null
-                        ? $"{provider} is not available. Configure {neededKey} in plugin settings first."
-                        : $"Provider '{provider}' is not available.");
             }
-
-            // Fetch list for validation
-            var fetchResult = await ListFetcher.FetchAsync(
-                req.ListUrl, config.TraktClientId, config.TmdbApiKey, _logger, CancellationToken.None);
-
-            if (!fetchResult.Ok)
-                return Err<AddAdminListResponse>(fetchResult.Error);
-
-            if (fetchResult.Items.Count == 0)
-                return Err<AddAdminListResponse>("This list appears to be empty.");
-
-            var displayName = !string.IsNullOrWhiteSpace(req.DisplayName)
-                ? req.DisplayName
-                : (!string.IsNullOrWhiteSpace(fetchResult.DisplayName) ? fetchResult.DisplayName : req.ListUrl);
-
-            var catalogId = await _db.CreateUserCatalogAsync(
-                ServerOwner, provider, req.ListUrl, displayName!);
-
-            // Eager sync
-            var result = await _syncService.SyncOneAsync(catalogId, CancellationToken.None);
-
-            return new AddAdminListResponse
+            catch (Exception ex)
             {
-                Ok        = result.Ok,
-                CatalogId = catalogId,
-                Provider  = provider,
-                Fetched   = fetchResult.Items.Count,
-                Added     = result.Added,
-                Updated   = result.Updated,
-                ElapsedMs = result.ElapsedMs,
-                Error     = result.Error,
-            };
+                _logger.LogError(ex, "[InfiniteDrive] AddAdminList failed for {Url}", req.ListUrl);
+                return Err<AddAdminListResponse>("Failed to add list: " + ex.Message);
+            }
         }
 
         // ── POST /InfiniteDrive/Admin/Lists/Remove ────────────────────────────────
@@ -290,6 +317,28 @@ namespace InfiniteDrive.Services
 
             await _db.SetUserCatalogActiveAsync(req.CatalogId, active: false);
             return new RemoveAdminListResponse { Ok = true };
+        }
+
+        // ── POST /InfiniteDrive/Admin/Lists/Toggle ────────────────────────────────
+
+        public async Task<object> Post(ToggleAdminListRequest req)
+        {
+            var deny = AdminGuard.RequireAdmin(_authCtx, Request);
+            if (deny != null) return deny;
+
+            if (string.IsNullOrWhiteSpace(req.CatalogId))
+                return Err<ToggleAdminListResponse>("catalogId is required");
+
+            var catalog = await _db.GetUserCatalogByIdAsync(req.CatalogId);
+            if (catalog == null)
+                return Err<ToggleAdminListResponse>("List not found");
+
+            if (catalog.OwnerUserId != ServerOwner)
+                return Err<ToggleAdminListResponse>("Not a server list");
+
+            var newState = !catalog.Active;
+            await _db.SetUserCatalogActiveAsync(req.CatalogId, newState);
+            return new ToggleAdminListResponse { Ok = true, Active = newState };
         }
 
         // ── POST /InfiniteDrive/Admin/Lists/Refresh ───────────────────────────────

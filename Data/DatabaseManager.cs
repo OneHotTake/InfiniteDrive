@@ -247,6 +247,20 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
+        /// Returns all IMDB IDs for active (non-removed, non-blocked) catalog items.
+        /// Used by IChannel for bulk library-decoration (✓ prefix on titles).
+        /// </summary>
+        public async Task<HashSet<string>> GetAllPinnedImdbIdsAsync()
+        {
+            const string sql = @"
+                SELECT imdb_id FROM catalog_items
+                WHERE imdb_id IS NOT NULL AND blocked_at IS NULL AND removed_at IS NULL";
+
+            return await QueryListAsync(sql, _ => { }, row => row.GetString(0))
+                .ContinueWith(t => new HashSet<string>(t.Result, StringComparer.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
         /// Returns the first active catalog item with the specified IMDB ID, or null.
         /// </summary>
         public async Task<CatalogItem?> GetCatalogItemByImdbIdAsync(string imdbId)
@@ -4305,6 +4319,38 @@ WHERE NOT EXISTS (
                 cmd.BindParameters["@offset"].Bind(offset);
                 if (mediaType != null) BindText(cmd, "@media_type", mediaType);
             }, ReadDiscoverCatalogEntry);
+        }
+
+        public async Task<List<DiscoverCatalogEntry>> GetDiscoverCatalogBySourceAsync(
+            string catalogSource, string? genre = null, int limit = 42, int offset = 0)
+        {
+            var sql = @"SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+       genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
+FROM discover_catalog
+WHERE catalog_source = @source
+  AND is_in_user_library = 0";
+            if (genre != null) sql += " AND genres LIKE '%' || @genre || '%'";
+            sql += " ORDER BY added_at DESC LIMIT @limit OFFSET @offset";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindText(cmd, "@source", catalogSource);
+                if (genre != null) BindText(cmd, "@genre", genre);
+                cmd.BindParameters["@limit"].Bind(limit);
+                cmd.BindParameters["@offset"].Bind(offset);
+            }, ReadDiscoverCatalogEntry);
+        }
+
+        public async Task<List<string>> GetDiscoverMediaTypesAsync()
+        {
+            const string sql = "SELECT DISTINCT media_type FROM discover_catalog WHERE is_in_user_library = 0 ORDER BY media_type";
+            return await QueryListAsync(sql, _ => { }, row => row.GetString(0));
+        }
+
+        public async Task<List<string>> GetDiscoverCatalogSourcesAsync(string mediaType)
+        {
+            const string sql = "SELECT DISTINCT catalog_source FROM discover_catalog WHERE media_type = @media_type AND is_in_user_library = 0 ORDER BY catalog_source";
+            return await QueryListAsync(sql, cmd => BindText(cmd, "@media_type", mediaType), row => row.GetString(0));
         }
 
         public Task<int> GetDiscoverCatalogCountAsync()

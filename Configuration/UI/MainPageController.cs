@@ -30,10 +30,20 @@ namespace InfiniteDrive.Configuration.UI
                 IsMainConfigPage = true,
             };
 
-            // Phase 2+ will add more tabs here
-            // tabPages.Add(new TabPageController(pluginInfo, "Libraries", "Libraries", ...));
-            // tabPages.Add(new TabPageController(pluginInfo, "Security", "Security", ...));
-            // etc.
+            // Phase 2: Easy tabs
+            tabPages.Add(new TabPageController(pluginInfo, "Libraries", "Libraries",
+                pi => new views.LibrariesPageView(pi)));
+            tabPages.Add(new TabPageController(pluginInfo, "Security", "Security",
+                pi => new views.SecurityPageView(pi)));
+            tabPages.Add(new TabPageController(pluginInfo, "Metadata", "Metadata",
+                pi => new views.MetadataPageView(pi)));
+            tabPages.Add(new TabPageController(pluginInfo, "Catalogs", "Catalogs",
+                pi => new views.CatalogsPageView(pi)));
+
+            // Phase 3: Medium tabs (to be added)
+            // tabPages.Add(new TabPageController(pluginInfo, "Overview", "Overview", ...));
+            // tabPages.Add(new TabPageController(pluginInfo, "Lists", "Lists", ...));
+            // tabPages.Add(new TabPageController(pluginInfo, "ContentFiltering", "Content Filtering", ...));
         }
 
         public override PluginPageInfo PageInfo { get; }
