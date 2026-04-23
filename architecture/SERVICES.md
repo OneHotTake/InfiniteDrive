@@ -1,6 +1,6 @@
 # InfiniteDrive — Service Inventory
 
-> Last reconciled: 2026-04-18 (post Language & Localization sprint)
+> Last reconciled: 2026-04-23 (Sprint 410: RequiresOpening Pipeline)
 
 ## Decomposed API Endpoints (Services/Api/)
 
@@ -221,30 +221,60 @@ Responses include `AudioLanguages` field for previously-resolved items (populate
 
 ### ResolverService / StreamEndpointService
 
-**Purpose:** HTTP endpoint handlers for stream resolution.
+**Purpose:** HTTP endpoint handlers for stream resolution. **DEPRECATED (Sprint 410).**
 
 | Service | Route | Description |
 |---------|-------|-------------|
-| `ResolverService` | `/InfiniteDrive/resolve?token=...` | Sync pipeline movie resolution |
-| `StreamEndpointService` | `/InfiniteDrive/Stream?id=...&sig=...` | Series episode streaming |
+| `ResolverService` | `/InfiniteDrive/resolve?token=...` | Sync pipeline movie resolution — DEPRECATED |
+| `StreamEndpointService` | `/InfiniteDrive/Stream?id=...&sig=...` | Series episode streaming — DEPRECATED |
+
+**Deprecated by:** `AioMediaSourceProvider.OpenMediaSource()` with `RequiresOpening = true`. Playback now gated behind Emby's auth layer instead of unauthenticated HMAC tokens.
 
 **Language-aware resolution (Language sprint):** ResolverService uses `IAuthorizationContext` to read the authenticated user's `PreferredMetadataLanguage`. When multiple cached candidates exist with different languages, candidates whose `Languages` field matches the user's preference are selected first. Falls through to rank-order if no match.
 
 ### AioMediaSourceProvider
 
-**Purpose:** Populates Emby's version picker with live AIOStreams streams. Implements `IMediaSourceProvider`.
+**Purpose:** Populates Emby's version picker with live AIOStreams streams. Implements `IMediaSourceProvider`. Sprint 410: Secure playback via `RequiresOpening = true`.
 
 | Method | Description |
 |--------|-------------|
-| `GetMediaSources(item, ct)` | Returns `List<MediaSourceInfo>` for an item |
+| `GetMediaSources(item, ct)` | Returns `List<MediaSourceInfo>` with `RequiresOpening = true`, `OpenToken = cdnUrl` |
+| `OpenMediaSource(openToken, currentLiveStreams, ct)` | Validates token, returns `InfiniteDriveLiveStream` with materialized `MediaSourceInfo` |
 | `MapStreamToSource(stream)` | Maps `AioStreamsStream` → `MediaSourceInfo` with populated `MediaStreams` |
 | `MapCandidateToSource(candidate)` | Maps `StreamCandidate` → `MediaSourceInfo` with audio `MediaStreams` from `Languages` field |
+
+**Security (Sprint 410):**
+- `GetMediaSources()` sets `RequiresOpening = true`, `Path = ""`, `OpenToken = cdnUrl`
+- CDN URLs never appear in picker display
+- `OpenMediaSource()` validates token is HTTP/HTTPS URL, materializes CDN URL in returned `MediaSourceInfo`
+- Rollback via `PluginConfiguration.UseRequiresOpening = false` (default true)
 
 **MediaStreams population (Language sprint):** `MapStreamToSource()` builds `MediaStreams` list from:
 - Audio streams: one per language in `ParsedFile.Languages`, with title `"lang - channels audioTags"`
 - Subtitle streams: one per `Subtitles[]` entry, marked `IsExternal` with `DeliveryUrl` pointing to subtitle URL
 
 Sources are sorted by configured `MetadataLanguage` preference. Matching audio streams are marked `IsDefault = true`.
+
+### InfiniteDriveLiveStream
+
+**Purpose:** `ILiveStream` wrapper returned from `AioMediaSourceProvider.OpenMediaSource()`. Carries resolved `MediaSourceInfo` for Emby to play directly. Sprint 410.
+
+| Member | Type | Description |
+|--------|------|-------------|
+| `MediaSource` | `MediaSourceInfo` | Resolved CDN stream with `Path = cdnUrl`, `RequiresOpening = false` |
+| `UniqueId` | `string` | Unique stream identifier |
+| `TunerHostId` | `string` | Empty (not a TV tuner) |
+| `EnableStreamSharing` | `bool` | `false` |
+| `ConsumerCount` | `int` | Consumer count (unused) |
+| `OriginalStreamId` | `string` | Original stream ID (empty) |
+| `DateOpened` | `DateTimeOffset` | Stream open timestamp |
+| `SupportsCopyTo` | `bool` | `false` (Emby handles HTTP streaming directly) |
+| `Open(ct)` | `Task` | No-op (sets `DateOpened`) |
+| `Close()` | `Task` | No-op |
+| `CopyToAsync(PipeWriter, ct)` | `Task` | Throws `NotSupportedException` |
+| `CopyToAsync(Stream, ..., ct)` | `Task` | Throws `NotSupportedException` |
+
+**Note:** Emby uses `ILiveStream` interface for any "opening" flow where the source isn't immediately available. Despite the name suggesting TV/live streams, it's required by `IMediaSourceProvider.OpenMediaSource()` return type.
 
 ### CertificationResolver
 

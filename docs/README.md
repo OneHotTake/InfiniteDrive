@@ -133,6 +133,15 @@ The Health tab refreshes server-side — clicking "Refresh Status" fetches live 
 - **SECURITY.md** — Security model and best practices
 - **HISTORY.md** — Release notes, sprint history, roadmap
 
+**Architecture documentation:**
+- **[../architecture/OVERVIEW.md](../architecture/OVERVIEW.md)** — High-level system architecture
+- **[../architecture/CONTROL_FLOW.md](../architecture/CONTROL_FLOW.md)** — Pipeline and flow diagrams
+- **[../architecture/SERVICES.md](../architecture/SERVICES.md)** — Service inventory and contracts
+
+**Playback and security:**
+- **[REQUIRES_OPENING_PIPELINE.md](REQUIRES_OPENING_PIPELINE.md)** — Secure playback via RequiresOpening + OpenMediaSource (Sprint 410)
+- **[STREAM_RESOLUTION.md](STREAM_RESOLUTION.md)** — Deprecated resolution pipeline (pre-Sprint 410)
+
 ---
 
-**Last Updated:** 2026-04-13
+**Last Updated:** 2026-04-23

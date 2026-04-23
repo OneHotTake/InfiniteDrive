@@ -1,6 +1,6 @@
 # InfiniteDrive — Architecture Overview
 
-> Last reconciled: 2026-04-18 (post Language & Localization sprint)
+> Last reconciled: 2026-04-23 (Sprint 410: RequiresOpening Pipeline)
 
 ## System Purpose
 
@@ -53,7 +53,7 @@ The system transitioned from a monolithic StatusService + "God Task" pattern (pr
 │                                                                      │
 │  NamingPolicyService   MetadataEnrichmentService   NfoWriterService  │
 │  StrmWriterService     StreamResolutionHelper      ResolverService   │
-│  StreamEndpointService ItemPipelineService         ManifestFetcher   │
+│  StreamEndpointService AioMediaSourceProvider       ManifestFetcher   │
 │  ManifestFilter        ManifestDiff               VersionMaterializer│
 │  SeriesPreExpansion    EpisodeDiffService          RemovalPipeline   │
 │  CooldownGate          ResolverHealthTracker       RateLimiter       │
@@ -75,10 +75,11 @@ The system transitioned from a monolithic StatusService + "God Task" pattern (pr
 
 1. **MEF instantiation**: Emby creates tasks via parameterless constructors. `Plugin.Instance` is the service locator. A DI container facade would add indirection without decoupling.
 2. **Global sync lock**: `Plugin.SyncLock` (SemaphoreSlim) serializes catalog operations. Used by CatalogSyncTask, MarvinTask, RefreshTask, and five other tasks. Not a problem — correct, obvious, consistent.
-3. **Two .strm URL formats**:
-   - `/InfiniteDrive/resolve?token=...` → ResolverService (sync pipeline movies)
-   - `/InfiniteDrive/Stream?id=...&sig=...` → StreamEndpointService (series episodes)
-   - `/InfiniteDrive/Play?imdb=...` → DEAD END, no handler. Legacy fallback only.
+3. **Secure playback via RequiresOpening (Sprint 410)**:
+   - `AioMediaSourceProvider` implements `IMediaSourceProvider`
+   - `RequiresOpening = true` forces Emby to call `OpenMediaSource()` behind auth layer
+   - CDN URLs materialize server-side only, never in .strm files or picker display
+   - DEPRECATED: `/InfiniteDrive/resolve?token=...` and `/InfiniteDrive/Stream?id=...&sig=...` endpoints
 
 ## What This Is NOT
 

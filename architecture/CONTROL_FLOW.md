@@ -1,6 +1,6 @@
 # InfiniteDrive — Control Flow
 
-> Last reconciled: 2026-04-18 (post Language & Localization sprint)
+> Last reconciled: 2026-04-23 (Sprint 410: RequiresOpening Pipeline)
 
 ## 1. Catalog Sync Pipeline (CatalogSyncTask)
 
@@ -155,42 +155,76 @@ MarvinTask.Execute()
       └── Plugin.Pipeline.Clear()
 ```
 
-## 4. Playback Resolution Flow
+## 4. Playback Resolution Flow (Sprint 410: RequiresOpening Pipeline)
+
+**Security Architecture:** All playback is gated behind Emby's auth layer via `RequiresOpening = true`. CDN URLs never appear in .strm files or MediaSourceInfo.Path during picker display.
 
 ```
-Emby player requests .strm file
+User clicks Play
   │
-  ├── .strm contains one of:
-  │   ├── /InfiniteDrive/resolve?token=<hmac_token>    ← Movies
-  │   └── /InfiniteDrive/Stream?id=<id>&sig=<sig>      ← Series
+  ├── Emby calls IMediaSourceProvider.GetMediaSources(item)
+  │   │
+  │   ├── AioMediaSourceProvider.GetMediaSources(item)
+  │   │   │
+  │   │   ├── Identify item (IMDB ID, mediaType, season/episode)
+  │   │   │
+  │   │   ├── In-memory cache check (60-minute TTL)
+  │   │   │
+  │   │   ├── DB cache check (stream_candidates table)
+  │   │   │
+  │   │   └── Live resolve (if cache miss)
+  │   │       └── ResolveFromAioStreams()
+  │   │           ├── Try primary → secondary (circuit breaker)
+  │   │           ├── Returns List<AioStreamsStream>
+  │   │           └── BingePrefetchService.PrefetchNextEpisodeAsync()
+  │   │
+  │   └── MapStreamToSource() / MapCandidateToSource()
+  │       │
+  │       ├── Set RequiresOpening = true
+  │       ├── Set Path = "" (CDN URL NOT exposed)
+  │       ├── Set OpenToken = cdnUrl (secure token)
+  │       ├── Build MediaStreams:
+  │       │   ├── Audio: ParsedFile.Languages + Channels + AudioTags
+  │       │   └── Subtitles: Subtitles[] (IsExternal, DeliveryUrl)
+  │       └── SortByLanguagePreference()
   │
-  ├── ResolverService (movies):
-  │   ├── Parse HMAC token → extract IMDB ID + quality
-  │   ├── TryGetCachedUrlAsync()
-  │   │   ├── Query stream_candidates by IMDB ID
-  │   │   ├── PreferLanguageMatch() — language fallback chain:
-  │   │   │   user.PreferredMetadataLanguage → Config.MetadataLanguage → rank-order
-  │   │   └── If cache hit → 302 redirect
-  │   ├── Cache miss → ResolveWithFallbackAsync()
-  │   │   → Try primary provider → secondary (circuit breaker)
-  │   │   → Returns ResolutionResult
-  │   └── Return 302 redirect to stream URL
+  ├── Emby displays version picker with quality options
   │
-  ├── AioMediaSourceProvider (version picker / long-press):
-  │   ├── GetMediaSources(item) → DB cache or live AIOStreams resolve
-  │   ├── MapStreamToSource() → MediaSourceInfo with populated MediaStreams:
-  │   │   ├── Audio streams from ParsedFile.Languages + Channels + AudioTags
-  │   │   └── Subtitle streams from Subtitles[] (IsExternal, DeliveryUrl)
-  │   ├── MapCandidateToSource() → audio MediaStreams from Languages field
-  │   ├── SortByLanguagePreference() → MetadataLanguage → library language → no sort
-  │   └── Emby displays audio language names and subtitle tracks in player
+  ├── User selects version (or Emby auto-selects)
   │
-  └── StreamEndpointService (series):
-      ├── Validate stream ID + signature
-      ├── Look up cached ResolutionEntry
-      ├── If expired: re-resolve via StreamResolutionHelper
-      └── Return 302 redirect to stream URL
+  ├── Emby calls IMediaSourceProvider.OpenMediaSource(openToken, currentLiveStreams, ct)
+  │   │
+  │   └── AioMediaSourceProvider.OpenMediaSource()
+  │       │
+  │       ├── Validate openToken is HTTP/HTTPS URL
+  │       │
+  │       ├── Create MediaSourceInfo:
+  │       │   ├── Path = openToken (CDN URL materialized here)
+  │       │   ├── Protocol = Http
+  │       │   ├── RequiresOpening = false (already opened)
+  │       │   └── SupportsDirectStream = true
+  │       │
+  │       └── Return InfiniteDriveLiveStream(resolvedSource)
+  │
+  └── Emby plays from InfiniteDriveLiveStream.MediaSource.Path
 ```
+
+**Key Security Properties:**
+- `.strm` files contain placeholder URLs (content ignored)
+- CDN URLs only materialize server-side in `OpenMediaSource()`
+- `OpenMediaSource()` is behind Emby's auth layer
+- Rollback available via `PluginConfiguration.UseRequiresOpening = false`
+
+**Deprecated (pre-Sprint 410):**
+- `ResolverService` — `/InfiniteDrive/resolve?token=` endpoint (unauthenticated)
+- `StreamEndpointService` — `/InfiniteDrive/Stream?id=&sig=` endpoint (HMAC signed)
+- `PlaybackTokenService.GenerateResolveToken()` / `ValidateStreamToken()`
+- `PluginConfiguration.DefaultSlotKey`, `SignatureValidityDays`
+
+**Binge Watching:** `BingePrefetchService` pre-loads next episode candidates. When Emby auto-plays next episode:
+1. `GetMediaSources()` → DB hit → instant decorated sources
+2. Single source → Emby auto-plays, calls `OpenMediaSource()` → instant return
+3. Multiple → user sees picker (consistent behavior)
 
 ## 5. Metadata Enrichment Control Flow
 

@@ -1,5 +1,7 @@
 # Stream Resolution & Failover Protocol
 
+> **DEPRECATED (Sprint 410):** This document describes the pre-Sprint 410 resolution pipeline using unauthenticated HMAC tokens. See [REQUIRES_OPENING_PIPELINE.md](REQUIRES_OPENING_PIPELINE.md) for the current secure playback flow.
+
 Stream resolution is the most volatile part of the system. This document defines the contract between the `ResolverService` (the API) and the `StreamResolutionHelper` (the Engine).
 
 ## 1. The Resolution Contract
