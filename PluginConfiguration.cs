@@ -357,6 +357,15 @@ namespace InfiniteDrive
         public string ProxyMode { get; set; } = "auto";
 
         /// <summary>
+        /// When <c>true</c> (default), sources returned by AioMediaSourceProvider have
+        /// <c>RequiresOpening = true</c> so Emby always calls <c>OpenMediaSource()</c>
+        /// and never plays the .strm URL directly.  Set to <c>false</c> to revert to
+        /// CDN-URL-in-Path behavior without redeploy (rollback switch).
+        /// </summary>
+        [DataMember]
+        public bool UseRequiresOpening { get; set; } = true;
+
+        /// <summary>
         /// Maximum number of simultaneously proxied streams before new requests fall
         /// back to redirect mode.  Each proxy stream uses ~256 KB RAM.  Default: 5.
         /// </summary>

@@ -60,7 +60,27 @@ namespace InfiniteDrive.Services
         public Task<ILiveStream> OpenMediaSource(
             string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {
-            throw new NotSupportedException("AioMediaSourceProvider does not open live streams");
+            _logger.LogInformation("[AioMediaSourceProvider] OpenMediaSource called with token length={Len}", openToken?.Length ?? 0);
+
+            if (string.IsNullOrEmpty(openToken)
+                || !Uri.TryCreate(openToken, UriKind.Absolute, out var uri)
+                || (uri.Scheme != "http" && uri.Scheme != "https"))
+            {
+                throw new InvalidOperationException($"[AioMediaSourceProvider] Invalid open token (expected CDN URL): {openToken}");
+            }
+
+            var resolvedSource = new MediaSourceInfo
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Path = openToken,
+                Protocol = MediaProtocol.Http,
+                IsInfiniteStream = false,
+                RequiresOpening = false,
+                SupportsDirectStream = true,
+                SupportsTranscoding = false,
+            };
+
+            return Task.FromResult<ILiveStream>(new InfiniteDriveLiveStream(resolvedSource));
         }
 
         private List<MediaSourceInfo> GetMediaSourcesCore(BaseItem item)
@@ -278,16 +298,19 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrEmpty(stream.Url)) return null;
 
             var name = stream.Name ?? stream.Title ?? "Stream";
+            var useRequiresOpening = Plugin.Instance?.Configuration?.UseRequiresOpening ?? true;
 
             var source = new MediaSourceInfo
             {
                 Id = stream.Id ?? Guid.NewGuid().ToString("N"),
                 Name = name,
-                Path = stream.Url,
+                Path = useRequiresOpening ? string.Empty : stream.Url,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectStream = true,
                 SupportsTranscoding = false,
                 IsInfiniteStream = false,
+                RequiresOpening = useRequiresOpening,
+                OpenToken = useRequiresOpening ? stream.Url : null,
             };
 
             if (stream.Bitrate.HasValue && stream.Bitrate.Value > 0)
@@ -317,15 +340,19 @@ namespace InfiniteDrive.Services
         {
             if (string.IsNullOrEmpty(candidate.Url)) return null;
 
+            var useRequiresOpening = Plugin.Instance?.Configuration?.UseRequiresOpening ?? true;
+
             var source = new MediaSourceInfo
             {
                 Id = candidate.Url.GetHashCode(StringComparison.Ordinal).ToString("x"),
                 Name = $"[{candidate.ProviderKey}] {candidate.QualityTier}",
-                Path = candidate.Url,
+                Path = useRequiresOpening ? string.Empty : candidate.Url,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectStream = true,
                 SupportsTranscoding = false,
                 IsInfiniteStream = false,
+                RequiresOpening = useRequiresOpening,
+                OpenToken = useRequiresOpening ? candidate.Url : null,
             };
 
             // Build audio MediaStreams from stored languages
@@ -503,7 +530,7 @@ namespace InfiniteDrive.Services
                         ImdbId = imdbId,
                         Season = season,
                         Episode = episode,
-                        StreamUrl = sources[0].Path,
+                        StreamUrl = sources[0].OpenToken ?? sources[0].Path,
                         QualityTier = "all",
                         FileName = null,
                         Status = "valid",
@@ -520,7 +547,7 @@ namespace InfiniteDrive.Services
                         Rank = i,
                         ProviderKey = "aio",
                         StreamType = "debrid",
-                        Url = s.Path,
+                        Url = s.OpenToken ?? s.Path,
                         QualityTier = "all",
                         FileName = s.Name,
                         Status = "valid",

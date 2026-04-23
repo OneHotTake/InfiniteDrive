@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using InfiniteDrive.Data;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
@@ -24,14 +25,16 @@ namespace InfiniteDrive.Services
         private readonly ILogger<StrmWriterService> _logger;
         private readonly ILogManager _logManager;
         private readonly DatabaseManager _db;
+        private readonly ILibraryMonitor? _libraryMonitor;
 
         /// <summary>
         /// Constructor takes dependencies needed for filesystem operations.
         /// </summary>
-        public StrmWriterService(ILogManager logManager, DatabaseManager db)
+        public StrmWriterService(ILogManager logManager, DatabaseManager db, ILibraryMonitor? libraryMonitor = null)
         {
             _logManager = logManager;
             _db = db;
+            _libraryMonitor = libraryMonitor;
             _logger = new EmbyLoggerAdapter<StrmWriterService>(logManager.GetLogger("InfiniteDrive"));
         }
 
@@ -239,7 +242,11 @@ namespace InfiniteDrive.Services
         // ── Private: .strm file I/O ──────────────────────────────────────────────
 
         private void WriteStrmFile(string path, string url)
-            => File.WriteAllText(path, url, new UTF8Encoding(false));
+        {
+            File.WriteAllText(path, url, new UTF8Encoding(false));
+            try { _libraryMonitor?.ReportFileSystemChanged(path); }
+            catch (Exception ex) { _logger.LogDebug(ex, "[StrmWriterService] ReportFileSystemChanged failed (non-fatal) for {Path}", path); }
+        }
 
         private async Task PersistFirstAddedByUserIdIfNotSetAsync(
             CatalogItem item,

@@ -2,7 +2,8 @@
 
 Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 
-**Current Status**: Sprint 370 Complete (One-pass series episode sync from AIOStreams) |
+**Current Status**: Sprint 410 Complete (Secure playback via RequiresOpening + OpenMediaSource) |
+                     Sprint 370 Complete (One-pass series episode sync from AIOStreams) |
                      Sprint 207 Complete (Per-User Saves + InfiniteDriveChannel) |
                      Sprint 205 Complete (User Tabs Removed from Config Page) |
                      Sprint 204 Complete (Discover Endpoint Un-gating) |
@@ -38,6 +39,33 @@ Versioning: `v0.{SPRINT}.{TASK}` — current version 0.41.0.0
 - `Services/EpisodeDiffService.cs` — Made `ParseVideoKeys()` public
 - `Services/StrmWriterService.cs` — Added `WriteEpisodesFromVideosJsonAsync()`
 - `Tasks/RefreshTask.cs` — Added `FetchAioVideosAsync()` and modified series expansion flow
+
+---
+
+## Sprint 410 — Secure Playback via RequiresOpening + OpenMediaSource (2026-04-23)
+
+**Status:** Complete
+
+### Goals
+- Eliminate direct .strm URL exposure: CDN URLs never appear in .strm content or MediaSourceInfo.Path
+- Gate all playback through OpenMediaSource() which is protected by Emby's auth layer
+- Provide rollback via UseRequiresOpening config flag (default true)
+
+### Implementation
+- Created `Models/InfiniteDriveLiveStream.cs` — ILiveStream wrapper with all required members
+- Modified `AioMediaSourceProvider.cs` — Implemented OpenMediaSource(), set RequiresOpening=true, encoded CDN URL in OpenToken
+- Modified `StrmWriterService.cs` — Inject ILibraryMonitor, call ReportFileSystemChanged() after .strm write
+- Added `PluginConfiguration.UseRequiresOpening` flag for rollback without redeploy
+
+### Files Changed
+- `Models/InfiniteDriveLiveStream.cs` — New ILiveStream implementation
+- `Services/AioMediaSourceProvider.cs` — OpenMediaSource impl, RequiresOpening flag
+- `Services/StrmWriterService.cs` — ILibraryMonitor notification
+- `PluginConfiguration.cs` — UseRequiresOpening config flag
+
+### Follow-up (Next Sprint)
+- Remove deprecated ResolverService, StreamEndpointService, PlaybackTokenService token methods
+- Remove DefaultSlotKey, SignatureValidityDays from PluginConfiguration
 
 ---
 
