@@ -1,0 +1,3725 @@
+define(['baseView', 'loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea', 'emby-scroller'],
+function (BaseView, loading) {
+    'use strict';
+
+    var pluginId = '3c45a87e-2b4f-4d1a-9e73-8f12c3456789';
+
+    // ── Module-level state ────────────────────────────────────────────────────
+    var _dashInterval       = null;
+    var _catalogPollTimer   = null;
+    var _searchTimer        = null;
+    var _catalogLimits      = {};
+    var _loadedConfig       = null;
+    var _unsavedChanges     = false;
+    var _authExpired        = false;
+
+    // ── Auth expired handling ─────────────────────────────────────────────────
+    function stopPolling() {
+        if (_dashInterval) { clearInterval(_dashInterval); _dashInterval = null; }
+        if (_catalogPollTimer) { clearInterval(_catalogPollTimer); _catalogPollTimer = null; }
+        if (_searchTimer) { clearTimeout(_searchTimer); _searchTimer = null; }
+    }
+
+    function showAuthExpiredBanner(view) {
+        if (_authExpired) return;
+        _authExpired = true;
+        stopPolling();
+
+        var banner = document.createElement('div');
+        banner.id = 'es-auth-expired-banner';
+        banner.className = 'es-alert es-alert-warning';
+        banner.style.cssText = 'position:fixed;top:0;left:0;right:0;margin:0;padding:12px 16px;z-index:9999;display:flex;align-items:center;gap:12px;';
+        banner.innerHTML = '<span>⚠️ Session expired. Reload the page to reconnect.</span><button type="button" is="emby-button" class="raised button">Reload</button>';
+
+        var btn = banner.querySelector('button');
+        btn.onclick = function() { location.reload(); };
+
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+
+    // ── Authenticated fetch ───────────────────────────────────────────────────
+    // Emby requires X-Emby-Token on all custom plugin API routes.
+    // ApiClient is a global injected by Emby's SPA — no require() needed.
+    function esFetch(url, opts) {
+        opts = opts || {};
+        var token = (typeof ApiClient !== 'undefined' && ApiClient.accessToken) ? ApiClient.accessToken() : '';
+        opts.headers = Object.assign({ 'X-Emby-Token': token }, opts.headers || {});
+        return fetch(url, opts);
+    }
+
+    // ── Notification helper ───────────────────────────────────────────────────
+    function esAlert(msg) {
+        if (typeof Dashboard !== 'undefined' && Dashboard.alert) {
+            Dashboard.alert({ message: msg });
+        } else {
+            alert(msg);
+        }
+    }
+
+    // ── DOM helpers ───────────────────────────────────────────────────────────
+    function q(view, id)        { return view.querySelector('#' + id); }
+    function esVal(view, id)    { var el = q(view, id); return el ? el.value : ''; }
+    function esChk(view, id)    { var el = q(view, id); return el ? el.checked : false; }
+    function esErrorText(msg)   { return '✗ ' + msg; }
+    function esInt(view, id, d) { var v = parseInt(esVal(view, id), 10); return isNaN(v) ? d : v; }
+    function setText(view, id, val) { var el = q(view, id); if (el) el.textContent = val; }
+    function setBadge(view, id, type, text) {
+        var el = q(view, id);
+        if (el) { el.textContent = text; el.className = 'es-badge es-badge-' + type; }
+    }
+    function esc(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+    function pad(n) { return n != null ? (n < 10 ? '0'+n : ''+n) : '00'; }
+    function shortenUrl(u) { return u && u.length > 35 ? u.slice(0,35)+'…' : u; }
+    function fmtDate(iso) {
+        try { var d = new Date(iso); return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); }
+        catch(e) { return iso; }
+    }
+    function fmtRelative(d) {
+        var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+        if (diff < 0)    return 'just now';       // clock skew or future date
+        if (diff < 60)    return diff + 's ago';
+        if (diff < 3600)  return Math.floor(diff/60)  + 'm ago';
+        if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+        return Math.floor(diff/86400) + 'd ago';
+    }
+    function parseManifestUrl(url) {
+        if (!url) return null;
+        try {
+            var m = url.match(/^(https?:\/\/[^\/]+)\/stremio\/([^\/]+)/i);
+            if (!m) return null;
+            return { baseUrl: m[1], userId: m[2], configureUrl: m[1] + '/stremio/configure/' + m[2] };
+        } catch(e) { return null; }
+    }
+
+    // ── Sources tab ───────────────────────────────────────────────────────────
+    function refreshSourcesTab(view) {
+        var tbody = q(view, 'es-sources-body');
+        if (!tbody) return;
+
+        tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">Loading sources…</td></tr>';
+
+        esFetch('/InfiniteDrive/Status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var sources = data.SyncStates || [];
+                if (!sources.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">No sources synced yet. Click Sync Sources to fetch catalogs.</td></tr>';
+                    return;
+                }
+
+                var html = '';
+                sources.forEach(function(src) {
+                    var key = src.SourceKey || '';
+                    var type = 'other';
+                    if (key.indexOf(':movie:') !== -1) type = 'movie';
+                    else if (key.indexOf(':series:') !== -1) type = 'series';
+                    else if (key.indexOf(':anime:') !== -1) type = 'anime';
+
+                    var label;
+                    if (key === 'aiostreams') {
+                        label = 'All Sources';
+                        type = 'aggregate';
+                    } else if (key.indexOf(':') !== -1) {
+                        label = src.DisplayName || key.split(':').slice(2).join(':');
+                    } else {
+                        label = key;
+                    }
+
+                    var statusBadge = src.Status === 'ok'
+                        ? '<span class="es-badge es-badge-ok">OK</span>'
+                        : src.Status === 'running'
+                        ? '<span class="es-badge es-badge-running">Running</span>'
+                        : src.Status === 'error'
+                        ? '<span class="es-badge es-badge-error">Error</span>'
+                        : '<span class="es-badge es-badge-never">' + esc(src.Status || 'Pending') + '</span>';
+
+                    var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'Never';
+                    var itemCount = src.ItemCount || 0;
+                    var enabled = src.Enabled !== false;
+                    var chkId = 'es-src-chk-' + key.replace(/[^a-zA-Z0-9]/g, '_');
+
+                    html += '<tr>' +
+                        '<td><input type="checkbox" is="emby-checkbox" id="' + chkId + '" data-src-key="' + esc(key) + '"' + (enabled ? ' checked' : '') + ' /></td>' +
+                        '<td>' + esc(label) + '</td>' +
+                        '<td style="opacity:.65">' + esc(type) + '</td>' +
+                        '<td>' + itemCount + '</td>' +
+                        '<td>' + statusBadge + '</td>' +
+                        '<td style="font-size:.85em;opacity:.6">' + lastSync + '</td>' +
+                        '</tr>';
+                });
+                tbody.innerHTML = html;
+            })
+            .catch(function(err) {
+                tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center;padding:2em">Failed to load sources</td></tr>';
+            });
+    }
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    function showTab(view, name) {
+        var tabs = ['overview','providers','libraries','lists','sources','parental','security','inspector'];
+
+        tabs.forEach(function(t) {
+            var c = q(view, 'es-tab-content-' + t);
+            if (c) c.classList.toggle('active', t === name);
+        });
+        var btns = view.querySelectorAll('[data-es-tab]');
+        for (var i = 0; i < btns.length; i++) {
+            btns[i].classList.toggle('active', btns[i].getAttribute('data-es-tab') === name);
+        }
+
+        // Float action bar visibility
+        updateFloatActions(view, name);
+
+        // Tab-specific load actions
+        if (name === 'overview')   { loadOverviewTab(view); }
+        if (name === 'providers')  { loadProvidersTab(view); }
+        if (name === 'libraries')  { populateLibrariesTab(view, _loadedConfig); loadDefaultQuality(view); }
+        if (name === 'sources')    { refreshSourcesTab(view); }
+        if (name === 'lists')      { loadListsTab(view); }
+        if (name === 'metadata')   { loadMetadataTab(view); }
+        if (name === 'parental')   { loadBlockedItems(view); }
+        if (name === 'inspector')  { refreshDashboard(view); loadImprobabilityStatus(view);
+                                          if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 30000); }
+        if (name !== 'inspector') {
+            if (_dashInterval) { clearInterval(_dashInterval); _dashInterval = null; }
+        }
+    }
+
+    // ── Float action bar ──────────────────────────────────────────────────
+    function updateFloatActions(view, tab) {
+        var bar = view.querySelector('#es-float-actions');
+        if (!bar) return;
+        bar.style.display = 'flex';
+
+        // Per-plan visibility
+        var saveTabs    = ['providers','libraries','lists','parental'];
+        var syncTabs    = ['lists','sources'];
+        var refreshTabs = ['overview','sources','inspector'];
+
+        var saveBtn = view.querySelector('#es-float-save-btn');
+        var syncBtn = view.querySelector('#es-float-sync-btn');
+        var refreshBtn = view.querySelector('#es-float-refresh-btn');
+        if (saveBtn) saveBtn.style.display = saveTabs.indexOf(tab) !== -1 ? '' : 'none';
+        if (syncBtn) syncBtn.style.display = syncTabs.indexOf(tab) !== -1 ? '' : 'none';
+        if (refreshBtn) refreshBtn.style.display = refreshTabs.indexOf(tab) !== -1 ? '' : 'none';
+
+        // Hide bar entirely if no buttons visible
+        var anyVisible = (saveBtn && saveBtn.style.display !== 'none') ||
+                         (syncBtn && syncBtn.style.display !== 'none') ||
+                         (refreshBtn && refreshBtn.style.display !== 'none');
+        bar.style.display = anyVisible ? 'flex' : 'none';
+    }
+
+    // ── Overview tab ──────────────────────────────────────────────────────
+    function loadOverviewTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = _loadedConfig;
+
+        esFetch('/InfiniteDrive/Status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                // ── System state from Sprint 401 ────────────────────────────────
+                var state = data.SystemState || 'unconfigured';
+                var stateDesc = data.SystemStateDescription || '';
+                var isUnconfigured = state === 'unconfigured';
+                var isError = state === 'error';
+                var isConfigured = !isUnconfigured;
+
+                // State dot & label
+                var dotEl = q(view, 'es-ov-state-dot');
+                var labelEl = q(view, 'es-ov-state-label');
+                var descEl = q(view, 'es-ov-state-desc');
+                if (dotEl) {
+                    dotEl.className = state === 'ready' ? 'es-health-dot es-health-dot-ok'
+                                    : state === 'degraded' ? 'es-health-dot es-health-dot-warn'
+                                    : state === 'provisioning' ? 'es-health-dot es-health-dot-warn'
+                                    : 'es-health-dot es-health-dot-err';
+                }
+                if (labelEl) {
+                    labelEl.textContent = state === 'ready' ? 'System Healthy'
+                                        : state === 'degraded' ? 'Degraded'
+                                        : state === 'provisioning' ? 'Provisioning'
+                                        : state === 'error' ? 'Error'
+                                        : 'Setup Required';
+                    labelEl.style.color = state === 'ready' ? '#28a745'
+                                        : state === 'degraded' ? '#ffc107'
+                                        : state === 'provisioning' ? '#ffc107'
+                                        : '#dc3545';
+                }
+                if (descEl) descEl.textContent = stateDesc;
+
+                // ── Setup steps (when unconfigured) ─────────────────────────────
+                var setupSteps = view.querySelector('#es-ov-setup-steps');
+                var healthGrid = view.querySelector('#es-ov-health-grid');
+                var statsGrid = view.querySelector('#es-ov-stats');
+                var summonBtn = q(view, 'es-ov-summon-btn');
+                var purgeBtn = q(view, 'es-ov-purge-btn');
+
+                var hasProvider = !!(cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl);
+                var hasLibrary = !!(cfg.IsFirstRunComplete);
+                var hasLists = !!(cfg.TmdbApiKey || cfg.TraktClientId);
+
+                if (isUnconfigured || isError) {
+                    // Show setup steps with checkmarks
+                    if (setupSteps) {
+                        setupSteps.style.display = 'block';
+                        var stepProv = q(view, 'es-ov-step-provider');
+                        var stepLib = q(view, 'es-ov-step-libraries');
+                        var stepLists = q(view, 'es-ov-step-lists');
+                        if (stepProv) stepProv.innerHTML = '<span class="es-check-icon">' + (hasProvider ? '✅' : '1.') + '</span> ' + (hasProvider ? 'Provider connected' : '<a href="#" data-es-tab="providers">Connect a Provider</a>');
+                        if (stepLib) stepLib.innerHTML = '<span class="es-check-icon">' + (hasLibrary ? '✅' : '2.') + '</span> ' + (hasLibrary ? 'Libraries configured' : '<a href="#" data-es-tab="libraries">Set up Libraries</a>');
+                        if (stepLists) stepLists.innerHTML = '<span class="es-check-icon">' + (hasLists ? '✅' : '3.') + '</span> ' + (hasLists ? 'Lists added' : '<a href="#" data-es-tab="lists">Add Lists</a>') + ' <span style="opacity:.5">(optional)</span>';
+                    }
+                    if (healthGrid) healthGrid.style.display = 'none';
+                    if (statsGrid) statsGrid.style.display = 'none';
+                    if (summonBtn) summonBtn.style.display = 'none';
+                    if (purgeBtn) purgeBtn.style.display = hasProvider || hasLibrary ? '' : 'none';
+                } else {
+                    // Configured — show health grid and stats
+                    if (setupSteps) setupSteps.style.display = 'none';
+
+                    // Health grid
+                    if (healthGrid) {
+                        healthGrid.style.display = 'grid';
+                        var provDot = q(view, 'es-ov-provider-dot');
+                        var provText = q(view, 'es-ov-provider-text');
+                        if (provDot && provText) {
+                            var aioOk = data.AioStreams && data.AioStreams.Ok;
+                            provDot.className = 'es-health-dot ' + (hasProvider ? (aioOk ? 'es-health-dot-ok' : 'es-health-dot-err') : 'es-health-dot-err');
+                            provText.textContent = hasProvider ? (aioOk ? 'Connected' : 'Unreachable') : 'Not configured';
+                        }
+                        var libDot = q(view, 'es-ov-library-dot');
+                        var libText = q(view, 'es-ov-library-text');
+                        if (libDot && libText) {
+                            libDot.className = 'es-health-dot ' + (hasLibrary ? 'es-health-dot-ok' : 'es-health-dot-err');
+                            libText.textContent = hasLibrary ? (data.CatalogItemCount || 0) + ' items' : 'Not set up';
+                        }
+                        var filterDot = q(view, 'es-ov-filter-dot');
+                        var filterText = q(view, 'es-ov-filter-text');
+                        if (filterDot && filterText) {
+                            var hasKey = !!(cfg.TmdbApiKey);
+                            filterDot.className = 'es-health-dot ' + (hasKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
+                            filterText.textContent = hasKey ? 'Enabled' : 'Disabled';
+                        }
+                    }
+
+                    // Stats
+                    if (statsGrid) {
+                        statsGrid.style.display = 'grid';
+                        statsGrid.style.gridTemplateColumns = 'repeat(auto-fill,minmax(120px,1fr))';
+                        statsGrid.style.gap = '.75em';
+                        statsGrid.style.marginBottom = '.75em';
+                        var countEl = q(view, 'es-ov-catalog-count');
+                        if (countEl) countEl.textContent = data.CatalogItemCount || 0;
+                        var syncEl = q(view, 'es-ov-last-sync');
+                        if (syncEl) syncEl.textContent = data.RefreshLastRunAt ? fmtRelative(new Date(data.RefreshLastRunAt)) : 'Never';
+                        var covEl = q(view, 'es-ov-coverage');
+                        if (covEl) {
+                            var pct = data.Coverage && data.Coverage.Total > 0 ? Math.round(data.Coverage.Valid / data.Coverage.Total * 100) : 0;
+                            covEl.textContent = pct + '%';
+                        }
+                        var aioEl = q(view, 'es-ov-aio-status');
+                        if (aioEl) {
+                            aioEl.textContent = data.AioStreams && data.AioStreams.Ok ? 'Online' : 'Offline';
+                            aioEl.style.color = data.AioStreams && data.AioStreams.Ok ? '#28a745' : '#dc3545';
+                        }
+                    }
+
+                    if (summonBtn) summonBtn.style.display = '';
+                    if (purgeBtn) purgeBtn.style.display = '';
+                }
+
+                // Provider inline health
+                var provHealthDot = q(view, 'es-prov-health-dot');
+                var provHealthText = q(view, 'es-prov-health-text');
+                if (provHealthDot && provHealthText) {
+                    var hasManifest = cfg.PrimaryManifestUrl;
+                    provHealthDot.className = 'es-health-dot ' + (hasManifest ? (data.AioStreams && data.AioStreams.Ok ? 'es-health-dot-ok' : 'es-health-dot-err') : 'es-health-dot-err');
+                    provHealthText.textContent = hasManifest
+                        ? (data.AioStreams && data.AioStreams.Ok ? 'Primary connected' + (data.AioStreams.LatencyMs > 0 ? ' (' + data.AioStreams.LatencyMs + ' ms)' : '') : 'Primary unreachable')
+                        : 'No provider configured';
+                }
+
+                // Library inline health
+                var libHealthDot = q(view, 'es-lib-health-dot');
+                var libHealthText = q(view, 'es-lib-health-text');
+                if (libHealthDot && libHealthText) {
+                    libHealthDot.className = 'es-health-dot ' + (cfg.IsFirstRunComplete ? 'es-health-dot-ok' : 'es-health-dot-err');
+                    libHealthText.textContent = cfg.IsFirstRunComplete ? 'Libraries created' : 'Libraries not yet created';
+                }
+
+                // Lock library paths after first run
+                var pathsFields = view.querySelector('#es-lib-paths-fields');
+                var lockedNote = q(view, 'es-lib-locked-note');
+                if (cfg.IsFirstRunComplete) {
+                    if (pathsFields) pathsFields.classList.add('es-field-locked');
+                    if (lockedNote) lockedNote.style.display = 'block';
+                }
+
+                // Content Filtering inline health
+                var filterHealthDot = q(view, 'es-filter-health-dot');
+                var filterHealthText = q(view, 'es-filter-health-text');
+                if (filterHealthDot && filterHealthText) {
+                    var tmdbKey = cfg.TmdbApiKey;
+                    filterHealthDot.className = 'es-health-dot ' + (tmdbKey ? 'es-health-dot-ok' : 'es-health-dot-warn');
+                    filterHealthText.textContent = tmdbKey ? 'Content filtering active' : 'No TMDB key configured';
+                }
+
+                // Security: show Generated date
+                var genDateEl = q(view, 'sec-generated-date');
+                if (genDateEl) {
+                    genDateEl.textContent = 'at plugin setup' + (cfg.PluginSecretRotatedAt ? '' : ' (never rotated)');
+                }
+
+                // Update status pills on tab bar
+                updateStatusPills(view, data);
+            }).catch(function() {});
+    }
+
+    // ── Sources tab ───────────────────────────────────────────────────────────
+    function loadProvidersTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = _loadedConfig;
+
+        var urlEl = view.querySelector('#prov-aio-url');
+        if (urlEl && !urlEl._userEditing) urlEl.value = cfg.PrimaryManifestUrl || '';
+
+        var backupEl = view.querySelector('#prov-backup-url');
+        if (backupEl && !backupEl._userEditing)
+            backupEl.value = cfg.SecondaryManifestUrl || '';
+
+        var metaEl = view.querySelector('#prov-meta-url');
+        if (metaEl) metaEl.value = cfg.AioMetadataBaseUrl || '';
+
+        var metaChk = view.querySelector('#prov-meta-enabled');
+        if (metaChk) metaChk.checked = !!(cfg.AioMetadataBaseUrl);
+
+        var metaFields = view.querySelector('#prov-meta-fields');
+        if (metaFields) metaFields.style.display =
+            (cfg.AioMetadataBaseUrl) ? 'block' : 'none';
+
+        // Edit buttons — set href from Status response
+        esFetch('/InfiniteDrive/Status').then(function(r) { return r.json(); })
+            .then(function(data) {
+                var editBtn = view.querySelector('#prov-aio-edit-btn');
+                if (editBtn) {
+                    if (data.ManifestConfigureUrl) {
+                        editBtn.style.display = '';
+                        editBtn._configureUrl  = data.ManifestConfigureUrl;
+                    } else {
+                        editBtn.style.display = 'none';
+                    }
+                }
+                // Secondary edit button from server-side parsed URL
+                var backupEditBtn = view.querySelector('#prov-backup-edit-btn');
+                if (backupEditBtn) {
+                    if (data.SecondaryManifestConfigureUrl) {
+                        backupEditBtn._configureUrl = data.SecondaryManifestConfigureUrl;
+                        backupEditBtn.style.display = '';
+                    } else {
+                        backupEditBtn.style.display = 'none';
+                    }
+                }
+                // Status pills
+                updateStatusPills(view, data);
+            }).catch(function() {});
+
+        // Display "last rotated" timestamp
+        var agoEl = view.querySelector('#sec-rotated-ago');
+        if (agoEl) {
+            var rotatedAt = _loadedConfig && _loadedConfig.PluginSecretRotatedAt;
+            agoEl.textContent = rotatedAt
+                ? fmtRelative(new Date(rotatedAt * 1000))
+                : 'never';
+        }
+    }
+
+    function evaluateGettingStarted(view, cfg) {
+        var card = view.querySelector('#es-card-getting-started');
+        if (!card) return;
+
+        var step1 = !!(cfg.PrimaryManifestUrl);
+        var step2 = !!(cfg.IsFirstRunComplete);
+        var step3 = !!(cfg.TmdbApiKey || cfg.TraktClientId);
+
+        if (step1 && step2) {
+            card.innerHTML =
+                '<div style="display:flex;align-items:center;justify-content:space-between">'
+              + '<span>✅ Setup complete — InfiniteDrive is configured and syncing.</span>'
+              + '</div>';
+            return;
+        }
+
+        function stepHtml(num, label, done, tabTarget) {
+            var icon = done ? '✅' : num + '.';
+            var link = done ? '' : ' <a class="es-link-btn" href="#" data-es-tab="' + tabTarget + '">Go to ' + tabTarget.charAt(0).toUpperCase() + tabTarget.slice(1) + ' →</a>';
+            return '<div class="es-checklist-step' + (done ? ' done' : '') + '">'
+                 + '<span class="es-check-icon">' + icon + '</span> '
+                 + '<span>' + label + '</span>'
+                 + link
+                 + '</div>';
+        }
+
+        card.innerHTML =
+            '<div class="es-card-title">Getting Started</div>'
+          + stepHtml(1, 'Connect a Provider', step1, 'providers')
+          + stepHtml(2, 'Set up Libraries', step2, 'libraries')
+          + stepHtml(3, 'Configure Content and Lists', step3, 'lists')
+          + '<p class="es-hint" style="margin-top:.75em">'
+          + 'Once complete, your library will begin populating automatically.</p>';
+    }
+
+    function updateStatusPills(view, data) {
+        var pillAio    = view.querySelector('#es-pill-aio');
+        var pillBackup = view.querySelector('#es-pill-backup');
+        if (!pillAio) return;
+
+        // Only show pills when a manifest is actually configured
+        var hasManifest = _loadedConfig && !!_loadedConfig.PrimaryManifestUrl;
+        if (!hasManifest) {
+            pillAio.className = 'es-status-pill es-pill-hidden';
+            if (pillBackup) pillBackup.className = 'es-status-pill es-pill-hidden';
+            return;
+        }
+
+        var aioOnline = data && data.AioStreams && data.AioStreams.Ok;
+        pillAio.textContent = 'AIO ' + (aioOnline ? '✅' : '🔴');
+        pillAio.className = 'es-status-pill ' + (aioOnline ? 'es-pill-ok' : 'es-pill-err');
+
+        var hasBackup = _loadedConfig && !!_loadedConfig.SecondaryManifestUrl;
+        if (hasBackup) {
+            if (pillBackup) {
+                pillBackup.style.display = '';
+                // Check backup status from providers array
+                var backupOnline = false;
+                if (data && data.Providers) {
+                    data.Providers.forEach(function(p) {
+                        if ((p.DisplayName || '').toLowerCase() === 'secondary' && p.Ok) backupOnline = true;
+                    });
+                }
+                pillBackup.textContent = 'Backup ' + (backupOnline ? '✅' : '🔴');
+                pillBackup.className = 'es-status-pill ' + (backupOnline ? 'es-pill-ok' : 'es-pill-err');
+            }
+        } else {
+            if (pillBackup) pillBackup.className = 'es-status-pill es-pill-hidden';
+        }
+    }
+
+    function updateDerivedPaths(view, base) {
+        var el = view.querySelector('#lib-derived-paths');
+        if (!el) return;
+        var baseClean = base ? base.replace(/\/+$/, '') : '/media/infinitedrive';
+        el.textContent = baseClean + '/movies\n' + baseClean + '/shows\n' + baseClean + '/anime';
+    }
+
+    function populateLibrariesTab(view, cfg) {
+        if (!cfg) return;
+        function set(id, v) { var el = view.querySelector('#'+id); if (el) el.value = v || ''; }
+        var base = cfg.BaseSyncPath || '/media/infinitedrive';
+        set('lib-base-path', base);
+        updateDerivedPaths(view, base);
+        set('lib-name-movies', cfg.LibraryNameMovies || 'Streamed Movies');
+        set('lib-name-series', cfg.LibraryNameSeries || 'Streamed Series');
+        set('lib-name-anime',  cfg.LibraryNameAnime  || 'Streamed Anime');
+        set('lib-emby-url',    cfg.EmbyBaseUrl || window.location.origin);
+
+        // Metadata summary vs override
+        var lang    = cfg.MetadataLanguage || 'en';
+        var country = cfg.MetadataCertificationCountry || 'US';
+        var imgLang = cfg.MetadataImageLanguage || 'en';
+        var summaryEl = view.querySelector('#lib-meta-summary');
+        var langNames = { en:'English', fr:'French', de:'German', es:'Spanish',
+                          it:'Italian', ja:'Japanese', pt:'Portuguese',
+                          ru:'Russian', zh:'Chinese', ko:'Korean', pl:'Polish', nl:'Dutch' };
+        var countryNames = { US:'United States', GB:'United Kingdom', CA:'Canada',
+                             AU:'Australia', FR:'France', DE:'Germany', JP:'Japan', KR:'South Korea' };
+        if (summaryEl) summaryEl.textContent =
+            'Language: ' + (langNames[lang] || lang) +
+            '  •  Country: ' + (countryNames[country] || country) +
+            '  •  Artwork: ' + (langNames[imgLang] || imgLang);
+
+        // Populate dropdowns (even if hidden)
+        set('lib-meta-lang',    lang);
+        set('lib-meta-country', country);
+        set('lib-meta-img-lang', imgLang);
+
+        var nfoEl = view.querySelector('#lib-write-nfo');
+        if (nfoEl) nfoEl.checked = !!cfg.WriteNfoFiles;
+        var animeEl = view.querySelector('#lib-anime-enabled');
+        if (animeEl) animeEl.checked = true; // anime always enabled
+    }
+
+    function loadDefaultQuality(view) {
+        var select = view.querySelector('#es-default-quality');
+        if (!select) return;
+
+        // Set current value from loaded config
+        var cfg = _loadedConfig;
+        if (cfg && cfg.DefaultSlotKey) {
+            select.value = cfg.DefaultSlotKey;
+        } else {
+            select.value = 'hd_broad';
+        }
+
+        // Wire change event to save
+        select.addEventListener('change', function() {
+            var val = select.value;
+            esFetch('/InfiniteDrive/Admin/SaveConfig', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ DefaultSlotKey: val })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (_loadedConfig) _loadedConfig.DefaultSlotKey = val;
+            })
+            .catch(function() {});
+        });
+    }
+
+    function saveLibrariesTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        var base = (view.querySelector('#lib-base-path') || {}).value || '/media/infinitedrive';
+        cfg.BaseSyncPath        = base;
+        cfg.SyncPathMovies      = base + '/movies';
+        cfg.SyncPathShows       = base + '/shows';
+        cfg.SyncPathAnime       = base + '/anime';
+        cfg.LibraryNameMovies   = (view.querySelector('#lib-name-movies') || {}).value || 'Streamed Movies';
+        cfg.LibraryNameSeries   = (view.querySelector('#lib-name-series') || {}).value || 'Streamed Series';
+        cfg.LibraryNameAnime    = (view.querySelector('#lib-name-anime')  || {}).value || 'Streamed Anime';
+        cfg.EmbyBaseUrl         = (view.querySelector('#lib-emby-url')    || {}).value || window.location.origin;
+        cfg.MetadataLanguage             = (view.querySelector('#lib-meta-lang')    || {}).value || 'en';
+        cfg.MetadataCertificationCountry = (view.querySelector('#lib-meta-country') || {}).value || 'US';
+        cfg.MetadataImageLanguage        = (view.querySelector('#lib-meta-img-lang')|| {}).value || 'en';
+        cfg.WriteNfoFiles = !!((view.querySelector('#lib-write-nfo') || {}).checked);
+        cfg.EnableAnimeLibrary = true; // anime always enabled
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                // Re-fetch full config so all tabs see server-side state
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
+                esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'})
+                    .then(function(r) { if (!r.ok) console.warn('[InfiniteDrive] ProvisionLibraries failed:', r.status); })
+                    .catch(function(e) { console.warn('[InfiniteDrive] ProvisionLibraries error:', e); });
+                afterSave(view);
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    function rotateSecret(view) {
+        if (!confirm('Rotate signing secret?\n\nThis rebuilds all .strm files with a new key.\nYour library remains fully playable throughout.')) return;
+        var bar = view.querySelector('#sec-rotate-bar');
+        var msg = view.querySelector('#sec-rotate-msg');
+        var prog = view.querySelector('#sec-rotate-progress');
+        if (prog) prog.style.display = 'block';
+        if (msg) msg.textContent = 'Starting rotation…';
+
+        esFetch('/InfiniteDrive/Setup/RotateApiKey', {method:'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.Success) throw new Error(data.Error || 'Rotation failed');
+                // Poll progress
+                var poll = setInterval(function() {
+                    esFetch('/InfiniteDrive/Setup/RotationStatus')
+                        .then(function(r) { return r.json(); })
+                        .then(function(s) {
+                            var pct = s.FilesTotal > 0
+                                ? Math.round((s.FilesWritten / s.FilesTotal) * 100) : 0;
+                            if (bar) bar.style.width = pct + '%';
+                            if (msg) msg.textContent = 'Rebuilding stream files… ' +
+                                s.FilesWritten + ' of ' + s.FilesTotal;
+                            if (!s.IsRotating) {
+                                clearInterval(poll);
+                                if (bar) bar.style.width = '100%';
+                                if (msg) msg.textContent = '✅ Done. All stream files updated.';
+                                // Update "last rotated" display
+                                var agoEl = view.querySelector('#sec-rotated-ago');
+                                if (agoEl) agoEl.textContent = 'just now';
+                                setTimeout(function() {
+                                    if (prog) prog.style.display = 'none';
+                                }, 4000);
+                            }
+                        }).catch(function() { clearInterval(poll); });
+                }, 1500);
+            })
+            .catch(function(err) {
+                if (msg) msg.textContent = '❌ Rotation failed. Existing stream files are unchanged. ' +
+                    (err && err.message || '');
+            });
+    }
+
+    function testTmdbKey(view) {
+        var apiKey = (view.querySelector('#cfg-tmdb-api-key') || {}).value || '';
+        var resultEl = view.querySelector('#es-tmdb-test-result');
+        if (!resultEl) return;
+
+        if (!apiKey) {
+            resultEl.textContent = '✗ Enter a key first';
+            resultEl.style.color = '#dc3545';
+            return;
+        }
+
+        resultEl.textContent = 'Testing…';
+        resultEl.style.color = '';
+
+        // Use TMDB API to validate the key
+        esFetch('https://api.themoviedb.org/3/configuration?api_key=' + encodeURIComponent(apiKey))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.images && data.images.base_url) {
+                    resultEl.textContent = '✓ Valid key';
+                    resultEl.style.color = '#28a745';
+                } else {
+                    resultEl.textContent = '✗ Invalid key';
+                    resultEl.style.color = '#dc3545';
+                }
+            })
+            .catch(function() {
+                resultEl.textContent = '✗ Validation failed';
+                resultEl.style.color = '#dc3545';
+            });
+    }
+
+    function searchBlockItems(view) {
+        var input = view.querySelector('#par-block-search');
+        var resultsEl = view.querySelector('#par-search-results');
+        if (!input || !resultsEl) return;
+        var query = (input.value || '').trim();
+        if (!query) return;
+
+        resultsEl.style.display = 'block';
+        resultsEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Searching…</p>';
+
+        esFetch('/InfiniteDrive/Admin/SearchItems?q=' + encodeURIComponent(query) + '&limit=5')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data.Items || !data.Items.length) {
+                    resultsEl.innerHTML = '<p class="es-hint">No results found in your InfiniteDrive library.</p>';
+                    return;
+                }
+                var html = '<div style="border:1px solid rgba(128,128,128,0.2);border-radius:6px;overflow:hidden">';
+                data.Items.forEach(function(item) {
+                    var icon = item.MediaType === 'movie' ? '🎬' : (item.MediaType === 'anime' ? '🎌' : '📺');
+                    var extId = item.DisplayExternalId
+                        ? '<span style="opacity:.45;font-size:.8em;margin-left:.5em"'
+                          + esc(item.DisplayExternalIdType) + ':' + esc(item.DisplayExternalId) + '</span>'
+                        : '';
+                    html += '<div style="display:flex;align-items:center;justify-content:space-between;'
+                          + 'padding:.55em .75em;border-bottom:1px solid rgba(128,128,128,0.1)">'
+                          + '<span>' + icon + '  <strong>' + esc(item.Title) + '</strong>'
+                          + (item.Year ? ' (' + item.Year + ')' : '')
+                          + extId + '</span>'
+                          + '<button type="button" is="emby-button" class="raised button"'
+                          + ' style="font-size:.8em;padding:.25em .7em"'
+                          + ' data-es-action="par-block-item"'
+                          + ' data-item-id="' + esc(item.Id) + '"'
+                          + ' data-item-title="' + esc(item.Title) + '">'
+                          + 'Block</button>'
+                          + '</div>';
+                });
+                html += '</div>';
+                resultsEl.innerHTML = html;
+            })
+            .catch(function(err) {
+                resultsEl.innerHTML = '<p style="color:#dc3545;font-size:.85em">Search failed: ' + esc(err.message) + '</p>';
+            });
+    }
+
+    function blockItemById(view, internalId, title) {
+        if (!confirm('Block "' + title + '"?\n\nThis removes the item\'s stream files immediately.')) return;
+
+        esFetch('/InfiniteDrive/Admin/BlockItems', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ItemIds: [internalId] })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.Success) {
+                // Update the search result row inline — no full reload
+                var btn = view.querySelector('[data-item-id="' + internalId + '"]');
+                if (btn) {
+                    var row = btn.parentElement;
+                    if (row) row.innerHTML = row.innerHTML.replace(
+                        /<button[^>]*data-item-id="[^"]*"[^>]*>Block<\/button>/,
+                        '<span style="color:#28a745;font-size:.8em">✅ Blocked</span>'
+                    );
+                }
+                // Refresh the blocked items list
+                loadBlockedItems(view);
+            } else {
+                Dashboard.alert('Block failed: ' + (data.Error || 'unknown error'));
+            }
+        })
+        .catch(function() {
+            Dashboard.alert('Block request failed. Check server logs.');
+        });
+    }
+
+    function initFloatSave(view) {
+        var btn = view.querySelector('#es-float-save-btn');
+        if (!btn || btn._esBound) return;
+        btn._esBound = true;
+        btn.addEventListener('click', function() {
+            var activeTab = view.querySelector('[data-es-tab].active');
+            var tab = activeTab ? activeTab.getAttribute('data-es-tab') : '';
+            if (tab === 'providers') saveProvidersTab(view);
+            if (tab === 'libraries') saveLibrariesTab(view);
+            if (tab === 'parental')  saveParentalTab(view);
+        });
+    }
+
+    function markDirty(view) {
+        _unsavedChanges = true;
+        var btn = view.querySelector('#es-float-save-btn');
+        if (btn && btn.textContent.indexOf('•') === -1) btn.textContent = 'Save Settings •';
+    }
+
+    function showFloatSaveConfirm(view) {
+        _unsavedChanges = false;
+        var btn  = view.querySelector('#es-float-save-btn');
+        var conf = view.querySelector('#es-float-save-confirm');
+        if (btn)  btn.textContent = 'Saved ✓';
+        if (conf) {
+            conf.classList.add('visible');
+            setTimeout(function() { conf.classList.remove('visible'); }, 3000);
+        }
+        setTimeout(function() { if (btn) btn.textContent = 'Save'; }, 3000);
+    }
+
+    // Sprint 403: Post-save state refresh — summon Marvin, refresh UI
+    // Only pass {refreshProviders:true} when provider URLs actually changed (Providers tab)
+    function afterSave(view, opts) {
+        // 1. If providers changed, re-test them; otherwise just refresh UI with cached data
+        if (opts && opts.refreshProviders) {
+            esFetch('/InfiniteDrive/Status/Refresh', {method:'POST'}).then(function(r) { return r.json(); })
+                .then(function(freshData) {
+                    try { loadOverviewTab(view); } catch(e) {}
+                }).catch(function() {});
+        } else {
+            try { loadOverviewTab(view); } catch(e) {}
+        }
+
+        // 2. Summon Marvin if not already running (fire and forget)
+        try { summonMarvinQuiet(); } catch(e) {}
+    }
+
+    // Summon Marvin without UI feedback (quiet mode for post-save)
+    function summonMarvinQuiet() {
+        ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
+            var task = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveMarvin'; });
+            if (task && task.State !== 'Running') {
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) });
+            }
+        }).catch(function() {});
+    }
+
+    function openProviderEdit(view, configureUrl) {
+        if (!configureUrl) return;
+        ApiClient.getCurrentUser().then(function(user) {
+            var username = (user && user.Name) ? user.Name : '';
+            var msg = 'Opening AIOStreams configuration.\n'
+                    + (username ? 'Sign in as: ' + username + '\n' : '')
+                    + '\n' + configureUrl;
+            if (confirm(msg + '\n\nOpen in new tab?')) {
+                window.open(configureUrl, '_blank', 'noopener');
+            }
+        }).catch(function() {
+            window.open(configureUrl, '_blank', 'noopener');
+        });
+    }
+
+    function saveParentalTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        cfg.BlockUnratedForRestricted = !!(view.querySelector('#cfg-block-unrated') || {}).checked;
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
+                updateFilterStatus(view, cfg.TmdbApiKey);
+                afterSave(view);
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    // ── Sources tab ───────────────────────────────────────────────────────────
+    function initSourcesTab(view, cfg) {
+        if (!cfg) return;
+        function set(id, v) { var el = q(view, id); if (el && v != null) el.value = v; }
+        function chk(id, v) { var el = q(view, id); if (el) el.checked = !!v; }
+        set('src-aio-url',      cfg.PrimaryManifestUrl   || '');
+        set('src-duck-url',     cfg.SecondaryManifestUrl || '');
+        updateSourcesStatusStrip(view, cfg);
+    }
+
+    function updateSourcesStatusStrip(view, cfg) {
+        function setStrip(dotId, textId, value) {
+            var dot  = q(view, dotId);
+            var text = q(view, textId);
+            if (!dot || !text) return;
+            if (value) {
+                dot.className  = 'es-dot es-dot-ok';
+                text.textContent = 'Configured';
+            } else {
+                dot.className  = 'es-dot es-dot-none';
+                text.textContent = 'Not configured';
+            }
+        }
+        setStrip('es-src-dot-aio',      'es-src-status-aio',      cfg && cfg.PrimaryManifestUrl);
+        setStrip('es-src-dot-duck',     'es-src-status-duck',     cfg && cfg.SecondaryManifestUrl);
+    }
+
+    function saveSourcesTab(view) {
+        var aioUrl      = esVal(view, 'src-aio-url').trim();
+        var duckUrl     = esVal(view, 'src-duck-url').trim();
+
+        // Merge into existing config
+        var base = _loadedConfig ? JSON.parse(JSON.stringify(_loadedConfig)) : {};
+        base.PrimaryManifestUrl   = aioUrl;
+        base.SecondaryManifestUrl = duckUrl;
+        // Also sync to cfg-manifest-url for settings tab compatibility
+        var cfgEl = q(view, 'cfg-manifest-url');
+        if (cfgEl) cfgEl.value = aioUrl;
+
+        ApiClient.updatePluginConfiguration(pluginId, base)
+            .then(function() {
+                _loadedConfig = base;
+                updateSourcesStatusStrip(view, base);
+
+                // Auto-create directories and libraries
+                var cfg = {
+                    SyncPathMovies: base.SyncPathMovies || (base.BaseSyncPath || '/media/infinitedrive') + '/movies',
+                    SyncPathShows:  base.SyncPathShows  || (base.BaseSyncPath || '/media/infinitedrive') + '/shows',
+                    BaseSyncPath:   base.BaseSyncPath || '/media/infinitedrive'
+                };
+                createEmbyLibraries(cfg);
+
+                // Show progress bar
+                var prog = q(view, 'es-sync-progress');
+                if (prog) prog.style.display = 'block';
+                animateSyncProgress(view);
+
+                // Trigger catalog sync
+                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'})
+                    .then(function(r) { if (!r.ok) console.warn('[InfiniteDrive] catalog_sync trigger failed:', r.status); })
+                    .catch(function(e) { console.warn('[InfiniteDrive] catalog_sync trigger error:', e); });
+
+                // Start catalog progress polling
+                startCatalogPoll(view, 'cfg');
+
+                // Show catalog picker when catalogs load
+                setTimeout(function() {
+                    var picker = q(view, 'es-catalog-picker-setup');
+                    if (picker) picker.style.display = 'block';
+                    loadCatalogs(view, 'cfg');
+                }, 5000);
+
+                // Re-fetch full config
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(fullCfg) { _loadedConfig = fullCfg; })
+                    .catch(function() {});
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    function testSource(view, type) {
+        var urlMap    = { aio: 'src-aio-url', duck: 'src-duck-url' };
+        var statusMap = { aio: 'src-aio-status', duck: 'src-duck-status' };
+        var dotMap    = { aio: 'es-src-dot-aio', duck: 'es-src-dot-duck' };
+        var stripMap  = { aio: 'es-src-status-aio', duck: 'es-src-status-duck' };
+
+        var url       = esVal(view, urlMap[type]).trim();
+        var statusEl  = q(view, statusMap[type]);
+        var dotEl     = q(view, dotMap[type]);
+        var stripEl   = q(view, stripMap[type]);
+
+        if (!statusEl) return;
+        if (!url) {
+            statusEl.textContent = 'Enter a URL first.';
+            statusEl.style.color = '#c87800';
+            return;
+        }
+
+        // Basic URL format validation
+        var looksValid = /^https?:\/\/.+/i.test(url);
+        var hasManifest = url.indexOf('manifest.json') !== -1;
+        if (!looksValid) {
+            statusEl.textContent = '✗ Must be a valid https:// URL.';
+            statusEl.style.color = '#dc3545';
+            if (dotEl) dotEl.className = 'es-dot es-dot-error';
+            if (stripEl) stripEl.textContent = 'Invalid URL';
+            return;
+        }
+
+        statusEl.textContent = 'Checking…';
+        statusEl.style.color = '';
+
+        // Try to test via server-side TestUrl endpoint
+        esFetch('/InfiniteDrive/TestUrl', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ManifestUrl: url })
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    statusEl.textContent = '✓ Connected' + (data.LatencyMs ? ' (' + data.LatencyMs + ' ms)' : '');
+                    statusEl.style.color = '#28a745';
+                    if (dotEl) dotEl.className = 'es-dot es-dot-ok';
+                    if (stripEl) stripEl.textContent = 'Connected';
+                } else {
+                    statusEl.textContent = '✗ ' + (data.Message || 'Could not connect');
+                    statusEl.style.color = '#dc3545';
+                    if (dotEl) dotEl.className = 'es-dot es-dot-error';
+                    if (stripEl) stripEl.textContent = 'Error';
+                }
+            })
+            .catch(function() {
+                // Fallback: if server endpoint not available, just validate URL format
+                var msg = hasManifest ? 'URL looks valid — save and run Test All to verify' : 'URL may be missing /manifest.json';
+                statusEl.textContent = msg;
+                statusEl.style.color = hasManifest ? '#c87800' : '#dc3545';
+                if (dotEl) dotEl.className = hasManifest ? 'es-dot es-dot-warn' : 'es-dot es-dot-error';
+            });
+    }
+
+    function testAllSources(view) {
+        testSource(view, 'aio');
+        testSource(view, 'duck');
+    }
+
+    // ── Accordion toggle ──────────────────────────────────────────────────────
+    function toggleAccordion(el) {
+        // el is the .es-accordion-hdr element; parent is .es-accordion
+        var accordion = el.parentElement;
+        if (!accordion) return;
+        accordion.classList.toggle('es-accordion-open');
+    }
+
+    // ── Dashboard view toggle ────────────────────────────────────────────────────
+    function setDashboardView(view, viewType) {
+        var debugSections = view.querySelectorAll('[data-es-dashboard-debug="true"]');
+        var isDebug = viewType === 'debug';
+        for (var i = 0; i < debugSections.length; i++) {
+            debugSections[i].classList.toggle('es-debug-visible', isDebug);
+        }
+        q(view, 'es-view-quick').classList.toggle('active', viewType === 'quick');
+        q(view, 'es-view-debug').classList.toggle('active', viewType === 'debug');
+    }
+
+    // ── Manifest URL auto-parse ───────────────────────────────────────────────
+    function parseManifestUrl(url, view, prefix) {
+        var resultEl = q(view, prefix + '-manifest-parse-result');
+        function showParseResult(ok, msg) {
+            if (!resultEl) return;
+            resultEl.textContent = msg;
+            resultEl.style.display = 'block';
+            resultEl.className = ok ? 'es-parse-ok' : 'es-parse-warn';
+        }
+        if (!url || url === 'https://' || url === 'http://') {
+            if (resultEl) resultEl.style.display = 'none';
+            return;
+        }
+        // Token may contain '/' (standard base64) — use .+ not [^/]+
+        var m = url.trim().replace(/\/+$/, '').match(
+            /^(https?:\/\/[^\/]+)(\/stremio\/([^\/]+)\/(.+))?\/manifest\.json$/i
+        );
+        if (!m) {
+            if (url.length > 10) showParseResult(false, '⚠ URL not recognised — expected …/stremio/uuid/token/manifest.json');
+            return;
+        }
+        var set = function(id, v) { var el = q(view, id); if (el) el.value = v || ''; };
+        set(prefix + '-aio-url', m[1]);
+        set(prefix + '-uuid',    m[3]);
+        set(prefix + '-token',   m[4]);
+        showParseResult(true, m[3] ? '✓ Parsed — base URL, UUID and token extracted' : '✓ Parsed — unauthenticated URL');
+    }
+    function bindManifestField(view, fieldId, prefix) {
+        var el = q(view, fieldId);
+        if (!el) return;
+        var debounceTimer = null;
+        var parse = function() { parseManifestUrl(el.value, view, prefix); };
+        var debouncedParse = function() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(parse, 300);
+        };
+        el.addEventListener('blur',   parse);
+        el.addEventListener('change', debouncedParse);
+        el.addEventListener('paste',  debouncedParse);
+        el.addEventListener('keyup',  function(e) { if (e.key === 'Enter') parse(); else debouncedParse(); });
+    }
+
+    // ── Error guidance helper (Sprint 14: UX-ERROR-GUIDANCE) ───────────────────
+    function makeErrorGuidance(errorMsg) {
+        if (!errorMsg) return '<span>✗ Connection failed</span>';
+        var lower = errorMsg.toLowerCase();
+        var html = '<div style="margin-bottom:.6em"><strong style="color:#dc3545">✗ ' + esc(errorMsg) + '</strong></div>';
+        if (lower.indexOf('certificate') !== -1 || lower.indexOf('ssl') !== -1) {
+            html += '<div style="font-size:.9em;line-height:1.5"><strong>SSL Certificate Error</strong><br/>' +
+                '🔧 How to fix:<br/>' +
+                '<ol style="margin:.4em 0 0 1.2em;padding:0"><li>Check your manifest URL is correct (no typos, https://)</li>' +
+                '<li>If self-hosted: ensure your domain has a valid SSL certificate</li>' +
+                '<li>Try disabling SSL verification in "Connection details" (Advanced)</li></ol>' +
+                '<a href="https://github.com/anthonybudd/stremio-addon-sdk/wiki" target="_blank" style="color:var(--theme-button-background,#00a4dc);font-size:.85em">📖 See docs</a></div>';
+        } else if (lower.indexOf('refused') !== -1 || lower.indexOf('unreachable') !== -1) {
+            html += '<div style="font-size:.9em;line-height:1.5"><strong>Connection Refused</strong><br/>' +
+                '🔧 How to fix:<br/>' +
+                '<ol style="margin:.4em 0 0 1.2em;padding:0"><li>Check the server is running at that URL</li>' +
+                '<li>Verify the port number is correct (usually 7860 for local, or custom domain for hosted)</li>' +
+                '<li>Check firewall/network settings allow access</li></ol></div>';
+        } else if (lower.indexOf('timeout') !== -1) {
+            html += '<div style="font-size:.9em;line-height:1.5"><strong>Connection Timeout</strong><br/>' +
+                '🔧 How to fix:<br/>' +
+                '<ol style="margin:.4em 0 0 1.2em;padding:0"><li>Check your internet connection</li>' +
+                '<li>Try again in a few seconds (server may be starting up)</li>' +
+                '<li>If self-hosted, check the server is not overloaded</li></ol></div>';
+        } else {
+            html += '<div style="font-size:.9em;opacity:.7">📖 Still stuck? Check your manifest URL format and network connection, then try again.</div>';
+        }
+        return html;
+    }
+
+    // ── Friendly error message mapper (Sprint 67: v0.67.1) ─────────────────────
+    // Maps fetch/JSON parse errors to user-friendly messages
+    function mapFetchError(err) {
+        if (!err) return 'Connection failed';
+        var msg = err.message || String(err);
+        var lower = msg.toLowerCase();
+        // JSON parse errors
+        if (lower.indexOf('unexpected token') !== -1 || lower.indexOf('json') !== -1) {
+            return 'Unexpected response from provider. Check the manifest URL and try again.';
+        }
+        // Network errors
+        if (lower.indexOf('failed to fetch') !== -1 || lower.indexOf('networkerror') !== -1) {
+            return 'Could not reach the server. Check your network connection.';
+        }
+        if (lower.indexOf('timeout') !== -1) {
+            return 'Connection timed out. Is your provider reachable?';
+        }
+        // HTTP status codes in response
+        if (msg.indexOf('401') !== -1 || msg.indexOf('403') !== -1) {
+            return 'Authentication failed. Check your manifest token.';
+        }
+        if (msg.indexOf('404') !== -1) {
+            return 'Manifest URL not found. Verify the URL is correct.';
+        }
+        if (msg.match(/\b5\d\d\b/)) {
+            return 'Provider returned a server error. Try again shortly.';
+        }
+        // Default: show sanitized message
+        return msg.length > 100 ? 'Connection failed. Check the URL and try again.' : msg;
+    }
+
+    // ── Test connection ───────────────────────────────────────────────────────
+    function testConnection(view) {
+        var resultEl = q(view, 'es-conn-result');
+        if (!resultEl) return;
+        resultEl.style.display = 'block';
+        resultEl.className = 'es-alert es-alert-info';
+        resultEl.textContent = 'Testing connection…';
+
+        var manifestUrl = esVal(view, 'es-manifest-url');
+        var baseUrl     = esVal(view, 'es-aio-url');
+        var uuid        = esVal(view, 'es-uuid');
+        var token       = esVal(view, 'es-token');
+
+        // If only manifest URL is given, try to parse it first
+        if (manifestUrl && !baseUrl) {
+            parseManifestUrl(manifestUrl, view, 'es');
+            baseUrl = esVal(view, 'es-aio-url');
+            uuid    = esVal(view, 'es-uuid');
+            token   = esVal(view, 'es-token');
+        }
+
+        if (!manifestUrl && !baseUrl) {
+            resultEl.className = 'es-alert es-alert-warn';
+            resultEl.textContent = '⚠ Enter a Manifest URL or Base URL first.';
+            return;
+        }
+
+        // POST body avoids URL-encoding issues with base64 tokens containing '/', '+', '='
+        // and keeps credentials out of server logs.
+        esFetch('/InfiniteDrive/TestUrl', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ Url: baseUrl, Uuid: uuid, Token: token, ManifestUrl: manifestUrl })
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    resultEl.className = 'es-alert es-alert-success';
+                    resultEl.textContent = '✓ Connected in ' + (data.LatencyMs || '?') + ' ms'
+                        + (data.AddonName ? ' — ' + data.AddonName : '');
+                } else {
+                    resultEl.className = 'es-alert es-alert-error';
+                    resultEl.innerHTML = makeErrorGuidance(data.Message || 'Connection failed');
+                }
+            })
+            .catch(function(err) {
+                resultEl.className = 'es-alert es-alert-error';
+                var friendlyMsg = mapFetchError(err);
+                resultEl.innerHTML = makeErrorGuidance(friendlyMsg);
+            });
+    }
+
+    // ── Version badge: fetch from /InfiniteDrive/Status and populate ────────────
+    function loadVersionBadge(view) {
+        var els = view.querySelectorAll('#es-plugin-version');
+        if (!els.length) return;
+        esFetch('/InfiniteDrive/Status')
+            .then(function(r) { return r.ok ? r.json() : null; })
+            .then(function(data) {
+                if (data && data.Version) {
+                    // Trim to semver (major.minor.patch) for cleaner display
+                    var semver = data.Version.match(/^\d+\.\d+\.\d+/);
+                    var versionText = semver ? semver[0] : data.Version;
+                    // Don't show 0.0.0 - use fallback instead
+                    if (versionText === '0.0.0' || versionText === '0.0') {
+                        versionText = null;
+                    }
+                    for (var i = 0; i < els.length; i++) {
+                        els[i].textContent = versionText ? 'v' + versionText : 'v?.?.?';
+                        els[i].title = versionText ? '' : 'Version unavailable — check plugin manifest';
+                    }
+                } else {
+                    // Fallback: show v?.?.? with tooltip
+                    for (var i = 0; i < els.length; i++) {
+                        els[i].textContent = 'v?.?.?';
+                        els[i].title = 'Version unavailable — check plugin manifest';
+                    }
+                }
+            })
+            .catch(function() {
+                // On fetch error, show fallback
+                for (var i = 0; i < els.length; i++) {
+                    els[i].textContent = 'v?.?.?';
+                    els[i].title = 'Version unavailable — check plugin manifest';
+                }
+            });
+    }
+
+    // ── Load / populate config ────────────────────────────────────────────────
+    function loadConfig(view) {
+        loading.show();
+        loadVersionBadge(view);
+        ApiClient.getPluginConfiguration(pluginId)
+            .then(function(cfg) {
+                _loadedConfig = cfg;
+
+                // v0.65.1: Base URL auto-detect and warning
+                var warningEl = q(view, 'es-base-url-warning');
+                var suggestedEl = q(view, 'es-base-url-suggested');
+
+                if (!cfg.EmbyBaseUrl || cfg.EmbyBaseUrl === 'http://127.0.0.1:8096' || cfg.EmbyBaseUrl === 'http://localhost:8096') {
+                    cfg.EmbyBaseUrl = window.location.origin;
+                    // Auto-save the corrected URL
+                    ApiClient.updatePluginConfiguration(pluginId, cfg)
+                        .then(function() {
+                            if (warningEl && suggestedEl) {
+                                suggestedEl.textContent = cfg.EmbyBaseUrl;
+                                warningEl.className = 'es-alert es-alert-info';
+                                warningEl.style.display = 'block';
+                            }
+                        })
+                        .catch(function() {});
+                } else if (cfg.EmbyBaseUrl && (cfg.EmbyBaseUrl.indexOf('localhost') !== -1 || cfg.EmbyBaseUrl.indexOf('127.0.0.1') !== -1)) {
+                    // Show informational note if using localhost
+                    if (warningEl && suggestedEl) {
+                        suggestedEl.textContent = window.location.origin;
+                        warningEl.className = 'es-alert es-alert-info';
+                        warningEl.style.display = 'block';
+                    }
+                } else {
+                    // Hide warning if URL is valid (not localhost)
+                    if (warningEl) warningEl.style.display = 'none';
+                }
+
+                // Auto-fill metadata from server config if not overridden
+                ApiClient.getServerConfiguration().then(function(serverCfg) {
+                    if (!cfg.MetadataLanguage)
+                        cfg.MetadataLanguage = serverCfg.PreferredMetadataLanguage || 'en';
+                    if (!cfg.MetadataCertificationCountry)
+                        cfg.MetadataCertificationCountry = serverCfg.MetadataCountryCode || 'US';
+                    if (!cfg.MetadataImageLanguage)
+                        cfg.MetadataImageLanguage = serverCfg.PreferredMetadataLanguage || 'en';
+                    _loadedConfig = cfg;
+                    showTab(view, 'overview');
+                    loading.hide();
+                }).catch(function() {
+                    showTab(view, 'overview');
+                    loading.hide();
+                });
+            })
+            .catch(function() { loading.hide(); });
+    }
+
+    function populateSettings(view, cfg) {
+        function set(id, v) {
+            var el = q(view, id); if (!el) return;
+            if (el.type === 'checkbox') el.checked = !!v;
+            else el.value = v != null ? v : '';
+        }
+        set('cfg-manifest-url',           cfg.PrimaryManifestUrl);
+        set('cfg-aio-backup-url',        cfg.SecondaryManifestUrl || '');
+        set('cfg-aio-metadata-url',     cfg.AioMetadataBaseUrl);
+        set('cfg-rss-feeds',             cfg.SystemRssFeedUrls || '');
+        chk('cfg-enable-backup-aio',     cfg.EnableBackupAioStreams || false);
+
+        // Sync backup AIOStreams visibility
+        var backupChk = q(view, 'cfg-enable-backup-aio');
+        var backupFields = q(view, 'cfg-backup-aio-fields');
+        function syncCfgBackup() {
+            if (backupFields) backupFields.style.display = backupChk && backupChk.checked ? 'block' : 'none';
+        }
+        if (backupChk) {
+            // Use both 'change' and 'click' events for emby-checkbox compatibility
+            backupChk.addEventListener('change', syncCfgBackup);
+            backupChk.addEventListener('click', syncCfgBackup);
+            // Initial sync
+            syncCfgBackup();
+            // Also sync after a short delay to handle web component initialization
+            setTimeout(syncCfgBackup, 50);
+        }
+        // Sprint 11: BaseSyncPath with derived subpaths
+        var base = cfg.BaseSyncPath || '/media/infinitedrive';
+        set('cfg-base-path', base);
+        var elM = q(view, 'cfg-derived-movies');
+        var elS = q(view, 'cfg-derived-shows');
+        if (elM) elM.textContent = base + '/movies';
+        if (elS) elS.textContent = base + '/shows';
+
+        // v0.65.12: Populate readonly path displays
+        var rom = q(view, 'cfg-readonly-movies');
+        var ros = q(view, 'cfg-readonly-series');
+        var roa = q(view, 'cfg-readonly-anime');
+        var roaRow = q(view, 'cfg-readonly-anime-row');
+        if (rom) rom.textContent = base + '/movies';
+        if (ros) ros.textContent = base + '/shows';
+        if (roa && roaRow && cfg.SyncPathAnime) {
+            roa.textContent = cfg.SyncPathAnime;
+            roaRow.style.display = 'block';
+        }
+
+        set('cfg-emby-base',              cfg.EmbyBaseUrl || window.location.origin);
+        set('cfg-sig-validity',            cfg.SignatureValidityDays || 365);
+        set('cfg-meta-lang-dropdown',       cfg.MetadataLanguage             || 'en');
+        set('cfg-meta-country-dropdown',    cfg.MetadataCertificationCountry  || 'US');
+        set('cfg-meta-img-lang-dropdown',   cfg.MetadataImageLanguage         || 'en');
+        set('cfg-enable-aio',             cfg.EnableAioStreamsCatalog);
+        set('cfg-catalog-ids',            cfg.AioStreamsCatalogIds);
+        set('cfg-stream-types',           cfg.AioStreamsAcceptedStreamTypes);
+        // Stream type checkboxes
+        var stypes = (cfg.AioStreamsAcceptedStreamTypes || '').split(',').map(function(s){return s.trim();}).filter(Boolean);
+        ['debrid','usenet','torrent','http','live'].forEach(function(t) {
+            var cb = q(view, 'cfg-stype-' + t);
+            if (cb) cb.checked = stypes.length > 0 && stypes.indexOf(t) !== -1;
+        });
+        set('cfg-library-name-movies',    cfg.LibraryNameMovies || 'Streamed Movies');
+        set('cfg-library-name-series',    cfg.LibraryNameSeries || 'Streamed Series');
+        set('cfg-cache-lifetime',         cfg.CacheLifetimeMinutes);
+        set('cfg-api-budget',             cfg.ApiDailyBudget);
+        set('cfg-max-concurrent',         cfg.MaxConcurrentResolutions);
+        set('cfg-item-cap',               cfg.CatalogItemCap);
+        set('cfg-sync-interval',          cfg.CatalogSyncIntervalHours);
+        set('cfg-sync-hour',              cfg.SyncScheduleHour != null ? cfg.SyncScheduleHour : 3);
+        set('cfg-candidates-per-provider', cfg.CandidatesPerProvider != null ? cfg.CandidatesPerProvider : 3);
+        set('cfg-sync-resolve-timeout',   cfg.SyncResolveTimeoutSeconds);
+        set('cfg-provider-priority',      cfg.ProviderPriorityOrder);
+        set('cfg-next-up-lookahead',      cfg.NextUpLookaheadEpisodes);
+        set('cfg-proxy-mode',             cfg.ProxyMode);
+        set('cfg-max-proxy',              cfg.MaxConcurrentProxyStreams);
+        set('cfg-delete-strm-on-readoption', cfg.DeleteStrmOnReadoption);
+        set('cfg-dont-panic',             cfg.DontPanic);
+        set('cfg-plugin-secret',          cfg.PluginSecret);
+
+        // Sprint 209: Parental Controls
+        var parentalTmdbStatus = view.querySelector('#cfg-parental-tmdb-status');
+        if (parentalTmdbStatus) {
+            parentalTmdbStatus.textContent = cfg.TmdbApiKey ? '✓ TMDB key configured — content filtering active on Discover page' : '✗ No TMDB key — configure on the Lists tab';
+            parentalTmdbStatus.style.color = cfg.TmdbApiKey ? '#52b54b' : '#dc3545';
+        }
+        chk('cfg-block-unrated',         cfg.BlockUnratedForRestricted !== false);
+        updateFilterStatus(view, cfg.TmdbApiKey);
+
+        // External Lists
+        set('cfg-trakt-client-id',        cfg.TraktClientId || '');
+        set('cfg-lists-tmdb-key',         cfg.TmdbApiKey || '');
+        set('cfg-user-catalog-limit',     cfg.UserCatalogLimit || 5);
+
+        // Anime library config — always enabled
+        set('cfg-anime-path',             cfg.SyncPathAnime || '/media/infinitedrive/anime');
+        var animeWrapper = q(view, 'es-anime-path-wrapper');
+        if (animeWrapper) animeWrapper.style.display = '';
+
+        // v0.60.3: PluginSecret warning — show banner if empty or too short
+        var secretWarn = view.querySelector('#es-secret-empty-warning');
+        if (secretWarn) {
+            secretWarn.style.display = (!cfg.PluginSecret || cfg.PluginSecret.length < 10) ? '' : 'none';
+        }
+
+        // PluginSecret first-run warning (v0.60.3)
+        var secretWarn = q(view, 'es-plugin-secret-warning');
+        if (secretWarn) {
+            var isAuto = cfg.PluginSecret && cfg._pluginSecretAutoGenerated;
+            var isEmpty = !cfg.PluginSecret;
+            secretWarn.style.display = (isEmpty || isAuto) ? '' : 'none';
+        }        var baseUrl = (cfg.EmbyBaseUrl || window.location.origin).replace(/\/$/, '');
+        var wuEl = q(view, 'cfg-webhook-url-display');
+        if (wuEl) wuEl.value = baseUrl + '/InfiniteDrive/Webhook/Sync';
+        loadCatalogLimits(cfg);
+        if (cfg.PrimaryManifestUrl || cfg.SecondaryManifestUrl) loadCatalogs(view, 'cfg');
+    }
+
+    function loadCatalogLimits(cfg) {
+        if (!cfg.CatalogItemLimitsJson) return;
+        try {
+            var lims = JSON.parse(cfg.CatalogItemLimitsJson);
+            if (lims && typeof lims === 'object') {
+                Object.keys(lims).forEach(function(k) { if (lims[k] > 0) _catalogLimits[k] = lims[k]; });
+            }
+        } catch(e) {}
+    }
+
+    // ── Sprint 209: Parental Controls helpers ────────────────────────────────
+    function updateFilterStatus(view, tmdbKey) {
+        var statusEl = q(view, 'es-filter-status');
+        if (!statusEl) return;
+
+        var indicator = statusEl.querySelector('.es-status-indicator');
+        var text = statusEl.querySelector('.es-status-text');
+
+        if (tmdbKey && tmdbKey.trim().length > 0) {
+            if (indicator) {
+                indicator.className = 'es-status-indicator es-status-active';
+                indicator.textContent = '✅';
+            }
+            if (text) text.textContent = 'Content filtering is active on the Discover page. Items in your library are controlled by Emby\'s parental settings.';
+        } else {
+            if (indicator) {
+                indicator.className = 'es-status-indicator es-status-inactive';
+                indicator.textContent = '⚠️';
+            }
+            if (text) text.textContent = 'No TMDB key configured. Content will still sync to your library — Emby\'s own parental controls apply. To filter the Discover page, add a key on the Lists tab.';
+        }
+    }
+
+    // ── Sprint 64: Anime library helpers ────────────────────────────────────
+    function checkAnimePluginStatus(view) {
+        esFetch('/InfiniteDrive/AnimePluginStatus')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var toggle = q(view, 'cfg-enable-anime');
+                var warning = q(view, 'es-anime-plugin-warning');
+                if (d.Installed) {
+                    if (warning) warning.style.display = 'none';
+                } else {
+                    if (warning) warning.style.display = '';
+                }
+            })
+            .catch(function() { /* endpoint unavailable — no warning */ });
+    }
+
+    function toggleAnimePathVisibility(view, enabled) {
+        var wrapper = q(view, 'es-anime-path-wrapper');
+        if (wrapper) wrapper.style.display = enabled ? '' : 'none';
+    }
+
+    // ── Save config ───────────────────────────────────────────────────────────
+    function saveAndSync(view) {
+        var btn = q(view, 'es-save-btn');
+        if (btn) btn.disabled = true;
+
+        var manifestUrl = esVal(view, 'es-manifest-url');
+        var baseUrl     = esVal(view, 'es-aio-url');
+        var uuid        = esVal(view, 'es-uuid');
+        var token       = esVal(view, 'es-token');
+        var enableAio   = esChk(view, 'es-enable-aio');
+
+        var cfg = {
+            PrimaryManifestUrl:      manifestUrl,
+            SecondaryManifestUrl:    '',
+            SyncPathMovies:          esVal(view, 'es-base-path') + '/movies',
+            SyncPathShows:           esVal(view, 'es-base-path') + '/shows',
+            BaseSyncPath:            esVal(view, 'es-base-path'),
+            EmbyBaseUrl:             esVal(view, 'es-emby-base'),
+            EmbyApiKey:              esVal(view, 'es-emby-apikey'),
+            MetadataLanguage:              esVal(view, 'es-meta-lang-dropdown')     || 'en',
+            MetadataCertificationCountry:  esVal(view, 'es-meta-country-dropdown')  || 'US',
+            MetadataImageLanguage:         esVal(view, 'es-meta-img-lang-dropdown') || 'en',
+            LibraryNameMovies:       esVal(view, 'es-library-name-movies') || 'Streamed Movies',
+            LibraryNameSeries:       esVal(view, 'es-library-name-series') || 'Streamed Series',
+            EnableDiscoverChannel:   esChk(view, 'es-enable-discover'),
+            EnableAioStreamsCatalog: enableAio,
+            AioStreamsCatalogIds:    getSelectedCatalogIds(view, 'wiz'),
+            CatalogItemLimitsJson:   getCatalogLimitsJson(),
+            IsFirstRunComplete:      true
+        };
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                var prog = q(view, 'es-sync-progress');
+                if (prog) prog.style.display = 'block';
+                animateSyncProgress(view);
+                // Create Emby libraries automatically
+                createEmbyLibraries(cfg);
+                esFetch('/InfiniteDrive/Trigger?task=catalog_sync', {method:'POST'})
+                    .then(function(r) { if (!r.ok) console.warn('[InfiniteDrive] catalog_sync trigger failed:', r.status); })
+                    .catch(function(e) { console.warn('[InfiniteDrive] catalog_sync trigger error:', e); });
+            })
+            .then(function() {
+                // Re-fetch full config so tabs show all fields
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(fullCfg) {
+                        _loadedConfig = fullCfg;
+                    })
+                    .catch(function() {
+                        console.warn('[InfiniteDrive] Failed to re-fetch full config');
+                    });
+            })
+            .catch(function() { if (btn) btn.disabled = false; });
+    }
+
+    // ── Auto-create Emby libraries on first run ────────────────────────────────────
+    function createEmbyLibraries(cfg) {
+        if (!cfg || !cfg.SyncPathMovies || !cfg.SyncPathShows) return;
+
+        // STEP 1: Create directories on disk first (Emby won't create libraries if paths don't exist)
+        esFetch('/InfiniteDrive/Setup/CreateDirectories', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                MoviesPath: cfg.SyncPathMovies,
+                ShowsPath: cfg.SyncPathShows
+            })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(dirRes) {
+            console.log('[InfiniteDrive] Directories created:', dirRes);
+
+            // STEP 2: Only create libraries after directories exist
+            // Create Movies library
+            ApiClient.ajax({
+                type: 'POST',
+                url: ApiClient.getUrl('Libraries/VirtualFolders'),
+                data: JSON.stringify({
+                    Name: cfg.LibraryNameMovies || 'Streamed Movies',
+                    CollectionType: 'movies',
+                    Paths: [cfg.SyncPathMovies]
+                }),
+                contentType: 'application/json'
+            }).then(function() {
+                console.log('[InfiniteDrive] Movies library created successfully');
+            }).catch(function(err) {
+                console.log('[InfiniteDrive] Movies library creation failed or already exists:', err);
+            });
+
+            // Create Shows library
+            ApiClient.ajax({
+                type: 'POST',
+                url: ApiClient.getUrl('Libraries/VirtualFolders'),
+                data: JSON.stringify({
+                    Name: cfg.LibraryNameSeries || 'Streamed Series',
+                    CollectionType: 'tvshows',
+                    Paths: [cfg.SyncPathShows]
+                }),
+                contentType: 'application/json'
+            }).then(function() {
+                console.log('[InfiniteDrive] Shows library created successfully');
+            }).catch(function(err) {
+                console.log('[InfiniteDrive] Shows library creation failed or already exists:', err);
+            });
+        })
+        .catch(function(err) {
+            console.error('[InfiniteDrive] Failed to create directories:', err);
+        });
+    }
+
+    function saveSettings(view) {
+        var cfg = {
+            PrimaryManifestUrl:         esVal(view, 'cfg-manifest-url'),
+            AioMetadataBaseUrl:         esVal(view, 'cfg-aio-metadata-url'),
+            EnableBackupAioStreams:     esChk(view, 'cfg-enable-backup-aio'),
+            SecondaryManifestUrl:      esChk(view, 'cfg-enable-backup-aio')
+                                           ? esVal(view, 'cfg-aio-backup-url') || ''
+                                           : '',
+            SystemRssFeedUrls:          esVal(view, 'cfg-rss-feeds') || '',
+            SyncPathMovies:             esVal(view, 'cfg-base-path') + '/movies',
+            SyncPathShows:              esVal(view, 'cfg-base-path') + '/shows',
+            BaseSyncPath:               esVal(view, 'cfg-base-path'),
+            EmbyBaseUrl:                esVal(view, 'cfg-emby-base'),
+            MetadataLanguage:              esVal(view, 'cfg-meta-lang-dropdown')     || 'en',
+            MetadataCertificationCountry:  esVal(view, 'cfg-meta-country-dropdown')  || 'US',
+            MetadataImageLanguage:         esVal(view, 'cfg-meta-img-lang-dropdown') || 'en',
+            EnableDiscoverChannel:      true,
+            EnableAioStreamsCatalog:    esChk(view, 'cfg-enable-aio'),
+            AioStreamsCatalogIds:       getSelectedCatalogIds(view, 'cfg'),
+            AioStreamsAcceptedStreamTypes: (function() {
+                var checked = [];
+                ['debrid','usenet','torrent','http','live'].forEach(function(t) {
+                    var cb = q(view, 'cfg-stype-' + t);
+                    if (cb && cb.checked) checked.push(t);
+                });
+                return checked.length ? checked.join(',') : '';
+            })(),
+            LibraryNameMovies:          esVal(view, 'cfg-library-name-movies') || 'Streamed Movies',
+            LibraryNameSeries:          esVal(view, 'cfg-library-name-series') || 'Streamed Series',
+            SignatureValidityDays:    esInt(view, 'cfg-sig-validity', 365),
+            CacheLifetimeMinutes:       esInt(view, 'cfg-cache-lifetime', 360),
+            ApiDailyBudget:             esInt(view, 'cfg-api-budget', 2000),
+            MaxConcurrentResolutions:   esInt(view, 'cfg-max-concurrent', 3),
+            CatalogItemCap:             esInt(view, 'cfg-item-cap', 500),
+            CatalogSyncIntervalHours:   esInt(view, 'cfg-sync-interval', 24),
+            SyncScheduleHour:           esInt(view, 'cfg-sync-hour', 3),
+            CandidatesPerProvider:      esInt(view, 'cfg-candidates-per-provider', 3),
+            SyncResolveTimeoutSeconds:  esInt(view, 'cfg-sync-resolve-timeout', 30),
+            ProviderPriorityOrder:      esVal(view, 'cfg-provider-priority'),
+            NextUpLookaheadEpisodes:    esInt(view, 'cfg-next-up-lookahead', 2),
+            ProxyMode:                  esVal(view, 'cfg-proxy-mode'),
+            MaxConcurrentProxyStreams:  esInt(view, 'cfg-max-proxy', 5),
+            DeleteStrmOnReadoption:     esChk(view, 'cfg-delete-strm-on-readoption'),
+            DontPanic:                  esChk(view, 'cfg-dont-panic'),
+            PluginSecret:               esVal(view, 'cfg-plugin-secret'),
+            CatalogItemLimitsJson:      getCatalogLimitsJson(),
+            EnableAnimeLibrary:         true, // always enabled
+            SyncPathAnime:              esVal(view, 'cfg-anime-path') || '/media/infinitedrive/anime',
+            // Sprint 209: Parental Controls
+            TmdbApiKey:                 esVal(view, 'cfg-tmdb-api-key') || '',
+            BlockUnratedForRestricted:  esChk(view, 'cfg-block-unrated'),
+            // External Lists
+            TraktClientId:              esVal(view, 'cfg-trakt-client-id') || '',
+            UserCatalogLimit:           esInt(view, 'cfg-user-catalog-limit', 5),
+            IsFirstRunComplete:         true
+        };
+        // CONF-JSON: validate CatalogItemLimitsJson before saving
+        if (cfg.CatalogItemLimitsJson) {
+            try { JSON.parse(cfg.CatalogItemLimitsJson); } catch(e) {
+                Dashboard.alert('Catalog Item Limits JSON is invalid: ' + e.message + '\nReset the limits table or fix the JSON before saving.');
+                return;
+            }
+        }
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                Dashboard.processPluginConfigurationUpdateResult();
+                // Re-provision libraries on settings save to keep them in sync
+                return esFetch('/InfiniteDrive/Setup/ProvisionLibraries', {method:'POST'});
+            })
+            .then(function() {
+                // Libraries provisioned successfully
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    // ── Health dashboard ──────────────────────────────────────────────────────
+    function refreshDashboard(view) {
+        if (_authExpired) return;
+
+        esFetch('/InfiniteDrive/Status')
+            .then(function(r) {
+                if (r.status === 401) { showAuthExpiredBanner(view); return; }
+                return r.json();
+            })
+            .then(function(d) { if (d) renderDashboard(view, d); })
+            .catch(function(err) { console.warn('[InfiniteDrive] Status fetch failed:', err); });
+
+        // U1: Fetch unhealthy items separately (admin-only, may return 403 for non-admins)
+        esFetch('/InfiniteDrive/UnhealthyItems')
+            .then(function(r) {
+                if (r.status === 401) { showAuthExpiredBanner(view); return; }
+                return r.json();
+            })
+            .then(function(d) { if (d) renderUnhealthyItems(view, d); })
+            .catch(function() { /* non-admin or offline — silently skip */ });
+
+        // A1-UI: Fetch recent playback errors
+        esFetch('/InfiniteDrive/RecentErrors')
+            .then(function(r) {
+                if (r.status === 401) { showAuthExpiredBanner(view); return; }
+                return r.json();
+            })
+            .then(function(d) { if (d) renderRecentErrors(view, d); })
+            .catch(function() { /* non-admin or offline — silently skip */ });
+    }
+
+    function renderUnhealthyItems(view, d) {
+        var countEl = q(view, 'es-unhealthy-count');
+        var tbody   = q(view, 'es-unhealthy-body');
+        if (!tbody) return;
+
+        var items = (d && d.items) ? d.items : [];
+        if (countEl) countEl.textContent = items.length ? '(' + items.length + ')' : '(none)';
+
+        if (!items.length) {
+            tbody.innerHTML = '<tr><td colspan="4" style="opacity:.4">No failed items ✓</td></tr>';
+            return;
+        }
+        tbody.innerHTML = items.map(function(i) {
+            var ep = (i.season != null ? ' S' + pad(i.season) + 'E' + pad(i.episode || 0) : '');
+            var retry = i.retry_after ? new Date(i.retry_after).toLocaleString() : '—';
+            return '<tr>'
+                + '<td><code>' + esc(i.imdb_id) + '</code></td>'
+                + '<td>' + esc(i.title) + ep + '</td>'
+                + '<td>' + (i.season != null ? 'S' + pad(i.season) + 'E' + pad(i.episode || 0) : '—') + '</td>'
+                + '<td style="font-size:.82em;opacity:.7">' + esc(retry) + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
+
+    function renderRecentErrors(view, d) {
+        var tbody = q(view, 'es-errors-body');
+        if (!tbody) return;
+        var errors = (d && d.errors) ? d.errors : [];
+        var countEl = q(view, 'es-errors-count');
+        if (countEl) countEl.textContent = errors.length ? '(' + errors.length + ')' : '(none)';
+        if (!errors.length) {
+            tbody.innerHTML = '<tr><td colspan="5" style="opacity:.4">No playback errors ✓</td></tr>';
+            return;
+        }
+        tbody.innerHTML = errors.map(function(e) {
+            var ep  = (e.season != null ? ' S' + pad(e.season) + 'E' + pad(e.episode || 0) : '');
+            var ts  = e.played_at ? new Date(e.played_at).toLocaleString() : '—';
+            return '<tr>'
+                + '<td><code>' + esc(e.imdb_id) + '</code></td>'
+                + '<td>' + esc(e.title || '') + ep + '</td>'
+                + '<td style="font-size:.82em;opacity:.7">' + esc(e.client || '') + '</td>'
+                + '<td style="font-size:.8em;color:#e06c75;max-width:220px;word-break:break-word">' + esc(e.error || '') + '</td>'
+                + '<td style="font-size:.78em;opacity:.55">' + esc(ts) + '</td>'
+                + '</tr>';
+        }).join('');
+    }
+
+    function renderDashboard(view, d) {
+        var ts = q(view, 'es-refresh-ts');
+        if (ts) ts.textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+        var aio = d.AioStreams || {};
+        setBadge(view, 'es-health-aio', aio.Ok ? 'ok' : 'error', aio.Ok ? 'Connected' : 'Offline');
+        setText(view, 'es-health-aio-url', aio.Url ? '(' + shortenUrl(aio.Url) + ')' : '');
+        setText(view, 'es-health-aio-ms',  aio.LatencyMs >= 0 ? aio.LatencyMs + ' ms' : '');
+
+        var addonRow = q(view, 'es-health-addon-row');
+        if (addonRow) addonRow.style.display = d.AioStreamsAddonName ? '' : 'none';
+        setText(view, 'es-health-addon-name',    d.AioStreamsAddonName    || '');
+        setText(view, 'es-health-addon-version', d.AioStreamsAddonVersion ? 'v' + d.AioStreamsAddonVersion : '');
+
+        var soRow = q(view, 'es-health-streamonly-row');
+        if (soRow) soRow.style.display = d.AioStreamsIsStreamOnly ? '' : 'none';
+
+        var pfxRow = q(view, 'es-health-prefixes-row');
+        if (pfxRow) pfxRow.style.display = d.AioStreamsStreamPrefixes ? '' : 'none';
+        setText(view, 'es-health-prefixes', d.AioStreamsStreamPrefixes || '');
+
+        setBadge(view, 'es-health-configured', d.IsConfigured ? 'ok' : 'warn',
+            d.IsConfigured ? 'Yes' : 'No — configure providers');
+
+        var c = d.Cache || {};
+        setText(view, 'es-stat-valid',        c.ValidUnexpired != null ? c.ValidUnexpired : '—');
+        setText(view, 'es-stat-stale',        c.Stale          != null ? c.Stale          : '—');
+        setText(view, 'es-stat-failed',       c.Failed         != null ? c.Failed         : '—');
+        setText(view, 'es-stat-catalog',      d.CatalogItemCount  != null ? d.CatalogItemCount  : '—');
+        setText(view, 'es-stat-library',      d.LibraryItemCount  != null ? d.LibraryItemCount  : '—');
+        setText(view, 'es-stat-strm',         d.StrmItemCount     != null ? d.StrmItemCount     : '—');
+        setText(view, 'es-stat-resurrections',d.ResurrectionCount    != null ? d.ResurrectionCount    : '—');
+        setText(view, 'es-stat-readopted',    d.ReadoptedCount       != null ? d.ReadoptedCount       : '—');
+        setText(view, 'es-stat-pending-expand',d.PendingExpansionCount != null ? d.PendingExpansionCount : '—');
+
+        var b = d.ApiBudget || {}, used = b.PercentUsed || 0;
+        setText(view, 'es-budget-text', (b.CallsMade||0)+' / '+(b.CallsBudget||0)+' calls today ('+used+'%)');
+        var bbar = q(view, 'es-budget-bar');
+        if (bbar) { bbar.style.width = Math.min(used,100)+'%'; bbar.style.background = used>90?'#dc3545':used>70?'#ffc107':''; }
+
+        var sb = q(view, 'es-sync-body');
+        if (sb) {
+            var ss = d.SyncStates || [], srcStats = d.SourceStats || {};
+            if (!ss.length) { sb.innerHTML = '<tr><td colspan="8" style="opacity:.4">No syncs yet</td></tr>'; }
+            else sb.innerHTML = ss.map(function(s) {
+                var bc = s.Status==='ok'?'es-badge-ok':s.Status==='warn'?'es-badge-warn':'es-badge-error';
+                var errCell = s.LastError
+                    ? '<span title="'+esc(s.LastError)+'" style="cursor:help;color:#dc3545">'+esc(s.LastError.substring(0,40))+(s.LastError.length>40?'…':'')+'</span>'
+                    : '—';
+                return '<tr>'+
+                    '<td style="font-family:monospace;font-size:.82em">'+esc(s.SourceKey)+'</td>'+
+                    '<td>'+(s.LastSyncAt?fmtDate(s.LastSyncAt):'—')+'</td>'+
+                    '<td>'+(s.LastReachedAt?fmtDate(s.LastReachedAt):'—')+'</td>'+
+                    '<td>'+(s.ItemCount||0)+'</td>'+
+                    '<td>'+(srcStats[s.SourceKey]!=null?'<b>'+srcStats[s.SourceKey]+'</b>':'—')+'</td>'+
+                    '<td><span class="es-badge '+bc+'">'+esc(s.Status||'?')+'</span></td>'+
+                    '<td>'+(s.ConsecutiveFailures||0)+'</td>'+
+                    '<td style="max-width:220px;overflow:hidden">'+errCell+'</td>'+
+                    '</tr>';
+            }).join('');
+        }
+
+        var cov = d.Coverage || {}, covPct = cov.CoveragePercent || 0;
+        setText(view,'es-cov-pct',      covPct+'%');
+        setText(view,'es-cov-valid',    cov.ValidCached  != null ? cov.ValidCached  : '—');
+        setText(view,'es-cov-stale',    cov.StaleCached  != null ? cov.StaleCached  : '—');
+        setText(view,'es-cov-uncached', cov.Uncached     != null ? cov.Uncached     : '—');
+        setText(view,'es-cov-total',    cov.TotalStrm    != null ? cov.TotalStrm    : '—');
+        var covBar = q(view,'es-cov-bar');
+        if (covBar) { covBar.style.width=Math.min(covPct,100)+'%'; covBar.style.background=covPct>=80?'#28a745':covPct>=40?'#ffc107':'#dc3545'; }
+
+        // v0.65.7: Show cache guidance when valid cache is 0 (cold start)
+        var cacheGuidance = q(view, 'es-cache-guidance');
+        if (cacheGuidance) {
+            cacheGuidance.style.display = (cov.ValidCached === 0 && cov.TotalStrm > 0) ? 'block' : 'none';
+        }
+
+        // Sprint 66: Item state counts for Doctor panel
+        setText(view,'es-state-catalogued', d.CataloguedCount  != null ? d.CataloguedCount  : '—');
+        setText(view,'es-state-present',    d.PresentCount     != null ? d.PresentCount     : '—');
+        setText(view,'es-state-resolved',   d.ResolvedCount    != null ? d.ResolvedCount    : '—');
+        setText(view,'es-state-retired',    d.RetiredCount     != null ? d.RetiredCount     : '—');
+        setText(view,'es-state-pinned',     d.PinnedCount      != null ? d.PinnedCount      : '—');
+        setText(view,'es-state-orphaned',   d.OrphanedCount    != null ? d.OrphanedCount    : '—');
+
+        var cb = q(view,'es-clients-body');
+        if (cb) {
+            var clients = d.ClientProfiles || [];
+            if (!clients.length) { cb.innerHTML='<tr><td colspan="6" style="opacity:.4">No clients yet.</td></tr>'; }
+            else cb.innerHTML = clients.map(function(cl) {
+                var modeLabel = cl.SupportsRedirect===0?'<span style="color:#ffc107">proxy</span>':'<span style="color:#28a745">redirect</span>';
+                var brate = cl.MaxSafeBitrate!=null?(cl.MaxSafeBitrate>=1000?(cl.MaxSafeBitrate/1000).toFixed(1)+' Mbps':cl.MaxSafeBitrate+' kbps'):'<span style="opacity:.4">learning…</span>';
+                return '<tr><td style="font-weight:600">'+esc(cl.ClientType)+'</td><td>'+modeLabel+'</td><td>'+brate+'</td><td>'+esc(cl.PreferredQuality||'—')+'</td><td>'+cl.TestCount+'</td><td>'+(cl.LastTestedAt?fmtDate(cl.LastTestedAt):'—')+'</td></tr>';
+            }).join('');
+        }
+
+        var pb = q(view,'es-plays-body');
+        if (pb) {
+            var plays = d.RecentPlays || [];
+            if (!plays.length) { pb.innerHTML='<tr><td colspan="8" style="opacity:.4">No plays yet</td></tr>'; }
+            else pb.innerHTML = plays.map(function(p) {
+                var mc = p.ResolutionMode==='cached'?'mode-cached':p.ResolutionMode==='failed'?'mode-failed':p.ResolutionMode&&p.ResolutionMode.indexOf('sync')===0?'mode-sync':'';
+                return '<tr>'+
+                    '<td><a href="https://www.imdb.com/title/'+esc(p.ImdbId)+'" target="_blank" style="color:var(--theme-button-background,#00a4dc)">'+esc(p.ImdbId)+'</a></td>'+
+                    '<td>'+esc(p.Title||'')+'</td>'+
+                    '<td>'+(p.Season?'S'+pad(p.Season)+'E'+pad(p.Episode):'—')+'</td>'+
+                    '<td class="'+mc+'">'+esc(p.ResolutionMode)+'</td>'+
+                    '<td>'+esc(p.QualityServed||'—')+'</td>'+
+                    '<td>'+esc(p.ClientType||'—')+'</td>'+
+                    '<td>'+(p.LatencyMs!=null?p.LatencyMs:'—')+'</td>'+
+                    '<td>'+(p.PlayedAt?fmtDate(p.PlayedAt):'—')+'</td>'+
+                    '</tr>';
+            }).join('');
+        }
+
+        // Render provider health
+        if (d.Providers && d.Providers.length > 0) {
+            renderProviderHealth(view, d.Providers);
+        }
+
+        // Render task schedule information
+        renderTaskSchedules(view, _loadedConfig);
+
+        // Sprint 79: Update Edit Manifest button
+        updateManifestEditButton(view, d);
+    }
+
+    // ── Sprint 79: Update Edit Manifest button ─────────────────────────────────
+    function updateManifestEditButton(view, status) {
+        var btn = view.querySelector('#btnEditManifest');
+        var hostInfo = view.querySelector('#manifestHostInfo');
+        var hostName = view.querySelector('#manifestHostName');
+
+        if (!btn) return;
+
+        if (status && status.ManifestConfigureUrl) {
+            btn.style.display = 'inline-flex';
+            btn.onclick = function() {
+                window.open(status.ManifestConfigureUrl, '_blank');
+            };
+
+            if (hostInfo && hostName && status.ManifestHost) {
+                hostInfo.style.display = 'block';
+                hostName.textContent = status.ManifestHost;
+            }
+        } else {
+            btn.style.display = 'none';
+            if (hostInfo) hostInfo.style.display = 'none';
+        }
+    }
+
+    function renderProviderHealth(view, providers) {
+        var card = q(view, 'es-health-providers-card');
+        var container = q(view, 'es-health-providers');
+        if (!container) return;
+
+        // Update the provider status grid cards
+        var primaryCard = view.querySelector('#health-card-aio');
+        var secondaryCard = view.querySelector('#health-card-secondary');
+
+        providers.forEach(function(p) {
+            var name = (p.DisplayName || '').toLowerCase();
+            var statusHtml = p.Ok
+                ? '<span style="color:#28a745;font-weight:600">Connected</span>'
+                : '<span style="color:#dc3545;font-weight:600">Offline</span>';
+            var detail = p.LatencyMs >= 0 ? p.LatencyMs + ' ms' : '';
+            if (p.Message && !p.Ok) detail = p.Message;
+
+            if (name === 'primary' && primaryCard) {
+                var statusEl = primaryCard.querySelector('#health-aio-status');
+                var detailEl = primaryCard.querySelector('#health-aio-detail');
+                if (statusEl) statusEl.innerHTML = statusHtml;
+                if (detailEl) detailEl.textContent = detail;
+            }
+            if (name === 'secondary' && secondaryCard) {
+                secondaryCard.style.display = 'block';
+                var statusEl = secondaryCard.querySelector('#health-secondary-status');
+                var detailEl = secondaryCard.querySelector('#health-secondary-detail');
+                if (statusEl) statusEl.innerHTML = statusHtml;
+                if (detailEl) detailEl.textContent = detail;
+            }
+        });
+
+        if (!providers || providers.length === 0) {
+            if (card) card.style.display = 'none';
+            return;
+        }
+
+        if (card) card.style.display = 'block';
+
+        var html = '<div style="font-size:.88em;opacity:.75;margin-bottom:.4em;font-weight:600">Provider Status</div>';
+        providers.forEach(function(p) {
+            var statusBadge = p.Ok ? '<span style="color:#28a745">●</span> Connected' : '<span style="color:#dc3545">●</span> Offline';
+            var latency = p.LatencyMs >= 0 ? ' (' + p.LatencyMs + ' ms)' : '';
+            var displayName = p.DisplayName || 'Provider';
+            html += '<div style="display:flex;align-items:center;gap:.5em;margin:.25em 0;font-size:.85em"><span style="min-width:80px">' + esc(statusBadge) + '</span><span style="flex:1">' + esc(displayName) + latency + '</span></div>';
+        });
+        container.innerHTML = html;
+    }
+
+    function renderTaskSchedules(view, cfg) {
+        if (!cfg) return;
+
+        // Catalog Sync — Daily at the configured hour
+        var catalogHour = cfg.CatalogSyncHour != null ? cfg.CatalogSyncHour : 3;
+        var catalogSchedule = catalogHour < 0 ? 'Manual only' : 'Daily at ' + pad(catalogHour) + ':00 UTC';
+        setText(view, 'es-task-schedule-catalog', catalogSchedule);
+
+        // Link Resolver — Hourly
+        setText(view, 'es-task-schedule-resolver', 'Hourly');
+
+        // File Resurrection — On demand
+        setText(view, 'es-task-schedule-resurrection', 'On demand');
+
+        // Library Re-adoption — Daily
+        setText(view, 'es-task-schedule-readoption', 'Daily');
+
+        // Episode Expander — On demand
+        setText(view, 'es-task-schedule-expander', 'On demand');
+
+        // Dead Link Scan — Weekly
+        setText(view, 'es-task-schedule-deadlinks', 'Weekly');
+    }
+
+    // ── Task runner ───────────────────────────────────────────────────────────
+    function runTask(view, taskKey, btnEl) {
+        var origText = btnEl ? btnEl.innerHTML : null;
+        if (btnEl) { btnEl.disabled = true; btnEl.innerHTML = '⏳ Running…'; }
+        esFetch('/InfiniteDrive/Trigger?task=' + encodeURIComponent(taskKey), {method:'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = origText; }
+                if (data.Status === 'ok') {
+                    if (typeof Dashboard !== 'undefined') Dashboard.alert({ message: 'Task started. Check the Inspector tab for progress.' });
+                    setTimeout(function() { refreshDashboard(view); }, 3000);
+                    setTimeout(function() { refreshDashboard(view); }, 30000);
+                    if (taskKey === 'catalog_sync') { startCatalogPoll(view, 'cfg'); startCatalogPoll(view, 'wiz'); }
+                } else { Dashboard.alert('Error: ' + (data.Message || 'unknown')); }
+            })
+            .catch(function(err) {
+                if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = origText; }
+                Dashboard.alert('Request failed: ' + err.message);
+            });
+    }
+
+    // ── Per-provider loading spinners (Sprint 14: UX-CATALOG-AUTO-LOAD) ────────
+    function showProviderLoadingSpinners(panel, prefix) {
+        var html = '<div style="padding:.5em;font-size:.85em;opacity:.7">' +
+            '<div style="display:grid;gap:.4em">' +
+            '<div id="es-load-aio-'+prefix+'" style="display:flex;align-items:center;gap:.4em"><span style="animation:spin 1s linear infinite">🔄</span> AIOStreams catalogs</div>' +
+            '<div id="es-load-trakt-'+prefix+'" style="display:flex;align-items:center;gap:.4em;opacity:.4"><span style="animation:spin 1s linear infinite;opacity:0">🔄</span> Trakt watchlist (if enabled)</div>' +
+            '<div id="es-load-mdblist-'+prefix+'" style="display:flex;align-items:center;gap:.4em;opacity:.4"><span style="animation:spin 1s linear infinite;opacity:0">🔄</span> MDBList (if enabled)</div>' +
+            '</div></div>';
+        panel.innerHTML = html;
+    }
+
+    // ── Catalog discovery ─────────────────────────────────────────────────────
+    function loadCatalogs(view, prefix) {
+        var panel = q(view, 'es-catalog-panel-' + prefix);
+        if (!panel) return;
+        showProviderLoadingSpinners(panel, prefix);
+
+        // Capture currently checked IDs before reload
+        var prevSet = null;
+        var cbs = view.querySelectorAll('.es-catcb-' + prefix);
+        if (cbs.length) {
+            var allIds = {}, checkedIds = {};
+            for (var i = 0; i < cbs.length; i++) { allIds[cbs[i].value] = true; }
+            var checked = view.querySelectorAll('.es-catcb-' + prefix + ':checked');
+            for (var i = 0; i < checked.length; i++) { checkedIds[checked[i].value] = true; }
+            if (Object.keys(checkedIds).length < Object.keys(allIds).length) prevSet = checkedIds;
+        } else {
+            var hiddenEl = q(view, prefix === 'wiz' ? 'es-catalog-ids-wiz' : 'cfg-catalog-ids');
+            if (hiddenEl && hiddenEl.value.trim()) {
+                prevSet = {};
+                hiddenEl.value.split(',').forEach(function(id) { id = id.trim(); if (id) prevSet[id] = true; });
+                if (!Object.keys(prevSet).length) prevSet = null;
+            }
+        }
+
+        // Pass the live manifest URL so the panel works before the first save.
+        var manifestFieldId = prefix === 'src' ? 'src-catalog-manifest-url' : 'cfg-manifest-url';
+        var liveManifestUrl = esVal(view, manifestFieldId);
+        var catalogsUrl = '/InfiniteDrive/Catalogs' +
+            (liveManifestUrl ? '?manifestUrl=' + encodeURIComponent(liveManifestUrl) : '');
+
+        esFetch(catalogsUrl)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Error) { panel.innerHTML = '<div class="es-alert es-alert-error" style="font-size:.85em;margin:0">' + makeErrorGuidance(data.Error) + '</div>'; return; }
+                var catalogs = data.Catalogs || [];
+                if (!catalogs.length) {
+                    panel.innerHTML = '<div class="es-alert es-alert-warn" style="font-size:.85em;margin:0"><strong>Stream-only addon detected.</strong> No source. Enable Trakt or MDBList to populate the library.</div>';
+                    return;
+                }
+                renderCatalogPanel(view, panel, catalogs, prefix, prevSet);
+            })
+            .catch(function(err) { panel.innerHTML = '<div class="es-alert es-alert-error" style="font-size:.85em;margin:0">' + makeErrorGuidance('Failed: ' + err.message) + '</div>'; });
+    }
+
+    function renderCatalogPanel(view, panel, catalogs, prefix, prevSet) {
+        var html = '<table class="es-cpt"><thead><tr>'+
+            '<th style="width:26px"></th><th>Source</th><th style="width:60px">Type</th>'+
+            '<th style="min-width:110px">Progress</th><th style="width:60px">Limit</th>'+
+            '</tr></thead><tbody>';
+        catalogs.forEach(function(c, idx) {
+            var checked = (prevSet === null || prevSet[c.Id]) ? ' checked' : '';
+            var t = (c.Type || '').toLowerCase();
+            var tStyle = t==='movie'?'background:rgba(0,164,220,0.2);color:#7ecbdf':
+                         t==='series'?'background:rgba(40,167,69,0.2);color:#7de98d':
+                         t==='anime'?'background:rgba(255,193,7,0.2);color:#ffd454':
+                         'background:rgba(255,255,255,0.1)';
+            var srcKey = 'aio:' + (c.Type||'movie') + ':' + c.Id;
+            var progKey = cprogKey(srcKey);
+            var limitVal = _catalogLimits[srcKey] ? String(_catalogLimits[srcKey]) : '';
+            html += '<tr>'+
+                '<td><input type="checkbox" class="es-catcb-'+prefix+'" value="'+esc(c.Id)+'"'+checked+' /></td>'+
+                '<td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+esc(c.Name||c.Id)+'">'+esc(c.Name||c.Id)+'</td>'+
+                '<td><span class="es-type-badge" style="'+tStyle+'">'+esc(c.Type||'')+'</span></td>'+
+                '<td id="es-cprog-'+prefix+'-'+progKey+'"><span style="opacity:.3;font-size:.8em">—</span></td>'+
+                '<td><input type="number" class="es-catalog-limit-input" style="width:52px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:3px;padding:.15em .3em;font-size:.82em;color:inherit" placeholder="100" min="1" max="5000" value="'+esc(limitVal)+'" data-srckey="'+esc(srcKey)+'" /></td>'+
+                '</tr>';
+        });
+        html += '</tbody></table>';
+        panel.innerHTML = html;
+        // Bind limit inputs directly since they're freshly created
+        var inputs = panel.querySelectorAll('.es-catalog-limit-input');
+        for (var i = 0; i < inputs.length; i++) {
+            (function(inp) { inp.addEventListener('change', function() { setCatalogLimit(inp); }); })(inputs[i]);
+        }
+        startCatalogPoll(view, prefix);
+    }
+
+    function moveCatalogRow(view, prefix, idx, direction) {
+        var panel = q(view, 'es-catalog-panel-' + prefix);
+        if (!panel) return;
+        var tbody = panel.querySelector('tbody');
+        if (!tbody) return;
+        var rows = tbody.querySelectorAll('tr');
+        if (idx < 0 || idx >= rows.length) return;
+
+        var newIdx = direction === 'up' ? idx - 1 : idx + 1;
+        if (newIdx < 0 || newIdx >= rows.length) return;
+
+        var currentRow = rows[idx];
+        var targetRow = rows[newIdx];
+        if (direction === 'down') {
+            targetRow.parentNode.insertBefore(currentRow, targetRow.nextSibling);
+        } else {
+            targetRow.parentNode.insertBefore(currentRow, targetRow);
+        }
+
+        // Re-render to update button states and data attributes
+        var catalogs = [];
+        var checkboxes = panel.querySelectorAll('.es-catcb-' + prefix);
+        checkboxes.forEach(function(cb) {
+            catalogs.push({ Id: cb.value, Name: cb.closest('tr').children[1].textContent.trim(), Type: cb.closest('tr').children[2].textContent.trim() });
+        });
+        var prevSet = {};
+        checkboxes.forEach(function(cb) { if (cb.checked) prevSet[cb.value] = true; });
+        // Note: we lose catalog limit values here, but that's acceptable for reordering
+        renderCatalogPanel(view, panel, catalogs, prefix, prevSet);
+
+        // Update the catalog IDs field with the new order and save
+        var orderedIds = catalogs.map(function(c) { return c.Id; }).join(',');
+        var inputId = prefix === 'wiz' ? 'es-catalog-ids-wiz' : 'cfg-catalog-ids';
+        var inp = q(view, inputId);
+        if (inp) {
+            inp.value = orderedIds;
+            saveSettings(view);
+        }
+    }
+
+    function selectAllCatalogs(view, prefix, select) {
+        var cbs = view.querySelectorAll('.es-catcb-' + prefix);
+        for (var i = 0; i < cbs.length; i++) cbs[i].checked = select;
+    }
+
+    function getSelectedCatalogIds(view, prefix) {
+        var all = view.querySelectorAll('.es-catcb-' + prefix);
+        if (!all.length) {
+            var inp = q(view, prefix === 'wiz' ? 'es-catalog-ids-wiz' : 'cfg-catalog-ids');
+            return inp ? inp.value : '';
+        }
+        var allIds = [], checkedIds = [];
+        for (var i = 0; i < all.length; i++) allIds.push(all[i].value);
+        var checked = view.querySelectorAll('.es-catcb-' + prefix + ':checked');
+        for (var i = 0; i < checked.length; i++) checkedIds.push(checked[i].value);
+        return checkedIds.length === allIds.length ? '' : checkedIds.join(',');
+    }
+
+    // ── Catalog progress polling ──────────────────────────────────────────────
+    function cprogKey(k) { return encodeURIComponent(k).replace(/%/g, '_'); }
+
+    function fillProgressCell(cell, it) {
+        var target = it.ItemsTarget || 0, running = it.ItemsRunning || 0;
+        var pct = target > 0 ? Math.min(100, Math.round(running * 100 / target)) : 0;
+        var st = it.Status || 'never';
+        var stClass = st==='ok'?'es-badge-ok':st==='warn'?'es-badge-warn':st==='error'?'es-badge-error':st==='running'?'es-badge-running':'es-badge-never';
+        var stText  = st==='running'?'↻ running':st==='never'?'never':st;
+        var syncLbl = it.LastSyncAt ? ' <span style="font-size:.72em;opacity:.4">'+esc(fmtRelative(new Date(it.LastSyncAt)))+'</span>' : '';
+        cell.innerHTML = '<div style="display:flex;align-items:center;gap:.3em">'+
+            '<div class="es-cpbar-wrap"><div class="es-cpbar-fill" style="width:'+pct+'%"></div></div>'+
+            '<span style="font-size:.75em;opacity:.6;white-space:nowrap">'+(target>0?running+'/'+target:'—')+'</span>'+
+            ' <span class="es-badge '+stClass+'" style="font-size:.72em;padding:.1em .35em">'+esc(stText)+'</span>'+
+            syncLbl+'</div>';
+    }
+
+    function pollCatalogProgress(view) {
+        esFetch('/InfiniteDrive/CatalogProgress')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var items = data.Items || [];
+                items.forEach(function(it) {
+                    var key = cprogKey(it.SourceKey);
+                    ['cfg','wiz'].forEach(function(prefix) {
+                        var cell = q(view, 'es-cprog-' + prefix + '-' + key);
+                        if (cell) fillProgressCell(cell, it);
+                    });
+                });
+                if (!data.IsAnyRunning && _catalogPollTimer) {
+                    clearInterval(_catalogPollTimer); _catalogPollTimer = null;
+                }
+            }).catch(function(){});
+    }
+
+    function startCatalogPoll(view, prefix) {
+        pollCatalogProgress(view);
+        if (!_catalogPollTimer) _catalogPollTimer = setInterval(function() { pollCatalogProgress(view); }, 3000);
+    }
+
+    function setCatalogLimit(inp) {
+        var srcKey = inp.getAttribute('data-srckey');
+        var val = parseInt(inp.value, 10);
+        if (srcKey) {
+            if (!isNaN(val) && val > 0) _catalogLimits[srcKey] = val;
+            else delete _catalogLimits[srcKey];
+        }
+    }
+
+    function getCatalogLimitsJson() {
+        var keys = Object.keys(_catalogLimits);
+        return keys.length ? JSON.stringify(_catalogLimits) : '';
+    }
+
+    // ── Item inspector ────────────────────────────────────────────────────────
+    function inspect(view) {
+        var imdb    = (esVal(view, 'es-inspect-imdb') || '').trim();
+        var season  = esVal(view, 'es-inspect-season');
+        var episode = esVal(view, 'es-inspect-ep');
+        if (!imdb) { Dashboard.alert('Enter an IMDB ID first'); return; }
+        var url = '/InfiniteDrive/Inspect?imdb=' + encodeURIComponent(imdb);
+        if (season)  url += '&season='  + encodeURIComponent(season);
+        if (episode) url += '&episode=' + encodeURIComponent(episode);
+        esFetch(url).then(function(r) { return r.json(); }).then(function(d) {
+            var rows = [];
+            function row(label, val) {
+                return '<tr><td style="opacity:.55;font-size:.85em;padding-right:1em;white-space:nowrap">'+esc(label)+'</td><td>'+(val!=null?val:'<span style="opacity:.35">—</span>')+'</td></tr>';
+            }
+            if (d.Error && !d.Found) {
+                rows.push(row('Status', '<span style="color:#dc3545">'+esc(d.Error)+'</span>'));
+            } else {
+                rows.push(row('IMDB', '<a href="https://www.imdb.com/title/'+esc(d.ImdbId||'')+'" target="_blank" style="color:var(--theme-button-background,#00a4dc)">'+esc(d.ImdbId||'')+'</a>'));
+                rows.push(row('Title',  esc(d.Title||'—')));
+                rows.push(row('Year',   d.Year != null ? d.Year : null));
+                rows.push(row('Type',   esc(d.MediaType||'—')));
+                rows.push(row('Source', esc(d.Source||'—')));
+                if (d.StrmPath) rows.push(row('.strm', esc(d.StrmPath)+' '+(d.StrmExists?'<span style="color:#28a745">✓</span>':'<span style="color:#dc3545">✗</span>')));
+                var cc = d.CacheStatus==='valid'?'#28a745':d.CacheStatus==='stale'?'#ffc107':'#dc3545';
+                rows.push(row('Cache', d.CacheHit?'<span style="color:'+cc+'">'+esc(d.CacheStatus)+'</span>':'<span style="opacity:.4">no cache entry</span>'));
+                if (d.CacheHit) {
+                    rows.push(row('Quality', esc(d.QualityTier||'—')));
+                    var br = d.BitrateKbps!=null?(d.BitrateKbps>=1000?(d.BitrateKbps/1000).toFixed(1)+' Mbps':d.BitrateKbps+' kbps'):null;
+                    rows.push(row('Bitrate', br));
+                    rows.push(row('Fallbacks', d.HasFallbacks?'<span style="color:#28a745">yes</span>':'<span style="opacity:.4">none</span>'));
+                    rows.push(row('Resolved', d.ResolvedAt?fmtDate(d.ResolvedAt):null));
+                    rows.push(row('Expires',  d.ExpiresAt?fmtDate(d.ExpiresAt):null));
+                    rows.push(row('Plays',    d.PlayCount!=null?d.PlayCount:null));
+                }
+                if (d.StrmPlayUrl) rows.push(row('Play URL', '<code style="font-size:.8em;word-break:break-all">'+esc(d.StrmPlayUrl)+'</code>'));
+            }
+            var body = q(view,'es-inspect-body'), result = q(view,'es-inspect-result');
+            if (body) body.innerHTML = rows.join('');
+            if (result) result.style.display = '';
+            var candSection = q(view,'es-candidates-section'), candBody = q(view,'es-candidates-body');
+            if (candSection && candBody) {
+                if (d.Candidates && d.Candidates.length) {
+                    candBody.innerHTML = d.Candidates.map(function(can) {
+                        var br = can.BitrateKbps!=null?(can.BitrateKbps>=1000?(can.BitrateKbps/1000).toFixed(1)+' Mbps':can.BitrateKbps+' kbps'):'—';
+                        var sc = can.Status==='valid'?'#28a745':can.Status==='suspect'?'#ffc107':'#dc3545';
+                        return '<tr><td style="opacity:.5">'+can.Rank+'</td><td>'+esc(can.ProviderKey||'—')+'</td><td>'+esc(can.StreamType||'—')+'</td><td>'+esc(can.QualityTier||'—')+'</td><td>'+br+'</td><td>'+(can.IsCached?'<span style="color:#28a745">✓</span>':'<span style="opacity:.35">—</span>')+'</td><td style="color:'+sc+'">'+esc(can.Status||'—')+'</td><td style="font-size:.8em;opacity:.55">'+(can.ExpiresAt?fmtDate(can.ExpiresAt):'—')+'</td></tr>';
+                    }).join('');
+                    candSection.style.display = '';
+                } else { candSection.style.display = 'none'; }
+            }
+        }).catch(function(err) { Dashboard.alert('Inspect failed: ' + err.message); });
+    }
+
+    // ── Search ────────────────────────────────────────────────────────────────
+    function searchDebounce(view) {
+        if (_searchTimer) clearTimeout(_searchTimer);
+        _searchTimer = setTimeout(function() { doSearch(view); }, 350);
+    }
+
+    function doSearch(view) {
+        var searchQ = (esVal(view, 'es-search-q') || '').trim();
+        var resultsDiv  = q(view, 'es-search-results');
+        var resultsBody = q(view, 'es-search-body');
+        if (!resultsDiv || !resultsBody) return;
+        if (searchQ.length < 2) { resultsDiv.style.display = 'none'; return; }
+        esFetch('/InfiniteDrive/Search?q=' + encodeURIComponent(searchQ) + '&limit=15')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!d.Results || !d.Results.length) {
+                    resultsBody.innerHTML = '<tr><td colspan="6" style="opacity:.4">No results for "'+esc(searchQ)+'"</td></tr>';
+                } else {
+                    resultsBody.innerHTML = d.Results.map(function(r) {
+                        return '<tr style="cursor:pointer" data-es-imdbid="'+esc(r.ImdbId)+'">'+
+                            '<td>'+esc(r.Title)+'</td>'+
+                            '<td>'+(r.Year!=null?r.Year:'—')+'</td>'+
+                            '<td style="opacity:.55">'+esc(r.MediaType)+'</td>'+
+                            '<td style="color:var(--theme-button-background,#00a4dc)">'+esc(r.ImdbId)+'</td>'+
+                            '<td style="opacity:.5;font-size:.85em">'+esc(r.Source)+'</td>'+
+                            '<td>'+(r.HasValidCache?'<span style="color:#28a745">✓</span>':'<span style="opacity:.35">—</span>')+'</td>'+
+                            '</tr>';
+                    }).join('');
+                }
+                resultsDiv.style.display = '';
+            })
+            .catch(function() { resultsDiv.style.display = 'none'; });
+    }
+
+    function pickSearchResult(view, imdbId) {
+        var el = q(view, 'es-inspect-imdb');
+        if (el) {
+            el.value = imdbId;
+            var s = q(view,'es-inspect-season'); if (s) s.value = '';
+            var e = q(view,'es-inspect-ep');     if (e) e.value = '';
+            var res = q(view,'es-search-results'); if (res) res.style.display = 'none';
+            inspect(view);
+        }
+    }
+
+
+    // ── Validate / cache ops / webhook ────────────────────────────────────────
+    function validateSetup(view, resultDivId) {
+        var resultDiv = q(view, resultDivId);
+        if (resultDiv) { resultDiv.style.display=''; resultDiv.innerHTML='<span style="opacity:.55">Checking…</span>'; }
+        esFetch('/InfiniteDrive/Validate', {method:'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (!resultDiv) return;
+                var overall = d.Status==='ok'?'<span style="color:#28a745;font-weight:700">✓ All checks passed</span>':
+                              d.Status==='warn'?'<span style="color:#ffc107;font-weight:700">⚠ Some warnings</span>':
+                              '<span style="color:#dc3545;font-weight:700">✗ Errors found</span>';
+                resultDiv.innerHTML = '<div style="margin-bottom:.5em">'+overall+'</div>' +
+                    (d.Checks||[]).map(function(c) {
+                        var col=c.Status==='ok'?'#28a745':c.Status==='warn'?'#ffc107':'#dc3545';
+                        var icon=c.Status==='ok'?'✓':c.Status==='warn'?'⚠':'✗';
+                        return '<div style="margin:.25em 0;font-size:.85em"><span style="color:'+col+'">'+icon+' <strong>'+esc(c.Check)+'</strong></span> — '+esc(c.Message)+'</div>';
+                    }).join('');
+            })
+            .catch(function(err) { if (resultDiv) resultDiv.innerHTML='<span style="color:#dc3545">Validation failed: '+esc(err.message)+'</span>'; });
+    }
+
+    function invalidateItem(view) {
+        var imdb = (esVal(view,'es-inspect-imdb')||'').trim();
+        if (!imdb) { Dashboard.alert('Run Inspect first'); return; }
+        var url = '/InfiniteDrive/Invalidate?imdb='+encodeURIComponent(imdb);
+        var s=esVal(view,'es-inspect-season'), e=esVal(view,'es-inspect-ep');
+        if (s) url += '&season='+encodeURIComponent(s);
+        if (e) url += '&episode='+encodeURIComponent(e);
+        esFetch(url,{method:'POST'}).then(function(r){return r.json();})
+            .then(function(d){Dashboard.alert(d.Status==='ok'?'Cache invalidated ✓':'Error: '+d.Message);})
+            .catch(function(err){Dashboard.alert('Error: '+err.message);});
+    }
+
+    function queueItem(view) {
+        var imdb = (esVal(view,'es-inspect-imdb')||'').trim();
+        if (!imdb) { Dashboard.alert('Run Inspect first'); return; }
+        var url = '/InfiniteDrive/Queue?imdb='+encodeURIComponent(imdb);
+        var s=esVal(view,'es-inspect-season'), e=esVal(view,'es-inspect-ep');
+        if (s) url += '&season='+encodeURIComponent(s);
+        if (e) url += '&episode='+encodeURIComponent(e);
+        esFetch(url,{method:'POST'}).then(function(r){return r.json();})
+            .then(function(d){Dashboard.alert(d.Status==='ok'?'Queued ✓':'Error: '+d.Message);})
+            .catch(function(err){Dashboard.alert('Error: '+err.message);});
+    }
+
+    // A11 — Raw AIOStreams response inspector
+    function fetchRawStreams(view) {
+        var imdb    = (esVal(view, 'es-raw-imdb')    || '').trim();
+        var season  = esVal(view, 'es-raw-season');
+        var episode = esVal(view, 'es-raw-episode');
+        var result  = q(view, 'es-raw-result');
+        var meta    = q(view, 'es-raw-meta');
+        var pre     = q(view, 'es-raw-json');
+
+        if (!imdb) { Dashboard.alert('Enter an IMDB ID'); return; }
+        if (result) result.style.display = 'none';
+        if (meta) meta.textContent = 'Fetching…';
+        if (pre) pre.textContent = '';
+        if (result) result.style.display = 'block';
+
+        var url = '/InfiniteDrive/RawStreams?imdb=' + encodeURIComponent(imdb);
+        if (season) url += '&season=' + encodeURIComponent(season);
+        if (episode) url += '&episode=' + encodeURIComponent(episode);
+
+        esFetch(url)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (meta) {
+                    var info = imdb + (season ? ' S' + season + 'E' + (episode||'?') : '');
+                    meta.textContent = info + ' — ' + (d.stream_count != null ? d.stream_count + ' streams' : 'error') + ' in ' + (d.elapsed_ms || 0) + 'ms';
+                }
+                if (pre) pre.textContent = JSON.stringify(d, null, 2);
+            })
+            .catch(function(err) {
+                if (meta) meta.textContent = 'Error: ' + err.message;
+                if (pre) pre.textContent = '';
+            });
+    }
+
+    function clearClientProfiles(view) {
+        if (!confirm('Reset all learned client profiles?')) return;
+        esFetch('/InfiniteDrive/Trigger',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({Task:'clear_client_profiles'})})
+            .then(function(r){return r.json();})
+            .then(function(d){Dashboard.alert(d.Status==='ok'?'Profiles cleared.':d.Message); if(d.Status==='ok') refreshDashboard(view);})
+            .catch(function(err){Dashboard.alert('Error: '+err.message);});
+    }
+
+    // ── Init — bind all listeners ──────────────────────────────────────────────
+    function initView(view) {
+
+        // Sprint 215: Initialize float save button
+        initFloatSave(view);
+
+        // Manifest URL auto-parse (input events — not affected by custom element upgrade)
+        bindManifestField(view, 'es-manifest-url', 'es');
+        bindManifestField(view, 'cfg-manifest-url', 'cfg');
+
+        // Sprint 215: Wire dirty state to library and parental tab inputs
+        ['lib-base-path','lib-name-movies','lib-name-series','lib-name-anime',
+         'lib-emby-url','lib-meta-lang','lib-meta-country','lib-meta-img-lang',
+         'lib-write-nfo','cfg-block-unrated'].forEach(function(id) {
+            var el = view.querySelector('#' + id);
+            if (el) el.addEventListener('change', function() { markDirty(view); });
+        });
+
+        // Wire provider inputs to mark dirty
+        ['prov-aio-url', 'prov-backup-url'].forEach(function(id) {
+            var el = view.querySelector('#' + id);
+            if (el) el.addEventListener('change', function() { markDirty(view); });
+        });
+
+        // Sprint 215: Wire Enter key on parental block search
+        var parSearch = view.querySelector('#par-block-search');
+        if (parSearch) {
+            parSearch.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); searchBlockItems(view); }
+            });
+        }
+
+        // Sprint 215: Wire prov-meta-enabled checkbox
+        var metaChk = view.querySelector('#prov-meta-enabled');
+        var metaFields = view.querySelector('#prov-meta-fields');
+        if (metaChk && metaFields) {
+            var syncMetaFields = function() { metaFields.style.display = metaChk.checked ? 'block' : 'none'; };
+            metaChk.addEventListener('change', syncMetaFields);
+            metaChk.addEventListener('click', syncMetaFields);
+            setTimeout(syncMetaFields, 50);
+        }
+
+        // Sprint 215: Wire base path input to update derived paths
+        var libBasePath = view.querySelector('#lib-base-path');
+        if (libBasePath) {
+            libBasePath.addEventListener('input', function() {
+                var base = (libBasePath.value || '').replace(/\/+$/, '');
+                updateDerivedPaths(view, base);
+            });
+        }
+
+        // Sprint 14: Show quickstart guide by default on first view (UX-ONBOARD-ZERO)
+        var quickstartContent = q(view, 'es-quickstart-content');
+        var quickstartChevron = q(view, 'es-quickstart-chevron');
+        if (quickstartContent && !localStorage.getItem('es-quickstart-expanded')) {
+            quickstartContent.style.display = 'block';
+            if (quickstartChevron) quickstartChevron.style.transform = 'rotate(90deg)';
+            localStorage.setItem('es-quickstart-expanded', 'true');
+        } else if (quickstartContent && localStorage.getItem('es-quickstart-expanded') === 'true') {
+            quickstartContent.style.display = 'block';
+            if (quickstartChevron) quickstartChevron.style.transform = 'rotate(90deg)';
+        }
+
+        // Sprint 14: Provider cards handled via event delegation in click handler below
+
+        // Sprint 14: URL validation — show example .strm URL in real-time (UX-LIBRARY-URL-VALIDATION)
+        var urlInput = q(view, 'es-emby-base');
+        if (urlInput) {
+            var updateUrlExample = function() {
+                var baseUrl = (urlInput.value || '').trim();
+                var exampleDiv = q(view, 'es-url-example');
+                var exampleText = q(view, 'es-url-example-text');
+                if (exampleDiv && exampleText) {
+                    if (baseUrl && baseUrl !== 'http://' && baseUrl !== 'https://') {
+                        var example = baseUrl.replace(/\/$/, '') + '/play.html?file=/media/infinitedrive/catalog/movies/example.mkv';
+                        exampleText.textContent = example;
+                        exampleDiv.style.display = 'block';
+                    } else {
+                        exampleDiv.style.display = 'none';
+                    }
+                }
+            };
+            urlInput.addEventListener('input', updateUrlExample);
+            urlInput.addEventListener('change', updateUrlExample);
+            updateUrlExample();
+        }
+
+        // Sprint 64: Anime toggle — always enabled, no listener needed
+
+        // Sprint 209: TMDB API key → update filter status
+        var tmdbKeyInput = q(view, 'cfg-tmdb-api-key');
+        if (tmdbKeyInput) {
+            tmdbKeyInput.addEventListener('input', function() {
+                updateFilterStatus(view, tmdbKeyInput.value);
+            });
+            tmdbKeyInput.addEventListener('change', function() {
+                updateFilterStatus(view, tmdbKeyInput.value);
+            });
+        }
+
+        // Sprint 390: User catalog limit → real-time warning
+        var catalogLimitInput = view.querySelector('#cfg-user-catalog-limit');
+        if (catalogLimitInput) {
+            catalogLimitInput.addEventListener('input', function() {
+                updateListLimitWarning(view);
+            });
+        }
+
+        // Sprint 11: Base path → update derived paths display in real-time
+        var basePathInput = q(view, 'es-base-path');
+        if (basePathInput) {
+            basePathInput.addEventListener('input', function() {
+                var base = basePathInput.value.replace(/\/+$/, '');
+                var elM = q(view, 'es-derived-movies');
+                var elS = q(view, 'es-derived-shows');
+                if (elM) elM.textContent = base + '/catalog/movies';
+                if (elS) elS.textContent = base + '/catalog/shows';
+            });
+        }
+
+        var cfgBasePathInput = q(view, 'cfg-base-path');
+        if (cfgBasePathInput) {
+            cfgBasePathInput.addEventListener('input', function() {
+                var base = cfgBasePathInput.value.replace(/\/+$/, '');
+                var elM = q(view, 'cfg-derived-movies');
+                var elS = q(view, 'cfg-derived-shows');
+                if (elM) elM.textContent = base + '/catalog/movies';
+                if (elS) elS.textContent = base + '/catalog/shows';
+            });
+        }
+
+        // BUG-CONN-CLEAR: hide stale connection result whenever any credential field changes
+        ['es-manifest-url', 'es-aio-url', 'es-uuid', 'es-token'].forEach(function(id) {
+            var el = q(view, id);
+            if (el) el.addEventListener('input', function() {
+                var res = q(view, 'es-conn-result');
+                if (res) res.style.display = 'none';
+            });
+        });
+
+        // Regenerate PluginSecret button
+        var regenSecretBtn = view.querySelector('#es-regen-secret-btn');
+        if (regenSecretBtn) {
+            regenSecretBtn.addEventListener('click', function() {
+                // Generate a new 32-byte base64 secret client-side
+                var bytes = new Uint8Array(32);
+                window.crypto.getRandomValues(bytes);
+                var b64 = btoa(String.fromCharCode.apply(null, bytes));
+                var inp = view.querySelector('#cfg-plugin-secret');
+                if (inp) inp.value = b64;
+                var warn = view.querySelector('#es-regen-secret-warning');
+                if (warn) warn.style.display = '';
+            });
+
+        // Summon Marvin button handler
+        var marvinBtn = q(view, 'es-summon-marvin-btn');
+        if (marvinBtn) {
+            marvinBtn.addEventListener('click', function() {
+                summonMarvin(view);
+            });
+        }
+
+        // Refresh Now button handler
+        var refreshNowBtn = q(view, 'es-refresh-now-btn');
+        if (refreshNowBtn) {
+            refreshNowBtn.addEventListener('click', function() {
+                triggerRefreshNow(view);
+            });
+        }
+        }
+
+        // Search input (input event)
+        var searchEl = view.querySelector('#es-search-q');
+        if (searchEl) searchEl.addEventListener('input', function() { searchDebounce(view); });
+
+
+        // My Picks and Blocked tabs
+        initBlockedTab(view);
+
+        // ── Single capture-phase delegated click listener ─────────────────────
+        // Capture phase (3rd arg = true) fires BEFORE emby-button custom element
+        // handlers and before any stopPropagation, so it survives DOM node
+        // replacement that occurs when Emby upgrades is="emby-button" elements.
+        view.addEventListener('click', function(e) {
+            var el = e.target;
+            for (var d = 0; d < 8 && el && el !== view; d++) {
+                if (el.getAttribute) {
+                    var tab  = el.getAttribute('data-es-tab');
+                    var lc   = el.getAttribute('data-es-load-catalogs');
+                    var sel  = el.getAttribute('data-es-select');
+                    var task = el.getAttribute('data-es-task');
+                    var act  = el.getAttribute('data-es-action');
+                    var imdb = el.getAttribute('data-es-imdbid');
+                    var view_type = el.getAttribute('data-es-dashboard-view');
+                    var catMove = el.getAttribute('data-es-catalog-move');
+                    var catPrefix = el.getAttribute('data-es-catalog-prefix');
+                    var catIdx = el.getAttribute('data-es-catalog-idx');
+                    var srcTest         = el.getAttribute('data-es-src-test');
+                    var srcTestAll      = el.getAttribute('data-es-src-test-all');
+                    var srcSave         = el.getAttribute('data-es-src-save');
+                    var accordionHdr    = el.classList && el.classList.contains('es-accordion-hdr');
+                    var navigateItem   = el.getAttribute('data-es-navigate-item');
+                    if (tab)  { e.stopPropagation(); showTab(view, tab); return; }
+                    if (navigateItem) { e.stopPropagation(); Dashboard.navigate('item?id=' + navigateItem); return; }
+                    if (srcTest !== null) { e.stopPropagation(); testSource(view, srcTest); return; }
+                    if (srcTestAll !== null) { e.stopPropagation(); testAllSources(view); return; }
+                    if (srcSave !== null) { e.stopPropagation(); saveSourcesTab(view); return; }
+                    if (accordionHdr) { e.stopPropagation(); toggleAccordion(el); return; }
+                    if (lc)   { e.stopPropagation(); loadCatalogs(view, lc); return; }
+                    if (sel)  { e.stopPropagation(); selectAllCatalogs(view, sel, el.getAttribute('data-es-select-val') === 'true'); return; }
+                    if (task) { e.stopPropagation(); runTask(view, task, el); return; }
+                    if (imdb) { e.stopPropagation(); pickSearchResult(view, imdb); return; }
+                    if (view_type) { e.stopPropagation(); setDashboardView(view, view_type); return; }
+                    if (catMove && catPrefix && catIdx) { e.stopPropagation(); moveCatalogRow(view, catPrefix, parseInt(catIdx, 10), catMove); return; }
+                    if (act)  { e.stopPropagation(); dispatchAction(view, act, el); return; }
+                }
+                el = el.parentElement;
+            }
+        }, true); // capture = true
+
+        // Stop polling when page is hidden, restart when visible
+        document.addEventListener('visibilitychange', function() {
+            if (document.hidden) {
+                stopPolling();
+            } else if (!_authExpired) {
+                // Only restart if auth hasn't expired
+                var activeTab = view.querySelector('[data-es-tab].active');
+                if (activeTab && activeTab.getAttribute('data-es-tab') === 'settings') {
+                    _dashInterval = setInterval(function() { refreshDashboard(view); }, 10000);
+                }
+            }
+        });
+    }
+
+    // Dispatch table for data-es-action values
+    function dispatchAction(view, act, el) {
+        switch (act) {
+            case 'test-connection':    testConnection(view);    break;
+            case 'refresh-dashboard':  refreshDashboard(view);  break;
+            case 'refresh-sources':    refreshSourcesTab(view); break;
+            case 'validate-settings':  validateSetup(view, 'es-validate-result-settings'); break;
+            case 'clear-profiles':     clearClientProfiles(view); break;
+            case 'inspect':            inspect(view);           break;
+            case 'invalidate-item':    invalidateItem(view);    break;
+            case 'queue-item':         queueItem(view);         break;
+            case 'raw-streams':          fetchRawStreams(view);   break;
+            case 'toggle-advanced':          toggleAdvanced(view);                    break;
+            case 'toggle-debug':             toggleDebug(view);                       break;
+            case 'toggle-cfg-conn-details':  toggleConnDetails(view, 'cfg-conn');     break;
+            case 'purge-catalog-confirm': purgeCatalogConfirm(view); break;
+            case 'save-metadata':         saveMetadataTab(view);    break;
+            case 'purge-cancel':        purgeCatalogCancel(view); break;
+            case 'purge-catalog-execute': purgeCatalogExecute(view); break;
+            case 'nuclear-step1':       nuclearStep1(view);      break;
+            case 'nuclear-step2':       nuclearStep2(view);      break;
+            case 'nuclear-cancel':      nuclearCancel(view);     break;
+            case 'nuclear-execute':     nuclearExecute(view);    break;
+            case 'edit-provider':       editProvider(view, el);  break;
+            case 'remove-provider':     removeProvider(view, el); break;
+            case 'add-new-provider':    addNewProvider(view);    break;
+            case 'reset-settings-confirm': resetSettingsConfirm(view); break;
+            case 'toggle-quickstart': toggleQuickstartGuide(view); break;
+            case 'rotate-api-key': rotateApiKey(view); break;
+            case 'go-dashboard':       showTab(view, 'settings'); break;
+            // Sprint 215 — New actions
+            case 'prov-save-all':      saveProvidersTab(view); break;
+            case 'prov-aio-test':      testProvider(view, 'aio'); break;
+            case 'prov-aio-edit':      openProviderEdit(view, (view.querySelector('#prov-aio-edit-btn')||{})._configureUrl); break;
+            case 'prov-backup-test':   testProvider(view, 'backup'); break;
+            case 'prov-backup-edit':   openProviderEdit(view, (view.querySelector('#prov-backup-edit-btn')||{})._configureUrl); break;
+            case 'prov-rss-save':      saveRssFeeds(view); break;
+            case 'lib-meta-override': toggleMetaOverride(view); break;
+            case 'src-refresh':         loadCatalogs(view, 'src'); break;
+            case 'src-custom-validate': validateCustomSource(view); break;
+            case 'src-custom-add':      addCustomSource(view); break;
+            case 'sec-rotate':         rotateSecret(view); break;
+            case 'par-block-search':   searchBlockItems(view); break;
+            case 'par-block-item':      blockItemById(view, el.getAttribute('data-item-id'), el.getAttribute('data-item-title') || 'this item'); break;
+            case 'test-tmdb-key':     testTmdbKey(view); break;
+            case 'float-save':         saveCurrentTab(view); break;
+            case 'float-sync':         runTask(view, 'catalog_sync', el); break;
+            case 'float-refresh':      refreshDashboard(view); break;
+            case 'admin-list-add-open': openAdminListModal(view); break;
+            case 'admin-list-add-cancel': closeAdminListModal(view); break;
+            case 'admin-list-add-save': saveAdminList(view); break;
+            case 'admin-lists-refresh-all': refreshAllAdminLists(view); break;
+            case 'admin-list-refresh': refreshOneAdminList(view, el); break;
+            case 'admin-list-remove': removeAdminList(view, el); break;
+            // Sprint 402 — Overview actions
+            case 'ov-summon-marvin':    summonMarvin(view); break;
+            case 'ov-reset-purge':      toggleOvPurgeDialog(view, true); break;
+            case 'ov-purge-cancel':     toggleOvPurgeDialog(view, false); break;
+            case 'ov-purge-execute':    executeOvPurge(view); break;
+        }
+    }
+
+    // Providers tab — test and save
+    function testProvider(view, type) {
+        var urlEl = view.querySelector('#prov-' + type + '-url');
+        var statusEl = view.querySelector('#prov-' + type + '-status');
+        if (!urlEl || !statusEl) return;
+        var url = (urlEl.value || '').trim();
+        if (!url) {
+            statusEl.textContent = 'Enter a URL first.';
+            statusEl.style.color = '#c87800';
+            return;
+        }
+
+        statusEl.textContent = 'Testing…';
+        statusEl.style.color = '';
+
+        esFetch('/InfiniteDrive/TestUrl', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ManifestUrl: url })
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    statusEl.textContent = '✓ Connected' + (data.LatencyMs ? ' (' + data.LatencyMs + ' ms)' : '')
+                        + (data.AddonName ? ' — ' + data.AddonName : '');
+                    statusEl.style.color = '#28a745';
+                } else {
+                    statusEl.textContent = '✗ ' + (data.Message || 'Could not connect');
+                    statusEl.style.color = '#dc3545';
+                }
+            })
+            .catch(function() {
+                statusEl.textContent = '✗ Connection failed';
+                statusEl.style.color = '#dc3545';
+            });
+    }
+
+    // ── Metadata tab ──────────────────────────────────────────────────────
+    var _metadataKnownNames = {
+        'Kitsu': 'Kitsu', 'MAL': 'MyAnimeList', 'AniDB': 'AniDB',
+        'AniList': 'AniList', 'IMDB': 'IMDb', 'TMDB': 'TheMovieDB', 'TVDB': 'TheTVDB'
+    };
+    var _nativeTypes = ['IMDB', 'TMDB', 'TVDB'];
+
+    function loadMetadataTab(view) {
+        if (!_loadedConfig) {
+            // Config not loaded yet — fetch it, then render
+            ApiClient.getPluginConfiguration(pluginId).then(function(cfg) {
+                _loadedConfig = cfg;
+                loadMetadataTab(view);
+            }).catch(function() {});
+            return;
+        }
+        var cfg = _loadedConfig;
+        var census = {};
+        try { census = JSON.parse(cfg.MetadataIdTypeCensus || '{}'); } catch(e) {}
+
+        var enabled = [];
+        try { enabled = JSON.parse(cfg.MetadataEnabledIdTypes || '[]'); } catch(e) {}
+
+        var body = q(view, 'es-metadata-types-body');
+        if (!body) return;
+
+        var keys = Object.keys(census);
+        var emptyEl = q(view, 'es-metadata-empty');
+        var thead = q(view, 'es-metadata-thead');
+        var saveRow = q(view, 'es-metadata-save-row');
+
+        if (keys.length === 0) {
+            body.innerHTML = '';
+            if (emptyEl) emptyEl.style.display = '';
+            if (thead) thead.style.display = 'none';
+            if (saveRow) saveRow.style.display = 'none';
+            return;
+        }
+
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (thead) thead.style.display = '';
+        if (saveRow) saveRow.style.display = '';
+
+        // Sort: native types first, then by count desc
+        keys.sort(function(a, b) {
+            var aNative = _nativeTypes.indexOf(a) >= 0 ? 0 : 1;
+            var bNative = _nativeTypes.indexOf(b) >= 0 ? 0 : 1;
+            if (aNative !== bNative) return aNative - bNative;
+            return (parseInt(census[b]) || 0) - (parseInt(census[a]) || 0);
+        });
+
+        // Auto-opt-in: if enabled is empty, all non-native are checked
+        var autoOptIn = enabled.length === 0;
+        var enabledSet = {};
+        enabled.forEach(function(t) { enabledSet[t.toLowerCase()] = true; });
+
+        var html = '';
+        keys.forEach(function(key) {
+            var count = parseInt(census[key]) || 0;
+            var displayName = _metadataKnownNames[key] || (key.charAt(0).toUpperCase() + key.slice(1).toLowerCase());
+            var isNative = _nativeTypes.indexOf(key) >= 0;
+            var checked = autoOptIn ? !isNative : !!enabledSet[key.toLowerCase()];
+            var nativeLabel = isNative ? ' <span style="font-size:.78em;opacity:.5">(Emby)</span>' : '';
+
+            html += '<tr>'
+                  + '<td><strong>' + esc(displayName) + '</strong>' + nativeLabel + '</td>'
+                  + '<td style="text-align:right">' + count.toLocaleString() + '</td>'
+                  + '<td><label class="emby-checkbox-label">'
+                  + '<input type="checkbox" data-es-metadata-type="' + esc(key) + '"' + (checked ? ' checked' : '') + ' />'
+                  + '<span></span></label></td>'
+                  + '</tr>';
+        });
+
+        body.innerHTML = html;
+    }
+
+    function saveMetadataTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+
+        var checks = view.querySelectorAll('[data-es-metadata-type]');
+        var enabled = [];
+        checks.forEach(function(cb) {
+            if (cb.checked) enabled.push(cb.getAttribute('data-es-metadata-type'));
+        });
+
+        cfg.MetadataEnabledIdTypes = JSON.stringify(enabled);
+
+        var resultEl = q(view, 'es-metadata-save-result');
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                if (resultEl) { resultEl.textContent = 'Saved! Restart Emby for changes to take effect.'; resultEl.style.color = '#28a745'; }
+            })
+            .catch(function(err) {
+                if (resultEl) { resultEl.textContent = 'Save failed: ' + (err.message || err); resultEl.style.color = '#dc3545'; }
+            });
+    }
+
+    // ── Float action helpers ──────────────────────────────────────────────
+    function saveCurrentTab(view) {
+        var active = view.querySelector('[data-es-tab].active');
+        var tab = active ? active.getAttribute('data-es-tab') : '';
+        if (tab === 'providers') saveProvidersTab(view);
+        else if (tab === 'libraries') saveLibrariesTab(view);
+        else if (tab === 'lists') saveListsSettings(view);
+        else if (tab === 'parental') saveParentalTab(view);
+    }
+
+    function runMarvinOrRefresh(view) {
+        var active = view.querySelector('[data-es-tab].active');
+        var tab = active ? active.getAttribute('data-es-tab') : '';
+        // Guard rails
+        if (tab === 'overview' || tab === 'inspector' || tab === 'security') {
+            // Check prerequisites
+            if (!_loadedConfig || !_loadedConfig.IsFirstRunComplete) {
+                esAlert('Libraries need to be configured first. Go to the Libraries tab.');
+                return;
+            }
+        }
+        if (!_loadedConfig || (!_loadedConfig.PrimaryManifestUrl && !_loadedConfig.SecondaryManifestUrl)) {
+            esAlert('Connect an AIOStreams manifest first. Go to the Providers tab.');
+            return;
+        }
+        // Trigger status refresh
+        var btn = view.querySelector('#es-float-refresh-btn');
+        if (btn) { btn.disabled = true; btn.textContent = 'Refreshing…'; }
+        esFetch('/InfiniteDrive/Status/Refresh', { method: 'POST' })
+            .then(function() {
+                if (btn) { btn.textContent = 'Refreshed ✓'; }
+                var conf = view.querySelector('#es-float-save-confirm');
+                if (conf) { conf.textContent = 'Refreshed!'; conf.classList.add('visible'); setTimeout(function() { conf.classList.remove('visible'); }, 3000); }
+                loadOverviewTab(view);
+                setTimeout(function() { if (btn) { btn.textContent = 'Refresh'; btn.disabled = false; } }, 3000);
+            })
+            .catch(function() { if (btn) { btn.textContent = 'Refresh'; btn.disabled = false; } });
+    }
+
+    function saveProvidersTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+
+        // Primary manifest URL stored as-is (full URL)
+        cfg.PrimaryManifestUrl = ((view.querySelector('#prov-aio-url') || {}).value || '').trim();
+
+        // Backup manifest URL (stored as-is)
+        cfg.SecondaryManifestUrl = ((view.querySelector('#prov-backup-url') || {}).value || '').trim();
+
+        // RSS feeds
+        cfg.SystemRssFeedUrls = (view.querySelector('#prov-rss-urls') || {}).value || '';
+        cfg.SystemRssFeedName = (view.querySelector('#prov-rss-name') || {}).value || '';
+
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                // Re-fetch full config so all tabs see server-side state
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
+                try { loadProvidersTab(view); } catch(e) {}
+                afterSave(view, {refreshProviders: true});
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    // ── Lists tab ────────────────────────────────────────────────────────────
+    function loadListsTab(view) {
+        loadAdminLists(view);
+        loadAdminProviders(view);
+    }
+
+    function loadAdminProviders(view) {
+        var sel = view.querySelector('#admin-list-provider');
+        if (!sel) return;
+        esFetch('/InfiniteDrive/Admin/Lists/Providers')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var providers = data.EnabledProviders || [];
+                sel.innerHTML = '';
+                if (providers.indexOf('mdblist') !== -1)
+                    sel.innerHTML += '<option value="mdblist">MDBList</option>';
+                if (providers.indexOf('trakt') !== -1)
+                    sel.innerHTML += '<option value="trakt">Trakt</option>';
+                if (providers.indexOf('tmdb') !== -1)
+                    sel.innerHTML += '<option value="tmdb">TMDB</option>';
+                if (providers.indexOf('anilist') !== -1)
+                    sel.innerHTML += '<option value="anilist">AniList</option>';
+                if (!sel.innerHTML) sel.innerHTML = '<option value="">No providers enabled</option>';
+            })
+            .catch(function() { sel.innerHTML = '<option value="">Error loading</option>'; });
+    }
+
+    function loadAdminLists(view) {
+        var grid = view.querySelector('#admin-lists-grid');
+        var empty = view.querySelector('#admin-lists-empty');
+        if (!grid) return;
+        grid.innerHTML = '';
+
+        esFetch('/InfiniteDrive/Admin/Lists')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var lists = data.Lists || [];
+                if (empty) empty.style.display = lists.length ? 'none' : '';
+                lists.forEach(function(l) {
+                    var html = '<div class="es-card" style="margin-bottom:.5em">' +
+                        '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em">' +
+                        '<div>' +
+                        '<div style="font-weight:600">' + esc(l.DisplayName) + '</div>' +
+                        '<div style="font-size:.8em;opacity:.6">' + esc(l.Provider) + ' &middot; ' + esc(l.ListUrl).substring(0, 45) + (l.ListUrl && l.ListUrl.length > 45 ? '…' : '') + '</div>' +
+                        (l.LastSyncedAt ? '<div style="font-size:.75em;opacity:.45">Last synced: ' + fmtRelative(l.LastSyncedAt) + '</div>' : '') +
+                        (l.LastSyncStatus && l.LastSyncStatus !== 'ok' ? '<div style="font-size:.75em;color:#dc3545">' + esc(l.LastSyncStatus) + '</div>' : '') +
+                        '</div>' +
+                        '<div style="display:flex;gap:.5em;flex-shrink:0">' +
+                        '<button type="button" is="emby-button" class="raised button" style="font-size:.8em" data-es-action="admin-list-refresh" data-list-id="' + esc(l.Id) + '">Refresh</button>' +
+                        '<button type="button" is="emby-button" class="raised button" style="font-size:.8em;color:#dc3545" data-es-action="admin-list-remove" data-list-id="' + esc(l.Id) + '" data-list-name="' + esc(l.DisplayName) + '">Remove</button>' +
+                        '</div>' +
+                        '</div></div>';
+                    grid.innerHTML += html;
+                });
+            })
+            .catch(function() { if (empty) empty.textContent = 'Failed to load lists.'; });
+    }
+
+    function saveListsSettings(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        cfg.TraktClientId = ((view.querySelector('#cfg-trakt-client-id') || {}).value || '').trim();
+        var tmdbKey = ((view.querySelector('#cfg-lists-tmdb-key') || {}).value || '').trim();
+        if (tmdbKey) cfg.TmdbApiKey = tmdbKey;
+        var limit = parseInt(((view.querySelector('#cfg-user-catalog-limit') || {}).value || '5'), 10);
+        cfg.UserCatalogLimit = (isNaN(limit) || limit < 0) ? 5 : (limit > 50 ? 50 : limit);
+
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _unsavedChanges = false;
+                showFloatSaveConfirm(view);
+                ApiClient.getPluginConfiguration(pluginId)
+                    .then(function(full) { _loadedConfig = full; })
+                    .catch(function() { _loadedConfig = cfg; });
+                loadAdminProviders(view);
+                updateListLimitWarning(view);
+                afterSave(view);
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    function updateListLimitWarning(view) {
+        var limitEl = view.querySelector('#cfg-user-catalog-limit');
+        var hintEl = view.querySelector('#es-list-limit-hint');
+        var warnEl = view.querySelector('#es-list-limit-warning');
+        if (!limitEl || !hintEl || !warnEl) return;
+
+        var limit = parseInt(limitEl.value, 10);
+        if (isNaN(limit)) limit = 5;
+
+        if (limit === 0) {
+            hintEl.textContent = 'Users will not see the My Lists tab on the Discover page.';
+            warnEl.style.display = 'none';
+            return;
+        }
+
+        hintEl.textContent = 'Maximum number of external lists each user can add. Default: 5.';
+
+        // Check existing user list count
+        esFetch('/InfiniteDrive/Admin/Lists/UserCount')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.TotalUserLists > limit) {
+                    warnEl.textContent = 'Some users may already have more lists than the new limit (' + data.TotalUserLists + ' active). Their existing lists remain, but they won\'t be able to add new ones.';
+                    warnEl.style.display = 'block';
+                } else {
+                    warnEl.style.display = 'none';
+                }
+            })
+            .catch(function() { warnEl.style.display = 'none'; });
+    }
+
+    function openAdminListModal(view) {
+        var form = view.querySelector('#admin-list-add-form');
+        if (!form) return;
+        form.style.display = 'block';
+        var fb = view.querySelector('#admin-list-add-feedback');
+        if (fb) fb.textContent = '';
+        var nameEl = view.querySelector('#admin-list-name');
+        var urlEl = view.querySelector('#admin-list-url');
+        if (nameEl) nameEl.value = '';
+        if (urlEl) urlEl.value = '';
+    }
+
+    function closeAdminListModal(view) {
+        var form = view.querySelector('#admin-list-add-form');
+        if (form) form.style.display = 'none';
+    }
+
+    function saveAdminList(view) {
+        var fb = view.querySelector('#admin-list-add-feedback');
+        var url = ((view.querySelector('#admin-list-url') || {}).value || '').trim();
+        var name = ((view.querySelector('#admin-list-name') || {}).value || '').trim();
+        if (!url) { if (fb) { fb.textContent = 'Enter a list URL.'; fb.style.color = '#c87800'; } return; }
+
+        if (fb) { fb.textContent = 'Validating…'; fb.style.color = ''; }
+
+        esFetch('/InfiniteDrive/Admin/Lists/Add?listUrl=' + encodeURIComponent(url) + '&displayName=' + encodeURIComponent(name), { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    if (fb) { fb.textContent = 'Found ' + (data.Fetched || 0) + ' items (' + (data.Added || 0) + ' added, ' + (data.Updated || 0) + ' updated) in ' + (data.ElapsedMs || 0) + 'ms'; fb.style.color = '#1e7e34'; }
+                    loadAdminLists(view);
+                    setTimeout(function() { closeAdminListModal(view); }, 1500);
+                } else {
+                    if (fb) { fb.textContent = data.Error || 'Failed to add list.'; fb.style.color = '#dc3545'; }
+                }
+            })
+            .catch(function(err) {
+                if (fb) { fb.textContent = 'Error: ' + (err && err.message || err); fb.style.color = '#dc3545'; }
+            });
+    }
+
+    function refreshAllAdminLists(view) {
+        var statusEl = view.querySelector('#admin-lists-refresh-status');
+        if (statusEl) { statusEl.textContent = 'Refreshing…'; statusEl.style.color = ''; }
+
+        esFetch('/InfiniteDrive/Admin/Lists/Refresh', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    if (statusEl) { statusEl.textContent = data.Lists + ' list(s) refreshed — ' + (data.Fetched || 0) + ' fetched in ' + (data.ElapsedMs || 0) + 'ms'; statusEl.style.color = '#1e7e34'; }
+                } else {
+                    if (statusEl) { statusEl.textContent = data.Error || 'Refresh failed'; statusEl.style.color = '#dc3545'; }
+                }
+                loadAdminLists(view);
+            })
+            .catch(function(err) {
+                if (statusEl) { statusEl.textContent = 'Error: ' + (err && err.message || err); statusEl.style.color = '#dc3545'; }
+            });
+    }
+
+    function refreshOneAdminList(view, el) {
+        var listId = el.getAttribute('data-list-id');
+        if (!listId) return;
+        el.textContent = 'Refreshing…';
+
+        esFetch('/InfiniteDrive/Admin/Lists/Refresh?catalogId=' + encodeURIComponent(listId), { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                el.textContent = data.Ok ? 'Done' : (data.Error || 'Error');
+                loadAdminLists(view);
+            })
+            .catch(function() { el.textContent = 'Error'; });
+    }
+
+    function removeAdminList(view, el) {
+        var listId = el.getAttribute('data-list-id');
+        var listName = el.getAttribute('data-list-name') || 'this list';
+        if (!listId) return;
+        if (!confirm('Remove "' + listName + '"? This can be undone by re-adding the list.')) return;
+
+        esFetch('/InfiniteDrive/Admin/Lists/Remove?catalogId=' + encodeURIComponent(listId), { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) loadAdminLists(view);
+                else Dashboard.alert(data.Error || 'Failed to remove list.');
+            })
+            .catch(function(err) { Dashboard.alert('Error: ' + (err && err.message || err)); });
+    }
+
+    function saveRssFeeds(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+        cfg.SystemRssFeedUrls = (view.querySelector('#prov-rss-urls') || {}).value || '';
+        var rssName = (view.querySelector('#prov-rss-name') || {}).value || '';
+        cfg.SystemRssFeedName = rssName;
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                afterSave(view);
+                Dashboard.alert('RSS feeds saved.');
+            })
+            .catch(function(err) { Dashboard.alert('Save failed: ' + (err && err.message || err)); });
+    }
+
+    function toggleMetaOverride(view) {
+        var overrideSection = view.querySelector('#lib-meta-override-fields');
+        var overrideBtn = view.querySelector('#lib-meta-override-btn');
+        if (overrideSection && overrideBtn) {
+            var isHidden = overrideSection.style.display === 'none';
+            overrideSection.style.display = isHidden ? 'block' : 'none';
+            overrideBtn.textContent = isHidden ? 'Hide' : 'Override →';
+        }
+    }
+
+    function validateCustomSource(view) {
+        var name = (view.querySelector('#src-custom-name') || {}).value || '';
+        var url = (view.querySelector('#src-custom-url') || {}).value || '';
+        var statusEl = view.querySelector('#src-custom-status');
+        var addBtn = view.querySelector('#src-custom-add-btn');
+
+        if (!url) {
+            if (statusEl) { statusEl.textContent = 'Enter a URL first'; statusEl.style.color = '#dc3545'; }
+            if (addBtn) addBtn.disabled = true;
+            return;
+        }
+
+        // Basic URL validation
+        if (!/^https?:\/\/.+/.test(url)) {
+            if (statusEl) { statusEl.textContent = 'Must be a valid https:// URL'; statusEl.style.color = '#dc3545'; }
+            if (addBtn) addBtn.disabled = true;
+            return;
+        }
+
+        statusEl.textContent = 'Validating…';
+        statusEl.style.color = '';
+
+        esFetch('/InfiniteDrive/TestUrl', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ Url: url })
+        })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) {
+                    if (statusEl) {
+                        statusEl.textContent = '✓ Valid - ' + (data.LatencyMs || 'connected');
+                        statusEl.style.color = '#28a745';
+                    }
+                    if (addBtn) {
+                        addBtn.disabled = false;
+                        addBtn._validatedUrl = url;
+                        addBtn._validatedName = name;
+                    }
+                } else {
+                    if (statusEl) {
+                        statusEl.textContent = '✗ ' + (data.Message || 'Invalid URL');
+                        statusEl.style.color = '#dc3545';
+                    }
+                    if (addBtn) addBtn.disabled = true;
+                }
+            })
+            .catch(function(err) {
+                if (statusEl) {
+                    statusEl.textContent = '✗ Validation failed';
+                    statusEl.style.color = '#dc3545';
+                }
+                if (addBtn) addBtn.disabled = true;
+            });
+    }
+
+    function addCustomSource(view) {
+        var addBtn = view.querySelector('#src-custom-add-btn');
+        if (!addBtn || !addBtn._validatedUrl) return;
+
+        var name = addBtn._validatedName || 'Custom Source';
+        var url = addBtn._validatedUrl;
+        if (!confirm('Add "' + name + '" to your library?')) return;
+
+        addBtn.disabled = true;
+        addBtn.textContent = 'Adding…';
+
+        // This would require a backend endpoint to add custom sources
+        // For now, show a placeholder message
+        Dashboard.alert('Custom source feature requires backend support. URL: ' + url);
+
+        setTimeout(function() {
+            addBtn.disabled = false;
+            addBtn.textContent = 'Add to Library';
+        }, 2000);
+    }
+
+    // ── Quick-start guide toggle (Sprint 14: UX-ONBOARD-ZERO) ───────────────────
+    function toggleQuickstartGuide(view) {
+        var content = q(view, 'es-quickstart-content');
+        var chevron = q(view, 'es-quickstart-chevron');
+        if (content) {
+            var isOpen = content.style.display !== 'none';
+            content.style.display = isOpen ? 'none' : 'block';
+            if (chevron) chevron.style.transform = isOpen ? 'rotate(0deg)' : 'rotate(90deg)';
+            localStorage.setItem('es-quickstart-expanded', isOpen ? 'false' : 'true');
+        }
+    }
+
+    // ── Settings reset (Sprint 14: UX-SETTINGS-RESET) ───────────────────────────
+    function resetSettingsConfirm(view) {
+        if (confirm('Reset all InfiniteDrive settings to defaults? Your Emby library and .strm files will not be deleted.\n\nThis cannot be undone.')) {
+            resetSettings(view);
+        }
+    }
+    function resetSettings(view) {
+        var cfg = {
+            PrimaryManifestUrl: '',
+            SecondaryManifestUrl: '',
+            BaseSyncPath: '/media/infinitedrive',
+            SyncPathMovies: '/media/infinitedrive/catalog/movies',
+            SyncPathShows: '/media/infinitedrive/catalog/shows',
+            EmbyBaseUrl: window.location.origin,
+            MetadataLanguage: 'en',
+            MetadataCertificationCountry: 'US',
+            MetadataImageLanguage: 'en',
+            EnableDiscoverChannel: true,
+            EnableAioStreamsCatalog: true,
+            AioStreamsCatalogIds: '',
+            IsFirstRunComplete: false
+        };
+        var btn = q(view, 'button[data-es-action="reset-settings-confirm"]');
+        if (btn) btn.disabled = true;
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                if (btn) { btn.disabled = false; btn.innerHTML = '✓ Reset complete!'; setTimeout(function() { window.location.reload(); }, 1500); }
+            })
+            .catch(function(err) {
+                if (btn) { btn.disabled = false; btn.innerHTML = '🔄 Reset All Settings'; }
+                var result = q(view, 'es-reset-result');
+                if (result) { result.textContent = '✗ Reset failed: ' + err.message; result.className = 'es-alert es-alert-error'; result.style.display = 'block'; }
+            });
+    }
+
+
+
+    // ── Sprint 402: Overview Reset & Purge ───────────────────────────────────
+    function toggleOvPurgeDialog(view, show) {
+        var dlg = view.querySelector('#es-ov-purge-dialog');
+        if (!dlg) return;
+        dlg.style.display = show ? 'block' : 'none';
+        var resultEl = view.querySelector('#es-ov-purge-result');
+        if (resultEl) resultEl.style.display = 'none';
+        // Listen for radio changes to show/hide nuclear confirm
+        var radios = dlg.querySelectorAll('input[name="es-purge-mode"]');
+        function updateNuclear() {
+            var sel = dlg.querySelector('input[name="es-purge-mode"]:checked');
+            var nucConfirm = view.querySelector('#es-ov-purge-nuclear-confirm');
+            if (nucConfirm) nucConfirm.style.display = (sel && sel.value === 'nuclear') ? 'block' : 'none';
+        }
+        radios.forEach(function(r) { r.onchange = updateNuclear; });
+        updateNuclear();
+    }
+
+    function executeOvPurge(view) {
+        var dlg = view.querySelector('#es-ov-purge-dialog');
+        if (!dlg) return;
+        var sel = dlg.querySelector('input[name="es-purge-mode"]:checked');
+        var mode = sel ? sel.value : 'settings';
+        var resultEl = view.querySelector('#es-ov-purge-result');
+
+        if (mode === 'nuclear') {
+            var inp = q(view, 'es-ov-purge-input');
+            var confirm = inp ? inp.value.trim().toUpperCase() : '';
+            if (confirm !== 'VOGON') {
+                if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '<span style="color:#dc3545">Type VOGON to confirm.</span>'; }
+                return;
+            }
+        }
+
+        if (resultEl) { resultEl.style.display = 'block'; resultEl.innerHTML = '⏳ Executing…'; }
+
+        if (mode === 'settings') {
+            resetSettingsConfirm(view);
+            if (resultEl) { resultEl.innerHTML = '✓ Settings reset. Reloading…'; setTimeout(function() { window.location.reload(); }, 1500); }
+        } else if (mode === 'catalog') {
+            esFetch('/InfiniteDrive/Trigger?task=purge_catalog', {method:'POST'})
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (resultEl) resultEl.innerHTML = d.Status === 'ok'
+                        ? '✓ Source data purged.'
+                        : '<span style="color:#dc3545">✗ ' + esc(d.Message || 'Failed') + '</span>';
+                })
+                .catch(function(err) {
+                    if (resultEl) resultEl.innerHTML = '<span style="color:#dc3545">✗ ' + esc(err.message) + '</span>';
+                });
+        } else if (mode === 'nuclear') {
+            esFetch('/InfiniteDrive/Trigger?task=reset_all', {method:'POST'})
+                .then(function(r) { return r.json(); })
+                .then(function(d) {
+                    if (resultEl) resultEl.innerHTML = d.Status === 'ok'
+                        ? '✓ Everything deleted. Reloading…'
+                        : '<span style="color:#dc3545">✗ ' + esc(d.Message || 'Failed') + '</span>';
+                    if (d.Status === 'ok') setTimeout(function() { window.location.reload(); }, 1500);
+                })
+                .catch(function(err) {
+                    if (resultEl) resultEl.innerHTML = '<span style="color:#dc3545">✗ ' + esc(err.message) + '</span>';
+                });
+        }
+    }
+
+    // ── Advanced settings & debug collapsibles ────────────────────────────────
+
+    function toggleAdvanced(view) {
+        var inner  = q(view, 'cfg-advanced-inner');
+        var arrow  = q(view, 'cfg-advanced-arrow');
+        if (!inner) return;
+        var open = inner.style.display !== 'none';
+        inner.style.display = open ? 'none' : 'block';
+        if (arrow) arrow.textContent = open ? '▼ show' : '▲ hide';
+    }
+
+    function toggleDebug(view) {
+        var inner = q(view, 'es-debug-inner');
+        var arrow = q(view, 'es-debug-arrow');
+        if (!inner) return;
+        var open = inner.style.display !== 'none';
+        inner.style.display = open ? 'none' : 'block';
+        if (arrow) arrow.textContent = open ? '▼ show' : '▲ hide';
+    }
+
+    function toggleConnDetails(view, prefix) {
+        var inner = q(view, prefix + '-inner');
+        var arrow = q(view, prefix + '-arrow');
+        if (!inner) return;
+        var open = inner.style.display !== 'none';
+        inner.style.display = open ? 'none' : 'block';
+        if (arrow) arrow.textContent = open ? '▶' : '▼';
+    }
+
+    // ── Danger Zone handlers ──────────────────────────────────────────────────
+
+    function purgeCatalogConfirm(view) {
+        var el = q(view, 'es-purge-confirm');
+        if (el) el.style.display = 'block';
+    }
+
+    function purgeCatalogCancel(view) {
+        var el = q(view, 'es-purge-confirm');
+        if (el) el.style.display = 'none';
+        // also hide nuclear steps
+        ['es-nuclear-step1','es-nuclear-step2'].forEach(function(id) {
+            var e = q(view, id); if (e) e.style.display = 'none';
+        });
+    }
+
+    function purgeCatalogExecute(view) {
+        var el = q(view, 'es-purge-confirm');
+        if (el) el.style.display = 'none';
+        esFetch('/InfiniteDrive/Trigger?task=purge_catalog', {method:'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.Status === 'ok') {
+                    Dashboard.alert('Catalog purge started. All .strm files and catalog data will be removed.\n\nRun a Catalog Sync to rebuild. Run a Library Scan in Emby to clear orphaned entries.');
+                } else {
+                    Dashboard.alert('Error: ' + (d.Message || 'unknown'));
+                }
+            })
+            .catch(function(err) { Dashboard.alert('Request failed: ' + err.message); });
+    }
+
+    function nuclearStep1(view) {
+        var s1 = q(view, 'es-nuclear-step1');
+        if (s1) { s1.style.display = 'block'; s1.scrollIntoView({behavior:'smooth',block:'center'}); }
+    }
+
+    function nuclearStep2(view) {
+        var s1 = q(view, 'es-nuclear-step1');
+        var s2 = q(view, 'es-nuclear-step2');
+        var inp = q(view, 'es-nuclear-confirm-input');
+        if (s1) s1.style.display = 'none';
+        if (s2) { s2.style.display = 'block'; s2.scrollIntoView({behavior:'smooth',block:'center'}); }
+        if (inp) { inp.value = ''; inp.focus(); }
+    }
+
+    function nuclearCancel(view) {
+        ['es-nuclear-step1','es-nuclear-step2','es-purge-confirm'].forEach(function(id) {
+            var e = q(view, id); if (e) e.style.display = 'none';
+        });
+    }
+
+    function nuclearExecute(view) {
+        var inp     = q(view, 'es-nuclear-confirm-input');
+        var errEl   = q(view, 'es-nuclear-confirm-error');
+        var doneEl  = q(view, 'es-nuclear-done');
+        var confirm = inp ? inp.value.trim().toUpperCase() : '';
+
+        if (confirm !== 'VOGON') {
+            if (errEl) {
+                errEl.textContent = '✗ That\'s not quite right. The Vogons are very particular about paperwork. Type VOGON (all caps).';
+                errEl.style.display = 'block';
+            }
+            return;
+        }
+        if (errEl) errEl.style.display = 'none';
+
+        var s2 = q(view, 'es-nuclear-step2');
+        if (s2) s2.style.display = 'none';
+
+        if (doneEl) {
+            doneEl.style.display = 'block';
+            doneEl.innerHTML = '<div class="es-alert es-alert-info" style="margin:0">⏳ The Vogon Constructor Fleet is at work… deleting everything… please wait…</div>';
+        }
+
+        esFetch('/InfiniteDrive/Trigger?task=reset_all', {method:'POST'})
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                if (d.Status === 'ok') {
+                    if (doneEl) {
+                        doneEl.innerHTML =
+                            '<div class="es-alert es-alert-success" style="margin:0">' +
+                            '<strong>So Long, and Thanks for All the Streams.</strong><br/>' +
+                            'All data and configuration have been wiped. The Vogon ships have moved on.<br/>' +
+                            '<em>Your AIOStreams instance is unaffected.</em><br/><br/>' +
+                            'Reload this page to configure InfiniteDrive again.<br/>' +
+                            'Remember to run a Library Scan in Emby to clear orphaned entries.' +
+                            '</div>';
+                    }
+                } else {
+                    if (doneEl) {
+                        doneEl.innerHTML = '<div class="es-alert es-alert-error" style="margin:0">✗ ' + esc(d.Message || 'Reset failed') + '</div>';
+                    }
+                }
+            })
+            .catch(function(err) {
+                if (doneEl) {
+                    doneEl.innerHTML = '<div class="es-alert es-alert-error" style="margin:0">✗ Request failed: ' + esc(err.message) + '</div>';
+                }
+            });
+    }
+
+    // ── Improbability Drive functions ───────────────────────────────────────────
+    function loadImprobabilityStatus(view) {
+        // Fetch status from /InfiniteDrive/Status
+        ApiClient.getJSON(ApiClient.getUrl('InfiniteDrive/Status')).then(function(status) {
+            // Refresh Worker
+            var refreshDot = q(view, 'es-refresh-dot');
+            var refreshStatus = q(view, 'es-refresh-status');
+            var refreshLastRun = q(view, 'es-refresh-last-run');
+
+            if (status.RefreshHasRun && status.RefreshLastRunAt) {
+                var refreshMinutesAgo = minutesAgo(status.RefreshLastRunAt);
+                if (refreshMinutesAgo < 12) {
+                    refreshDot.textContent = '🟢';
+                } else if (refreshMinutesAgo < 18) {
+                    refreshDot.textContent = '🟡';
+                } else {
+                    refreshDot.textContent = '🔴';
+                }
+                refreshLastRun.textContent = 'Last run: ' + formatTimeAgo(status.RefreshLastRunAt);
+            } else {
+                refreshDot.textContent = '⚪';
+                refreshLastRun.textContent = 'Not yet run';
+            }
+
+            // Active step
+            if (status.RefreshActiveStep) {
+                refreshDot.textContent = '🔄';
+                refreshStatus.textContent = 'Running: ' + status.RefreshActiveStep + ' (' + status.RefreshItemsProcessed + ' items)';
+            } else {
+                refreshStatus.textContent = 'Idle';
+            }
+
+            // Deep Clean
+            var deepCleanDot = q(view, 'es-deepclean-dot');
+            var deepCleanStatus = q(view, 'es-deepclean-status');
+            var deepCleanLastRun = q(view, 'es-deepclean-last-run');
+
+            if (status.MarvinHasRun && status.MarvinLastRunAt) {
+                var marvinHoursAgo = hoursAgo(status.MarvinLastRunAt);
+                if (marvinHoursAgo < 36) {
+                    deepCleanDot.textContent = '🟢';
+                } else if (marvinHoursAgo < 54) {
+                    deepCleanDot.textContent = '🟡';
+                } else {
+                    deepCleanDot.textContent = '🔴';
+                }
+                deepCleanLastRun.textContent = 'Last run: ' + formatTimeAgo(status.MarvinLastRunAt);
+            } else {
+                deepCleanDot.textContent = '⚪';
+                deepCleanLastRun.textContent = 'Not yet run';
+            }
+
+            deepCleanStatus.textContent = 'Idle';
+
+            // Enrichment counts
+            var needsEnrichEl = q(view, 'es-needs-enrich-count');
+            var blockedEl = q(view, 'es-blocked-count');
+            if (needsEnrichEl) needsEnrichEl.textContent = status.NeedsEnrichCount || 0;
+            if (blockedEl) blockedEl.textContent = status.BlockedCount || 0;
+
+            // Sprint 155: Cooldown badge
+            var cooldownBadge = q(view, 'es-cooldown-badge');
+            var cooldownMsg = q(view, 'es-cooldown-msg');
+            var suggestPrivate = q(view, 'es-suggest-private');
+            if (status.CooldownActive && cooldownBadge && cooldownMsg) {
+                cooldownBadge.style.display = '';
+                cooldownMsg.textContent = 'Upstream busy — pausing briefly to stay a good neighbour.';
+                // Auto-clear badge when cooldown expires
+                if (status.CooldownUntil) {
+                    var remaining = new Date(status.CooldownUntil) - new Date();
+                    if (remaining > 0) {
+                        setTimeout(function() {
+                            if (cooldownBadge) cooldownBadge.style.display = 'none';
+                        }, remaining);
+                    }
+                }
+            } else if (cooldownBadge) {
+                cooldownBadge.style.display = 'none';
+            }
+            if (status.SuggestPrivateInstance && suggestPrivate) {
+                suggestPrivate.style.display = '';
+            } else if (suggestPrivate) {
+                suggestPrivate.style.display = 'none';
+            }
+        }).catch(function(err) {
+            console.error('Failed to load Improbability Drive status:', err);
+        });
+    }
+
+    function triggerRefreshNow(view) {
+        var btn = q(view, 'es-refresh-now-btn');
+        if (btn) {
+            btn.textContent = 'Starting...';
+            btn.disabled = true;
+        }
+
+        // Find RefreshTask and trigger it
+        ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
+            var refresh = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveRefresh'; });
+            if (refresh) {
+                ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + refresh.Id) });
+
+                // Poll until active step appears (task started) then until it clears (task done)
+                var pollInterval = setInterval(function() {
+                    loadImprobabilityStatus(view);
+                    ApiClient.getJSON(ApiClient.getUrl('InfiniteDrive/Status')).then(function(status) {
+                        if (!status.RefreshActiveStep && btn) {
+                            clearInterval(pollInterval);
+                            btn.textContent = 'Refresh Now';
+                            btn.disabled = false;
+                        }
+                    });
+                }, 2000);
+
+                // Safety: stop polling after 5 minutes max
+                setTimeout(function() { clearInterval(pollInterval); if (btn) { btn.textContent = 'Refresh Now'; btn.disabled = false; } }, 300000);
+            } else {
+                if (btn) {
+                    btn.textContent = 'Refresh Now';
+                    btn.disabled = false;
+                }
+            }
+        }).catch(function(err) {
+            console.error('Failed to trigger refresh:', err);
+            if (btn) {
+                btn.textContent = 'Refresh Now';
+                btn.disabled = false;
+            }
+        });
+    }
+
+    // Helper functions for time formatting
+    function minutesAgo(isoString) {
+        var now = new Date();
+        var then = new Date(isoString);
+        return Math.floor((now - then) / 60000);
+    }
+
+    function hoursAgo(isoString) {
+        var now = new Date();
+        var then = new Date(isoString);
+        return Math.floor((now - then) / 3600000);
+    }
+
+    function formatTimeAgo(isoString) {
+        var now = new Date();
+        var then = new Date(isoString);
+        var diffMs = now - then;
+        var diffMins = Math.floor(diffMs / 60000);
+
+        if (diffMins < 60) {
+            return diffMins + 'm ago';
+        }
+        var diffHours = Math.floor(diffMins / 60);
+        if (diffHours < 24) {
+            return diffHours + 'h ago';
+        }
+        var diffDays = Math.floor(diffHours / 24);
+        return diffDays + 'd ago';
+    }
+
+    function summonMarvin(view) {
+        var btn = q(view, 'es-summon-marvin-btn');
+        var statusEl = q(view, 'es-marvin-status');
+        if (!btn || !statusEl) return;
+
+        btn.textContent = 'Marvin is grumbling…';
+        btn.disabled = true;
+        statusEl.textContent = 'Starting deep clean…';
+
+        ApiClient.getJSON(ApiClient.getUrl('ScheduledTasks')).then(function(tasks) {
+            var task = (tasks || []).find(function(t) { return t.Key === 'InfiniteDriveMarvin'; });
+            if (!task) {
+                btn.textContent = 'Summon Marvin';
+                btn.disabled = false;
+                statusEl.textContent = 'Task not found.';
+                return;
+            }
+            ApiClient.ajax({ type: 'POST', url: ApiClient.getUrl('ScheduledTasks/Running/' + task.Id) });
+            statusEl.textContent = 'Deep clean running…';
+
+            // Safety reset after 5 minutes
+            setTimeout(function() {
+                btn.textContent = 'Summon Marvin';
+                btn.disabled = false;
+                statusEl.textContent = '';
+                loadImprobabilityStatus(view);
+            }, 300000);
+        }).catch(function() {
+            btn.textContent = 'Summon Marvin';
+            btn.disabled = false;
+            statusEl.textContent = 'Failed to start.';
+        });
+    }
+
+    function loadContentMgmtSources(view) {
+        var el = view.querySelector('#es-sync-sources-list');
+        if (!el) return;
+
+        esFetch('/InfiniteDrive/Status')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                // Use SyncStates instead of CatalogSources (API change compatibility)
+                var sources = data.SyncStates || [];
+                if (!sources.length) {
+                    el.innerHTML = '<span style="opacity:.5">No sources configured yet.</span>';
+                    return;
+                }
+                el.innerHTML = sources.map(function(src) {
+                    // Use LastReachedAt instead of LastReachableAt (API change compatibility)
+                    var ok = src.LastReachedAt ? '🟢' : '🔴';
+                    var lastSync = src.LastSyncAt ? fmtRelative(new Date(src.LastSyncAt)) : 'never';
+                    return '<div style="padding:.3em 0">' + ok + ' <strong>' + esc(src.SourceKey || '?') + '</strong>'
+                        + ' &mdash; ' + (src.ItemCount || 0) + ' items, synced ' + lastSync + '</div>';
+                }).join('');
+            })
+            .catch(function() {
+                el.innerHTML = '<span style="color:#dc3545">Failed to load. Check server logs.</span>';
+            });
+    }
+
+    // ── Cleanup on view hide ──────────────────────────────────────────────────
+    function cleanup() {
+        if (_dashInterval)     { clearInterval(_dashInterval);     _dashInterval     = null; }
+        if (_catalogPollTimer) { clearInterval(_catalogPollTimer); _catalogPollTimer = null; }
+    }
+
+    // ── Blocked Items tab (admin) ─────────────────────────────────────────────
+
+    function loadBlockedItems(view) {
+        var listEl = view.querySelector('#es-blocked-items-list');
+        if (listEl) listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">Loading…</p>';
+
+        esFetch('/InfiniteDrive/Admin/BlockedItems')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!listEl) return;
+                if (!data.Items || data.Items.length === 0) {
+                    listEl.innerHTML = '<p style="opacity:.5;font-size:.85em">No blocked items.</p>';
+                    return;
+                }
+                listEl.innerHTML = data.Items.map(function(item) {
+                    return '<div style="display:flex;align-items:center;gap:.75em;padding:.5em 0;border-bottom:1px solid rgba(255,255,255,.06)">' +
+                        '<label style="display:flex;align-items:center;gap:.5em;flex:1;cursor:pointer">' +
+                        '<input type="checkbox" class="es-blocked-checkbox" data-id="' + esc(item.Id) + '" style="width:1em;height:1em">' +
+                        '<span>' + esc(item.Title) + (item.Year ? ' (' + item.Year + ')' : '') + '</span>' +
+                        '</label>' +
+                        '<span style="opacity:.5;font-size:.8em">' + esc(item.ImdbId || '') + ' &bull; Retries: ' + (item.RetryCount || 0) + '</span>' +
+                        '</div>';
+                }).join('');
+            })
+            .catch(function() {
+                if (listEl) listEl.innerHTML = '<p style="color:#dc3545;font-size:.85em">Failed to load blocked items.</p>';
+            });
+    }
+
+    function initBlockedTab(view) {
+        function unblockIds(ids) {
+            esFetch('/InfiniteDrive/Admin/UnblockItems', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ItemIds: ids })
+            })
+            .then(function() {
+                Dashboard.alert(ids.length + ' item(s) unblocked and queued for enrichment.');
+                loadBlockedItems(view);
+            })
+            .catch(function() { Dashboard.alert('Unblock failed. Check server logs.'); });
+        }
+
+        var selBtn = view.querySelector('#es-unblock-selected-btn');
+        if (selBtn && !selBtn._esBound) {
+            selBtn._esBound = true;
+            selBtn.addEventListener('click', function() {
+                var checked = view.querySelectorAll('.es-blocked-checkbox:checked');
+                if (!checked.length) { Dashboard.alert('No items selected.'); return; }
+                unblockIds(Array.from(checked).map(function(cb) { return cb.getAttribute('data-id'); }));
+            });
+        }
+
+        var allBtn = view.querySelector('#es-unblock-all-btn');
+        if (allBtn && !allBtn._esBound) {
+            allBtn._esBound = true;
+            allBtn.addEventListener('click', function() {
+                var checkboxes = view.querySelectorAll('.es-blocked-checkbox');
+                if (!checkboxes.length) { Dashboard.alert('No blocked items.'); return; }
+                unblockIds(Array.from(checkboxes).map(function(cb) { return cb.getAttribute('data-id'); }));
+            });
+        }
+
+        // Block by IMDB ID
+        var blockBtn = view.querySelector('#es-block-imdb-btn');
+        var blockInput = view.querySelector('#es-block-imdb-input');
+        var blockResult = view.querySelector('#es-block-result');
+        if (blockBtn && !blockBtn._esBound) {
+            blockBtn._esBound = true;
+            blockBtn.addEventListener('click', function() {
+                var imdbId = (blockInput.value || '').trim();
+                if (!imdbId) { Dashboard.alert('Enter an IMDB ID.'); return; }
+                if (!confirm('Block ' + imdbId + '? This will delete its .strm file and remove it from all user libraries.')) return;
+                blockResult.textContent = 'Blocking…';
+                blockResult.style.color = '';
+                esFetch('/InfiniteDrive/Admin/BlockItems', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ImdbIds: [imdbId] })
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.Success) {
+                        blockResult.textContent = 'Blocked ' + imdbId + ' successfully.';
+                        blockResult.style.color = '#28a745';
+                        blockInput.value = '';
+                        loadBlockedItems(view);
+                    } else {
+                        blockResult.textContent = 'Failed: ' + (data.Errors && data.Errors.length ? data.Errors.join(', ') : 'unknown error');
+                        blockResult.style.color = '#dc3545';
+                    }
+                })
+                .catch(function() {
+                    blockResult.textContent = 'Block request failed.';
+                    blockResult.style.color = '#dc3545';
+                });
+            });
+        }
+    }
+
+    // ── Module export — BaseView pattern (required for is="emby-scroller") ──
+    function View(view, params) {
+        BaseView.apply(this, arguments);
+        initView(view);
+    }
+
+    Object.assign(View.prototype, BaseView.prototype);
+
+    View.prototype.onResume = function (options) {
+        BaseView.prototype.onResume.apply(this, arguments);
+        loadConfig(this.view);
+    };
+
+    View.prototype.onPause = function () {
+        cleanup();
+    };
+
+    return View;
+});

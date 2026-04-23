@@ -106,3 +106,10 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - New: Configuration/UI/ — ControllerBase, PluginViewBase, PluginPageView, TabPageController, MainPageController
 - New: Configuration/UI/views/ — ProvidersUI (EditableOptionsBase), ProvidersPageView (save round-trip)
 - Modified: Plugin.cs — IHasUIPages + UIPageControllers property
+
+## Sprint 410 Complete (2026-04-23)
+- Secure playback via RequiresOpening + OpenMediaSource: All playback now gated behind Emby auth
+- New: Models/InfiniteDriveLiveStream.cs (ILiveStream wrapper)
+- Modified: AioMediaSourceProvider (OpenMediaSource impl, RequiresOpening flag, UseRequiresOpening config)
+- Modified: StrmWriterService (ILibraryMonitor notification after .strm write)
+- Deprecated: ResolverService, StreamEndpointService, PlaybackTokenService token methods (follow-up)

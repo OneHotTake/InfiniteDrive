@@ -1,0 +1,42 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:8096",
+      "localStorage": [
+        {
+          "name": "servercredentials3",
+          "value": "{\"Servers\":[{\"ManualAddress\":\"http://localhost:8096\",\"ManualAddressOnly\":true,\"IsLocalServer\":true,\"UserId\":\"4db8fc6cfbbd40b9a5490ce275e9bc0f\",\"DateLastAccessed\":1776567773166,\"LastConnectionMode\":2,\"Type\":\"Server\",\"Name\":\"dev-tooling\",\"Id\":\"43693d837bab46889cbe4ef90f8817de\",\"Users\":[{\"UserId\":\"4db8fc6cfbbd40b9a5490ce275e9bc0f\",\"AccessToken\":\"071feddebe324f27b95cc3d16b777d00\"}],\"LocalAddress\":\"http://192.168.1.21:8096\",\"RemoteAddress\":\"http://46.110.84.154:8096\"}]}"
+        },
+        {
+          "name": "regInfo-43693d837bab46889cbe4ef90f8817de-viewonly",
+          "value": "{\"lastValidDate\":-1,\"deviceId\":\"bafaf279-47cf-4c4e-aeab-54057e3e091e\",\"cacheExpirationDays\":0,\"lastUpdated\":1776567773370}"
+        },
+        {
+          "name": "lastTheme",
+          "value": "dark"
+        },
+        {
+          "name": "4db8fc6cfbbd40b9a5490ce275e9bc0f-enableProfilePin",
+          "value": "false"
+        },
+        {
+          "name": "user-4db8fc6cfbbd40b9a5490ce275e9bc0f-43693d837bab46889cbe4ef90f8817de",
+          "value": "{\"Name\":\"admin\",\"ServerId\":\"43693d837bab46889cbe4ef90f8817de\",\"Prefix\":\"A\",\"DateCreated\":\"2026-04-19T02:57:12.3650185Z\",\"Id\":\"4db8fc6cfbbd40b9a5490ce275e9bc0f\",\"HasPassword\":true,\"HasConfiguredPassword\":true,\"LastLoginDate\":\"2026-04-19T03:02:53.1545655Z\",\"LastActivityDate\":\"2026-04-19T03:02:53.1548848Z\",\"Configuration\":{\"PlayDefaultAudioTrack\":true,\"DisplayMissingEpisodes\":false,\"SubtitleMode\":\"Smart\",\"OrderedViews\":[],\"LatestItemsExcludes\":[],\"MyMediaExcludes\":[],\"HidePlayedInLatest\":true,\"HidePlayedInMoreLikeThis\":false,\"HidePlayedInSuggestions\":false,\"RememberAudioSelections\":true,\"RememberSubtitleSelections\":true,\"EnableNextEpisodeAutoPlay\":true,\"ResumeRewindSeconds\":0,\"IntroSkipMode\":\"ShowButton\",\"EnableLocalPassword\":false},\"Policy\":{\"IsAdministrator\":true,\"IsHidden\":false,\"IsHiddenRemotely\":true,\"IsHiddenFromUnusedDevices\":false,\"IsDisabled\":false,\"LockedOutDate\":0,\"AllowTagOrRating\":false,\"BlockedTags\":[],\"IsTagBlockingModeInclusive\":false,\"IncludeTags\":[],\"EnableUserPreferenceAccess\":true,\"AccessSchedules\":[],\"BlockUnratedItems\":[],\"EnableRemoteControlOfOtherUsers\":true,\"EnableSharedDeviceControl\":true,\"EnableRemoteAccess\":true,\"EnableLiveTvManagement\":true,\"EnableLiveTvAccess\":true,\"EnableMediaPlayback\":true,\"EnableAudioPlaybackTranscoding\":true,\"EnableVideoPlaybackTranscoding\":true,\"EnableTranscodingQuality\":true,\"AutoRemoteQuality\":0,\"EnablePlaybackRemuxing\":true,\"EnableContentDeletion\":true,\"RestrictedFeatures\":[],\"EnableContentDeletionFromFolders\":[],\"EnableContentDownloading\":true,\"EnableSubtitleDownloading\":true,\"EnableSubtitleManagement\":true,\"EnableSyncTranscoding\":true,\"EnableMediaConversion\":true,\"EnabledChannels\":[],\"EnableAllChannels\":true,\"EnabledFolders\":[],\"EnableAllFolders\":true,\"InvalidLoginAttemptCount\":0,\"EnablePublicSharing\":true,\"RemoteClientBitrateLimit\":0,\"AuthenticationProviderId\":\"Emby.Server.Implementations.Library.DefaultAuthenticationProvider\",\"ExcludedSubFolders\":[],\"SimultaneousStreamLimit\":0,\"EnabledDevices\":[],\"EnableAllDevices\":true,\"AllowCameraUpload\":true,\"AllowSharingPersonalItems\":true},\"Type\":\"User\",\"DateLastFetched\":1776567773166}"
+        },
+        {
+          "name": "_deviceId2",
+          "value": "bafaf279-47cf-4c4e-aeab-54057e3e091e"
+        },
+        {
+          "name": "server-43693d837bab46889cbe4ef90f8817de-wakeonlaninfo",
+          "value": "[{\"MacAddress\":\"BC24119D0473\",\"BroadcastAddress\":\"255.255.255.255\",\"Port\":9}]"
+        },
+        {
+          "name": "lastappinfopresent5",
+          "value": "1776567773243"
+        }
+      ]
+    }
+  ]
+}

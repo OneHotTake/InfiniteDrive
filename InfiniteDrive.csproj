@@ -90,6 +90,8 @@
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.4"
                       PrivateAssets="All" ExcludeAssets="runtime" />
 
+    <PackageReference Include="System.IO.Pipelines" Version="8.0.0" />
+
     <!--
       Sprint 131: Removed Polly resilience policy.
       HTTP timeout is now handled by HttpClient.Timeout property.
