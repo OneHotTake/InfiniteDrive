@@ -21,6 +21,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Plugins.UI;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,7 @@ namespace InfiniteDrive
     /// Inherits <see cref="BasePlugin{TConfiguration}"/> which handles XML config
     /// persistence at {DataPath}/plugins/configurations/EmbyStreams.xml.
     /// </summary>
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbImage
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbImage, IHasUIPages
     {
         /// <summary>Stable plugin GUID — never change this after first release.</summary>
         public static readonly Guid PluginGuid = new Guid("3c45a87e-2b4f-4d1a-9e73-8f12c3456789");
@@ -58,6 +59,7 @@ namespace InfiniteDrive
         private readonly ILogManager _logManager;
         private readonly IApplicationPaths _appPaths;
         private bool _secretEnsured;
+        private System.Collections.Generic.List<IPluginUIPageController> _uiPages;
 
         /// <summary>
         /// Shared logger for use by auto-discovered providers (e.g. AioMetadataProvider).
@@ -305,6 +307,22 @@ namespace InfiniteDrive
                     EmbeddedResourcePath = "InfiniteDrive.Configuration.discoverpage.js"
                 }
             };
+        }
+
+        // ── IHasUIPages ────────────────────────────────────────────────────────
+
+        /// <inheritdoc/>
+        public System.Collections.Generic.IReadOnlyCollection<IPluginUIPageController> UIPageControllers
+        {
+            get
+            {
+                if (_uiPages == null)
+                {
+                    _uiPages = new System.Collections.Generic.List<IPluginUIPageController>();
+                    _uiPages.Add(new Configuration.UI.MainPageController(GetPluginInfo()));
+                }
+                return _uiPages.AsReadOnly();
+            }
         }
 
         // ── IHasThumbImage ───────────────────────────────────────────────────────
