@@ -100,3 +100,9 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Language-aware version picker sorting, per-user candidate preference in ResolverService
 - TMDB locale configurable (ListFetcher + CertificationResolver), schema V32
 - DiscoverItem.AudioLanguages from stream_candidates
+
+## Sprint 407 Complete (2026-04-23)
+- Native Plugin UI migration Phase 1: Plugin now implements IHasUIPages + IHasWebPages
+- New: Configuration/UI/ — ControllerBase, PluginViewBase, PluginPageView, TabPageController, MainPageController
+- New: Configuration/UI/views/ — ProvidersUI (EditableOptionsBase), ProvidersPageView (save round-trip)
+- Modified: Plugin.cs — IHasUIPages + UIPageControllers property
