@@ -154,6 +154,7 @@ All inherit `IService` + `IRequiresRequest` from `MediaBrowser.Model.Services`:
 9. **Probe Before Serve:** `StreamProbeService` validates CDN URLs before returning to players.
 10. **DB Write Serialization:** `_dbWriteGate` prevents "database is locked" errors under concurrent access.
 11. **Pipeline Visibility:** `Plugin.Pipeline` provides real-time task/phase snapshot; exposed via `HealthResponse.ActivePipeline`.
+12. **IChannel Integration:** `InfiniteDriveDiscoverChannel` auto-discovered by Emby via reflection. Browse-only channel surfaces 42 recent items from `discover_catalog` with library decoration (✓ prefix). No `Plugin.cs` registration required.
 
 ---
 

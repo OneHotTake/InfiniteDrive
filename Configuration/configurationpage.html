@@ -422,8 +422,15 @@
   </div>
 
   <!-- Description card -->
-  <div class="es-card">
-    <div class="es-card-text" style="margin:0">We can access lists from MDBList and AniList without any API key. For Trakt and The Movie Database, enter your API key below. When the per-user list limit is set above 0, users can add their own lists from the Discover page.</div>
+  <div class="es-info-box" style="margin-bottom:1.2em;padding:1em;background:rgba(0,0,0,0.1);border-radius:4px;border-left:3px solid #52b54b">
+    <div style="display:flex;align-items:flex-start;gap:.75em">
+      <span class="material-icons" style="color:#52b54b">info</span>
+      <div>
+        <strong>List Sync &amp; Discover Cache</strong>
+        <p style="margin:.5em 0 0;opacity:.9;font-size:.9em">Lists sync items into a discover cache — a searchable, browsable pool of content alongside your library. Enabled lists sync items into your library automatically. Disabled lists still sync items into the cache, where they remain searchable on the Discover page and browsable via the InfiniteDrive Discover channel. Promote cached items to your library individually via "Add to Library".</p>
+        <p style="margin:.5em 0 0;opacity:.7;font-size:.85em">Supported providers: MDBList and AniList require no API key. Trakt and TMDB require keys configured below. Users can add their own lists from the Discover page when the per-user limit is above 0.</p>
+      </div>
+    </div>
   </div>
 
   <!-- API Keys card -->
@@ -502,8 +509,14 @@
 
   <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Catalogs</h1>
 
-  <div class="es-card" style="margin-bottom:1em">
-    <p class="es-card-text" style="margin:0">These catalogs are synced from your AIOStreams providers into your Emby library. Enable or disable catalogs, then Save to apply.</p>
+  <div class="es-info-box" style="margin-bottom:1.2em;padding:1em;background:rgba(0,0,0,0.1);border-radius:4px;border-left:3px solid #52b54b">
+    <div style="display:flex;align-items:flex-start;gap:.75em">
+      <span class="material-icons" style="color:#52b54b">info</span>
+      <div>
+        <strong>Catalog Sync &amp; Discover Cache</strong>
+        <p style="margin:.5em 0 0;opacity:.9;font-size:.9em">Catalogs synced from AIOStreams populate the discover cache — a searchable, browsable pool of content that lives alongside your library. Enabled catalogs sync items into your library automatically. Disabled catalogs still sync items into the cache, where they remain searchable on the Discover page and browsable via the InfiniteDrive Discover channel. Promote cached items to your library individually via "Add to Library".</p>
+      </div>
+    </div>
   </div>
 
   <!-- Catalogs table -->
@@ -707,12 +720,12 @@
   <!-- Provider status grid -->
   <div id="health-provider-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:.75em;margin-bottom:1.25em">
     <div class="es-card" id="health-card-aio">
-      <div class="es-card-title" style="font-size:.85em">AIOStreams (Primary)</div>
+      <div class="es-card-title" style="font-size:.85em">Primary</div>
       <div id="health-aio-status">—</div>
       <div id="health-aio-detail" class="es-hint"></div>
     </div>
     <div class="es-card" id="health-card-secondary" style="display:none">
-      <div class="es-card-title" style="font-size:.85em">AIOStreams (Secondary)</div>
+      <div class="es-card-title" style="font-size:.85em">Backup</div>
       <div id="health-secondary-status">—</div>
       <div id="health-secondary-detail" class="es-hint"></div>
     </div>

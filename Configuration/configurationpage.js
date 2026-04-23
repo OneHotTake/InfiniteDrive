@@ -668,7 +668,13 @@ function (BaseView, loading) {
     }
 
     function rotateSecret(view) {
-        if (!confirm('Rotate signing secret?\n\nThis rebuilds all .strm files with a new key.\nYour library remains fully playable throughout.')) return;
+        require(['confirm'], function(confirm) {
+            confirm({
+                title: 'Rotate signing secret?',
+                text: 'This rebuilds all .strm files with a new key. Your library remains fully playable throughout.',
+                confirmText: 'Rotate',
+                primary: 'delete'
+            }).then(function() {
         var bar = view.querySelector('#sec-rotate-bar');
         var msg = view.querySelector('#sec-rotate-msg');
         var prog = view.querySelector('#sec-rotate-progress');
@@ -707,6 +713,8 @@ function (BaseView, loading) {
                 if (msg) msg.textContent = '❌ Rotation failed. Existing stream files are unchanged. ' +
                     (err && err.message || '');
             });
+            }).catch(function() {});
+        });
     }
 
     function testTmdbKey(view) {
@@ -787,7 +795,13 @@ function (BaseView, loading) {
     }
 
     function blockItemById(view, internalId, title) {
-        if (!confirm('Block "' + title + '"?\n\nThis removes the item\'s stream files immediately.')) return;
+        require(['confirm'], function(confirm) {
+            confirm({
+                title: 'Block "' + title + '"?',
+                text: 'This removes the item\'s stream files immediately and cannot be undone.',
+                confirmText: 'Block',
+                primary: 'delete'
+            }).then(function() {
 
         esFetch('/InfiniteDrive/Admin/BlockItems', {
             method: 'POST',
@@ -814,6 +828,8 @@ function (BaseView, loading) {
         })
         .catch(function() {
             Dashboard.alert('Block request failed. Check server logs.');
+        });
+            }).catch(function() {});
         });
     }
 
@@ -2644,6 +2660,7 @@ function (BaseView, loading) {
             case 'admin-lists-refresh-all': refreshAllAdminLists(view); break;
             case 'admin-list-refresh': refreshOneAdminList(view, el); break;
             case 'admin-list-remove': removeAdminList(view, el); break;
+            case 'admin-list-toggle': toggleAdminList(view, el); break;
             // Sprint 402 — Overview actions
             case 'ov-summon-marvin':    summonMarvin(view); break;
             case 'ov-reset-purge':      toggleOvPurgeDialog(view, true); break;
@@ -2911,7 +2928,8 @@ function (BaseView, loading) {
                 var badge = l._type === 'user'
                     ? '<span style="font-size:.72em;padding:.1em .4em;border-radius:2px;background:rgba(0,164,220,0.15);color:var(--theme-button-background,#00a4dc);font-weight:700;margin-left:.4em">user</span>'
                     : '<span style="font-size:.72em;padding:.1em .4em;border-radius:2px;background:rgba(40,167,69,0.15);color:#28a745;font-weight:700;margin-left:.4em">server</span>';
-                var html = '<div class="es-card" style="margin-bottom:.5em">' +
+                var dimStyle = (l._type === 'server' && l.Active === false) ? 'opacity:.5;' : '';
+                var html = '<div class="es-card" style="margin-bottom:.5em;' + dimStyle + '">' +
                     '<div style="display:flex;align-items:center;justify-content:space-between;gap:1em">' +
                     '<div style="flex:1;min-width:0">' +
                     '<div style="font-weight:600">' + esc(l.DisplayName) + badge + '</div>' +
@@ -2921,7 +2939,7 @@ function (BaseView, loading) {
                     '</div>' +
                     '<div style="display:flex;gap:.5em;flex-shrink:0">' +
                     '<button type="button" is="emby-button" class="raised button" style="font-size:.8em" data-es-action="admin-list-refresh" data-list-id="' + esc(l.Id) + '">Refresh</button>' +
-                    (l._type === 'server' ? '<button type="button" is="emby-button" class="raised button" style="font-size:.8em;color:#dc3545" data-es-action="admin-list-remove" data-list-id="' + esc(l.Id) + '" data-list-name="' + esc(l.DisplayName) + '">Remove</button>' : '') +
+                    (l._type === 'server' ? '<button type="button" is="emby-button" class="raised button" style="font-size:.8em" data-es-action="admin-list-toggle" data-list-id="' + esc(l.Id) + '" data-list-active="' + (l.Active !== false ? '1' : '0') + '">' + (l.Active !== false ? 'Disable' : 'Enable') + '</button>' : '') +
                     '</div>' +
                     '</div></div>';
                 grid.innerHTML += html;
@@ -3067,7 +3085,19 @@ function (BaseView, loading) {
             .catch(function(err) { Dashboard.alert('Error: ' + (err && err.message || err)); });
     }
 
-    function saveRssFeeds(view) {
+    function toggleAdminList(view, el) {
+        var listId = el.getAttribute('data-list-id');
+        if (!listId) return;
+        el.textContent = '…';
+
+        esFetch('/InfiniteDrive/Admin/Lists/Toggle?catalogId=' + encodeURIComponent(listId), { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.Ok) loadAdminLists(view);
+                else Dashboard.alert(data.Error || 'Failed to toggle list.');
+            })
+            .catch(function(err) { Dashboard.alert('Error: ' + (err && err.message || err)); });
+    }(view) {
         if (!_loadedConfig) return;
         var cfg = JSON.parse(JSON.stringify(_loadedConfig));
         cfg.SystemRssFeedUrls = (view.querySelector('#prov-rss-urls') || {}).value || '';
