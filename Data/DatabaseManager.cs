@@ -3224,7 +3224,9 @@ CREATE TABLE IF NOT EXISTS stream_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_cache_expires ON stream_cache(expires_at);
 ";
-            foreach (var statement in ddl.Split(';'))
+            // Split on semicolons but preserve BEGIN...END blocks in triggers.
+            var statements = SplitDdl(ddl);
+            foreach (var statement in statements)
             {
                 var sql = statement.Trim();
                 if (!string.IsNullOrEmpty(sql))
@@ -3367,6 +3369,68 @@ CREATE INDEX IF NOT EXISTS idx_cache_expires ON stream_cache(expires_at);
             foreach (var row in stmt.AsRows())
                 results.Add(map(row));
             return Task.FromResult(results);
+        }
+
+        /// <summary>
+        /// Split DDL into individual statements, respecting BEGIN...END blocks
+        /// in triggers so that internal semicolons are not treated as statement boundaries.
+        /// </summary>
+        private static List<string> SplitDdl(string ddl)
+        {
+            var result = new List<string>();
+            var current = new System.Text.StringBuilder();
+            bool insideTrigger = false;
+
+            foreach (var line in ddl.Split('\n'))
+            {
+                var trimmed = line.Trim();
+
+                // Skip empty lines and comments
+                if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("--"))
+                {
+                    current.AppendLine(line);
+                    continue;
+                }
+
+                // Detect trigger body entry: line contains CREATE TRIGGER ... BEGIN
+                if (!insideTrigger &&
+                    trimmed.StartsWith("CREATE TRIGGER", StringComparison.OrdinalIgnoreCase) &&
+                    trimmed.Contains("BEGIN", StringComparison.OrdinalIgnoreCase))
+                {
+                    insideTrigger = true;
+                }
+
+                // Detect trigger body exit: line is exactly END or END;
+                if (insideTrigger &&
+                    (trimmed.Equals("END", StringComparison.OrdinalIgnoreCase) ||
+                     trimmed.Equals("END;", StringComparison.OrdinalIgnoreCase)))
+                {
+                    insideTrigger = false;
+                    current.AppendLine(line);
+                    result.Add(current.ToString());
+                    current.Clear();
+                    continue;
+                }
+
+                current.AppendLine(line);
+
+                // Statement boundary: semicolon at end of line AND not inside trigger
+                if (!insideTrigger && trimmed.EndsWith(";"))
+                {
+                    result.Add(current.ToString());
+                    current.Clear();
+                }
+            }
+
+            // Remaining content
+            if (current.Length > 0)
+            {
+                var remainder = current.ToString().Trim();
+                if (!string.IsNullOrEmpty(remainder))
+                    result.Add(remainder);
+            }
+
+            return result;
         }
 
         private static void ExecuteInline(IDatabaseConnection conn, string sql)
