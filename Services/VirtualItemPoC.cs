@@ -115,14 +115,14 @@ namespace InfiniteDrive.Services
                 var rawMeta = "{\"name\":\"Rooster Fighter\"," +
                     "\"description\":\"A timid rooster transforms into a powerful chicken warrior to battle demons threatening humanity in this action-comedy anime.\"," +
                     "\"year\":\"2026\"," +
-                    "\"poster\":\"https://media.kitsu.app/anime/poster_images/49071/small.jpg\"," +
-                    "\"background\":\"https://media.kitsu.app/anime/cover_images/49071/original.jpg\"," +
+                    "\"poster\":\"https://media.kitsu.app/anime/49071/poster_image/large-6d2a77869edd2d469aba00454e282aa9.jpeg\"," +
+                    "\"background\":\"https://media.kitsu.app/anime/49071/cover_image/original-6e234443a555d19fb5ab4d823cd84241.jpeg\"," +
                     "\"genres\":[\"Action\",\"Comedy\",\"Sci-Fi\"]}";
 
                 var item = new Models.CatalogItem
                 {
                     Id = "kitsu:49071",
-                    ImdbId = "kitsu:49071",
+                    ImdbId = "",
                     Title = AnimeTitle,
                     Year = AnimeYear,
                     MediaType = "anime",
