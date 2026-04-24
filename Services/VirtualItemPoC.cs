@@ -175,6 +175,16 @@ namespace InfiniteDrive.Services
                 _logger.LogInformation(
                     "[VirtualItemPoC] Already exists: {Name} ({Id}), LocationType={Loc}, IsVirtualItem={Virt}, Path={Path}",
                     existing.Name, existing.Id, existing.LocationType, existing.IsVirtualItem, existing.Path ?? "(null)");
+
+                // Force image refresh — clears stale URL-as-path images, lets AioImageProvider repopulate
+                _providerManager.QueueRefresh(existing.InternalId,
+                    new MetadataRefreshOptions((MediaBrowser.Model.IO.IFileSystem?)null!)
+                    {
+                        ImageRefreshMode = MetadataRefreshMode.FullRefresh,
+                        MetadataRefreshMode = MetadataRefreshMode.FullRefresh,
+                        ForceSave = true,
+                        ReplaceAllImages = true,
+                    }, RefreshPriority.High);
                 return;
             }
 
