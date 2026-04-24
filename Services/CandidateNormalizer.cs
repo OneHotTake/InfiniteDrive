@@ -483,7 +483,7 @@ namespace InfiniteDrive.Services
 
         private static readonly string[] KnownLangTokens = new[]
         {
-            "eng","fre","ger","ita","spa","por","rus","jpn","kor","chi","tha","tur",
+            "eng","fre","ger","ita","spa","por","rus","jpn","jap","kor","chi","tha","tur",
             "pol","cze","hun","dut","dan","fin","nor","swe","ara","hin","ben","tam",
             "tel","mal","kan","ukr","rum","bul","hrv","slv","srp","bos","lav","lit",
             "est","heb","ind","may","vie","fil"
