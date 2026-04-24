@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Logging;
@@ -12,6 +13,7 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.MediaInfo;
 using Microsoft.Extensions.Logging;
@@ -60,27 +62,8 @@ namespace InfiniteDrive.Services
         public Task<ILiveStream> OpenMediaSource(
             string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {
-            _logger.LogInformation("[AioMediaSourceProvider] OpenMediaSource called with token length={Len}", openToken?.Length ?? 0);
-
-            if (string.IsNullOrEmpty(openToken)
-                || !Uri.TryCreate(openToken, UriKind.Absolute, out var uri)
-                || (uri.Scheme != "http" && uri.Scheme != "https"))
-            {
-                throw new InvalidOperationException($"[AioMediaSourceProvider] Invalid open token (expected CDN URL): {openToken}");
-            }
-
-            var resolvedSource = new MediaSourceInfo
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Path = openToken,
-                Protocol = MediaProtocol.Http,
-                IsInfiniteStream = false,
-                RequiresOpening = false,
-                SupportsDirectStream = true,
-                SupportsTranscoding = false,
-            };
-
-            return Task.FromResult<ILiveStream>(new InfiniteDriveLiveStream(resolvedSource));
+            // Not used — CDN URLs go directly in MediaSourceInfo.Path
+            throw new NotImplementedException();
         }
 
         private List<MediaSourceInfo> GetMediaSourcesCore(BaseItem item)
@@ -168,6 +151,10 @@ namespace InfiniteDrive.Services
 
         private bool IsInConfiguredPath(BaseItem item, PluginConfiguration config)
         {
+            // Virtual items (Path=null) identified by INFINITEDRIVE provider ID
+            if (item.ProviderIds != null && item.ProviderIds.ContainsKey("INFINITEDRIVE"))
+                return true;
+
             var path = item.Path;
             if (string.IsNullOrEmpty(path)) return false;
 
@@ -195,6 +182,21 @@ namespace InfiniteDrive.Services
             // 3. ProviderIds["AIO"] (last resort)
             if (string.IsNullOrEmpty(imdbId) && item.ProviderIds != null && item.ProviderIds.TryGetValue("AIO", out var aioId))
                 imdbId = aioId;
+
+            // 4. Kitsu/AniList/MAL provider IDs (anime without IMDB)
+            if (string.IsNullOrEmpty(imdbId) && item.ProviderIds != null)
+            {
+                foreach (var kvp in item.ProviderIds)
+                {
+                    if (string.Equals(kvp.Key, "Kitsu", StringComparison.OrdinalIgnoreCase))
+                        imdbId = $"kitsu:{kvp.Value}";
+                    else if (string.Equals(kvp.Key, "AniList", StringComparison.OrdinalIgnoreCase))
+                        imdbId = $"anilist:{kvp.Value}";
+                    else if (string.Equals(kvp.Key, "MAL", StringComparison.OrdinalIgnoreCase))
+                        imdbId = $"mal:{kvp.Value}";
+                    if (!string.IsNullOrEmpty(imdbId)) break;
+                }
+            }
 
             if (string.IsNullOrEmpty(imdbId)) return (null, mediaType, null, null);
 
@@ -297,20 +299,16 @@ namespace InfiniteDrive.Services
         {
             if (string.IsNullOrEmpty(stream.Url)) return null;
 
-            var name = stream.Name ?? stream.Title ?? "Stream";
-            var useRequiresOpening = Plugin.Instance?.Configuration?.UseRequiresOpening ?? true;
-
+            var name = BuildSourceName(stream);
             var source = new MediaSourceInfo
             {
                 Id = stream.Id ?? Guid.NewGuid().ToString("N"),
                 Name = name,
-                Path = useRequiresOpening ? string.Empty : stream.Url,
+                Path = stream.Url,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectStream = true,
                 SupportsTranscoding = false,
                 IsInfiniteStream = false,
-                RequiresOpening = useRequiresOpening,
-                OpenToken = useRequiresOpening ? stream.Url : null,
             };
 
             if (stream.Bitrate.HasValue && stream.Bitrate.Value > 0)
@@ -340,23 +338,21 @@ namespace InfiniteDrive.Services
         {
             if (string.IsNullOrEmpty(candidate.Url)) return null;
 
-            var useRequiresOpening = Plugin.Instance?.Configuration?.UseRequiresOpening ?? true;
-
             var source = new MediaSourceInfo
             {
                 Id = candidate.Url.GetHashCode(StringComparison.Ordinal).ToString("x"),
                 Name = $"[{candidate.ProviderKey}] {candidate.QualityTier}",
-                Path = useRequiresOpening ? string.Empty : candidate.Url,
+                Path = candidate.Url,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectStream = true,
                 SupportsTranscoding = false,
                 IsInfiniteStream = false,
-                RequiresOpening = useRequiresOpening,
-                OpenToken = useRequiresOpening ? candidate.Url : null,
             };
 
-            // Build audio MediaStreams from stored languages
-            source.MediaStreams = BuildMediaStreamsFromLanguages(candidate.Languages);
+            // Build audio MediaStreams from stored languages + subtitles from JSON
+            var streams = BuildMediaStreamsFromLanguages(candidate.Languages);
+            AppendSubtitlesFromJson(streams, candidate.SubtitlesJson);
+            source.MediaStreams = streams;
 
             return source;
         }
@@ -400,13 +396,18 @@ namespace InfiniteDrive.Services
 
                     streams.Add(new MediaStream
                     {
-                        Type = MediaStreamType.Subtitle,
-                        Language = sub.Lang ?? "und",
-                        IsExternal = true,
-                        DeliveryUrl = sub.Url,
-                        Path = sub.Url,
-                        IsDefault = false,
-                        Index = streams.Count,
+                        Type               = MediaStreamType.Subtitle,
+                        Language           = sub.Lang ?? "und",
+                        Title              = sub.Lang ?? "und",
+                        DisplayTitle       = sub.Lang ?? "und",
+                        IsExternal         = true,
+                        Codec              = InferSubtitleCodec(sub.Url),
+                        DeliveryUrl        = sub.Url,
+                        Path               = sub.Url,
+                        DeliveryMethod     = SubtitleDeliveryMethod.External,
+                        SupportsExternalStream = true,
+                        IsDefault          = false,
+                        Index              = streams.Count,
                     });
                 }
             }
@@ -511,7 +512,39 @@ namespace InfiniteDrive.Services
             if (source.MediaStreams == null) return false;
             return source.MediaStreams.Any(ms =>
                 ms.Type == MediaStreamType.Audio &&
-                string.Equals(ms.Language, lang, StringComparison.OrdinalIgnoreCase));
+                !string.IsNullOrEmpty(ms.Language) &&
+                (string.Equals(ms.Language, lang, StringComparison.OrdinalIgnoreCase) ||
+                 ms.Language.StartsWith(lang, StringComparison.OrdinalIgnoreCase)));
+        }
+
+        private static string BuildSourceName(AioStreamsStream stream)
+        {
+            var parts = new List<string>();
+
+            // Quality label from Name (e.g. "4K UHD", "1080p")
+            if (!string.IsNullOrEmpty(stream.Name))
+                parts.Add(stream.Name.Replace('\n', ' ').Trim());
+
+            // File size
+            if (stream.Size.HasValue && stream.Size.Value > 0)
+            {
+                var gb = stream.Size.Value / (1024.0 * 1024.0 * 1024.0);
+                parts.Add(gb >= 1 ? $"{gb:F1} GiB" : $"{stream.Size.Value / (1024.0 * 1024.0):F0} MiB");
+            }
+
+            // Languages from parsed metadata
+            if (stream.ParsedFile?.Languages?.Count > 0)
+                parts.Add(string.Join("+", stream.ParsedFile.Languages));
+
+            // Container from filename
+            if (stream.BehaviorHints?.Filename != null)
+            {
+                var ext = Path.GetExtension(stream.BehaviorHints.Filename)?.TrimStart('.');
+                if (!string.IsNullOrEmpty(ext))
+                    parts.Add(ext.ToUpperInvariant());
+            }
+
+            return parts.Count > 0 ? string.Join(" · ", parts) : "Stream";
         }
 
         private void CacheToDb(
@@ -530,7 +563,7 @@ namespace InfiniteDrive.Services
                         ImdbId = imdbId,
                         Season = season,
                         Episode = episode,
-                        StreamUrl = sources[0].OpenToken ?? sources[0].Path,
+                        StreamUrl = sources[0].Path,
                         QualityTier = "all",
                         FileName = null,
                         Status = "valid",
@@ -547,13 +580,14 @@ namespace InfiniteDrive.Services
                         Rank = i,
                         ProviderKey = "aio",
                         StreamType = "debrid",
-                        Url = s.OpenToken ?? s.Path,
+                        Url = s.Path,
                         QualityTier = "all",
                         FileName = s.Name,
                         Status = "valid",
                         ResolvedAt = now.ToString("o"),
                         ExpiresAt = now.Add(CacheTtl).ToString("o"),
                         Languages = ExtractLanguagesFromMediaStreams(s.MediaStreams),
+                        SubtitlesJson = ExtractSubtitlesJson(s.MediaStreams),
                     }).ToList();
 
                     await db.UpsertResolutionResultAsync(entry, candidates);
@@ -584,6 +618,54 @@ namespace InfiniteDrive.Services
             }
 
             return providers;
+        }
+
+        private static string InferSubtitleCodec(string? url)
+        {
+            if (string.IsNullOrEmpty(url)) return "srt";
+            if (url.Contains(".vtt", StringComparison.OrdinalIgnoreCase)) return "vtt";
+            if (url.Contains(".ass", StringComparison.OrdinalIgnoreCase) || url.Contains(".ssa", StringComparison.OrdinalIgnoreCase)) return "ass";
+            return "srt";
+        }
+
+        private static string? ExtractSubtitlesJson(List<MediaStream>? mediaStreams)
+        {
+            if (mediaStreams == null) return null;
+            var subs = mediaStreams
+                .Where(ms => ms.Type == MediaStreamType.Subtitle && !string.IsNullOrEmpty(ms.Path))
+                .Select(ms => new { lang = ms.Language, url = ms.Path })
+                .ToList();
+            return subs.Count > 0 ? JsonSerializer.Serialize(subs) : null;
+        }
+
+        private static void AppendSubtitlesFromJson(List<MediaStream> streams, string? subtitlesJson)
+        {
+            if (string.IsNullOrEmpty(subtitlesJson)) return;
+            try
+            {
+                var subs = JsonSerializer.Deserialize<List<AioStreamsSubtitle>>(subtitlesJson);
+                if (subs == null) return;
+                foreach (var sub in subs)
+                {
+                    if (string.IsNullOrEmpty(sub.Url)) continue;
+                    streams.Add(new MediaStream
+                    {
+                        Type               = MediaStreamType.Subtitle,
+                        Language           = sub.Lang ?? "und",
+                        Title              = sub.Lang ?? "und",
+                        DisplayTitle       = sub.Lang ?? "und",
+                        IsExternal         = true,
+                        Codec              = InferSubtitleCodec(sub.Url),
+                        DeliveryUrl        = sub.Url,
+                        Path               = sub.Url,
+                        DeliveryMethod     = SubtitleDeliveryMethod.External,
+                        SupportsExternalStream = true,
+                        IsDefault          = false,
+                        Index              = streams.Count,
+                    });
+                }
+            }
+            catch { /* non-fatal */ }
         }
 
         private class ProviderInfo

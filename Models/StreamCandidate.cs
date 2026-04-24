@@ -127,6 +127,9 @@ namespace InfiniteDrive.Models
         /// </summary>
         public string? Languages { get; set; }
 
+        /// <summary>JSON-serialised list of subtitle tracks (url + lang).</summary>
+        public string? SubtitlesJson { get; set; }
+
         // ── Lifecycle ───────────────────────────────────────────────────────────
 
         /// <summary>UTC timestamp when this candidate was resolved.</summary>

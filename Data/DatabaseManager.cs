@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -17,28 +18,17 @@ namespace InfiniteDrive.Data
 {
     /// <summary>
     /// Manages the InfiniteDrive SQLite database at
-    /// <c>{DataPath}/InfiniteDrive/embystreams.db</c>.
-    ///
-    /// Responsibilities:
-    /// <list type="bullet">
-    ///   <item>Schema creation and version-tracked migration</item>
-    ///   <item>Self-healing: integrity check on startup, recreate if corrupt</item>
-    ///   <item>Repository methods for all five tables</item>
-    /// </list>
-    ///
-    /// All write operations are wrapped in transactions.
-    /// All parameterised queries use named parameters — no string interpolation.
+    /// <c>{DataPath}/InfiniteDrive/infinitedrive.db</c>.
+    /// Single CREATE TABLE IF NOT EXISTS — no migrations, no schema versioning.
     /// </summary>
     public class DatabaseManager : ICatalogRepository, IResolutionCacheRepository
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const int CurrentSchemaVersion = 32;
         private const int PlaybackLogMaxRows = 500;
 
         private static class Tables
         {
-            public const string SchemaVersion    = "schema_version";
             public const string CatalogItems     = "catalog_items";
             public const string ResolutionCache  = "resolution_cache";
             public const string StreamCandidates = "stream_candidates";
@@ -54,6 +44,10 @@ namespace InfiniteDrive.Data
 
         private readonly string _dbPath;
         private readonly ILogger _logger;
+
+        // ── Column index caches (populated at init from PRAGMA table_info) ────────
+        private static readonly ConcurrentDictionary<string, Dictionary<string, int>> _columnMaps
+            = new(StringComparer.OrdinalIgnoreCase);
 
         // ── Write serialization gate ─────────────────────────────────────────────
         // WAL mode does NOT allow concurrent writers. This gate serializes all
@@ -81,8 +75,7 @@ namespace InfiniteDrive.Data
         // ── Public initialisation ───────────────────────────────────────────────
 
         /// <summary>
-        /// Opens the database, runs an integrity check, and creates / migrates
-        /// the schema to <see cref="CurrentSchemaVersion"/>.
+        /// Opens the database, runs an integrity check, and creates the schema.
         /// If corruption is detected the database file is deleted and recreated.
         /// </summary>
         public void Initialise()
@@ -98,7 +91,7 @@ namespace InfiniteDrive.Data
             using var conn = OpenConnection();
             ApplyPragmas(conn);
             CreateSchema(conn);
-            MigrateSchema(conn);
+            BuildColumnMaps(conn);
         }
 
         // ── catalog_items repository ────────────────────────────────────────────
@@ -231,15 +224,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> GetActiveCatalogItemsAsync()
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at, nfo_status,
-                       retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE removed_at IS NULL
                   AND blocked_at IS NULL;";
 
@@ -266,15 +251,7 @@ namespace InfiniteDrive.Data
         public async Task<CatalogItem?> GetCatalogItemByImdbIdAsync(string imdbId)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
-                       retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE imdb_id = @imdb_id AND removed_at IS NULL
                 LIMIT 1;";
 
@@ -293,14 +270,7 @@ namespace InfiniteDrive.Data
             CancellationToken cancellationToken = default)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at,
-                       nfo_status, retry_count, next_retry_at,
-                       blocked_at, blocked_by, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE item_state = @state AND removed_at IS NULL
                 LIMIT @limit;";
 
@@ -323,14 +293,7 @@ namespace InfiniteDrive.Data
             // The strm_token_expires_at column belongs in materialized_versions, not catalog_items
             // For now, return all written items without token expiry filtering
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at,
-                       nfo_status, retry_count, next_retry_at,
-                       blocked_at, blocked_by
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE item_state = 1 AND removed_at IS NULL
                 ORDER BY updated_at DESC
                 LIMIT @limit;";
@@ -348,14 +311,7 @@ namespace InfiniteDrive.Data
         public async Task<CatalogItem?> GetCatalogItemByStrmPathAsync(string strmPath)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at,
-                       nfo_status, retry_count, next_retry_at,
-                       blocked_at, blocked_by
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE strm_path = @strm_path AND removed_at IS NULL
                 LIMIT 1;";
 
@@ -372,11 +328,7 @@ namespace InfiniteDrive.Data
         public CatalogItem? GetCatalogItemByImdbIdSync(string imdbId)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE imdb_id = @imdb_id AND removed_at IS NULL
                 LIMIT 1;";
 
@@ -393,11 +345,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> GetCatalogItemsBySourceAsync(string source)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE source = @source AND removed_at IS NULL;";
 
             return await QueryListAsync(sql,
@@ -612,10 +560,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> GetItemsByLocalSourceAsync(string localSource)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type, source, source_list_id,
-                       seasons_json, strm_path, added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE local_source = @local_source AND removed_at IS NULL;";
 
             return await QueryListAsync(sql,
@@ -825,10 +770,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> GetItemsMissingStrmAsync()
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type, source, source_list_id,
-                       seasons_json, strm_path, added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE removed_at IS NULL
                   AND blocked_at IS NULL
                   AND (strm_path IS NULL OR strm_path = '')
@@ -883,11 +825,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> GetSeriesWithoutSeasonsJsonAsync()
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE media_type = 'series'
                   AND removed_at IS NULL
                   AND (seasons_json IS NULL OR seasons_json = '');";
@@ -925,15 +863,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> GetSeriesWithGapsAsync(int limit, CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at, unique_ids_json, nfo_status,
-                       retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE media_type IN ('series', 'anime')
                   AND seasons_json IS NOT NULL
                   AND seasons_json != ''
@@ -1004,20 +934,12 @@ namespace InfiniteDrive.Data
         public async Task<CatalogItem?> GetCatalogItemByProviderIdAsync(string provider, string id)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at, nfo_status,
-                       retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE removed_at IS NULL
                   AND EXISTS (
                     SELECT 1 FROM json_each(unique_ids_json)
-                    WHERE json_extract(json_each.value, '$.provider') = lower(@provider)
-                      AND json_extract(json_each.value, '$.id') = @id
+                    WHERE lower(json_extract(json_each.value, '$.provider')) = lower(@provider)
+                      AND lower(json_extract(json_each.value, '$.id')) = lower(@id)
                   )
                 LIMIT 1;";
 
@@ -1030,21 +952,38 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
+        /// Returns just the raw_meta_json string for a catalog item matched by provider ID.
+        /// Skips the full CatalogItem mapper — one column, no index fragility.
+        /// </summary>
+        public async Task<string?> GetRawMetaJsonByProviderIdAsync(string provider, string id)
+        {
+            const string sql = @"
+                SELECT raw_meta_json FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND EXISTS (
+                    SELECT 1 FROM json_each(unique_ids_json)
+                    WHERE lower(json_extract(json_each.value, '$.provider')) = lower(@provider)
+                      AND lower(json_extract(json_each.value, '$.id')) = lower(@id)
+                  )
+                LIMIT 1";
+
+            return await QuerySingleAsync(sql,
+                cmd =>
+                {
+                    BindText(cmd, "@provider", provider);
+                    BindText(cmd, "@id", id);
+                },
+                row => row.IsDBNull(0) ? null! : row.GetString(0));
+        }
+
+        /// <summary>
         /// Last-resort catalog lookup by title (and optionally year / mediaType).
         /// Tries exact match first, then LIKE fallback.
         /// </summary>
         public async Task<CatalogItem?> GetCatalogItemByTitleAsync(string title, int? year, string? mediaType)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at, nfo_status,
-                       retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE removed_at IS NULL
                   AND title = @title
                   AND (@year IS NULL OR year = @year)
@@ -1063,15 +1002,7 @@ namespace InfiniteDrive.Data
             if (result != null) return result;
 
             const string sqlLike = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at, nfo_status,
-                       retry_count, next_retry_at,
-                       blocked_at, blocked_by, first_added_by_user_id,
-                       tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE removed_at IS NULL
                   AND title LIKE '%' || @title || '%'
                   AND (@mediaType IS NULL OR media_type = @mediaType)
@@ -1392,14 +1323,14 @@ namespace InfiniteDrive.Data
                      quality_tier, file_name, file_size, bitrate_kbps,
                      is_cached, resolved_at, expires_at, status,
                      info_hash, file_idx, stream_key, binge_group,
-                     languages)
+                     languages, subtitles_json)
                 VALUES
                     (@id, @imdb_id, @season, @episode, @rank,
                      @provider_key, @stream_type, @url, @headers_json,
                      @quality_tier, @file_name, @file_size, @bitrate_kbps,
                      @is_cached, @resolved_at, @expires_at, @status,
                      @info_hash, @file_idx, @stream_key, @binge_group,
-                     @languages);";
+                     @languages, @subtitles_json);";
 
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
@@ -1441,7 +1372,8 @@ namespace InfiniteDrive.Data
                         BindNullableInt(insStmt,  "@file_idx",    cand.FileIdx);
                         BindNullableText(insStmt, "@stream_key",  cand.StreamKey);
                         BindNullableText(insStmt, "@binge_group", cand.BingeGroup);
-                        BindNullableText(insStmt, "@languages",   cand.Languages);
+                        BindNullableText(insStmt, "@languages",      cand.Languages);
+                        BindNullableText(insStmt, "@subtitles_json",  cand.SubtitlesJson);
                         while (insStmt.MoveNext()) { }
                     }
                 });
@@ -1473,14 +1405,14 @@ namespace InfiniteDrive.Data
                      quality_tier, file_name, file_size, bitrate_kbps,
                      is_cached, resolved_at, expires_at, status,
                      info_hash, file_idx, stream_key, binge_group,
-                     languages)
+                     languages, subtitles_json)
                 VALUES
                     (@id, @imdb_id, @season, @episode, @rank,
                      @provider_key, @stream_type, @url, @headers_json,
                      @quality_tier, @file_name, @file_size, @bitrate_kbps,
                      @is_cached, @resolved_at, @expires_at, @status,
                      @info_hash, @file_idx, @stream_key, @binge_group,
-                     @languages);";
+                     @languages, @subtitles_json);";
 
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
@@ -1557,7 +1489,7 @@ namespace InfiniteDrive.Data
                        quality_tier, file_name, file_size, bitrate_kbps,
                        is_cached, resolved_at, expires_at, status,
                        info_hash, file_idx, stream_key, binge_group,
-                       languages
+                       languages, subtitles_json
                 FROM stream_candidates
                 WHERE imdb_id = @imdb_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
@@ -1797,13 +1729,7 @@ namespace InfiniteDrive.Data
             CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at,
-                       unique_ids_json, nfo_status, retry_count, next_retry_at
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE nfo_status = @nfo_status
                   AND removed_at IS NULL
                   AND blocked_at IS NULL
@@ -1869,14 +1795,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> GetBlockedItemsAsync(CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at,
-                       unique_ids_json, nfo_status, retry_count, next_retry_at,
-                       blocked_at, blocked_by
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE blocked_at IS NOT NULL
                 ORDER BY blocked_at DESC;";
 
@@ -1921,14 +1840,7 @@ namespace InfiniteDrive.Data
 
             var placeholders = string.Join(",", ids.Select((_, i) => $"@id{i}"));
             var sql = $@"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count,
-                       item_state, pin_source, pinned_at,
-                       unique_ids_json, nfo_status, retry_count, next_retry_at,
-                       blocked_at, blocked_by
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE id IN ({placeholders});";
 
             return await QueryListAsync(sql, cmd =>
@@ -2589,11 +2501,7 @@ namespace InfiniteDrive.Data
         public async Task<List<CatalogItem>> SearchCatalogAsync(string query, int limit = 20)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                       source, source_list_id, seasons_json, strm_path,
-                       added_at, updated_at, removed_at,
-                       local_path, local_source, resurrection_count
-                FROM catalog_items
+                SELECT * FROM catalog_items
                 WHERE removed_at IS NULL
                   AND title LIKE @q ESCAPE '\'
                 ORDER BY title
@@ -2828,53 +2736,50 @@ namespace InfiniteDrive.Data
             }
         }
 
-        private static void CreateSchema(IDatabaseConnection conn)
+        private void CreateSchema(IDatabaseConnection conn)
         {
-            // Schema verbatim from SCHEMA.md v3 — do not reorder.
             const string ddl = @"
-CREATE TABLE IF NOT EXISTS schema_version (
-    version     INTEGER PRIMARY KEY,
-    applied_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
+-- ── catalog_items (JSON-first) ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS catalog_items (
-    id              TEXT PRIMARY KEY,
-    imdb_id         TEXT NOT NULL,
-    tmdb_id         TEXT,
-    title           TEXT NOT NULL,
-    year            INTEGER,
-    media_type      TEXT NOT NULL CHECK(media_type IN ('movie', 'series', 'anime', 'episode', 'other')),
-    source          TEXT NOT NULL,
-    source_list_id  TEXT,
-    seasons_json    TEXT,
-    strm_path       TEXT,
-    added_at        TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    removed_at      TEXT,
-    local_path      TEXT,
-    local_source    TEXT,
-    resurrection_count INTEGER DEFAULT 0,
-    item_state      INTEGER NOT NULL DEFAULT 0,
-    pin_source      TEXT,
-    pinned_at       TEXT,
-    unique_ids_json  TEXT,
-    nfo_status      TEXT,
-    retry_count      INTEGER DEFAULT 0,
-    next_retry_at   INTEGER,
-    blocked_at      TEXT,
-    blocked_by      TEXT,
-    first_added_by_user_id TEXT NULL,
+    id                      TEXT PRIMARY KEY,
+    imdb_id                 TEXT NOT NULL,
+    tmdb_id                 TEXT,
+    title                   TEXT NOT NULL,
+    year                    INTEGER,
+    media_type              TEXT NOT NULL CHECK(media_type IN ('movie', 'series', 'anime', 'episode', 'other')),
+    source                  TEXT NOT NULL,
+    source_list_id          TEXT,
+    seasons_json            TEXT,
+    strm_path               TEXT,
+    added_at                TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    removed_at              TEXT,
+    local_path              TEXT,
+    local_source            TEXT,
+    resurrection_count      INTEGER DEFAULT 0,
+    item_state              INTEGER NOT NULL DEFAULT 0,
+    pin_source              TEXT,
+    pinned_at               TEXT,
+    unique_ids_json         TEXT,
+    nfo_status              TEXT,
+    retry_count             INTEGER DEFAULT 0,
+    next_retry_at           INTEGER,
+    blocked_at              TEXT,
+    blocked_by              TEXT,
+    first_added_by_user_id  TEXT NULL,
+    tvdb_id                 TEXT,
+    raw_meta_json           TEXT,
+    catalog_type            TEXT,
+    videos_json             TEXT,
+    episodes_expanded       INTEGER,
+    last_verified_at        INTEGER,
     UNIQUE(imdb_id, source)
 );
+CREATE INDEX IF NOT EXISTS idx_catalog_imdb ON catalog_items(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(removed_at) WHERE removed_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_catalog_media_type ON catalog_items(media_type, removed_at);
 
-CREATE INDEX IF NOT EXISTS idx_catalog_imdb
-    ON catalog_items(imdb_id);
-CREATE INDEX IF NOT EXISTS idx_catalog_active
-    ON catalog_items(removed_at)
-    WHERE removed_at IS NULL;
-CREATE INDEX IF NOT EXISTS idx_catalog_media_type
-    ON catalog_items(media_type, removed_at);
-
+-- ── resolution_cache ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS resolution_cache (
     id                  TEXT PRIMARY KEY,
     imdb_id             TEXT NOT NULL,
@@ -2891,40 +2796,30 @@ CREATE TABLE IF NOT EXISTS resolution_cache (
     fallback_2_quality  TEXT,
     torrent_hash        TEXT,
     rd_cached           INTEGER DEFAULT 1,
-    resolution_tier     TEXT NOT NULL DEFAULT 'tier3'
-                            CHECK(resolution_tier IN ('tier0','tier1','tier2','tier3')),
-    status              TEXT NOT NULL DEFAULT 'valid'
-                            CHECK(status IN ('valid','stale','failed')),
+    resolution_tier     TEXT NOT NULL DEFAULT 'tier3' CHECK(resolution_tier IN ('tier0','tier1','tier2','tier3')),
+    status              TEXT NOT NULL DEFAULT 'valid' CHECK(status IN ('valid','stale','failed')),
     resolved_at         TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at          TEXT NOT NULL,
     play_count          INTEGER NOT NULL DEFAULT 0,
     last_played_at      TEXT,
     retry_count         INTEGER NOT NULL DEFAULT 0,
+    updated_at          TEXT,
     UNIQUE(imdb_id, season, episode)
 );
+CREATE INDEX IF NOT EXISTS idx_res_imdb ON resolution_cache(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_res_status ON resolution_cache(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_res_tier ON resolution_cache(resolution_tier, status);
+CREATE INDEX IF NOT EXISTS idx_res_torrent ON resolution_cache(torrent_hash) WHERE torrent_hash IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_res_priority ON resolution_cache(resolution_tier, last_played_at DESC, status);
 
-CREATE INDEX IF NOT EXISTS idx_res_imdb
-    ON resolution_cache(imdb_id);
-CREATE INDEX IF NOT EXISTS idx_res_status
-    ON resolution_cache(status, expires_at);
-CREATE INDEX IF NOT EXISTS idx_res_tier
-    ON resolution_cache(resolution_tier, status);
-CREATE INDEX IF NOT EXISTS idx_res_torrent
-    ON resolution_cache(torrent_hash)
-    WHERE torrent_hash IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_res_priority
-    ON resolution_cache(resolution_tier, last_played_at DESC, status);
-
+-- ── playback_log ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS playback_log (
     id                  TEXT PRIMARY KEY,
     imdb_id             TEXT NOT NULL,
     title               TEXT,
     season              INTEGER,
     episode             INTEGER,
-    resolution_mode     TEXT NOT NULL
-                            CHECK(resolution_mode IN (
-                                'cached','fallback_1','fallback_2',
-                                'sync_resolve','failed')),
+    resolution_mode     TEXT NOT NULL CHECK(resolution_mode IN ('cached','fallback_1','fallback_2','sync_resolve','failed')),
     quality_served      TEXT,
     client_type         TEXT,
     proxy_mode          TEXT,
@@ -2934,19 +2829,20 @@ CREATE TABLE IF NOT EXISTS playback_log (
     error_message       TEXT,
     played_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
+CREATE INDEX IF NOT EXISTS idx_play_recent ON playback_log(played_at DESC);
 
-CREATE INDEX IF NOT EXISTS idx_play_recent
-    ON playback_log(played_at DESC);
-
+-- ── client_compat ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS client_compat (
     client_type         TEXT PRIMARY KEY,
     supports_redirect   INTEGER NOT NULL DEFAULT 1,
     max_safe_bitrate    INTEGER,
     preferred_quality   TEXT,
     test_count          INTEGER NOT NULL DEFAULT 0,
-    last_tested_at      TEXT
+    last_tested_at      TEXT,
+    updated_at          TEXT
 );
 
+-- ── api_budget ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS api_budget (
     date            TEXT PRIMARY KEY,
     calls_made      INTEGER NOT NULL DEFAULT 0,
@@ -2955,832 +2851,55 @@ CREATE TABLE IF NOT EXISTS api_budget (
     backoff_until   TEXT
 );
 
+-- ── sync_state ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sync_state (
-    source_key      TEXT PRIMARY KEY,
-    last_sync_at    TEXT,
-    last_etag       TEXT,
-    last_cursor     TEXT,
-    item_count      INTEGER DEFAULT 0,
-    status          TEXT DEFAULT 'ok'
+    source_key          TEXT PRIMARY KEY,
+    last_sync_at        TEXT,
+    last_etag           TEXT,
+    last_cursor         TEXT,
+    item_count          INTEGER DEFAULT 0,
+    status              TEXT DEFAULT 'ok',
+    consecutive_failures INT DEFAULT 0,
+    last_error          TEXT,
+    last_reached_at     TEXT,
+    catalog_name        TEXT,
+    catalog_type        TEXT,
+    items_target        INTEGER DEFAULT 0,
+    items_running       INTEGER DEFAULT 0,
+    updated_at          TEXT
 );
 
-INSERT OR IGNORE INTO schema_version (version) VALUES (3);
-";
-            foreach (var statement in ddl.Split(';'))
-            {
-                var sql = statement.Trim();
-                if (!string.IsNullOrEmpty(sql))
-                    conn.Execute(sql);
-            }
-        }
-
-        private void MigrateSchema(IDatabaseConnection conn)
-        {
-            var version = GetSchemaVersion(conn);
-
-            // ── V3 → V4 ─────────────────────────────────────────────────────────
-            // Adds local_path and local_source to catalog_items so each row knows
-            // whether the media already exists as a real file in the user's library
-            // (local_source='library') or is managed as a .strm by this plugin
-            // (local_source='strm').  Used by the library-aware sync and the
-            // File Resurrection task (Sprint 3).
-            if (version < 4)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V4", version);
-                if (!ColumnExists(conn, "catalog_items", "local_path"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN local_path TEXT;");
-                if (!ColumnExists(conn, "catalog_items", "local_source"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN local_source TEXT CHECK(local_source IN ('library', 'strm'));");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (4);");
-                version = 4;
-            }
-
-            // ── V4 → V5 ─────────────────────────────────────────────────────────
-            // Adds health-tracking columns to sync_state so the dashboard can show
-            // per-source reliability without removing items when a catalog goes
-            // temporarily unreachable.
-            if (version < 5)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V5", version);
-                if (!ColumnExists(conn, "sync_state", "consecutive_failures"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN consecutive_failures INT DEFAULT 0;");
-                if (!ColumnExists(conn, "sync_state", "last_error"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN last_error TEXT;");
-                if (!ColumnExists(conn, "sync_state", "last_reached_at"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN last_reached_at TEXT;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (5);");
-                version = 5;
-            }
-
-            // ── V5 → V6 ─────────────────────────────────────────────────────────
-            // Adds resurrection_count to catalog_items so resurrection tracking can
-            // track how many times each item has been rebuilt as a .strm after its
-            // original library file went missing.
-            if (version < 6)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V6", version);
-                if (!ColumnExists(conn, "catalog_items", "resurrection_count"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN resurrection_count INTEGER DEFAULT 0;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (6);");
-                version = 6;
-            }
-
-            // ── V6 → V7 ─────────────────────────────────────────────────────────
-            // Introduces stream_candidates table — replaces flat fallback_1/fallback_2
-            // columns with a ranked, provider-aware N-deep candidate list per item.
-            // Existing resolution_cache rows are preserved; candidates are populated
-            // on next LinkResolverTask run or first cache miss (sync resolve).
-            if (version < 7)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V7", version);
-                ExecuteInline(conn, @"
+-- ── stream_candidates ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS stream_candidates (
-    id           TEXT PRIMARY KEY,
-    imdb_id      TEXT NOT NULL,
-    season       INTEGER,
-    episode      INTEGER,
-    rank         INTEGER NOT NULL,
-    provider_key TEXT NOT NULL DEFAULT 'unknown',
-    stream_type  TEXT NOT NULL DEFAULT 'debrid',
-    url          TEXT NOT NULL,
-    headers_json TEXT,
-    quality_tier TEXT,
-    file_name    TEXT,
-    file_size    INTEGER,
-    bitrate_kbps INTEGER,
-    is_cached    INTEGER NOT NULL DEFAULT 1,
-    resolved_at  TEXT NOT NULL,
-    expires_at   TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'valid'
-);");
-                ExecuteInline(conn, @"
-CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_key
-    ON stream_candidates(imdb_id, COALESCE(season,-1), COALESCE(episode,-1), rank);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_item
-    ON stream_candidates(imdb_id, season, episode, rank);");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (7);");
-                version = 7;
-            }
+    id                      TEXT PRIMARY KEY,
+    imdb_id                 TEXT NOT NULL,
+    season                  INTEGER,
+    episode                 INTEGER,
+    rank                    INTEGER NOT NULL,
+    provider_key            TEXT NOT NULL DEFAULT 'unknown',
+    stream_type             TEXT NOT NULL DEFAULT 'debrid',
+    url                     TEXT NOT NULL,
+    headers_json            TEXT,
+    quality_tier            TEXT,
+    file_name               TEXT,
+    file_size               INTEGER,
+    bitrate_kbps            INTEGER,
+    is_cached               INTEGER NOT NULL DEFAULT 1,
+    resolved_at             TEXT NOT NULL,
+    expires_at              TEXT NOT NULL,
+    status                  TEXT NOT NULL DEFAULT 'valid',
+    info_hash               TEXT,
+    file_idx                INTEGER,
+    stream_key              TEXT,
+    binge_group             TEXT,
+    absolute_episode_number INTEGER,
+    languages               TEXT,
+    subtitles_json          TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_key ON stream_candidates(imdb_id, COALESCE(season,-1), COALESCE(episode,-1), rank);
+CREATE INDEX IF NOT EXISTS idx_candidates_item ON stream_candidates(imdb_id, season, episode, rank);
 
-            // ── V7 → V8 ─────────────────────────────────────────────────────────
-            // Adds per-catalog progress columns to sync_state so the dashboard can
-            // show live progress bars (catalog name, type, item target, and
-            // running count updated in real time during each sync run).
-            if (version < 8)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V8", version);
-                if (!ColumnExists(conn, "sync_state", "catalog_name"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN catalog_name TEXT;");
-                if (!ColumnExists(conn, "sync_state", "catalog_type"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN catalog_type TEXT;");
-                if (!ColumnExists(conn, "sync_state", "items_target"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN items_target INTEGER DEFAULT 0;");
-                if (!ColumnExists(conn, "sync_state", "items_running"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN items_running INTEGER DEFAULT 0;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (8);");
-                version = 8;
-            }
-
-            // ── V8 → V9 ─────────────────────────────────────────────────────────
-            // Adds info_hash and file_idx to stream_candidates for torrent identity
-            // tracking from AIOStreams debrid streams.
-            //
-            // Also enables cross-item cache invalidation: when one URL from a hash is
-            // confirmed dead, all candidates sharing that hash can be marked stale.
-            if (version < 9)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V9", version);
-                if (!ColumnExists(conn, "stream_candidates", "info_hash"))
-                    ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN info_hash TEXT;");
-                if (!ColumnExists(conn, "stream_candidates", "file_idx"))
-                    ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN file_idx INTEGER;");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_hash
-    ON stream_candidates(info_hash) WHERE info_hash IS NOT NULL;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (9);");
-                version = 9;
-            }
-
-            // ── V9 → V10 ────────────────────────────────────────────────────────
-            // Adds updated_at to resolution_cache, client_compat, and sync_state
-            // so the dashboard can show when each row was last written and automated
-            // tooling can detect stale records without scanning the whole table.
-            if (version < 10)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V10", version);
-                if (!ColumnExists(conn, "resolution_cache", "updated_at"))
-                    ExecuteInline(conn, "ALTER TABLE resolution_cache ADD COLUMN updated_at TEXT;");
-                if (!ColumnExists(conn, "client_compat", "updated_at"))
-                    ExecuteInline(conn, "ALTER TABLE client_compat ADD COLUMN updated_at TEXT;");
-                if (!ColumnExists(conn, "sync_state", "updated_at"))
-                    ExecuteInline(conn, "ALTER TABLE sync_state ADD COLUMN updated_at TEXT;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (10);");
-                version = 10;
-            }
-
-            // ── V12 → V13 ────────────────────────────────────────────────────────
-            // Creates discover_catalog table for caching available content from AIOStreams.
-            // discover_items (items user has added to library) use catalog_items table.
-            if (version < 13)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V13", version);
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS discover_catalog (
-    id                  TEXT PRIMARY KEY,
-    imdb_id             TEXT NOT NULL,
-    title               TEXT NOT NULL,
-    year                INTEGER,
-    media_type          TEXT NOT NULL CHECK(media_type IN ('movie', 'series')),
-    poster_url          TEXT,
-    backdrop_url        TEXT,
-    overview            TEXT,
-    catalog_source      TEXT NOT NULL,
-    is_in_user_library  INTEGER NOT NULL DEFAULT 0,
-    added_at            TEXT NOT NULL,
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_discover_imdb
-    ON discover_catalog(imdb_id);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_discover_source
-    ON discover_catalog(catalog_source);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_discover_in_library
-    ON discover_catalog(is_in_user_library);");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (13);");
-                version = 13;
-            }
-
-            // ── V13 → V14 ────────────────────────────────────────────────────────
-            // Adds genres and imdb_rating columns to discover_catalog for richer metadata.
-            // Creates FTS5 virtual table for fast full-text search on title.
-            // Adds INSERT/UPDATE/DELETE triggers to keep FTS index in sync.
-            if (version < 14)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V14", version);
-                if (!ColumnExists(conn, "discover_catalog", "genres"))
-                    ExecuteInline(conn, "ALTER TABLE discover_catalog ADD COLUMN genres TEXT;");
-                if (!ColumnExists(conn, "discover_catalog", "imdb_rating"))
-                    ExecuteInline(conn, "ALTER TABLE discover_catalog ADD COLUMN imdb_rating REAL;");
-                ExecuteInline(conn, @"
-CREATE VIRTUAL TABLE IF NOT EXISTS discover_catalog_fts
-USING fts5(title, content=discover_catalog, content_rowid=rowid);");
-                // Populate FTS index from existing rows
-                ExecuteInline(conn, @"
-INSERT INTO discover_catalog_fts(rowid, title)
-SELECT rowid, title FROM discover_catalog;");
-                // Trigger to keep FTS in sync on INSERT
-                ExecuteInline(conn, @"
-CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_insert
-AFTER INSERT ON discover_catalog BEGIN
-  INSERT INTO discover_catalog_fts(rowid, title)
-  VALUES (new.rowid, new.title);
-END;");
-                // Trigger to keep FTS in sync on UPDATE
-                ExecuteInline(conn, @"
-CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_update
-AFTER UPDATE ON discover_catalog BEGIN
-  INSERT INTO discover_catalog_fts(discover_catalog_fts, rowid, title)
-  VALUES('delete', old.rowid, old.title);
-  INSERT INTO discover_catalog_fts(rowid, title)
-  VALUES (new.rowid, new.title);
-END;");
-                // Trigger to keep FTS in sync on DELETE
-                ExecuteInline(conn, @"
-CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_delete
-AFTER DELETE ON discover_catalog BEGIN
-  INSERT INTO discover_catalog_fts(discover_catalog_fts, rowid, title)
-  VALUES('delete', old.rowid, old.title);
-END;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (14);");
-                version = 14;
-            }
-
-            // ── V14 → V15 ────────────────────────────────────────────────────────
-            // Adds stream_key (stable dedup key surviving CDN URL rotation) and
-            // binge_group (AIOStreams binge-group identifier) to stream_candidates.
-            if (version < 15)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V15", version);
-                if (!ColumnExists(conn, "stream_candidates", "stream_key"))
-                    ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN stream_key TEXT;");
-                if (!ColumnExists(conn, "stream_candidates", "binge_group"))
-                    ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN binge_group TEXT;");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_stream_key
-    ON stream_candidates(stream_key);");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (15);");
-                version = 15;
-            }
-
-            // ── V15 → V16 ────────────────────────────────────────────────────────
-            // Adds item state machine columns to catalog_items:
-            // - item_state: CATALOGUED, PRESENT, RESOLVED, RETIRED, ORPHANED, PINNED
-            // - pin_source: origin of PIN state (e.g. "user:discover:ISO8601_timestamp")
-            // - pinned_at: UTC timestamp when item was pinned
-            // All existing items default to CATALOGUED (0).
-            if (version < 16)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V16", version);
-                if (!ColumnExists(conn, "catalog_items", "item_state"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN item_state INTEGER NOT NULL DEFAULT 0;");
-                if (!ColumnExists(conn, "catalog_items", "pin_source"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN pin_source TEXT;");
-                if (!ColumnExists(conn, "catalog_items", "pinned_at"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN pinned_at TEXT;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (16);");
-                version = 16;
-
-            // ── V16 → V17 ────────────────────────────────────────────────────────
-            // Adds unique_ids_json to catalog_items for multi-provider ID support.
-            // Enables fallback episode count queries when IMDB ID is unavailable.
-            // Format: JSON array of {provider,id} objects.
-            if (version < 17)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V17", version);
-                if (!ColumnExists(conn, "catalog_items", "unique_ids_json"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN unique_ids_json TEXT;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (17);");
-                version = 17;
-            }
-
-            // ── V17 → V18 ────────────────────────────────────────────────────────
-            // Adds collection_membership table for tracking item collection relationships.
-            // Sprint 100C-01: Collection membership recording.
-            // Schema: id, collection_name, emby_item_id, source, last_seen
-            if (version < 18)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V18", version);
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS collection_membership (
-    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    collection_name     TEXT NOT NULL,
-    emby_item_id        TEXT NOT NULL,
-    source              TEXT NOT NULL,
-    last_seen           TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(collection_name, emby_item_id)
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_collection_name
-    ON collection_membership(collection_name);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_collection_item
-    ON collection_membership(emby_item_id);");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (18);");
-                version = 18;
-            }
-
-            // ── V22 → V23 ────────────────────────────────────────────────
-            // Adds first_added_by_user_id column to catalog_items for attribution.
-            // Sprint 156: Tracks which user first added an item to the library.
-            if (version < 23)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V23", version);
-                if (!ColumnExists(conn, "catalog_items", "first_added_by_user_id"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN first_added_by_user_id TEXT NULL;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (23);");
-                version = 23;
-            }
-
-            // ── V23 → V24 ────────────────────────────────────────────────────────
-            // Adds absolute_episode_number column to stream_candidates table.
-            // Sprint 101A-05: Absolute episode number storage and NFO.
-            if (version < 19)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V19", version);
-                ExecuteInline(conn, @"
-ALTER TABLE stream_candidates ADD COLUMN absolute_episode_number INTEGER;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (19);");
-                version = 19;
-            }
-
-            // ── V19 → V20 ────────────────────────────────────────────────────────
-            // Adds plugin_metadata table for persisting key-value pairs like last sync times.
-            // Sprint 102A-02: Plugin metadata table and persistence.
-            if (version < 20)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V20", version);
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS plugin_metadata (
-    key   TEXT PRIMARY KEY NOT NULL,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (20);");
-                version = 20;
-            }
-
-            // ── V20 → V21 ────────────────────────────────────────────────────────
-            // Adds home_section_tracking table for per-user per-rail home screen section tracking.
-            // Sprint 118: Home Screen Rails.
-            if (version < 21)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V21", version);
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS home_section_tracking (
-    id              TEXT PRIMARY KEY,
-    user_id         TEXT NOT NULL,
-    rail_type       TEXT NOT NULL,
-    emby_section_id TEXT,
-    section_marker  TEXT NOT NULL,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    UNIQUE(user_id, rail_type)
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_home_section_user
-    ON home_section_tracking(user_id);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_home_section_marker
-    ON home_section_tracking(section_marker);");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (21);");
-                version = 21;
-            }
-
-            // ── V21 → V22 ────────────────────────────────────────────────────────
-            // Versioned Playback (Sprint 122): 4 new tables for quality-slot-based
-            // stream management. version_slots is seeded with 7 predefined quality
-            // profiles; hd_broad is enabled + default. All tables are additive — no
-            // existing tables or columns are modified.
-            if (version < 22)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V22", version);
-
-                // version_slots — global slot configuration (7 predefined quality profiles)
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS version_slots (
-    slot_key        TEXT PRIMARY KEY,
-    label           TEXT NOT NULL,
-    resolution      TEXT NOT NULL,
-    video_codecs    TEXT NOT NULL DEFAULT 'any',
-    hdr_classes     TEXT NOT NULL DEFAULT '',
-    audio_preferences TEXT NOT NULL,
-    enabled         INTEGER NOT NULL DEFAULT 0,
-    is_default      INTEGER NOT NULL DEFAULT 0,
-    sort_order      INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);");
-
-                // candidates — normalized stream candidates per title per slot
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS candidates (
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    media_item_id   TEXT NOT NULL,
-    slot_key        TEXT NOT NULL,
-    rank            INTEGER NOT NULL,
-    service         TEXT,
-    stream_type     TEXT NOT NULL DEFAULT 'debrid',
-    resolution      TEXT,
-    video_codec     TEXT,
-    hdr_class       TEXT,
-    audio_codec     TEXT,
-    audio_channels  TEXT,
-    file_name       TEXT,
-    file_size       INTEGER,
-    bitrate_kbps    INTEGER,
-    languages       TEXT,
-    source_type     TEXT,
-    is_cached       INTEGER NOT NULL DEFAULT 0,
-    fingerprint     TEXT NOT NULL,
-    binge_group     TEXT,
-    info_hash       TEXT,
-    file_idx        INTEGER,
-    confidence_score REAL NOT NULL DEFAULT 0.0,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at      TEXT NOT NULL,
-    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_item_slot
-    ON candidates(media_item_id, slot_key, rank);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_fingerprint
-    ON candidates(fingerprint);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_expires
-    ON candidates(expires_at);");
-                ExecuteInline(conn, @"
-CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_unique
-    ON candidates(media_item_id, slot_key, fingerprint);");
-
-                // version_snapshots — selected top candidate per title per slot
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS version_snapshots (
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    media_item_id   TEXT NOT NULL,
-    slot_key        TEXT NOT NULL,
-    candidate_id    TEXT NOT NULL,
-    snapshot_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    playback_url    TEXT,
-    playback_url_cached_at TEXT,
-    playback_url_expires_at TEXT,
-    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
-    UNIQUE (media_item_id, slot_key)
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_snapshots_item
-    ON version_snapshots(media_item_id);");
-
-                // materialized_versions — tracks which slots have .strm/.nfo on disk
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS materialized_versions (
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    media_item_id   TEXT NOT NULL,
-    slot_key        TEXT NOT NULL,
-    strm_path       TEXT NOT NULL,
-    nfo_path        TEXT NOT NULL,
-    strm_url_hash   TEXT NOT NULL,
-    is_base         INTEGER NOT NULL DEFAULT 0,
-    materialized_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    strm_token_expires_at INTEGER,
-    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
-    UNIQUE (media_item_id, slot_key)
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_materialized_item
-    ON materialized_versions(media_item_id);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_materialized_slot
-    ON materialized_versions(slot_key);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_materialized_base
-    ON materialized_versions(is_base) WHERE is_base = 1;");
-
-                // Seed version_slots — one ExecuteInline per row (safe: hardcoded literals, no user input)
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_broad', 'HD · Broad', '1080p', 'h264', '', 'dd_plus_51,dd_51,aac_stereo', 1, 1, 0);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('best_available', 'Best Available', 'highest', 'any', 'any', 'atmos,dd_plus_71,dd_plus_51,dd_51', 0, 0, 1);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_dv', '4K · Dolby Vision', '2160p', 'hevc,av1', 'dv', 'atmos,dd_plus_71,dd_plus_51', 0, 0, 2);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_hdr', '4K · HDR', '2160p', 'hevc,av1', 'hdr10', 'atmos,dd_plus_51,dd_51', 0, 0, 3);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_sdr', '4K · SDR', '2160p', 'hevc,av1', '', 'dd_plus_51,dd_51,aac', 0, 0, 4);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_efficient', 'HD · Efficient', '1080p', 'hevc', '', 'dd_plus_51,aac_stereo', 0, 0, 5);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('compact', 'Compact', '720p', 'h264', '', 'aac,dd', 0, 0, 6);");
-
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (22);");
-                version = 22;
-            }
-
-            // ── V22 → V23 ─────────────────────────────────────────────────────────
-            // Adds strm_token_expires_at to materialized_versions so token rotation
-            // can be scheduled efficiently. (Sprint 141)
-            if (version < 23)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V23", version);
-                if (!ColumnExists(conn, "materialized_versions", "strm_token_expires_at"))
-                    ExecuteInline(conn, "ALTER TABLE materialized_versions ADD COLUMN strm_token_expires_at INTEGER;");
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (23);");
-                version = 23;
-            }
-
-            // ── V23 → V24 ─────────────────────────────────────────────────────────
-            // Adds Library Worker tables and expands catalog_items schema (Sprint 142).
-            if (version < 24)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V24", version);
-
-                // Create ingestion_state table for per-source watermark tracking
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS ingestion_state (
-    source_id      TEXT PRIMARY KEY,
-    last_poll_at   TEXT,
-    last_found_at  TEXT,
-    watermark      TEXT
-);");
-
-                // Create refresh_run_log table for structured run logging
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS refresh_run_log (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    worker          TEXT NOT NULL,
-    step            TEXT NOT NULL,
-    status          TEXT NOT NULL DEFAULT 'started',
-    items_affected  INTEGER DEFAULT 0,
-    notes           TEXT
-);");
-
-                // Add lifecycle columns to catalog_items
-                if (!ColumnExists(conn, "catalog_items", "nfo_status"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN nfo_status TEXT;");
-                if (!ColumnExists(conn, "catalog_items", "retry_count"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN retry_count INTEGER DEFAULT 0;");
-                if (!ColumnExists(conn, "catalog_items", "next_retry_at"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN next_retry_at INTEGER;");
-                if (!ColumnExists(conn, "catalog_items", "blocked_at"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN blocked_at TEXT;");
-                if (!ColumnExists(conn, "catalog_items", "blocked_by"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN blocked_by TEXT;");
-
-                // Rebuild catalog_items to expand media_type CHECK constraint
-                // SQLite does not support ALTER TABLE on CHECK constraints
-                conn.RunInTransaction(c =>
-                {
-                    // Create new table with widened constraint
-                    ExecuteInline(conn, @"
-CREATE TABLE catalog_items_v24 (
-    id              TEXT PRIMARY KEY,
-    imdb_id         TEXT NOT NULL,
-    tmdb_id         TEXT,
-    title           TEXT NOT NULL,
-    year            INTEGER,
-    media_type      TEXT NOT NULL CHECK(media_type IN ('movie', 'series', 'anime', 'episode', 'other')),
-    source          TEXT NOT NULL,
-    source_list_id  TEXT,
-    seasons_json    TEXT,
-    strm_path       TEXT,
-    added_at        TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    removed_at      TEXT,
-    local_path      TEXT,
-    local_source    TEXT,
-    resurrection_count INTEGER DEFAULT 0,
-    item_state      INTEGER NOT NULL DEFAULT 0,
-    pin_source      TEXT,
-    pinned_at       TEXT,
-    unique_ids_json  TEXT,
-    nfo_status      TEXT,
-    retry_count      INTEGER DEFAULT 0,
-    next_retry_at   INTEGER,
-    blocked_at      TEXT,
-    blocked_by      TEXT,
-    first_added_by_user_id TEXT NULL,
-    UNIQUE(imdb_id, source)
-);");
-
-                    // Copy data across
-                    ExecuteInline(conn, @"
-INSERT INTO catalog_items_v24
-SELECT id, imdb_id, tmdb_id, title, year, media_type, source, source_list_id,
-       seasons_json, strm_path, added_at, updated_at, removed_at, local_path,
-       local_source, resurrection_count, item_state, pin_source, pinned_at,
-       unique_ids_json, nfo_status, retry_count, next_retry_at, blocked_at, blocked_by, first_added_by_user_id
-FROM catalog_items;");
-
-                    // Drop old table
-                    ExecuteInline(conn, "DROP TABLE catalog_items;");
-
-                    // Rename new table
-                    ExecuteInline(conn, "ALTER TABLE catalog_items_v24 RENAME TO catalog_items;");
-
-                    // Recreate indexes
-                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_catalog_imdb ON catalog_items(imdb_id);");
-                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(removed_at) WHERE removed_at IS NULL;");
-                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_catalog_media_type ON catalog_items(media_type, removed_at);");
-                });
-
-                ExecuteInline(conn,
-                    "INSERT OR IGNORE INTO schema_version (version) VALUES (24);");
-                version = 24;
-            }
-
-            // ── Sprint 160 + 158: IdResolverService columns + user_catalogs (V24 → V25) ────
-            if (version < 25)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V25", version);
-
-                // Sprint 160: ID resolver columns on catalog_items
-                if (!ColumnExists(conn, "catalog_items", "tvdb_id"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN tvdb_id TEXT;");
-                if (!ColumnExists(conn, "catalog_items", "raw_meta_json"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN raw_meta_json TEXT;");
-                if (!ColumnExists(conn, "catalog_items", "catalog_type"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN catalog_type TEXT;");
-
-                // Sprint 158: Migrate any legacy trakt/mdblist type values to user_rss.
-                // The CHECK constraint on an existing sources table cannot be altered in SQLite,
-                // but SQLite does NOT re-check constraints on existing rows, only on new writes.
-                // Any rows with 'trakt' or 'mdblist' are safe to migrate to 'user_rss'.
-                if (TableExists(conn, "sources"))
-                    ExecuteInline(conn,
-                        "UPDATE sources SET type = 'user_rss' WHERE type IN ('trakt','mdblist');");
-
-                // Sprint 158: user_catalogs table for public RSS user lists
-                if (!TableExists(conn, "user_catalogs"))
-                {
-                    ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS user_catalogs (
-    id                 TEXT PRIMARY KEY,
-    owner_user_id      TEXT NOT NULL,
-    source_type        TEXT NOT NULL CHECK (source_type IN ('user_rss')),
-    service            TEXT NOT NULL CHECK (service IN ('trakt','mdblist')),
-    rss_url            TEXT NOT NULL,
-    display_name       TEXT NOT NULL,
-    active             INTEGER NOT NULL DEFAULT 1,
-    last_synced_at     TEXT,
-    last_sync_status   TEXT,
-    created_at         TEXT NOT NULL,
-    UNIQUE (owner_user_id, rss_url)
-);");
-                    ExecuteInline(conn,
-                        "CREATE INDEX IF NOT EXISTS idx_user_catalogs_owner ON user_catalogs(owner_user_id);");
-                    ExecuteInline(conn,
-                        "CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHERE active = 1;");
-                }
-
-                // Sprint 158: user_catalog_id column on source_memberships
-                // Guard with TableExists — on fresh DB source_memberships may not exist yet;
-                // the column will be present when the table is first created via the safeguard below.
-                if (TableExists(conn, "source_memberships"))
-                {
-                    if (!ColumnExists(conn, "source_memberships", "user_catalog_id"))
-                        ExecuteInline(conn,
-                            "ALTER TABLE source_memberships ADD COLUMN user_catalog_id TEXT;");
-                    ExecuteInline(conn,
-                        "CREATE INDEX IF NOT EXISTS idx_source_memberships_user_catalog ON source_memberships(user_catalog_id);");
-                };
-
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (25);");
-                _logger.LogInformation("[InfiniteDrive] Schema V25 migration complete");
-                version = 25;
-            }
-
-            // ── V25 → V26 ─────────────────────────────────────────────────────────
-            // Sprint 207: Adds user_item_saves table for per-user save tracking.
-            if (version < 26)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V26", version);
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS user_item_saves (
-    id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    user_id       TEXT NOT NULL,
-    media_item_id TEXT NOT NULL,
-    save_reason   TEXT CHECK (save_reason IN ('explicit','watched_episode','admin_override')),
-    saved_season  INTEGER,
-    saved_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
-    UNIQUE (user_id, media_item_id)
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_user_saves_user ON user_item_saves(user_id);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_user_saves_item ON user_item_saves(media_item_id);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (26);");
-                _logger.LogInformation("[InfiniteDrive] Schema V26 migration complete");
-                version = 26;
-            }
-
-            // ── V26 → V27 ─────────────────────────────────────────────────────────
-            // Sprint 209: Adds certification column to discover_catalog for MPAA/TV ratings.
-            // Used for parental filtering based on User.Policy.MaxParentalRating.
-            if (version < 27)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V27", version);
-                if (!ColumnExists(conn, "discover_catalog", "certification"))
-                    ExecuteInline(conn, "ALTER TABLE discover_catalog ADD COLUMN certification TEXT;");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (27);");
-                _logger.LogInformation("[InfiniteDrive] Schema V27 migration complete");
-                version = 27;
-            }
-
-            if (version < 28)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V28", version);
-                if (!ColumnExists(conn, "catalog_items", "videos_json"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN videos_json TEXT;");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (28);");
-                _logger.LogInformation("[InfiniteDrive] Schema V28 migration complete");
-                version = 28;
-            }
-
-            if (version < 29)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V29", version);
-                if (!ColumnExists(conn, "catalog_items", "episodes_expanded"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN episodes_expanded INTEGER;");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (29);");
-                _logger.LogInformation("[InfiniteDrive] Schema V29 migration complete");
-                version = 29;
-            }
-
-            if (version < 30)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V30", version);
-                if (!ColumnExists(conn, "catalog_items", "last_verified_at"))
-                    ExecuteInline(conn, "ALTER TABLE catalog_items ADD COLUMN last_verified_at INTEGER;");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (30);");
-                _logger.LogInformation("[InfiniteDrive] Schema V30 migration complete (last_verified_at added)");
-                version = 30;
-            }
-
-            // ── V30 → V31: External list providers — relax user_catalogs constraints ────
-            if (version < 31)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V31", version);
-
-                // SQLite cannot ALTER CHECK constraints — rebuild the table.
-                if (TableExists(conn, "user_catalogs"))
-                {
-                    ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS user_catalogs_v31 (
-    id                 TEXT PRIMARY KEY,
-    owner_user_id      TEXT NOT NULL,
-    source_type        TEXT NOT NULL DEFAULT 'external_list',
-    service            TEXT NOT NULL,
-    list_url           TEXT NOT NULL,
-    display_name       TEXT NOT NULL,
-    active             INTEGER NOT NULL DEFAULT 1,
-    last_synced_at     TEXT,
-    last_sync_status   TEXT,
-    created_at         TEXT NOT NULL
-);");
-                    ExecuteInline(conn, @"
-INSERT OR IGNORE INTO user_catalogs_v31
-    (id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at)
-SELECT id, owner_user_id, 'external_list', service, rss_url, display_name, active, last_synced_at, last_sync_status, created_at
-FROM user_catalogs;");
-                    ExecuteInline(conn, "DROP TABLE IF EXISTS user_catalogs;");
-                    ExecuteInline(conn, "ALTER TABLE user_catalogs_v31 RENAME TO user_catalogs;");
-                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_catalogs_owner ON user_catalogs(owner_user_id);");
-                    ExecuteInline(conn, "CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHERE active = 1;");
-                    ExecuteInline(conn, "CREATE UNIQUE INDEX IF NOT EXISTS idx_user_catalogs_owner_url ON user_catalogs(owner_user_id, list_url);");
-                }
-
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (31);");
-                _logger.LogInformation("[InfiniteDrive] Schema V31 migration complete (external list providers)");
-                version = 31;
-            }
-
-            // ── V31 → V32: Language tracking on stream candidates ────
-            if (version < 32)
-            {
-                _logger.LogInformation("[InfiniteDrive] Migrating schema V{From} → V32", version);
-                if (!ColumnExists(conn, "stream_candidates", "languages"))
-                    ExecuteInline(conn, "ALTER TABLE stream_candidates ADD COLUMN languages TEXT;");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO schema_version (version) VALUES (32);");
-                _logger.LogInformation("[InfiniteDrive] Schema V32 migration complete (languages column)");
-                version = 32;
-            }
-            }
-
-            // ── Safeguard: Ensure discover_catalog exists (for schema > 14 compatibility) ──
-            // If database is at version > 14 (from older builds), migration won't run above.
-            // This ensures discover_catalog exists regardless of schema version.
-            if (!TableExists(conn, "discover_catalog"))
-            {
-                _logger.LogInformation("[InfiniteDrive] discover_catalog missing — creating safeguard copy");
-                ExecuteInline(conn, @"
+-- ── discover_catalog ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS discover_catalog (
     id                  TEXT PRIMARY KEY,
     imdb_id             TEXT NOT NULL,
@@ -3797,139 +2916,52 @@ CREATE TABLE IF NOT EXISTS discover_catalog (
     certification       TEXT,
     added_at            TEXT NOT NULL,
     updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_discover_imdb
-    ON discover_catalog(imdb_id);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_discover_source
-    ON discover_catalog(catalog_source);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_discover_in_library
-    ON discover_catalog(is_in_user_library);");
-                ExecuteInline(conn, @"
-CREATE VIRTUAL TABLE IF NOT EXISTS discover_catalog_fts
-USING fts5(title, content=discover_catalog, content_rowid=rowid);");
-                ExecuteInline(conn, @"
-CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_insert
-AFTER INSERT ON discover_catalog BEGIN
-  INSERT INTO discover_catalog_fts(rowid, title)
-  VALUES (new.rowid, new.title);
-END;");
-                ExecuteInline(conn, @"
-CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_update
-AFTER UPDATE ON discover_catalog BEGIN
-  INSERT INTO discover_catalog_fts(discover_catalog_fts, rowid, title)
-  VALUES('delete', old.rowid, old.title);
-  INSERT INTO discover_catalog_fts(rowid, title)
-  VALUES (new.rowid, new.title);
-END;");
-                ExecuteInline(conn, @"
-CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_delete
-AFTER DELETE ON discover_catalog BEGIN
-  INSERT INTO discover_catalog_fts(discover_catalog_fts, rowid, title)
-  VALUES('delete', old.rowid, old.title);
-END;");
-            }
+);
+CREATE INDEX IF NOT EXISTS idx_discover_imdb ON discover_catalog(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_discover_source ON discover_catalog(catalog_source);
+CREATE INDEX IF NOT EXISTS idx_discover_in_library ON discover_catalog(is_in_user_library);
+CREATE VIRTUAL TABLE IF NOT EXISTS discover_catalog_fts USING fts5(title, content=discover_catalog, content_rowid=rowid);
+CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_insert AFTER INSERT ON discover_catalog BEGIN
+  INSERT INTO discover_catalog_fts(rowid, title) VALUES (new.rowid, new.title);
+END;
+CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_update AFTER UPDATE ON discover_catalog BEGIN
+  INSERT INTO discover_catalog_fts(discover_catalog_fts, rowid, title) VALUES('delete', old.rowid, old.title);
+  INSERT INTO discover_catalog_fts(rowid, title) VALUES (new.rowid, new.title);
+END;
+CREATE TRIGGER IF NOT EXISTS discover_catalog_fts_delete AFTER DELETE ON discover_catalog BEGIN
+  INSERT INTO discover_catalog_fts(discover_catalog_fts, rowid, title) VALUES('delete', old.rowid, old.title);
+END;
 
-            // ── Safeguard: Ensure sources and collections tables exist (Sprint 116+) ──
-            if (!TableExists(conn, "sources"))
-            {
-                _logger.LogInformation("[InfiniteDrive] sources table missing — creating");
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS sources (
-    id                  TEXT PRIMARY KEY,
-    name                TEXT NOT NULL,
-    url                 TEXT,
-    type                TEXT NOT NULL CHECK(type IN ('BuiltIn', 'Aio', 'UserRss')),
-    enabled             INTEGER NOT NULL DEFAULT 1,
-    show_as_collection   INTEGER NOT NULL DEFAULT 0,
-    max_items           INTEGER NOT NULL DEFAULT 100,
-    sync_interval_hours  INTEGER NOT NULL DEFAULT 6,
-    last_synced_at      TEXT,
-    emby_collection_id  TEXT,
-    collection_name      TEXT,
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_sources_enabled
-    ON sources(enabled);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_sources_show_as_collection
-    ON sources(show_as_collection);");
-            }
+-- ── collection_membership ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS collection_membership (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    collection_name     TEXT NOT NULL,
+    emby_item_id        TEXT NOT NULL,
+    source              TEXT NOT NULL,
+    last_seen           TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(collection_name, emby_item_id)
+);
 
-            if (!TableExists(conn, "collections"))
-            {
-                _logger.LogInformation("[InfiniteDrive] collections table missing — creating");
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS collections (
-    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    source_id           TEXT NOT NULL,
-    name                TEXT NOT NULL,
-    emby_collection_id  TEXT,
-    collection_name      TEXT,
-    last_synced_at      TEXT,
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_collections_source_id
-    ON collections(source_id);");
-            }
+-- ── plugin_metadata ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS plugin_metadata (
+    key   TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 
-            // ── Safeguard: Ensure log tables exist (Sprint 120+) ──
-            if (!TableExists(conn, "item_pipeline_log"))
-            {
-                _logger.LogInformation("[InfiniteDrive] item_pipeline_log table missing — creating");
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS item_pipeline_log (
-    primary_id       TEXT NOT NULL,
-    primary_id_type  TEXT NOT NULL,
-    media_type       TEXT NOT NULL,
-    phase            TEXT NOT NULL,
-    trigger          TEXT NOT NULL,
-    success          INTEGER NOT NULL,
-    details          TEXT,
-    timestamp         TEXT NOT NULL DEFAULT (datetime('now'))
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_pipeline_timestamp
-    ON item_pipeline_log(timestamp);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_pipeline_primary_id
-    ON item_pipeline_log(primary_id);");
-            }
+-- ── home_section_tracking ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS home_section_tracking (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL,
+    rail_type       TEXT NOT NULL,
+    emby_section_id TEXT,
+    section_marker  TEXT NOT NULL,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE(user_id, rail_type)
+);
 
-            if (!TableExists(conn, "stream_resolution_log"))
-            {
-                _logger.LogInformation("[InfiniteDrive] stream_resolution_log table missing — creating");
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS stream_resolution_log (
-    primary_id       TEXT NOT NULL,
-    primary_id_type  TEXT NOT NULL,
-    media_type       TEXT NOT NULL,
-    media_id         TEXT NOT NULL,
-    stream_count     INTEGER NOT NULL,
-    selected_stream   TEXT,
-    duration_ms      INTEGER NOT NULL,
-    timestamp        TEXT NOT NULL DEFAULT (datetime('now'))
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_resolution_timestamp
-    ON stream_resolution_log(timestamp);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_resolution_primary_id
-    ON stream_resolution_log(primary_id);");
-            }
-
-            // ── Safeguard: Ensure versioned playback tables exist (Sprint 122+) ──
-            if (!TableExists(conn, "version_slots"))
-            {
-                _logger.LogInformation("[InfiniteDrive] version_slots table missing — creating and seeding");
-                ExecuteInline(conn, @"
+-- ── version_slots ───────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS version_slots (
     slot_key        TEXT PRIMARY KEY,
     label           TEXT NOT NULL,
@@ -3942,25 +2974,122 @@ CREATE TABLE IF NOT EXISTS version_slots (
     sort_order      INTEGER NOT NULL DEFAULT 0,
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
-);");
-                // Seed using ExecuteInline per row (same as V22 migration)
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_broad', 'HD · Broad', '1080p', 'h264', '', 'dd_plus_51,dd_51,aac_stereo', 1, 1, 0);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('best_available', 'Best Available', 'highest', 'any', 'any', 'atmos,dd_plus_71,dd_plus_51,dd_51', 0, 0, 1);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_dv', '4K · Dolby Vision', '2160p', 'hevc,av1', 'dv', 'atmos,dd_plus_71,dd_plus_51', 0, 0, 2);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_hdr', '4K · HDR', '2160p', 'hevc,av1', 'hdr10', 'atmos,dd_plus_51,dd_51', 0, 0, 3);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('4k_sdr', '4K · SDR', '2160p', 'hevc,av1', '', 'dd_plus_51,dd_51,aac', 0, 0, 4);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_efficient', 'HD · Efficient', '1080p', 'hevc', '', 'dd_plus_51,aac_stereo', 0, 0, 5);");
-                ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('compact', 'Compact', '720p', 'h264', '', 'aac,dd', 0, 0, 6);");
-                _logger.LogInformation("[InfiniteDrive] Seeded 7 version slots (hd_broad enabled + default)");
-            }
+);
 
-            // Always ensure hd_broad exists as the default enabled slot
-            ExecuteInline(conn, "INSERT OR IGNORE INTO version_slots (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order) VALUES ('hd_broad', 'HD · Broad', '1080p', 'h264', '', 'dd_plus_51,dd_51,aac_stereo', 1, 1, 0);");
+-- ── ingestion_state ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS ingestion_state (
+    source_id      TEXT PRIMARY KEY,
+    last_poll_at   TEXT,
+    last_found_at  TEXT,
+    watermark      TEXT
+);
 
-            if (!TableExists(conn, "candidates"))
-            {
-                _logger.LogInformation("[InfiniteDrive] candidates table missing — creating");
-                ExecuteInline(conn, @"
+-- ── refresh_run_log ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS refresh_run_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    worker          TEXT NOT NULL,
+    step            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'started',
+    items_affected  INTEGER DEFAULT 0,
+    notes           TEXT
+);
+
+-- ── media_items ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS media_items (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    primary_id_type     TEXT NOT NULL,
+    primary_id          TEXT NOT NULL,
+    media_type          TEXT NOT NULL CHECK (media_type IN ('movie','series')),
+    title               TEXT NOT NULL,
+    year                INTEGER,
+    status              TEXT NOT NULL CHECK (status IN ('known','resolved','hydrated','created','indexed','active','failed','deleted')),
+    failure_reason      TEXT CHECK (failure_reason IN ('none','no_streams_found','metadata_fetch_failed','file_write_error','emby_index_timeout','digital_release_gate','blocked')),
+    saved               INTEGER NOT NULL DEFAULT 0,
+    saved_at            TEXT,
+    blocked             INTEGER NOT NULL DEFAULT 0,
+    blocked_at          TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    grace_started_at    TEXT,
+    superseded          INTEGER NOT NULL DEFAULT 0,
+    superseded_conflict INTEGER NOT NULL DEFAULT 0,
+    superseded_at       TEXT,
+    emby_item_id        TEXT,
+    emby_indexed_at     TEXT,
+    strm_path           TEXT,
+    nfo_path            TEXT,
+    watch_progress_pct  INTEGER NOT NULL DEFAULT 0,
+    favorited           INTEGER NOT NULL DEFAULT 0
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_items_primary ON media_items(primary_id_type, primary_id);
+CREATE INDEX IF NOT EXISTS idx_media_items_status ON media_items(status);
+CREATE INDEX IF NOT EXISTS idx_media_items_saved ON media_items(saved);
+CREATE INDEX IF NOT EXISTS idx_media_items_blocked ON media_items(blocked);
+CREATE INDEX IF NOT EXISTS idx_media_items_emby_id ON media_items(emby_item_id) WHERE emby_item_id IS NOT NULL;
+
+-- ── media_item_ids ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS media_item_ids (
+    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    media_item_id TEXT NOT NULL,
+    id_type     TEXT NOT NULL CHECK (id_type IN ('tmdb','imdb','tvdb','anilist','anidb','kitsu')),
+    id_value    TEXT NOT NULL,
+    is_primary  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_media_item_ids_item ON media_item_ids(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_media_item_ids_type_value ON media_item_ids(id_type, id_value);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_media_item_ids_unique ON media_item_ids(media_item_id, id_type, id_value);
+
+-- ── source_memberships ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS source_memberships (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    source_id       TEXT NOT NULL,
+    media_item_id   TEXT NOT NULL,
+    user_catalog_id TEXT,
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE,
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (source_id, media_item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_source_memberships_source ON source_memberships(source_id);
+CREATE INDEX IF NOT EXISTS idx_source_memberships_item ON source_memberships(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_source_memberships_user_catalog ON source_memberships(user_catalog_id);
+
+-- ── sources ─────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS sources (
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    url                 TEXT,
+    type                TEXT NOT NULL CHECK(type IN ('BuiltIn', 'Aio', 'UserRss')),
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    show_as_collection  INTEGER NOT NULL DEFAULT 0,
+    max_items           INTEGER NOT NULL DEFAULT 100,
+    sync_interval_hours INTEGER NOT NULL DEFAULT 6,
+    last_synced_at      TEXT,
+    emby_collection_id  TEXT,
+    collection_name     TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_sources_enabled ON sources(enabled);
+
+-- ── collections ─────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS collections (
+    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    source_id           TEXT NOT NULL,
+    name                TEXT NOT NULL,
+    emby_collection_id  TEXT,
+    collection_name     TEXT,
+    last_synced_at      TEXT,
+    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_collections_source_id ON collections(source_id);
+
+-- ── candidates ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS candidates (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     media_item_id   TEXT NOT NULL,
@@ -3987,25 +3116,13 @@ CREATE TABLE IF NOT EXISTS candidates (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     expires_at      TEXT NOT NULL,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_item_slot
-    ON candidates(media_item_id, slot_key, rank);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_fingerprint
-    ON candidates(fingerprint);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_candidates_expires
-    ON candidates(expires_at);");
-                ExecuteInline(conn, @"
-CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_unique
-    ON candidates(media_item_id, slot_key, fingerprint);");
-            }
+);
+CREATE INDEX IF NOT EXISTS idx_candidates_item_slot ON candidates(media_item_id, slot_key, rank);
+CREATE INDEX IF NOT EXISTS idx_candidates_fingerprint ON candidates(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_candidates_expires ON candidates(expires_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_unique ON candidates(media_item_id, slot_key, fingerprint);
 
-            if (!TableExists(conn, "version_snapshots"))
-            {
-                _logger.LogInformation("[InfiniteDrive] version_snapshots table missing — creating");
-                ExecuteInline(conn, @"
+-- ── version_snapshots ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS version_snapshots (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     media_item_id   TEXT NOT NULL,
@@ -4017,16 +3134,10 @@ CREATE TABLE IF NOT EXISTS version_snapshots (
     playback_url_expires_at TEXT,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     UNIQUE (media_item_id, slot_key)
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_snapshots_item
-    ON version_snapshots(media_item_id);");
-            }
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_item ON version_snapshots(media_item_id);
 
-            if (!TableExists(conn, "materialized_versions"))
-            {
-                _logger.LogInformation("[InfiniteDrive] materialized_versions table missing — creating");
-                ExecuteInline(conn, @"
+-- ── materialized_versions ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS materialized_versions (
     id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
     media_item_id   TEXT NOT NULL,
@@ -4040,80 +3151,125 @@ CREATE TABLE IF NOT EXISTS materialized_versions (
     strm_token_expires_at INTEGER,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     UNIQUE (media_item_id, slot_key)
-);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_materialized_item
-    ON materialized_versions(media_item_id);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_materialized_slot
-    ON materialized_versions(slot_key);");
-                ExecuteInline(conn, @"
-CREATE INDEX IF NOT EXISTS idx_materialized_base
-    ON materialized_versions(is_base) WHERE is_base = 1;");
-            }
+);
+CREATE INDEX IF NOT EXISTS idx_materialized_item ON materialized_versions(media_item_id);
+CREATE INDEX IF NOT EXISTS idx_materialized_slot ON materialized_versions(slot_key);
+CREATE INDEX IF NOT EXISTS idx_materialized_base ON materialized_versions(is_base) WHERE is_base = 1;
 
-            // ── Safeguard: Ensure plugin_metadata table exists (Sprint 102A+) ──
-            if (!TableExists(conn, "plugin_metadata"))
+-- ── item_pipeline_log ──────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS item_pipeline_log (
+    primary_id       TEXT NOT NULL,
+    primary_id_type  TEXT NOT NULL,
+    media_type       TEXT NOT NULL,
+    phase            TEXT NOT NULL,
+    trigger          TEXT NOT NULL,
+    success          INTEGER NOT NULL,
+    details          TEXT,
+    timestamp        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_pipeline_timestamp ON item_pipeline_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_pipeline_primary_id ON item_pipeline_log(primary_id);
+
+-- ── stream_resolution_log ──────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS stream_resolution_log (
+    primary_id       TEXT NOT NULL,
+    primary_id_type  TEXT NOT NULL,
+    media_type       TEXT NOT NULL,
+    media_id         TEXT NOT NULL,
+    stream_count     INTEGER NOT NULL,
+    selected_stream  TEXT,
+    duration_ms      INTEGER NOT NULL,
+    timestamp        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_resolution_timestamp ON stream_resolution_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_resolution_primary_id ON stream_resolution_log(primary_id);
+
+-- ── user_catalogs ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_catalogs (
+    id                 TEXT PRIMARY KEY,
+    owner_user_id      TEXT NOT NULL,
+    source_type        TEXT NOT NULL DEFAULT 'external_list',
+    service            TEXT NOT NULL,
+    list_url           TEXT NOT NULL,
+    display_name       TEXT NOT NULL,
+    active             INTEGER NOT NULL DEFAULT 1,
+    last_synced_at     TEXT,
+    last_sync_status   TEXT,
+    created_at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_catalogs_owner ON user_catalogs(owner_user_id);
+CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHERE active = 1;
+
+-- ── user_item_saves ─────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS user_item_saves (
+    id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    user_id       TEXT NOT NULL,
+    media_item_id TEXT NOT NULL,
+    save_reason   TEXT CHECK (save_reason IN ('explicit','watched_episode','admin_override')),
+    saved_season  INTEGER,
+    saved_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
+    UNIQUE (user_id, media_item_id)
+);
+CREATE INDEX IF NOT EXISTS idx_user_saves_user ON user_item_saves(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_saves_item ON user_item_saves(media_item_id);
+
+-- ── stream_cache ────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS stream_cache (
+    media_id      TEXT PRIMARY KEY NOT NULL,
+    url           TEXT NOT NULL,
+    url_secondary TEXT,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_cache_expires ON stream_cache(expires_at);
+";
+            foreach (var statement in ddl.Split(';'))
             {
-                _logger.LogInformation("[InfiniteDrive] plugin_metadata table missing — creating");
-                ExecuteInline(conn, @"
-CREATE TABLE IF NOT EXISTS plugin_metadata (
-    key   TEXT PRIMARY KEY NOT NULL,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);");
+                var sql = statement.Trim();
+                if (!string.IsNullOrEmpty(sql))
+                    conn.Execute(sql);
             }
 
-            _logger.LogDebug("[InfiniteDrive] Schema at version {Version}", version);
+            // Seed version_slots
+            SeedVersionSlots(conn);
+
+            _logger.LogInformation("[InfiniteDrive] Schema created successfully");
         }
 
-        /// <summary>
-        /// Check if a table exists in the database.
-        /// </summary>
-        private static bool TableExists(IDatabaseConnection conn, string tableName)
+        private void SeedVersionSlots(IDatabaseConnection conn)
         {
-            try
+            var slots = new (string Key, string Label, string Resolution, string VideoCodecs, string HdrClasses, string AudioPreferences, int Enabled, int IsDefault, int SortOrder)[]
             {
-                using var stmt = conn.PrepareStatement(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=@name;");
-                stmt.BindParameters["@name"].Bind(tableName);
-                foreach (var _ in stmt.AsRows())
-                    return true;
-                return false;
-            }
-            catch
-            {
-                return false;
-            }
-        }
+                ("hd_broad",       "HD · Broad",       "1080p", "h264", "",    "dd_plus_51,dd_51,aac_stereo",        1, 1, 0),
+                ("best_available", "Best Available",    "highest", "any", "any", "atmos,dd_plus_71,dd_plus_51,dd_51", 0, 0, 1),
+                ("4k_dv",          "4K · Dolby Vision", "2160p", "hevc,av1", "dv",   "atmos,dd_plus_71,dd_plus_51",     0, 0, 2),
+                ("4k_hdr",         "4K · HDR",          "2160p", "hevc,av1", "hdr10","atmos,dd_plus_51,dd_51",          0, 0, 3),
+                ("4k_sdr",         "4K · SDR",          "2160p", "hevc,av1", "",    "dd_plus_51,dd_51,aac",             0, 0, 4),
+                ("hd_efficient",   "HD · Efficient",    "1080p", "hevc",     "",    "dd_plus_51,aac_stereo",            0, 0, 5),
+                ("compact",        "Compact",           "720p",  "h264",     "",    "aac,dd",                           0, 0, 6),
+            };
 
-        /// <summary>
-        /// Check if a column exists in a table. Used to make migrations idempotent.
-        /// </summary>
-        private static bool ColumnExists(IDatabaseConnection conn, string tableName, string columnName)
-        {
-            try
-            {
-                // PRAGMA table_info returns one row per column with: cid, name, type, notnull, dflt_value, pk
-                using var stmt = conn.PrepareStatement($"PRAGMA table_info('{tableName}');");
-                foreach (var row in stmt.AsRows())
-                {
-                    if (!row.IsDBNull(1) && string.Equals(row.GetString(1), columnName, StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
-                return false;
-            }
-            catch
-            {
-                return false;
-            }
-        }
+            const string sql = @"
+                INSERT OR IGNORE INTO version_slots
+                    (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order)
+                VALUES
+                    (@slot_key, @label, @resolution, @video_codecs, @hdr_classes, @audio_preferences, @enabled, @is_default, @sort_order)";
 
-        private static int GetSchemaVersion(IDatabaseConnection conn)
-        {
-            using var stmt = conn.PrepareStatement("SELECT MAX(version) FROM schema_version;");
-            foreach (var row in stmt.AsRows()) return row.IsDBNull(0) ? 0 : row.GetInt(0);
-            return 0;
+            foreach (var slot in slots)
+            {
+                using var stmt = conn.PrepareStatement(sql);
+                stmt.BindParameters["@slot_key"].Bind(slot.Key);
+                stmt.BindParameters["@label"].Bind(slot.Label);
+                stmt.BindParameters["@resolution"].Bind(slot.Resolution);
+                stmt.BindParameters["@video_codecs"].Bind(slot.VideoCodecs);
+                stmt.BindParameters["@hdr_classes"].Bind(slot.HdrClasses);
+                stmt.BindParameters["@audio_preferences"].Bind(slot.AudioPreferences);
+                stmt.BindParameters["@enabled"].Bind(slot.Enabled);
+                stmt.BindParameters["@is_default"].Bind(slot.IsDefault);
+                stmt.BindParameters["@sort_order"].Bind(slot.SortOrder);
+                while (stmt.MoveNext()) { }
+            }
         }
 
         // ── Private: integrity check ────────────────────────────────────────────
@@ -4640,47 +3796,111 @@ LIMIT 1";
             };
         }
 
-        // ── Private: row mappers ────────────────────────────────────────────────
+        // ── Private: column maps + row mappers ──────────────────────────────────
 
-        private static CatalogItem ReadCatalogItem(IResultSet r) => new CatalogItem
+        /// <summary>
+        /// Populates column-name-to-index maps for all tables via PRAGMA table_info.
+        /// Called once during Initialise(). SELECT * returns columns in this order.
+        /// </summary>
+        private static void BuildColumnMaps(IDatabaseConnection conn)
         {
-            Id                = r.GetString(0),
-            ImdbId            = r.GetString(1),
-            TmdbId            = r.IsDBNull(2)  ? null : r.GetString(2),
-            Title             = r.GetString(4),
-            Year              = r.IsDBNull(5)  ? null : r.GetInt(5),
-            MediaType         = r.GetString(6),
-            Source            = r.GetString(7),
-            SourceListId      = r.IsDBNull(8)  ? null : r.GetString(8),
-            SeasonsJson       = r.IsDBNull(9)  ? null : r.GetString(9),
-            StrmPath          = r.IsDBNull(10) ? null : r.GetString(10),
-            AddedAt           = r.GetString(11),
-            UpdatedAt         = r.GetString(12),
-            RemovedAt         = r.IsDBNull(13) ? null : r.GetString(13),
-            LocalPath         = r.IsDBNull(14) ? null : r.GetString(14),
-            LocalSource       = r.IsDBNull(15) ? null : r.GetString(15),
-            ResurrectionCount = r.IsDBNull(16) ? 0    : r.GetInt(16),
-            ItemState         = r.IsDBNull(17) ? ItemState.Catalogued : (ItemState)r.GetInt(17),
-            PinSource         = r.IsDBNull(18) ? null : r.GetString(18),
-            PinnedAt          = r.IsDBNull(19) ? null : r.GetString(19),
-            UniqueIdsJson     = r.IsDBNull(20) ? null : r.GetString(20),
-            NfoStatus         = r.IsDBNull(21) ? null : r.GetString(21),
-            RetryCount        = r.IsDBNull(22) ? 0    : r.GetInt(22),
-            NextRetryAt       = r.IsDBNull(23) ? (long?)null : r.GetInt64(23),
-            StrmTokenExpiresAt = r.IsDBNull(24) ? (long?)null : r.GetInt64(24),
-            BlockedAt         = r.IsDBNull(25) ? null : r.GetString(25),
-            BlockedBy         = r.IsDBNull(26) ? null : r.GetString(26),
-            FirstAddedByUserId = r.IsDBNull(27) ? null : r.GetString(27),
-            // Sprint 160: IdResolverService columns
-            TvdbId           = r.IsDBNull(28) ? null : r.GetString(28),
-            RawMetaJson      = r.IsDBNull(29) ? null : r.GetString(29),
-            CatalogType      = r.IsDBNull(30) ? null : r.GetString(30),
-            VideosJson       = r.IsDBNull(31) ? null : r.GetString(31),
-            // Sprint 301: Episode expansion tracking
-            EpisodesExpanded = r.IsDBNull(32) ? (bool?)null : r.GetInt(32) == 1,
-            // Sprint 302: Marvin sync safety
-            LastVerifiedAt = r.IsDBNull(33) ? (long?)null : r.GetInt64(33),
-        };
+            foreach (var table in new[]
+            {
+                Tables.CatalogItems, Tables.ResolutionCache, Tables.StreamCandidates,
+                Tables.PlaybackLog, Tables.ClientCompat, Tables.SyncState,
+                "discover_catalog", "materialized_versions", "user_catalogs",
+                "media_items", "sources", "collection_membership"
+            })
+            {
+                try
+                {
+                    var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                    using var stmt = conn.PrepareStatement($"PRAGMA table_info('{table}');");
+                    foreach (var row in stmt.AsRows())
+                    {
+                        // PRAGMA table_info columns: 0=cid, 1=name, 2=type, 3=notnull, 4=dflt, 5=pk
+                        var name = row.GetString(1);
+                        var cid = row.GetInt(0);
+                        map[name] = cid;
+                    }
+                    if (map.Count > 0)
+                        _columnMaps[table] = map;
+                }
+                catch
+                {
+                    // Table may not exist yet — skip
+                }
+            }
+        }
+
+        private static Dictionary<string, int> ColMap(string table)
+            => _columnMaps.TryGetValue(table, out var m) ? m
+               : throw new InvalidOperationException($"No column map for table '{table}'. Call BuildColumnMaps first.");
+
+        private static string? GetStr(Dictionary<string, int> map, IResultSet r, string col)
+            => map.TryGetValue(col, out var i) && !r.IsDBNull(i) ? r.GetString(i) : null;
+
+        private static string GetReqStr(Dictionary<string, int> map, IResultSet r, string col)
+            => r.GetString(map[col]);
+
+        private static int? GetInt(Dictionary<string, int> map, IResultSet r, string col)
+            => map.TryGetValue(col, out var i) && !r.IsDBNull(i) ? r.GetInt(i) : null;
+
+        private static int GetReqInt(Dictionary<string, int> map, IResultSet r, string col)
+            => r.GetInt(map[col]);
+
+        private static long? GetLong(Dictionary<string, int> map, IResultSet r, string col)
+            => map.TryGetValue(col, out var i) && !r.IsDBNull(i) ? r.GetInt64(i) : null;
+
+        private static bool? GetBool(Dictionary<string, int> map, IResultSet r, string col)
+            => map.TryGetValue(col, out var i) && !r.IsDBNull(i) ? r.GetInt(i) == 1 : null;
+
+        private static double? GetDouble(Dictionary<string, int> map, IResultSet r, string col)
+            => map.TryGetValue(col, out var i) && !r.IsDBNull(i) ? r.GetDouble(i) : null;
+
+        private static CatalogItem ReadCatalogItem(IResultSet r)
+        {
+            var m = ColMap(Tables.CatalogItems);
+            return new CatalogItem
+            {
+                Id                = GetReqStr(m, r, "id"),
+                ImdbId            = GetReqStr(m, r, "imdb_id"),
+                TmdbId            = GetStr(m, r, "tmdb_id"),
+                Title             = GetReqStr(m, r, "title"),
+                Year              = GetInt(m, r, "year"),
+                MediaType         = GetReqStr(m, r, "media_type"),
+                Source            = GetReqStr(m, r, "source"),
+                SourceListId      = GetStr(m, r, "source_list_id"),
+                SeasonsJson       = GetStr(m, r, "seasons_json"),
+                StrmPath          = GetStr(m, r, "strm_path"),
+                AddedAt           = GetReqStr(m, r, "added_at"),
+                UpdatedAt         = GetReqStr(m, r, "updated_at"),
+                RemovedAt         = GetStr(m, r, "removed_at"),
+                LocalPath         = GetStr(m, r, "local_path"),
+                LocalSource       = GetStr(m, r, "local_source"),
+                ResurrectionCount = GetInt(m, r, "resurrection_count") ?? 0,
+                ItemState         = GetInt(m, r, "item_state") is int s ? (ItemState)s : ItemState.Catalogued,
+                PinSource         = GetStr(m, r, "pin_source"),
+                PinnedAt          = GetStr(m, r, "pinned_at"),
+                UniqueIdsJson     = GetStr(m, r, "unique_ids_json"),
+                NfoStatus         = GetStr(m, r, "nfo_status"),
+                RetryCount        = GetInt(m, r, "retry_count") ?? 0,
+                NextRetryAt       = GetLong(m, r, "next_retry_at"),
+                StrmTokenExpiresAt = GetLong(m, r, "strm_token_expires_at"),
+                BlockedAt         = GetStr(m, r, "blocked_at"),
+                BlockedBy         = GetStr(m, r, "blocked_by"),
+                FirstAddedByUserId = GetStr(m, r, "first_added_by_user_id"),
+                TvdbId            = GetStr(m, r, "tvdb_id"),
+                RawMetaJson       = GetStr(m, r, "raw_meta_json"),
+                CatalogType       = GetStr(m, r, "catalog_type"),
+                VideosJson        = GetStr(m, r, "videos_json"),
+                EpisodesExpanded  = GetBool(m, r, "episodes_expanded"),
+                LastVerifiedAt    = GetLong(m, r, "last_verified_at"),
+            };
+        }
+
+        // These mappers use queries with explicit column lists — positional is safe.
+        // Name-based lookup is only used with SELECT * queries (ReadCatalogItem).
 
         private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry
         {
@@ -4731,7 +3951,8 @@ LIMIT 1";
             FileIdx     = r.IsDBNull(18) ? null : r.GetInt(18),
             StreamKey   = r.IsDBNull(19) ? null : r.GetString(19),
             BingeGroup  = r.IsDBNull(20) ? null : r.GetString(20),
-            Languages   = r.IsDBNull(21) ? null : r.GetString(21),
+            Languages     = r.IsDBNull(21) ? null : r.GetString(21),
+            SubtitlesJson = r.IsDBNull(22) ? null : r.GetString(22),
         };
 
         private static PlaybackEntry ReadPlaybackEntry(IResultSet r) => new PlaybackEntry
@@ -4779,6 +4000,7 @@ LIMIT 1";
             ItemsRunning        = r.IsDBNull(12) ? 0    : r.GetInt(12),
         };
 
+        // discover_catalog queries use explicit column lists — positional mapping is safe
         private static DiscoverCatalogEntry ReadDiscoverCatalogEntry(IResultSet r) => new DiscoverCatalogEntry
         {
             Id              = r.GetString(0),

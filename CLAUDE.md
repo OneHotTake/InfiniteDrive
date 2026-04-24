@@ -41,6 +41,31 @@ dotnet build -c Release
 
 High-risk files (require human review): Plugin.cs, DatabaseManager.cs, any auth/resolution code.
 
+## Database Layer Architecture (Enforced)
+
+### JSON-First Pattern
+- `raw_meta_json` column is the source of truth for rich metadata (images, cast, genres, etc.)
+- Prefer targeted queries (`SELECT raw_meta_json FROM ...`) over full-row mappers when only JSON data is needed
+- `GetRawMetaJsonByProviderIdAsync()` is the canonical lookup — bypasses the row mapper entirely
+
+### Schema Policy (Alpha)
+- This is alpha code → no schema evolution / migrations allowed.
+- Only a single `CREATE TABLE IF NOT EXISTS` with bare-minimum columns + JSON fields.
+- All schema changes must be manual and destructive (drop & recreate is fine).
+- Never re-introduce `MigrateSchema`, `ALTER TABLE`, version tables, or positional column handling.
+
+### Row Mapper Rules
+- **`SELECT *` queries**: MUST use name-based column lookup via `ColMap(table)` + `GetStr/GetReqStr/GetInt/...` helpers. Column order depends on DDL and is not stable.
+- **Explicit column list queries** (`SELECT id, imdb_id, ...`): Positional indexing (`r.GetString(0)`) is safe because the column order is controlled by the query text.
+- **Never add a new column** to a `SELECT *` query's table without verifying the name-based mapper picks it up automatically.
+- **Never share a mapper** between queries with different column lists.
+
+### SQL Provider Matching
+- Always use `lower()` on BOTH sides of provider/id comparisons:
+  ```sql
+  WHERE lower(json_extract(value, '$.provider')) = lower(@provider)
+  ```
+
 ## Sprint Planning (Token-Optimized)
 
 ALWAYS start from .ai/SPRINT_TEMPLATE.md (the new 38-line version).
