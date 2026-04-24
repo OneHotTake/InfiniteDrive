@@ -349,8 +349,9 @@ namespace InfiniteDrive.Services
                 IsInfiniteStream = false,
             };
 
-            // Build audio MediaStreams from stored languages + subtitles from JSON
-            var streams = BuildMediaStreamsFromLanguages(candidate.Languages);
+            // Build MediaStreams from stored languages + subtitles from JSON
+            var streams = BuildMediaStreamsFromLanguages(
+                candidate.Languages, candidate.QualityTier, candidate.BitrateKbps);
             AppendSubtitlesFromJson(streams, candidate.SubtitlesJson);
             source.MediaStreams = streams;
 
@@ -361,33 +362,58 @@ namespace InfiniteDrive.Services
         {
             var streams = new List<MediaStream>();
 
-            // Audio streams from parsed languages
-            if (stream.ParsedFile?.Languages?.Count > 0)
+            // Canonical source of truth: CandidateNormalizer's three-tier parser
+            var tech = CandidateNormalizer.ParseTechnicalMetadata(stream);
+            var langs = CandidateNormalizer.ResolveLanguages(stream);
+
+            var videoCodec = tech.VideoCodec ?? "hevc";
+            var audioCodec = tech.AudioCodec ?? "aac";
+            var channelLayout = tech.AudioChannels ?? "stereo";
+            var channelCount = channelLayout switch
             {
-                for (int i = 0; i < stream.ParsedFile.Languages.Count; i++)
+                "7.1" => 8,
+                "6.1" => 7,
+                "5.1" => 6,
+                _ => 2
+            };
+
+            // Video stream — required for Emby to show audio/subtitle pickers
+            streams.Add(new MediaStream
+            {
+                Type      = MediaStreamType.Video,
+                Index     = 0,
+                Codec     = videoCodec,
+                Language  = "und",
+                IsDefault = true,
+            });
+            if (stream.Bitrate.HasValue && stream.Bitrate.Value > 0)
+                streams[0].BitRate = (int)(stream.Bitrate.Value / 1000);
+
+            // Audio streams
+            for (int i = 0; i < langs.Count; i++)
+            {
+                var lang = langs[i];
+                var title = lang;
+                if (channelLayout != "stereo")
+                    title += $" - {channelLayout}";
+                if (audioCodec != "aac")
+                    title += $" {audioCodec.ToUpperInvariant()}";
+
+                streams.Add(new MediaStream
                 {
-                    var lang = stream.ParsedFile.Languages[i];
-                    var channels = stream.ParsedFile.Channels;
-                    var audioTags = stream.ParsedFile.AudioTags;
-
-                    var title = lang;
-                    if (!string.IsNullOrEmpty(channels))
-                        title += $" - {channels}";
-                    if (audioTags?.Count > 0)
-                        title += $" {string.Join(" ", audioTags)}";
-
-                    streams.Add(new MediaStream
-                    {
-                        Type = MediaStreamType.Audio,
-                        Language = lang,
-                        Title = title.Trim(),
-                        IsDefault = i == 0,
-                        Index = streams.Count,
-                    });
-                }
+                    Type          = MediaStreamType.Audio,
+                    Language      = lang,
+                    Title         = title.Trim(),
+                    DisplayTitle  = title.Trim(),
+                    Codec         = audioCodec,
+                    Channels      = channelCount,
+                    ChannelLayout = channelLayout,
+                    IsDefault     = i == 0,
+                    Index         = streams.Count,
+                });
             }
 
-            // Subtitle streams
+            // Subtitle streams (external from AIOStreams)
             if (stream.Subtitles?.Count > 0)
             {
                 foreach (var sub in stream.Subtitles)
@@ -415,9 +441,24 @@ namespace InfiniteDrive.Services
             return streams;
         }
 
-        private static List<MediaStream> BuildMediaStreamsFromLanguages(string? languages)
+        private static List<MediaStream> BuildMediaStreamsFromLanguages(string? languages,
+            string? qualityTier = null, int? bitrateKbps = null)
         {
             var streams = new List<MediaStream>();
+
+            // Video stream — required for Emby to show audio/subtitle pickers
+            streams.Add(new MediaStream
+            {
+                Type      = MediaStreamType.Video,
+                Index     = 0,
+                Codec     = qualityTier != null && (qualityTier.Contains("remux") || qualityTier.Contains("2160") || qualityTier.Contains("4k"))
+                                ? "hevc" : "h264",
+                Language  = "und",
+                IsDefault = true,
+            });
+            if (bitrateKbps.HasValue)
+                streams[0].BitRate = bitrateKbps.Value;
+
             if (string.IsNullOrEmpty(languages)) return streams;
 
             foreach (var lang in languages.Split(',', StringSplitOptions.RemoveEmptyEntries))
@@ -427,11 +468,12 @@ namespace InfiniteDrive.Services
 
                 streams.Add(new MediaStream
                 {
-                    Type = MediaStreamType.Audio,
-                    Language = trimmed,
-                    Title = trimmed,
-                    IsDefault = streams.Count == 0,
-                    Index = streams.Count,
+                    Type         = MediaStreamType.Audio,
+                    Language     = trimmed,
+                    Title        = trimmed,
+                    DisplayTitle = trimmed,
+                    IsDefault    = streams.Count == 1, // first after video
+                    Index        = streams.Count,
                 });
             }
 

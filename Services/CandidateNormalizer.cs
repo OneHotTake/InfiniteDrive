@@ -105,7 +105,7 @@ namespace InfiniteDrive.Services
             candidate.FileName = ResolveFileName(raw);
             candidate.FileSize = ResolveFileSize(raw);
             candidate.IsCached = raw.Service?.Cached ?? false;
-            candidate.Languages = ResolveLanguages(raw);
+            candidate.Languages = string.Join(",", ResolveLanguages(raw));
 
             // ── Three-tier technical metadata parsing ───────────────────────
             var tech = ParseTechnicalMetadata(raw);
@@ -130,7 +130,7 @@ namespace InfiniteDrive.Services
 
         // ── Three-tier parsing ─────────────────────────────────────────────────
 
-        private TechnicalMetadata ParseTechnicalMetadata(AioStreamsStream raw)
+        public static TechnicalMetadata ParseTechnicalMetadata(AioStreamsStream raw)
         {
             var tech = new TechnicalMetadata();
 
@@ -192,7 +192,7 @@ namespace InfiniteDrive.Services
 
         // ── Quality string parsing (Tiers 2 & 3) ──────────────────────────────
 
-        private static TechnicalMetadata ParseQualityString(string input)
+        public static TechnicalMetadata ParseQualityString(string input)
         {
             if (string.IsNullOrEmpty(input))
                 return new TechnicalMetadata();
@@ -272,7 +272,7 @@ namespace InfiniteDrive.Services
 
         // ── Video codec normalization ───────────────────────────────────────────
 
-        internal static string NormalizeVideoCodec(string raw)
+        public static string NormalizeVideoCodec(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return null;
             var lower = raw.Trim().ToLowerInvariant();
@@ -343,7 +343,7 @@ namespace InfiniteDrive.Services
 
         // ── Audio codec normalization ───────────────────────────────────────────
 
-        internal static string NormalizeAudioCodec(string raw)
+        public static string NormalizeAudioCodec(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return null;
             var lower = raw.Trim().ToLowerInvariant();
@@ -391,7 +391,7 @@ namespace InfiniteDrive.Services
 
         // ── Audio channels normalization ────────────────────────────────────────
 
-        internal static string NormalizeAudioChannels(string raw)
+        public static string NormalizeAudioChannels(string raw)
         {
             if (string.IsNullOrEmpty(raw)) return null;
             var lower = raw.Trim().ToLowerInvariant();
@@ -466,11 +466,46 @@ namespace InfiniteDrive.Services
                    ?? null;
         }
 
-        private static string ResolveLanguages(AioStreamsStream raw)
+        /// <summary>
+        /// Resolve language list from an AIOStreams stream.
+        /// Tier 1: <c>parsedFile.Languages</c> (structured).
+        /// Tier 2: extract ISO-639 tokens from <c>behaviorHints.filename</c>.
+        /// </summary>
+        public static List<string> ResolveLanguages(AioStreamsStream raw)
         {
+            // Tier 1: structured parsedFile
             if (raw.ParsedFile?.Languages?.Count > 0)
-                return string.Join(",", raw.ParsedFile.Languages);
-            return null;
+                return raw.ParsedFile.Languages;
+
+            // Tier 2: filename tokens
+            return ExtractLanguagesFromFilename(raw.BehaviorHints?.Filename);
+        }
+
+        private static readonly string[] KnownLangTokens = new[]
+        {
+            "eng","fre","ger","ita","spa","por","rus","jpn","kor","chi","tha","tur",
+            "pol","cze","hun","dut","dan","fin","nor","swe","ara","hin","ben","tam",
+            "tel","mal","kan","ukr","rum","bul","hrv","slv","srp","bos","lav","lit",
+            "est","heb","ind","may","vie","fil"
+        };
+
+        private static List<string> ExtractLanguagesFromFilename(string? filename)
+        {
+            if (string.IsNullOrEmpty(filename))
+                return new List<string> { "und" };
+
+            var normalized = filename.Replace('.', ' ').Replace('_', ' ').Replace('-', ' ');
+
+            if (Regex.IsMatch(normalized, @"\bMULTi\b", RegexOptions.IgnoreCase))
+                return new List<string> { "und" };
+
+            var langs = new List<string>();
+            foreach (var token in KnownLangTokens)
+            {
+                if (Regex.IsMatch(normalized, $@"\b{token}\b", RegexOptions.IgnoreCase))
+                    langs.Add(token.ToLowerInvariant());
+            }
+            return langs.Count > 0 ? langs : new List<string> { "und" };
         }
 
         // ── Bitrate estimation ──────────────────────────────────────────────────
@@ -554,7 +589,7 @@ namespace InfiniteDrive.Services
 
         // ── Internal record for parsing pipeline ───────────────────────────────
 
-        private class TechnicalMetadata
+        public class TechnicalMetadata
         {
             public string Resolution;
             public string VideoCodec;
