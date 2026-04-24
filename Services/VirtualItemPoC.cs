@@ -116,7 +116,7 @@ namespace InfiniteDrive.Services
                     "\"description\":\"A timid rooster transforms into a powerful chicken warrior to battle demons threatening humanity in this action-comedy anime.\"," +
                     "\"year\":\"2026\"," +
                     "\"poster\":\"https://media.kitsu.app/anime/49071/poster_image/large-6d2a77869edd2d469aba00454e282aa9.jpeg\"," +
-                    "\"background\":\"https://media.kitsu.app/anime/49071/cover_image/original-6e234443a555d19fb5ab4d823cd84241.jpeg\"," +
+                    "\"background\":\"https://media.kitsu.app/anime/49071/cover_image/a295bfad81a7ff3b8dc07e379ae66afe.jpg\"," +
                     "\"genres\":[\"Action\",\"Comedy\",\"Sci-Fi\"]}";
 
                 var item = new Models.CatalogItem
