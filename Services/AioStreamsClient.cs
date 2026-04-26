@@ -292,6 +292,9 @@ namespace InfiniteDrive.Services
         /// <summary>Background/hero image URL.</summary>
         [JsonPropertyName("background")]  public string? Background  { get; set; }
 
+        /// <summary>Logo image URL.</summary>
+        [JsonPropertyName("logo")]        public string? Logo        { get; set; }
+
         /// <summary>Short description.</summary>
         [JsonPropertyName("description")] public string? Description { get; set; }
 

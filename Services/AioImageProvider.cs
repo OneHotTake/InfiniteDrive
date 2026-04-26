@@ -148,6 +148,33 @@ namespace InfiniteDrive.Services
 
             if (rawMetaJson == null)
             {
+                // Title-based fallback: query catalog by item name
+                try
+                {
+                    var catalogItem = await db.GetCatalogItemByTitleAsync(
+                        item.Name, item.ProductionYear, null).ConfigureAwait(false);
+                    if (catalogItem?.RawMetaJson != null)
+                    {
+                        rawMetaJson = catalogItem.RawMetaJson;
+                        _logger.LogInformation("[AioImageProvider] Found meta via title lookup for {Name}", item.Name);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[AioImageProvider] Title fallback failed for {Name}", item.Name);
+                }
+            }
+
+            if (rawMetaJson == null)
+            {
+                // Live fetch fallback: try AIOStreams /meta/ endpoint
+                var liveMeta = await FetchLiveMetaAsync(item, ct).ConfigureAwait(false);
+                if (liveMeta != null)
+                {
+                    _logger.LogInformation("[AioImageProvider] Live meta fetch succeeded for {Name}", item.Name);
+                    return liveMeta;
+                }
+
                 _logger.LogInformation("[AioImageProvider] No meta found for {Name}", item.Name);
                 return null;
             }
@@ -162,6 +189,103 @@ namespace InfiniteDrive.Services
             {
                 return null;
             }
+        }
+
+        private async Task<AioMeta?> FetchLiveMetaAsync(BaseItem item, CancellationToken ct)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return null;
+
+            var (type, id) = ResolveMetaQuery(item);
+            if (string.IsNullOrEmpty(id)) return null;
+
+            foreach (var (url, uuid, token, name) in GetConfiguredProviders(config))
+            {
+                try
+                {
+                    using var client = new AioStreamsClient(url, uuid, token, _logger);
+                    var response = await client.GetMetaAsyncTyped(type, id, ct).ConfigureAwait(false);
+                    if (response?.Meta != null)
+                    {
+                        _logger.LogInformation("[AioImageProvider] Live meta from {Provider} for {Name}", name, item.Name);
+                        await CacheMetaToDbAsync(response.Meta, item, ct).ConfigureAwait(false);
+                        return response.Meta;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[AioImageProvider] Live meta failed from {Provider}", name);
+                }
+            }
+
+            return null;
+        }
+
+        private static (string type, string? id) ResolveMetaQuery(BaseItem item)
+        {
+            var ids = item.ProviderIds;
+            if (ids == null) return ("", null);
+
+            var type = item is Movie ? "movie" : "series";
+
+            if (ids.TryGetValue("imdb", out var imdbId) && !string.IsNullOrEmpty(imdbId))
+                return (type, imdbId);
+            if (ids.TryGetValue("Kitsu", out var kitsuId) && !string.IsNullOrEmpty(kitsuId))
+                return ("series", $"kitsu:{kitsuId}");
+            if (ids.TryGetValue("MAL", out var malId) && !string.IsNullOrEmpty(malId))
+                return ("series", $"mal:{malId}");
+            if (ids.TryGetValue("AniList", out var anilistId) && !string.IsNullOrEmpty(anilistId))
+                return ("series", $"anilist:{anilistId}");
+
+            return (type, null);
+        }
+
+        private async Task CacheMetaToDbAsync(AioMeta meta, BaseItem item, CancellationToken ct)
+        {
+            try
+            {
+                var db = Plugin.Instance?.DatabaseManager;
+                if (db == null) return;
+
+                var catalogItem = new CatalogItem
+                {
+                    ImdbId = meta.ImdbId ?? meta.Id ?? "",
+                    Title = meta.Name ?? item.Name,
+                    MediaType = meta.Type == AioMetaType.Movie ? "movie" : "series",
+                    Source = "image_live_fetch",
+                    RawMetaJson = JsonSerializer.Serialize(meta),
+                };
+
+                if (meta.Year.HasValue) catalogItem.Year = meta.Year;
+                if (!string.IsNullOrEmpty(meta.TmdbId)) catalogItem.TmdbId = meta.TmdbId;
+
+                await db.UpsertCatalogItemAsync(catalogItem, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[AioImageProvider] Cache write failed for {Name}", item.Name);
+            }
+        }
+
+        private static List<(string url, string uuid, string token, string name)> GetConfiguredProviders(PluginConfiguration config)
+        {
+            var list = new List<(string, string, string, string)>();
+
+            if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+            {
+                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
+                if (!string.IsNullOrWhiteSpace(url))
+                    list.Add((url, uuid ?? "", token ?? "", "Primary"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            {
+                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
+                if (!string.IsNullOrWhiteSpace(url))
+                    list.Add((url, uuid ?? "", token ?? "", "Secondary"));
+            }
+
+            return list;
         }
     }
 }
