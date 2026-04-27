@@ -187,6 +187,7 @@ function (BaseView, loading) {
         if (name === 'libraries')  { populateLibrariesTab(view, _loadedConfig); loadDefaultQuality(view); }
         if (name === 'sources')    { refreshSourcesTab(view); }
         if (name === 'lists')      { loadListsTab(view); }
+        if (name === 'streams')    { loadStreamsTab(view, _loadedConfig); }
         if (name === 'metadata')   { loadMetadataTab(view); }
         if (name === 'parental')   { loadBlockedItems(view); }
         if (name === 'inspector')  { refreshDashboard(view); loadImprobabilityStatus(view);
@@ -2805,6 +2806,124 @@ function (BaseView, loading) {
             });
     }
 
+    // ── Streams tab ────────────────────────────────────────────────────────
+
+    var RES_TIER_LABELS = ['4K', '1080p', '720p', '480p'];
+    var SRC_MAX_LABELS  = ['Remux only', '+ BluRay', '+ WEB-DL', '+ WEB', 'Any'];
+    var DEFAULT_BUCKETS = [
+        {resTier:0, srcMax:0, maxCount:2},
+        {resTier:0, srcMax:1, maxCount:1},
+        {resTier:0, srcMax:2, maxCount:1},
+        {resTier:1, srcMax:0, maxCount:1},
+        {resTier:1, srcMax:1, maxCount:2},
+        {resTier:2, srcMax:1, maxCount:1}
+    ];
+    var _currentBuckets = [];
+
+    function renderBucketTable(view) {
+        var tbody = view.querySelector('#es-bucket-rows');
+        if (!tbody) return;
+        tbody.innerHTML = '';
+        _currentBuckets.forEach(function(b, i) {
+            var tr = document.createElement('tr');
+            var resOptions = RES_TIER_LABELS.map(function(l, j) {
+                return '<option value="' + j + '"' + (b.resTier === j ? ' selected' : '') + '>' + l + '</option>';
+            }).join('');
+            var srcOptions = SRC_MAX_LABELS.map(function(l, j) {
+                return '<option value="' + j + '"' + (b.srcMax === j ? ' selected' : '') + '>' + l + '</option>';
+            }).join('') + '<option value="9"' + (b.srcMax === 9 ? ' selected' : '') + '>Any</option>';
+
+            tr.innerHTML =
+                '<td style="padding:.5em"><select class="emby-select es-bucket-res" data-idx="' + i + '">' + resOptions + '</select></td>' +
+                '<td style="padding:.5em"><select class="emby-select es-bucket-src" data-idx="' + i + '">' + srcOptions + '</select></td>' +
+                '<td style="padding:.5em"><input type="number" class="emby-input es-bucket-max" data-idx="' + i + '" min="1" max="4" value="' + b.maxCount + '" style="width:60px" /></td>' +
+                '<td style="padding:.5em;text-align:center"><button type="button" class="raised raised-mini es-remove-bucket" data-idx="' + i + '" style="padding:.3em .8em">✕</button></td>';
+            tbody.appendChild(tr);
+        });
+
+        // Wire change handlers
+        tbody.querySelectorAll('.es-bucket-res').forEach(function(sel) {
+            sel.addEventListener('change', function() { _currentBuckets[parseInt(sel.dataset.idx)].resTier = parseInt(sel.value); });
+        });
+        tbody.querySelectorAll('.es-bucket-src').forEach(function(sel) {
+            sel.addEventListener('change', function() { _currentBuckets[parseInt(sel.dataset.idx)].srcMax = parseInt(sel.value); });
+        });
+        tbody.querySelectorAll('.es-bucket-max').forEach(function(inp) {
+            inp.addEventListener('change', function() { _currentBuckets[parseInt(inp.dataset.idx)].maxCount = Math.max(1, parseInt(inp.value) || 1); });
+        });
+        tbody.querySelectorAll('.es-remove-bucket').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                _currentBuckets.splice(parseInt(btn.dataset.idx), 1);
+                renderBucketTable(view);
+            });
+        });
+    }
+
+    function loadStreamsTab(view, cfg) {
+        var el;
+        el = view.querySelector('#es-max-curated-streams');
+        if (el) el.value = cfg.MaxCuratedStreams || 7;
+        el = view.querySelector('#es-direct-play-enabled');
+        if (el) el.checked = cfg.DirectPlayEnabled !== false;
+        el = view.querySelector('#es-version-label-prefix');
+        if (el) el.value = cfg.VersionLabelPrefix != null ? cfg.VersionLabelPrefix : 'InfiniteDrive · ';
+
+        try {
+            _currentBuckets = JSON.parse(cfg.StreamBucketsJson || '[]');
+        } catch(e) {
+            _currentBuckets = JSON.parse(JSON.stringify(DEFAULT_BUCKETS));
+        }
+        if (!_currentBuckets.length) _currentBuckets = JSON.parse(JSON.stringify(DEFAULT_BUCKETS));
+        renderBucketTable(view);
+
+        // Add bucket button
+        var addBtn = view.querySelector('#es-add-bucket-btn');
+        if (addBtn) {
+            addBtn.onclick = function() {
+                _currentBuckets.push({resTier: 1, srcMax: 1, maxCount: 1});
+                renderBucketTable(view);
+            };
+        }
+        // Reset button
+        var resetBtn = view.querySelector('#es-reset-buckets-btn');
+        if (resetBtn) {
+            resetBtn.onclick = function() {
+                _currentBuckets = JSON.parse(JSON.stringify(DEFAULT_BUCKETS));
+                renderBucketTable(view);
+            };
+        }
+        // Save button
+        var saveBtn = view.querySelector('#es-save-streams-btn');
+        if (saveBtn) {
+            saveBtn.onclick = function() { saveStreamsTab(view); };
+        }
+    }
+
+    function saveStreamsTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+
+        var el;
+        el = view.querySelector('#es-max-curated-streams');
+        if (el) cfg.MaxCuratedStreams = Math.max(1, Math.min(12, parseInt(el.value) || 7));
+        el = view.querySelector('#es-direct-play-enabled');
+        if (el) { cfg.DirectPlayEnabled = el.checked; cfg.UseRequiresOpening = !el.checked; }
+        el = view.querySelector('#es-version-label-prefix');
+        if (el) cfg.VersionLabelPrefix = el.value;
+
+        cfg.StreamBucketsJson = JSON.stringify(_currentBuckets);
+
+        var resultEl = view.querySelector('#es-streams-save-result');
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                if (resultEl) { resultEl.textContent = 'Saved! Stream settings updated.'; resultEl.style.color = '#28a745'; }
+            })
+            .catch(function(err) {
+                if (resultEl) { resultEl.textContent = 'Save failed: ' + (err.message || err); resultEl.style.color = '#dc3545'; }
+            });
+    }
+
     // ── Float action helpers ──────────────────────────────────────────────
     function saveCurrentTab(view) {
         var active = view.querySelector('[data-es-tab].active');
@@ -2813,6 +2932,7 @@ function (BaseView, loading) {
         else if (tab === 'libraries') saveLibrariesTab(view);
         else if (tab === 'lists') saveListsSettings(view);
         else if (tab === 'sources') saveSourcesTab(view);
+        else if (tab === 'streams') saveStreamsTab(view);
         else if (tab === 'parental') saveParentalTab(view);
         else if (tab === 'metadata') saveMetadataTab(view);
     }

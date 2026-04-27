@@ -130,6 +130,9 @@ namespace InfiniteDrive.Models
         /// <summary>JSON-serialised list of subtitle tracks (url + lang).</summary>
         public string? SubtitlesJson { get; set; }
 
+        /// <summary>Cached ffprobe JSON output for this stream's CDN URL.</summary>
+        public string? ProbeJson { get; set; }
+
         // ── Lifecycle ───────────────────────────────────────────────────────────
 
         /// <summary>UTC timestamp when this candidate was resolved.</summary>

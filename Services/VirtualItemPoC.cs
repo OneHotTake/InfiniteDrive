@@ -193,9 +193,9 @@ namespace InfiniteDrive.Services
                 Name = title,
                 ProductionYear = year,
                 Overview = overview,
-                // Path = null → LocationType.Virtual → no phantom media source
-                // HTTP URLs create an unplayable source that appears in the dropdown
-                Path = null,
+                // Dummy scheme → LocationType.Virtual (no ffprobe spam)
+                // GetMediaSources returns real CDN URLs at playback time
+                Path = $"infinitedrive://{itemId}",
                 IsVirtualItem = true,
                 IsLocked = false,
                 DateCreated = DateTime.UtcNow,
@@ -239,16 +239,17 @@ namespace InfiniteDrive.Services
                 return;
             }
 
-            _logger.LogInformation(
-                "[VirtualItemPoC] Post-CreateItem: {Name}, LocationType={Loc}, IsVirtualItem={Virt}, Path={Path}",
-                verify.Name, verify.LocationType, verify.IsVirtualItem, verify.Path ?? "(null)");
-
+            // Force LocationType.Virtual — Emby may override IsVirtualItem on save
             if (!verify.IsVirtualItem)
             {
-                _logger.LogWarning("[VirtualItemPoC] Forcing IsVirtualItem=true for {Name}", title);
                 verify.IsVirtualItem = true;
-                _libraryManager.UpdateItem(verify, parentFolder, ItemUpdateType.ImageUpdate, null!);
+                _libraryManager.UpdateItem(verify, parentFolder, ItemUpdateType.MetadataEdit);
+                _logger.LogInformation("[VirtualItemPoC] Forced IsVirtualItem=true for {Name}", verify.Name);
             }
+
+            _logger.LogInformation(
+                "[VirtualItemPoC] Post-CreateItem: {Name}, LocationType={Loc}, Path={Path}",
+                verify.Name, verify.LocationType, verify.Path ?? "(null)");
 
             // Trigger metadata + image refresh
             _providerManager.QueueRefresh(verify.InternalId, new MetadataRefreshOptions((MediaBrowser.Model.IO.IFileSystem?)null!)
@@ -260,8 +261,8 @@ namespace InfiniteDrive.Services
             }, RefreshPriority.High);
 
             _logger.LogInformation(
-                "[VirtualItemPoC] SUCCESS: {Name} ({Id}), LocationType={Loc}, IsVirtual={Virt}, Path={Path}",
-                verify.Name, verify.Id, verify.LocationType, verify.IsVirtualItem, verify.Path ?? "(null)");
+                "[VirtualItemPoC] SUCCESS: {Name} ({Id}), LocationType={Loc}, Path={Path}",
+                verify.Name, verify.Id, verify.LocationType, verify.Path ?? "(null)");
         }
 
         private void SetImagesFromCatalog(Movie movie, string itemId)

@@ -1489,7 +1489,7 @@ namespace InfiniteDrive.Data
                        quality_tier, file_name, file_size, bitrate_kbps,
                        is_cached, resolved_at, expires_at, status,
                        info_hash, file_idx, stream_key, binge_group,
-                       languages, subtitles_json
+                       languages, subtitles_json, probe_json
                 FROM stream_candidates
                 WHERE imdb_id = @imdb_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
@@ -1503,6 +1503,40 @@ namespace InfiniteDrive.Data
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
             }, ReadStreamCandidate);
+        }
+
+        /// <summary>
+        /// Gets cached ffprobe JSON for a stream candidate by its stream_key.
+        /// </summary>
+        public async Task<string?> GetProbeJsonAsync(string streamKey)
+        {
+            if (string.IsNullOrEmpty(streamKey)) return null;
+            const string sql = @"
+                SELECT probe_json FROM stream_candidates
+                WHERE stream_key = @stream_key AND probe_json IS NOT NULL
+                LIMIT 1";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@stream_key", streamKey),
+                r => r.GetString(0)).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Saves ffprobe JSON for all candidates sharing the same stream_key.
+        /// </summary>
+        public async Task SaveProbeJsonAsync(string streamKey, string probeJson)
+        {
+            if (string.IsNullOrEmpty(streamKey) || string.IsNullOrEmpty(probeJson)) return;
+            const string sql = @"
+                UPDATE stream_candidates
+                SET probe_json = @probe_json
+                WHERE stream_key = @stream_key";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@stream_key", streamKey);
+                BindText(cmd, "@probe_json", probeJson);
+            }).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -2894,7 +2928,8 @@ CREATE TABLE IF NOT EXISTS stream_candidates (
     binge_group             TEXT,
     absolute_episode_number INTEGER,
     languages               TEXT,
-    subtitles_json          TEXT
+    subtitles_json          TEXT,
+    probe_json              TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_key ON stream_candidates(imdb_id, COALESCE(season,-1), COALESCE(episode,-1), rank);
 CREATE INDEX IF NOT EXISTS idx_candidates_item ON stream_candidates(imdb_id, season, episode, rank);
@@ -4017,6 +4052,7 @@ LIMIT 1";
             BingeGroup  = r.IsDBNull(20) ? null : r.GetString(20),
             Languages     = r.IsDBNull(21) ? null : r.GetString(21),
             SubtitlesJson = r.IsDBNull(22) ? null : r.GetString(22),
+            ProbeJson     = r.IsDBNull(23) ? null : r.GetString(23),
         };
 
         private static PlaybackEntry ReadPlaybackEntry(IResultSet r) => new PlaybackEntry
