@@ -107,7 +107,6 @@
     <!-- Sprint 210: User-facing Discover UI -->
     <EmbeddedResource Include="Configuration\discoverpage.html" />
     <EmbeddedResource Include="Configuration\discoverpage.js" />
-    <EmbeddedResource Include="Configuration\discoverpage.css" />
   </ItemGroup>
 
   <ItemGroup>
