@@ -290,8 +290,10 @@ namespace InfiniteDrive
                     EmbeddedResourcePath = "InfiniteDrive.Configuration.discoverpage.html",
                     IsMainConfigPage = false,
                     EnableInMainMenu = true,
+                    EnableInUserMenu = true,
                     DisplayName = "Discover",
-                    MenuIcon = "explore"
+                    MenuIcon = "explore",
+                    MenuSection = "server"
                 },
                 new PluginPageInfo
                 {
