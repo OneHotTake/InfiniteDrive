@@ -118,7 +118,7 @@ namespace InfiniteDrive.Services
                     // Set metadata preferences from plugin configuration
                     PreferredMetadataLanguage = config.MetadataLanguage ?? "en",
                     PreferredImageLanguage = config.ImageLanguage ?? "en",
-                    MetadataCountryCode = config.MetadataCountryCode ?? "US",
+                    MetadataCountryCode = config.MetadataCertificationCountry ?? "US",
 
                     // Enable embedded titles
                     EnableEmbeddedTitles = true,

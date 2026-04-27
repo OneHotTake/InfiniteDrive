@@ -119,7 +119,7 @@ namespace InfiniteDrive.Services
         /// </summary>
         private async Task<ResolvedStream?> ResolveWithFallbackAsync(ResolverRequest req)
         {
-            var providers = GetProvidersToTry();
+            var providers = ProviderHelper.GetProviders(Config);
             if (providers.Count == 0)
             {
                 _logger.LogError("[InfiniteDrive][Resolve] No providers configured");
@@ -385,53 +385,6 @@ namespace InfiniteDrive.Services
             // Return empty byte array — Emby's pipeline serializes this as the
             // response body while respecting the StatusCode and Location headers.
             return Array.Empty<byte>();
-        }
-
-        // ── Provider list ────────────────────────────────────────────────────
-
-        private List<ProviderInfo> GetProvidersToTry()
-        {
-            var providers = new List<ProviderInfo>();
-
-            if (!string.IsNullOrWhiteSpace(Config.PrimaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(Config.PrimaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                {
-                    providers.Add(new ProviderInfo
-                    {
-                        DisplayName = "Primary",
-                        Url = url,
-                        Uuid = uuid ?? string.Empty,
-                        Token = token ?? string.Empty
-                    });
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(Config.SecondaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(Config.SecondaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                {
-                    providers.Add(new ProviderInfo
-                    {
-                        DisplayName = "Secondary",
-                        Url = url,
-                        Uuid = uuid ?? string.Empty,
-                        Token = token ?? string.Empty
-                    });
-                }
-            }
-
-            return providers;
-        }
-
-        private class ProviderInfo
-        {
-            public string DisplayName { get; set; } = string.Empty;
-            public string Url { get; set; } = string.Empty;
-            public string Uuid { get; set; } = string.Empty;
-            public string Token { get; set; } = string.Empty;
         }
 
         // ── Result model ─────────────────────────────────────────────────────

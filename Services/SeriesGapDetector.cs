@@ -42,7 +42,7 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Scans all indexed series for gaps. Called by SeriesGapScanTask.
+        /// Scans all indexed series for gaps.
         /// </summary>
         public async Task ScanAllAsync(IProgress<double>? progress, CancellationToken ct)
         {

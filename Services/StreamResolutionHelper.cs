@@ -46,7 +46,7 @@ namespace InfiniteDrive.Services
             cts.CancelAfter(timeoutMs);
 
             // Build list of providers to try
-            var providers = GetProvidersToTry(config);
+            var providers = ProviderHelper.GetProviders(config);
 
             AioStreamsUnreachableException? lastUnreachable = null;
 
@@ -200,46 +200,6 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Builds the ordered list of AIOStreams providers to try for stream resolution.
-        /// </summary>
-        private static List<AioProvider> GetProvidersToTry(PluginConfiguration config)
-        {
-            var providers = new List<AioProvider>();
-
-            if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                {
-                    providers.Add(new AioProvider
-                    {
-                        DisplayName = "Primary",
-                        Url = url,
-                        Uuid = uuid ?? string.Empty,
-                        Token = token ?? string.Empty
-                    });
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                {
-                    providers.Add(new AioProvider
-                    {
-                        DisplayName = "Secondary",
-                        Url = url,
-                        Uuid = uuid ?? string.Empty,
-                        Token = token ?? string.Empty
-                    });
-                }
-            }
-
-            return providers;
-        }
-
-        /// <summary>
         /// Builds a ResolutionEntry from the primary (rank=0) candidate.
         /// Public for use by LinkResolverTask.
         /// </summary>
@@ -285,17 +245,6 @@ namespace InfiniteDrive.Services
             if (!DateTime.TryParse(expiresAt, out var expiry))
                 return true;
             return DateTime.UtcNow > expiry;
-        }
-
-        /// <summary>
-        /// Simple provider holder for stream resolution attempts.
-        /// </summary>
-        private class AioProvider
-        {
-            public string DisplayName { get; set; } = string.Empty;
-            public string Url { get; set; } = string.Empty;
-            public string Uuid { get; set; } = string.Empty;
-            public string Token { get; set; } = string.Empty;
         }
     }
 }

@@ -223,9 +223,13 @@ namespace InfiniteDrive
         [DataMember]
         public string MetadataLanguage { get; set; } = "en";
 
-        /// <summary>Country code for metadata (e.g., "US", "GB"). Default: "US".</summary>
-        [DataMember]
-        public string MetadataCountryCode { get; set; } = "US";
+        /// <summary>Country code for metadata/certification lookup (e.g., "US", "GB"). Default: "US".</summary>
+        [DataMember(Name = "metadataCertificationCountry")]
+        public string MetadataCertificationCountry { get; set; } = "US";
+
+        /// <summary>When true, suppresses panic/timeout UI banners during provider outages. Default: false.</summary>
+        [DataMember(Name = "dontPanic")]
+        public bool DontPanic { get; set; } = false;
 
         /// <summary>Preferred image/artwork language. Default: "en".</summary>
         [DataMember]

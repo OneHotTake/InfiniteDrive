@@ -138,7 +138,7 @@ namespace InfiniteDrive.Services
                     return null;
 
                 // Find certification for configured country
-                var countryCode = Plugin.Instance?.Configuration?.MetadataCountryCode ?? "US";
+                var countryCode = Plugin.Instance?.Configuration?.MetadataCertificationCountry ?? "US";
                 string? certification = null;
                 int priority = -1;
 

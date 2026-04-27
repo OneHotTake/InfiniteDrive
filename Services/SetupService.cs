@@ -154,7 +154,7 @@ namespace InfiniteDrive.Services
             await service.EnsureLibrariesProvisionedAsync();
 
             // Apply metadata fetchers via TypeOptions on newly created libraries
-            ApplyMetadataTypeOptions();
+            await ApplyMetadataTypeOptionsAsync();
 
             return new ProvisionLibrariesResponse
             {
@@ -168,7 +168,7 @@ namespace InfiniteDrive.Services
         /// via the Emby REST API. TypeOptions is a runtime-only property not in the
         /// compile-time SDK, so we use the API directly.
         /// </summary>
-        private void ApplyMetadataTypeOptions()
+        private async Task ApplyMetadataTypeOptionsAsync()
         {
             try
             {
@@ -222,7 +222,7 @@ namespace InfiniteDrive.Services
                     // Persist via API
                     var payload = JsonSerializer.Serialize(new { Id = itemId, LibraryOptions = opts });
                     var content = new StringContent(payload, Encoding.UTF8, "application/json");
-                    var result = client.PostAsync($"{baseUrl}/Library/VirtualFolders/LibraryOptions", content).Result;
+                    var result = await client.PostAsync($"{baseUrl}/Library/VirtualFolders/LibraryOptions", content);
                     _logger.LogInformation("[InfiniteDrive] Applied metadata TypeOptions to '{Name}': {Status}", name, result.StatusCode);
                 }
             }
