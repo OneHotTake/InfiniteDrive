@@ -439,7 +439,8 @@ namespace InfiniteDrive
 
                 // Initialise StreamCacheService (pre-cache singleton)
                 StreamCacheService = new Services.StreamCacheService(
-                    new EmbyLoggerAdapter<Services.StreamCacheService>(_logManager.GetLogger("StreamCacheService")));
+                    new EmbyLoggerAdapter<Services.StreamCacheService>(_logManager.GetLogger("StreamCacheService")),
+                    _logManager);
                 _logger.LogInformation("[InfiniteDrive] StreamCacheService initialised");
 
                 // Sprint 350: Restore active provider state from database

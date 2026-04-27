@@ -183,7 +183,7 @@ namespace InfiniteDrive.Tasks
             progress.Report(100);
         }
 
-        private async Task<CachedStreamEntry?> ResolveItemAsync(
+        internal async Task<CachedStreamEntry?> ResolveItemAsync(
             UncachedItem item,
             List<ProviderInfo> providers,
             PluginConfiguration config,
