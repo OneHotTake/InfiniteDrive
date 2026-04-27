@@ -167,7 +167,7 @@ function (BaseView, loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        var tabs = ['overview','providers','libraries','lists','sources','parental','security','inspector','metadata'];
+        var tabs = ['overview','providers','libraries','lists','sources','parental','advanced','inspector','metadata'];
 
         tabs.forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
@@ -190,6 +190,7 @@ function (BaseView, loading) {
         if (name === 'streams')    { loadStreamsTab(view, _loadedConfig); }
         if (name === 'metadata')   { loadMetadataTab(view); }
         if (name === 'parental')   { loadBlockedItems(view); }
+        if (name === 'advanced')   { loadAdvancedTab(view, _loadedConfig); }
         if (name === 'inspector')  { refreshDashboard(view); loadImprobabilityStatus(view);
                                           if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 30000); }
         if (name !== 'inspector') {
@@ -203,7 +204,7 @@ function (BaseView, loading) {
         if (!bar) return;
 
         // Per-plan visibility
-        var saveTabs    = ['providers','libraries','lists','sources','parental','metadata'];
+        var saveTabs    = ['providers','libraries','lists','sources','parental','advanced','metadata'];
         var refreshTabs = ['overview','inspector'];
 
         var saveBtn = view.querySelector('#es-float-save-btn');
@@ -2620,11 +2621,12 @@ function (BaseView, loading) {
             case 'invalidate-item':    invalidateItem(view);    break;
             case 'queue-item':         queueItem(view);         break;
             case 'raw-streams':          fetchRawStreams(view);   break;
-            case 'toggle-advanced':          toggleAdvanced(view);                    break;
+            case 'toggle-sec-rotate':        toggleAdvanced(view);                    break;
             case 'toggle-debug':             toggleDebug(view);                       break;
             case 'toggle-cfg-conn-details':  toggleConnDetails(view, 'cfg-conn');     break;
             case 'purge-catalog-confirm': purgeCatalogConfirm(view); break;
             case 'save-metadata':         saveMetadataTab(view);    break;
+            case 'save-advanced':         saveAdvancedTab(view);    break;
             case 'purge-cancel':        purgeCatalogCancel(view); break;
             case 'purge-catalog-execute': purgeCatalogExecute(view); break;
             case 'nuclear-step1':       nuclearStep1(view);      break;
@@ -2924,6 +2926,42 @@ function (BaseView, loading) {
             });
     }
 
+    // ── Advanced tab ──────────────────────────────────────────────────────
+    function loadAdvancedTab(view, cfg) {
+        if (!cfg) return;
+        var el;
+        el = view.querySelector('#es-enable-stream-prefetch');
+        if (el) el.checked = cfg.EnableStreamPrefetch !== false;
+        el = view.querySelector('#es-cache-ttl-minutes');
+        if (el) el.value = cfg.InMemoryCacheTtlMinutes || 360;
+        el = view.querySelector('#es-prefetch-batch-delay');
+        if (el) el.value = cfg.PrefetchBatchDelayMs || 500;
+    }
+
+    function saveAdvancedTab(view) {
+        if (!_loadedConfig) return;
+        var cfg = JSON.parse(JSON.stringify(_loadedConfig));
+
+        var el;
+        el = view.querySelector('#es-enable-stream-prefetch');
+        if (el) cfg.EnableStreamPrefetch = el.checked;
+        el = view.querySelector('#es-cache-ttl-minutes');
+        if (el) cfg.InMemoryCacheTtlMinutes = Math.max(10, Math.min(1440, parseInt(el.value) || 360));
+        el = view.querySelector('#es-prefetch-batch-delay');
+        if (el) cfg.PrefetchBatchDelayMs = Math.max(0, Math.min(10000, parseInt(el.value) || 500));
+
+        var resultEl = view.querySelector('#es-advanced-save-result');
+        ApiClient.updatePluginConfiguration(pluginId, cfg)
+            .then(function() {
+                _loadedConfig = cfg;
+                if (resultEl) { resultEl.textContent = 'Saved!'; resultEl.style.color = '#28a745'; }
+                setTimeout(function() { if (resultEl) resultEl.textContent = ''; }, 3000);
+            })
+            .catch(function(err) {
+                if (resultEl) { resultEl.textContent = 'Failed: ' + (err.message || err); resultEl.style.color = '#dc3545'; }
+            });
+    }
+
     // ── Float action helpers ──────────────────────────────────────────────
     function saveCurrentTab(view) {
         var active = view.querySelector('[data-es-tab].active');
@@ -2934,6 +2972,7 @@ function (BaseView, loading) {
         else if (tab === 'sources') saveSourcesTab(view);
         else if (tab === 'streams') saveStreamsTab(view);
         else if (tab === 'parental') saveParentalTab(view);
+        else if (tab === 'advanced') saveAdvancedTab(view);
         else if (tab === 'metadata') saveMetadataTab(view);
     }
 
@@ -2941,7 +2980,7 @@ function (BaseView, loading) {
         var active = view.querySelector('[data-es-tab].active');
         var tab = active ? active.getAttribute('data-es-tab') : '';
         // Guard rails
-        if (tab === 'overview' || tab === 'inspector' || tab === 'security') {
+        if (tab === 'overview' || tab === 'inspector' || tab === 'advanced') {
             // Check prerequisites
             if (!_loadedConfig || !(_loadedConfig.SyncPathMovies && _loadedConfig.LibraryNameMovies)) {
                 esAlert('Libraries need to be configured first. Go to the Libraries tab.');
@@ -3437,8 +3476,8 @@ function (BaseView, loading) {
     // ── Advanced settings & debug collapsibles ────────────────────────────────
 
     function toggleAdvanced(view) {
-        var inner  = q(view, 'cfg-advanced-inner');
-        var arrow  = q(view, 'cfg-advanced-arrow');
+        var inner  = q(view, 'es-advanced-inner');
+        var arrow  = q(view, 'es-advanced-arrow');
         if (!inner) return;
         var open = inner.style.display !== 'none';
         inner.style.display = open ? 'none' : 'block';

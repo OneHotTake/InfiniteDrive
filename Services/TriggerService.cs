@@ -112,6 +112,7 @@ namespace InfiniteDrive.Services
         private const string TaskSeriesGapScan        = "series_gap_scan";
         private const string TaskSeriesGapRepair      = "series_gap_repair";
         private const string TaskPreCache             = "precache";
+        private const string TaskStreamPrefetch       = "stream_prefetch";
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -198,6 +199,19 @@ namespace InfiniteDrive.Services
                             Message = "Pre-cache is disabled. Enable EnablePreCache in plugin settings.",
                         };
                     FireAndForget(ct => new PreCacheAioStreamsTask(_logManager)
+                        .Execute(ct, new Progress<double>()), taskKey);
+                    break;
+
+                case TaskStreamPrefetch:
+                    var spConfig = Plugin.Instance?.Configuration;
+                    if (spConfig == null || !spConfig.EnableStreamPrefetch)
+                        return new TriggerResponse
+                        {
+                            Status = "error",
+                            Task = taskKey,
+                            Message = "Stream prefetch is disabled. Enable EnableStreamPrefetch in plugin settings.",
+                        };
+                    FireAndForget(ct => new StreamPrefetchTask(_logManager)
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
@@ -364,7 +378,7 @@ namespace InfiniteDrive.Services
                                   $"{TaskEpisodeExpand}, {TaskCollectionSync}, " +
                                   $"{TaskClearClientProfiles}, " +
                                   $"{TaskForceSyncReset}, {TaskClearCache}, {TaskDeadLinkScan}, " +
-                                  $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}, {TaskPreCache}",
+                                  $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}, {TaskPreCache}, {TaskStreamPrefetch}",
                     };
             }
 
