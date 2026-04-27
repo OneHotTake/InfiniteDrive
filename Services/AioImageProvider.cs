@@ -20,12 +20,9 @@ using Microsoft.Extensions.Logging;
 namespace InfiniteDrive.Services
 {
     /// <summary>
-    /// Provides images (poster, backdrop, logo) from AIOStreams metadata for virtual items.
-    /// Auto-discovered by Emby for all item types (Movie, Series, Season, Episode).
-    /// Available image types depend on the source:
-    ///   Cinemeta (IMDB): poster, background, logo
-    ///   Kitsu (anime): poster (posterImage), backdrop (coverImage)
-    ///   TMDB: poster, backdrop
+    /// Fallback image provider from AIOStreams metadata.
+    /// If an item has a TMDB ID, Emby's native TMDB provider handles images — this provider skips entirely.
+    /// Only serves items with ProviderIds["INFINITEDRIVE"] that lack TMDB IDs.
     /// </summary>
     public class AioImageProvider : IRemoteImageProvider
     {
@@ -36,7 +33,7 @@ namespace InfiniteDrive.Services
         {
             _httpClient = httpClient;
             _logger = new EmbyLoggerAdapter<AioImageProvider>(logManager.GetLogger("InfiniteDrive"));
-            _logger.LogInformation("[AioImageProvider] Constructed — auto-discovered by Emby");
+            _logger.LogInformation("[AioImageProvider] Constructed — fallback provider, skips items with TMDB ID");
         }
 
         public string Name => "InfiniteDrive";
@@ -45,33 +42,42 @@ namespace InfiniteDrive.Services
             item is Movie || item is Series || item is Season || item is Episode;
 
         public IEnumerable<ImageType> GetSupportedImages(BaseItem item) =>
-            new[] { ImageType.Primary, ImageType.Backdrop, ImageType.Logo };
+            new[] { ImageType.Primary, ImageType.Backdrop, ImageType.Logo, ImageType.Thumb, ImageType.Banner };
 
         public async Task<IEnumerable<RemoteImageInfo>> GetImages(
             BaseItem item, LibraryOptions libraryOptions, CancellationToken cancellationToken)
         {
+            // Pure fallback: skip entirely if TMDB ID present — Emby's native TMDB provider handles these
+            if (item.ProviderIds != null &&
+                item.ProviderIds.TryGetValue("Tmdb", out var tmdbCheck) &&
+                !string.IsNullOrEmpty(tmdbCheck))
+            {
+                return Enumerable.Empty<RemoteImageInfo>();
+            }
+
             var list = new List<RemoteImageInfo>();
 
-            _logger.LogInformation("[AioImageProvider] GetImages called for {Name} (Type={Type})", item.Name, item.GetType().Name);
+            _logger.LogDebug("[AioImageProvider] GetImages for {Name} (Type={Type})", item.Name, item.GetType().Name);
 
             try
             {
+
                 var meta = await ResolveAioMeta(item, cancellationToken).ConfigureAwait(false);
                 if (meta == null)
                 {
-                    _logger.LogInformation("[AioImageProvider] No AioMeta found for {Name} — ProviderIds={Ids}",
-                        item.Name,
-                        item.ProviderIds != null ? string.Join(",", item.ProviderIds.Select(kvp => $"{kvp.Key}={kvp.Value}")) : "(none)");
+                    _logger.LogDebug("[AioImageProvider] No AioMeta found for {Name}", item.Name);
                     return list;
                 }
 
+                // Populate images from AioMeta
                 if (!string.IsNullOrEmpty(meta.Poster))
                 {
                     list.Add(new RemoteImageInfo
                     {
                         ProviderName = Name,
                         Type = ImageType.Primary,
-                        Url = meta.Poster
+                        Url = meta.Poster,
+                        CommunityRating = ParseRating(meta.ImdbRating)
                     });
                 }
 
@@ -95,7 +101,34 @@ namespace InfiniteDrive.Services
                     });
                 }
 
-                _logger.LogInformation("[AioImageProvider] Returning {Count} images for {Name}", list.Count, item.Name);
+                // Thumb and Banner: use poster as thumb for seasons/episodes, backdrop as banner for series
+                if (item is Season || item is Episode)
+                {
+                    if (!string.IsNullOrEmpty(meta.Poster))
+                    {
+                        list.Add(new RemoteImageInfo
+                        {
+                            ProviderName = Name,
+                            Type = ImageType.Thumb,
+                            Url = meta.Poster
+                        });
+                    }
+                }
+
+                if (item is Series)
+                {
+                    if (!string.IsNullOrEmpty(meta.Background))
+                    {
+                        list.Add(new RemoteImageInfo
+                        {
+                            ProviderName = Name,
+                            Type = ImageType.Banner,
+                            Url = meta.Background
+                        });
+                    }
+                }
+
+                _logger.LogDebug("[AioImageProvider] Returning {Count} images for {Name}", list.Count, item.Name);
             }
             catch (Exception ex)
             {
@@ -120,6 +153,13 @@ namespace InfiniteDrive.Services
             if (item.ProviderIds == null || !item.ProviderIds.ContainsKey("INFINITEDRIVE"))
                 return null;
 
+            // For Season/Episode items, try walking up to parent Series for images
+            var targetItem = item;
+            if (item is Season season && season.Series != null)
+                targetItem = season.Series;
+            else if (item is Episode episode && episode.Series != null)
+                targetItem = episode.Series;
+
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null)
             {
@@ -130,7 +170,7 @@ namespace InfiniteDrive.Services
             // Just fetch the raw_meta_json directly — no need to map 33 columns
             string? rawMetaJson = null;
 
-            foreach (var kvp in item.ProviderIds)
+            foreach (var kvp in targetItem.ProviderIds)
             {
                 if (kvp.Key == "INFINITEDRIVE") continue;
                 rawMetaJson = await db.GetRawMetaJsonByProviderIdAsync(kvp.Key, kvp.Value).ConfigureAwait(false);
@@ -140,7 +180,7 @@ namespace InfiniteDrive.Services
             // Fallback: try the INFINITEDRIVE id directly
             if (rawMetaJson == null)
             {
-                var infId = item.ProviderIds["INFINITEDRIVE"];
+                var infId = targetItem.ProviderIds["INFINITEDRIVE"];
                 rawMetaJson = await db.GetRawMetaJsonByProviderIdAsync("imdb", infId).ConfigureAwait(false);
                 if (rawMetaJson == null && infId.StartsWith("kitsu:"))
                     rawMetaJson = await db.GetRawMetaJsonByProviderIdAsync("kitsu", infId.Substring(6)).ConfigureAwait(false);
@@ -152,34 +192,34 @@ namespace InfiniteDrive.Services
                 try
                 {
                     var catalogItem = await db.GetCatalogItemByTitleAsync(
-                        item.Name, item.ProductionYear, null).ConfigureAwait(false);
+                        targetItem.Name, targetItem.ProductionYear, null).ConfigureAwait(false);
                     if (catalogItem?.RawMetaJson != null)
                     {
                         rawMetaJson = catalogItem.RawMetaJson;
-                        _logger.LogInformation("[AioImageProvider] Found meta via title lookup for {Name}", item.Name);
+                        _logger.LogDebug("[AioImageProvider] Found meta via title lookup for {Name}", targetItem.Name);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[AioImageProvider] Title fallback failed for {Name}", item.Name);
+                    _logger.LogDebug(ex, "[AioImageProvider] Title fallback failed for {Name}", targetItem.Name);
                 }
             }
 
             if (rawMetaJson == null)
             {
                 // Live fetch fallback: try AIOStreams /meta/ endpoint
-                var liveMeta = await FetchLiveMetaAsync(item, ct).ConfigureAwait(false);
+                var liveMeta = await FetchLiveMetaAsync(targetItem, ct).ConfigureAwait(false);
                 if (liveMeta != null)
                 {
-                    _logger.LogInformation("[AioImageProvider] Live meta fetch succeeded for {Name}", item.Name);
+                    _logger.LogDebug("[AioImageProvider] Live meta fetch succeeded for {Name}", targetItem.Name);
                     return liveMeta;
                 }
 
-                _logger.LogInformation("[AioImageProvider] No meta found for {Name}", item.Name);
+                _logger.LogDebug("[AioImageProvider] No meta found for {Name}", targetItem.Name);
                 return null;
             }
 
-            _logger.LogInformation("[AioImageProvider] Found meta for {Name}, length={Len}", item.Name, rawMetaJson.Length);
+            _logger.LogDebug("[AioImageProvider] Found meta for {Name}, length={Len}", targetItem.Name, rawMetaJson.Length);
 
             try
             {
@@ -207,7 +247,7 @@ namespace InfiniteDrive.Services
                     var response = await client.GetMetaAsyncTyped(type, id, ct).ConfigureAwait(false);
                     if (response?.Meta != null)
                     {
-                        _logger.LogInformation("[AioImageProvider] Live meta from {Provider} for {Name}", name, item.Name);
+                        _logger.LogDebug("[AioImageProvider] Live meta from {Provider} for {Name}", name, item.Name);
                         await CacheMetaToDbAsync(response.Meta, item, ct).ConfigureAwait(false);
                         return response.Meta;
                     }
@@ -286,6 +326,12 @@ namespace InfiniteDrive.Services
             }
 
             return list;
+        }
+
+        private static float? ParseRating(string? rating)
+        {
+            if (string.IsNullOrEmpty(rating)) return null;
+            return float.TryParse(rating, out var r) ? (float?)(r / 2f) : null; // Normalize 10-scale to 5-scale
         }
     }
 }

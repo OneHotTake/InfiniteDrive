@@ -6059,6 +6059,26 @@ LIMIT 1";
         }
 
         /// <summary>
+        /// Marks cached_streams entries as expired for a specific item.
+        /// Used by smart refresh when Emby metadata is updated.
+        /// </summary>
+        public async Task InvalidateCachedStreamAsync(string imdbId, int? season, int? episode)
+        {
+            const string sql = @"
+                UPDATE cached_streams
+                SET status = 'expired'
+                WHERE imdb_id = @id
+                  AND (@season IS NULL AND season IS NULL OR season = @season)
+                  AND (@episode IS NULL AND episode IS NULL OR episode = @episode)";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", imdbId);
+                BindNullableInt(cmd, "@season", season);
+                BindNullableInt(cmd, "@episode", episode);
+            }).ConfigureAwait(false);
+        }
+        /// <summary>
         /// Returns media items that have no corresponding cached_streams row.
         /// For movies: one row per movie. For series: expands episodes from
         /// catalog_items.videos_json via join on IMDB.

@@ -70,8 +70,7 @@ namespace InfiniteDrive.Services
                 if (item.MediaType == "movie")
                 {
                     Directory.CreateDirectory(animeFolder);
-                    var animeFileName = $"{NamingPolicyService.SanitisePath(item.Title)}{(item.Year.HasValue ? $" ({item.Year})" : string.Empty)}.strm";
-                    var animePath = Path.Combine(animeFolder, animeFileName);
+                    var animePath = Path.Combine(animeFolder, NamingPolicyService.BuildStrmFileName(item));
                     WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animePath;
@@ -80,7 +79,7 @@ namespace InfiniteDrive.Services
                 {
                     var animeSeasonDir = Path.Combine(animeFolder, "Season 01");
                     Directory.CreateDirectory(animeSeasonDir);
-                    var animeStrmPath = Path.Combine(animeSeasonDir, $"{NamingPolicyService.SanitisePath(item.Title)} S01E01.strm");
+                    var animeStrmPath = Path.Combine(animeSeasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
                     WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animeStrmPath;
@@ -94,7 +93,7 @@ namespace InfiniteDrive.Services
                 var folder = Path.Combine(config.SyncPathMovies, folderBareName);
                 Directory.CreateDirectory(folder);
                 // File basename must match folder name for Emby version stacking
-                var fileName = $"{folderBareName}.strm";
+                var fileName = NamingPolicyService.BuildStrmFileName(item);
                 var path = Path.Combine(folder, fileName);
                 WriteStrmFile(path, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
                 await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
@@ -107,7 +106,7 @@ namespace InfiniteDrive.Services
                 NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
             var seasonDir = Path.Combine(showDir, "Season 01");
             Directory.CreateDirectory(seasonDir);
-            var strmPath = Path.Combine(seasonDir, $"{NamingPolicyService.SanitisePath(item.Title)} S01E01.strm");
+            var strmPath = Path.Combine(seasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
             WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
             await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
             return strmPath;
@@ -150,7 +149,7 @@ namespace InfiniteDrive.Services
 
             Directory.CreateDirectory(seasonDir);
 
-            var fileName = $"{NamingPolicyService.SanitisePath(seriesItem.Title)} S{season:D2}E{episode:D2}.strm";
+            var fileName = NamingPolicyService.BuildStrmFileName(seriesItem, season, episode);
             var filePath = Path.Combine(seasonDir, fileName);
 
             if (File.Exists(filePath))
@@ -226,7 +225,7 @@ namespace InfiniteDrive.Services
 
             Directory.CreateDirectory(seasonDir);
 
-            var fileName = $"{NamingPolicyService.SanitisePath(seriesItem.Title)} S{seasonNumber:D2}E{episodeNumber:D2}.strm";
+            var fileName = NamingPolicyService.BuildStrmFileName(seriesItem, seasonNumber, episodeNumber);
             var filePath = Path.Combine(seasonDir, fileName);
 
             if (File.Exists(filePath))
@@ -443,7 +442,6 @@ namespace InfiniteDrive.Services
             Directory.CreateDirectory(seriesPath);
 
             var written = 0;
-            var sanitisedName = NamingPolicyService.SanitisePath(item.Title);
 
             // Group episodes by season
             var seasonGroups = videos.GroupBy(v => v.Season);
@@ -454,16 +452,16 @@ namespace InfiniteDrive.Services
                 var seasonPath = Path.Combine(seriesPath, $"Season {seasonNum:D2}");
                 Directory.CreateDirectory(seasonPath);
 
-                foreach (var episode in seasonGroup)
+                foreach (var ep in seasonGroup)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    var fileName = $"{sanitisedName} S{seasonNum:D2}E{episode.Episode:D2}.strm";
+                    var fileName = NamingPolicyService.BuildStrmFileName(item, seasonNum, ep.Episode);
                     var filePath = Path.Combine(seasonPath, fileName);
 
                     if (!File.Exists(filePath))
                     {
-                        var strmUrl = BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", seasonNum, episode.Episode);
+                        var strmUrl = BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", seasonNum, ep.Episode);
                         WriteStrmFile(filePath, strmUrl);
                         written++;
                         _logger.LogDebug(

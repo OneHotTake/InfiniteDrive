@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using InfiniteDrive.Models;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Entities.TV;
 using InfiniteDrive.Logging;
 using MediaBrowser.Controller.Library;
@@ -47,6 +48,11 @@ namespace InfiniteDrive.Services
         private static readonly ConcurrentDictionary<string, (int count, DateTime expires)>
             _episodeCountCache = new();
 
+        // Per-item cooldown for metadata refresh pre-cache (5-minute window)
+        private static readonly ConcurrentDictionary<string, DateTime>
+            _refreshCooldowns = new();
+        private static readonly TimeSpan RefreshCooldown = TimeSpan.FromMinutes(5);
+
         // Lazy cleanup threshold: clean expired entries after this many access
         private static int _cacheAccessCount;
         private const int CacheCleanupThreshold = 100;
@@ -74,7 +80,8 @@ namespace InfiniteDrive.Services
             _sessionManager.PlaybackStart   += OnPlaybackStarted;
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
             _libraryManager.ItemAdded       += OnItemAdded;
-            _logger.LogInformation("[InfiniteDrive] EmbyEventHandler started — watching playback and library events");
+            _libraryManager.ItemUpdated     += OnItemUpdated;
+            _logger.LogInformation("[InfiniteDrive] EmbyEventHandler started — watching playback, library, and metadata events");
         }
 
         /// <inheritdoc/>
@@ -83,6 +90,7 @@ namespace InfiniteDrive.Services
             _sessionManager.PlaybackStart   -= OnPlaybackStarted;
             _sessionManager.PlaybackStopped -= OnPlaybackStopped;
             _libraryManager.ItemAdded       -= OnItemAdded;
+            _libraryManager.ItemUpdated     -= OnItemUpdated;
         }
 
         // ── Private: item-added handler ─────────────────────────────────────────
@@ -142,6 +150,89 @@ namespace InfiniteDrive.Services
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "[InfiniteDrive] HandleNewEpisodeIndexedAsync failed");
+            }
+        }
+
+        // ── Private: item-updated handler (SMART REFRESH) ──────────────────────
+
+        /// <summary>
+        /// Fires when Emby updates metadata for a library item.
+        /// For InfiniteDrive items (Movie/Series/Episode), invalidates the pre-cache
+        /// and triggers a single-item re-resolution with a 5-minute per-item cooldown.
+        /// </summary>
+        private void OnItemUpdated(object? sender, ItemChangeEventArgs e)
+        {
+            var item = e.Item;
+            if (item == null) return;
+
+            // Only care about our items
+            if (item.ProviderIds == null || !item.ProviderIds.ContainsKey("INFINITEDRIVE"))
+                return;
+
+            // Only Movies, Series, and Episodes
+            if (!(item is Movie || item is Series || item is Episode))
+                return;
+
+            _ = Task.Run(() => HandleItemUpdatedAsync(item));
+        }
+
+        private async Task HandleItemUpdatedAsync(BaseItem item)
+        {
+            try
+            {
+                // Extract IMDB ID
+                if (!item.ProviderIds.TryGetValue("Imdb", out var imdbId) || string.IsNullOrEmpty(imdbId))
+                    return;
+
+                // Per-item cooldown: skip if same item refreshed in last 5 minutes
+                var cooldownKey = imdbId;
+                if (_refreshCooldowns.TryGetValue(cooldownKey, out var lastRefresh))
+                {
+                    if (DateTime.UtcNow - lastRefresh < RefreshCooldown)
+                    {
+                        _logger.LogDebug("[InfiniteDrive] Skipping refresh for {Imdb} — cooldown ({Remaining:F0}s remaining)",
+                            imdbId, (RefreshCooldown - (DateTime.UtcNow - lastRefresh)).TotalSeconds);
+                        return;
+                    }
+                }
+
+                _refreshCooldowns[cooldownKey] = DateTime.UtcNow;
+
+                // Determine media type and season/episode
+                string mediaType;
+                int? season = null, episode = null;
+
+                if (item is Movie)
+                {
+                    mediaType = "movie";
+                }
+                else if (item is Episode ep)
+                {
+                    mediaType = "series";
+                    season = ep.ParentIndexNumber;
+                    episode = ep.IndexNumber;
+                }
+                else // Series
+                {
+                    mediaType = "series";
+                }
+
+                var cacheService = Plugin.Instance?.StreamCacheService;
+                if (cacheService == null) return;
+
+                // Invalidate existing cache
+                await cacheService.InvalidateAsync(imdbId, season, episode).ConfigureAwait(false);
+
+                // Fire-and-forget single-item pre-cache
+                _ = cacheService.PreCacheSingleAsync(imdbId, mediaType, season, episode);
+
+                _logger.LogInformation(
+                    "[InfiniteDrive] Smart refresh: invalidated + queued refresh for {Imdb} S{S}E{E}",
+                    imdbId, season, episode);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[InfiniteDrive] HandleItemUpdatedAsync failed for {Name}", item.Name);
             }
         }
 
