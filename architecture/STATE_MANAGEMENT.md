@@ -80,8 +80,8 @@ Plugin.Manifest.FetchedAt = DateTimeOffset.UtcNow;
 |----------|---------------|
 | SearchEndpoints (RefreshManifest) | Sets Status + FetchedAt on success/failure. Calls CheckStale() before refresh. |
 | DiagnosticsEndpoints (Health) | Reads Status + FetchedAt for HealthResponse. |
-| RepairUI | Reads Status for display. |
-| HealthUI | Reads Status for display (fallback if API unavailable). |
+| RepairUI | *(deleted — functionality moved to HTML settings)* |
+| HealthUI | *(deleted — functionality moved to HTML settings)* |
 
 ## 2. Pipeline Phase Tracking
 
