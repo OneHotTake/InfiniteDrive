@@ -160,6 +160,7 @@ Controlled by `UserCatalogLimit` from `GET /InfiniteDrive/User/Catalogs/Provider
 | `GET /InfiniteDrive/Status` | Overview, inline health on all tabs |
 | `POST /InfiniteDrive/Status/Refresh` | Refresh button |
 | `POST /InfiniteDrive/Trigger?task=catalog_sync` | Sync button |
+| `POST /InfiniteDrive/Trigger?task=precache` | Inspector (pre-warm cache) |
 | `POST /InfiniteDrive/Trigger?task=link_resolver` | Inspector |
 | `GET /InfiniteDrive/Admin/Lists` | Lists tab |
 | `POST /InfiniteDrive/Admin/Lists/Add` | Lists tab |

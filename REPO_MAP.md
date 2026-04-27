@@ -111,3 +111,9 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Modified: AioMediaSourceProvider (OpenMediaSource impl, RequiresOpening flag, UseRequiresOpening config)
 - Modified: StrmWriterService (ILibraryMonitor notification after .strm write)
 - Deprecated: ResolverService, StreamEndpointService, PlaybackTokenService token methods (follow-up)
+
+## Sprint 420 Complete (2026-04-27)
+- Stream pre-cache system: background task resolves AIO streams before users browse, version picker appears instantly
+- New: Models/CachedStreamEntry.cs (CachedStreamEntry, StreamVariant, UncachedItem), Services/StreamCacheService.cs (IStreamCacheService), Tasks/PreCacheAioStreamsTask.cs
+- Modified: Plugin.cs (StreamCacheService singleton), PluginConfiguration.cs (EnablePreCache, PreCacheBatchSize, PreCacheIntervalHours, PreCacheTTLDays)
+- Modified: Data/DatabaseManager.cs (cached_streams table + 5 query methods), Services/AioMediaSourceProvider.cs (pre-cache check + write-through), Services/TriggerService.cs (precache trigger)

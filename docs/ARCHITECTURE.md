@@ -17,5 +17,15 @@ InfiniteDrive is built on the principle of **Immediate Availability**. We do not
 * **Fail-Closed Security:** HMAC signing for playback URLs must throw an exception if the `PluginSecret` is unconfigured. We never serve unsigned or insecure legacy `/Play` URLs.
 * **Centralized Metadata:** All XML generation is handled by `NfoWriterService` to ensure consistent escaping and schema compliance.
 
-## 3. Dependency Management
+## 3. Stream Pre-Cache Layer
+The pre-cache system eliminates the 20-40s cold-browse delay by proactively resolving stream metadata before users navigate to items.
+
+* **Background Task:** `PreCacheAioStreamsTask` runs on a configurable interval (default 6h), queries the library for uncached items, resolves streams via AIO, scores them, and stores up to 6 variants per item in the `cached_streams` table.
+* **Cache Service:** `StreamCacheService` reads/writes the `cached_streams` table and converts cached variants into Emby `MediaSourceInfo[]` with `RequiresOpening=true`.
+* **Primary Key Strategy:** TMDB-first (`tmdb-{id}-movie`), IMDB-fallback (`imdb-{id}-movie`). Critical for anime/foreign titles without TMDB IDs.
+* **Durable Identity:** `infoHash + fileIdx` survives CDN URL rotation. Open tokens encode these for fresh URL resolution in `OpenMediaSource`.
+* **Rate-Limit Aware:** Catches `AioStreamsRateLimitException`, applies exponential backoff (5s → 60s max) with jitter. Budget-gated per item.
+* **Integration:** `AioMediaSourceProvider` checks `StreamCacheService` before legacy cache. On miss, live resolves and writes through to `cached_streams`.
+
+## 4. Dependency Management
 The project is moving away from `Plugin.Instance` as a service locator. New logic should favor constructor injection where possible to improve testability and reduce the blast radius of refactors.

@@ -35,6 +35,29 @@ During a live playback request (`/resolve`):
 - If the cached URL is expired, we trigger a "Fast-Path" resolution.
 - If the Fast-Path returns `Throttled`, we attempt to serve a lower-quality cached version or a secondary manifest link before returning a 429 to the client.
 
+## 5. Stream Pre-Cache (cached_streams)
+
+The pre-cache layer sits **before** the legacy `stream_candidates` cache in `AioMediaSourceProvider.GetMediaSourcesCoreAsync`. When a user browses an item:
+
+1. Check `StreamCacheService.GetByImdbAsync(imdbId, season, episode)`
+2. **HIT** → `BuildMediaSources(entry)` → instant `MediaSourceInfo[]` (<500ms). Each variant has `RequiresOpening=true` with an open token encoding `infoHash + fileIdx`.
+3. **MISS** → fall through to existing live resolve logic (keeps working during alpha)
+4. After live resolve succeeds → fire-and-forget write to `cached_streams` via `StreamCacheService.StoreAsync`
+
+### When OpenMediaSource runs for a pre-cached stream:
+1. Parse `CachedStreamOpenToken` from open token
+2. Try cached URL first (HEAD check for freshness)
+3. If expired: re-resolve via AIO using `infoHash + fileIdx` matching against fresh stream response
+4. Return `InfiniteDriveLiveStream` with fresh CDN URL
+
+### Pre-Cache Background Task (`PreCacheAioStreamsTask`)
+- Interval: `PreCacheIntervalHours` (default 6h, range 1-48h)
+- Batch size: `PreCacheBatchSize` (default 42, range 1-500)
+- TTL: `PreCacheTTLDays` (default 14 days, range 1-90)
+- Budget-gated: checks `IsBudgetExhaustedAsync()` before each item
+- Rate-limit aware: exponential backoff 5s → 60s max with jitter on 429s
+- Provider failover: tries all configured providers per item via `ResolverHealthTracker`
+
 ## 5. Security (HMAC)
 All resolved URLs passed to the `.strm` files must be signed via `PlaybackTokenService`.
 - **Rule:** No URL leaves the system without a signature.
