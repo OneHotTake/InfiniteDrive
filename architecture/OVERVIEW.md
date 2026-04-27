@@ -37,8 +37,8 @@ The system transitioned from a monolithic StatusService + "God Task" pattern (pr
 │  Background      │  │  API Endpoints      │  │  UI Rendering        │
 │  Tasks           │  │  (Services/Api/)    │  │  (UI/)               │
 │  (Tasks/)        │  │                     │  │                      │
-│                  │  │  CatalogEndpoints   │  │  HealthUI            │
-│  CatalogSyncTask │  │  DiagnosticsEn…    │  │  RepairUI            │
+│                  │  │  CatalogEndpoints   │  │  Scoring/            │
+│  CatalogSyncTask │  │  DiagnosticsEn…    │  │  CdnProber           │
 │  RefreshTask     │  │  SearchEndpoints    │  │                      │
 │  MarvinTask      │  │                     │  │                      │
 │  CollectionTask  │  │                     │  │                      │
