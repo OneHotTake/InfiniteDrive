@@ -174,7 +174,7 @@ namespace InfiniteDrive.Services
 
         // ── GET /InfiniteDrive/User/Catalogs/Providers ──────────────────────────────
 
-        public object Get(GetProvidersRequest req)
+        public async Task<object> Get(GetProvidersRequest req)
         {
             var userId = GetCurrentUserId();
             var config = Plugin.Instance.Configuration;
@@ -182,7 +182,7 @@ namespace InfiniteDrive.Services
 
             if (userId != null)
             {
-                var catalogs = _db.GetUserCatalogsByOwnerAsync(userId, activeOnly: true).Result;
+                var catalogs = await _db.GetUserCatalogsByOwnerAsync(userId, activeOnly: true);
                 currentCount = catalogs.Count;
             }
 

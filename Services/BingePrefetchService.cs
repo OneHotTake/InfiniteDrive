@@ -27,7 +27,7 @@ namespace InfiniteDrive.Services
                 var db = Plugin.Instance?.DatabaseManager;
                 if (config == null || db == null) return;
 
-                var providers = GetProviders(config);
+                var providers = ProviderHelper.GetProviders(config);
                 if (providers.Count == 0) return;
 
                 var healthTracker = Plugin.Instance?.ResolverHealthTracker;
@@ -115,35 +115,6 @@ namespace InfiniteDrive.Services
             {
                 logger.LogDebug(ex, "[Binge] Prefetch failed for {ImdbId} (non-fatal)", imdbId);
             }
-        }
-
-        private static List<ProviderInfo> GetProviders(PluginConfiguration config)
-        {
-            var providers = new List<ProviderInfo>();
-
-            if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                    providers.Add(new ProviderInfo { DisplayName = "Primary", Url = url, Uuid = uuid ?? "", Token = token ?? "" });
-            }
-
-            if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                    providers.Add(new ProviderInfo { DisplayName = "Secondary", Url = url, Uuid = uuid ?? "", Token = token ?? "" });
-            }
-
-            return providers;
-        }
-
-        private class ProviderInfo
-        {
-            public string DisplayName { get; set; } = string.Empty;
-            public string Url { get; set; } = string.Empty;
-            public string Uuid { get; set; } = string.Empty;
-            public string Token { get; set; } = string.Empty;
         }
     }
 }

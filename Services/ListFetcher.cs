@@ -47,7 +47,7 @@ namespace InfiniteDrive.Services
         {
             var config = Plugin.Instance?.Configuration;
             var lang = config?.MetadataLanguage ?? "en";
-            var country = config?.MetadataCountryCode ?? "US";
+            var country = config?.MetadataCertificationCountry ?? "US";
             return $"{lang}-{country}";
         }
 

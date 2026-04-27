@@ -183,19 +183,8 @@ namespace InfiniteDrive.Services
                     break;
 
                 case TaskSeriesGapScan:
-                    _logger.LogWarning("[Trigger] SeriesGapScan is deprecated — superseded by catalog-first episode sync (Sprint 222)");
-                    #pragma warning disable CS0618
-                    FireAndForget(ct => new SeriesGapScanTask(_logManager)
-                        .Execute(ct, new Progress<double>()), TaskSeriesGapScan);
-                    #pragma warning restore CS0618
-                    break;
-
                 case TaskSeriesGapRepair:
-                    _logger.LogWarning("[Trigger] SeriesGapRepair is deprecated — superseded by catalog-first episode sync (Sprint 222)");
-                    #pragma warning disable CS0618
-                    FireAndForget(ct => new SeriesGapRepairTask(_logManager)
-                        .Execute(ct, new Progress<double>()), TaskSeriesGapRepair);
-                    #pragma warning restore CS0618
+                    _logger.LogWarning("[Trigger] {Trigger} is deprecated — superseded by catalog-first episode sync (Sprint 222)", taskKey);
                     break;
 
                 case TaskClearClientProfiles:

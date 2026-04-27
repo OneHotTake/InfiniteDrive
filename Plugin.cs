@@ -127,12 +127,6 @@ namespace InfiniteDrive
         public Services.SlotMatcher SlotMatcher { get; private set; } = null!;
 
         /// <summary>
-        /// Home section tracker for per-user per-rail state.
-        /// Sprint 118: Home Screen Rails.
-        /// </summary>
-        public HomeSectionTracker HomeSectionTracker { get; private set; } = null!;
-
-        /// <summary>
         /// Catalog repository for catalog item operations (Sprint 104D-02).
         /// Delegates to DatabaseManager - temporary adapter during split.
         /// </summary>
@@ -410,10 +404,6 @@ namespace InfiniteDrive
                 CandidateNormalizer = new Services.CandidateNormalizer(_logger);
                 SlotMatcher = new Services.SlotMatcher();
                 _logger.LogInformation("[InfiniteDrive] Versioned playback services initialised");
-
-                // Initialise home section tracker (Sprint 118: Home Screen Rails)
-                HomeSectionTracker = new HomeSectionTracker(DatabaseManager, new EmbyLoggerAdapter<HomeSectionTracker>(_logManager.GetLogger("HomeSectionTracker")));
-                _logger.LogInformation("[InfiniteDrive] Home section tracker initialised");
 
                 // Initialise StrmWriterService (Sprint 156: Unified Write Path)
                 StrmWriterService = new Services.StrmWriterService(_logManager, DatabaseManager);

@@ -59,7 +59,7 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Batch repair: processes up to <paramref name="batchLimit"/> series with gaps.
-        /// Called by SeriesGapRepairTask.
+        /// Called by MarvinTask or on-demand.
         /// </summary>
         public async Task<GapRepairResult> RepairSeriesGapsAsync(int batchLimit, CancellationToken ct)
         {
