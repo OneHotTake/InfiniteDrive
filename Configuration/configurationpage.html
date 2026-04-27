@@ -136,6 +136,7 @@
   <button class="es-tab" data-es-tab="libraries">Libraries</button>
   <button class="es-tab" data-es-tab="lists">Lists</button>
   <button class="es-tab" data-es-tab="sources">Catalogs</button>
+  <button class="es-tab" data-es-tab="streams">Streams</button>
   <button class="es-tab" data-es-tab="parental">Content Filtering</button>
   <button class="es-tab" data-es-tab="security">Security</button>
   <button class="es-tab" data-es-tab="inspector">Inspector</button>
@@ -530,6 +531,91 @@
   </div>
 
 </div><!-- /sources tab -->
+
+
+<!-- ════════════════════════════ TAB — Streams ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-streams">
+
+  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Stream Selection &amp; Version Picker</h1>
+
+  <div class="es-info-box" style="margin-bottom:1.2em;padding:1em;background:rgba(0,0,0,0.1);border-radius:4px;border-left:3px solid #52b54b">
+    <div style="display:flex;align-items:flex-start;gap:.75em">
+      <span class="material-icons" style="color:#52b54b">info</span>
+      <div>
+        Controls how InfiniteDrive curates and presents streams in Emby's version picker.
+        The bucket algorithm selects 6–8 streams per title across resolution × source quality tiers.
+      </div>
+    </div>
+  </div>
+
+  <!-- MaxCuratedStreams -->
+  <div class="inputContainer" style="margin-bottom:1.2em">
+    <label class="inputLabel">Max Curated Streams per Title</label>
+    <input type="number" id="es-max-curated-streams" class="emby-input" min="1" max="12" value="7" />
+    <div class="fieldDescription">1–12 (default 7). Maximum streams shown in Emby's version picker.</div>
+  </div>
+
+  <!-- DirectPlayEnabled -->
+  <div class="checkboxContainer" style="margin-bottom:1.2em">
+    <label class="emby-checkbox-label">
+      <input type="checkbox" id="es-direct-play-enabled" checked />
+      <span>Enable Direct Play</span>
+    </label>
+    <div class="fieldDescription">
+      Serve CDN URLs directly to clients for lower latency. Disable to force
+      <code>OpenMediaSource()</code> with HEAD-check failover between ranked streams.
+    </div>
+  </div>
+
+  <!-- VersionLabelPrefix -->
+  <div class="inputContainer" style="margin-bottom:1.5em">
+    <label class="inputLabel">Version Label Prefix</label>
+    <input type="text" id="es-version-label-prefix" class="emby-input" value="InfiniteDrive · " />
+    <div class="fieldDescription">Prefix added to each stream label in the version picker. Leave empty to disable.</div>
+  </div>
+
+  <!-- Stream Buckets Editor -->
+  <h2 style="margin:0 0 .5em;font-size:1.1em;font-weight:600">Stream Buckets</h2>
+  <div class="fieldDescription" style="margin-bottom:1em">
+    Each bucket defines a (Resolution × Source Quality) slot. Streams are selected from AIOStreams results
+    matching each bucket's criteria, up to the bucket's max count.
+  </div>
+
+  <div id="es-bucket-editor">
+    <table class="es-sources-table" style="width:100%">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:.5em;width:30%">Resolution</th>
+          <th style="text-align:left;padding:.5em;width:35%">Source Quality</th>
+          <th style="text-align:left;padding:.5em;width:20%">Max Count</th>
+          <th style="width:15%"></th>
+        </tr>
+      </thead>
+      <tbody id="es-bucket-rows"></tbody>
+    </table>
+    <div style="display:flex;gap:.6em;margin-top:.8em;align-items:center">
+      <button type="button" id="es-add-bucket-btn" class="raised raised-mini" style="padding:.5em 1.2em">
+        <span>Add Bucket</span>
+      </button>
+      <button type="button" id="es-reset-buckets-btn" class="raised raised-mini" style="padding:.5em 1.2em;opacity:.7">
+        <span>Reset to Defaults</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="fieldDescription" style="margin-top:.8em;opacity:.6;font-size:.8em">
+    Resolution: 0=4K, 1=1080p, 2=720p, 3=480p &nbsp;|&nbsp;
+    Source: 0=Remux, 1=+BluRay, 2=+WEB-DL, 3=+WEB, 9=Any
+  </div>
+
+  <div style="margin-top:1.5em;text-align:center">
+    <button type="button" id="es-save-streams-btn" class="raised" style="padding:.7em 2.5em">
+      <span>Save Stream Settings</span>
+    </button>
+    <div id="es-streams-save-result" style="margin-top:.5em;font-size:.85em"></div>
+  </div>
+
+</div>
 
 
 <!-- ════════════════════════════ TAB — Content Filtering ════════════════════════════ -->

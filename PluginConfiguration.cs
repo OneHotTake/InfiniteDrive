@@ -153,7 +153,20 @@ namespace InfiniteDrive
         public string EmbyApiKey { get; set; } = string.Empty;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  .STRM FILE STORAGE PATHS                                            ║
+        // ║  LIBRARY ROOT PATHS (VIRTUAL ITEMS)                                  ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// Absolute filesystem path of the Emby Movies library root.
+        /// Must match the path configured in Emby Dashboard → Libraries.
+        /// Used by VirtualItemService to place virtual movie items.
+        /// Default: <c>/media/infinitedrive/movies</c>
+        /// </summary>
+        [DataMember]
+        public string LibraryRootMovies { get; set; } = "/media/infinitedrive/movies";
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  .STRM FILE STORAGE PATHS (LEGACY)                                   ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
         /// <summary>
@@ -357,10 +370,13 @@ namespace InfiniteDrive
         public string ProxyMode { get; set; } = "auto";
 
         /// <summary>
-        /// When <c>true</c> (default), sources returned by AioMediaSourceProvider have
+        /// When <c>true</c>, sources returned by AioMediaSourceProvider have
         /// <c>RequiresOpening = true</c> so Emby always calls <c>OpenMediaSource()</c>
         /// and never plays the .strm URL directly.  Set to <c>false</c> to revert to
         /// CDN-URL-in-Path behavior without redeploy (rollback switch).
+        ///
+        /// Derived from <see cref="DirectPlayEnabled"/>: when DirectPlay is enabled,
+        /// RequiresOpening is false (bypasses the transcode path).
         /// </summary>
         [DataMember]
         public bool UseRequiresOpening { get; set; } = true;
@@ -435,6 +451,45 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public int CandidatesPerProvider { get; set; } = 3;
+
+        /// <summary>
+        /// Max total curated streams returned per item (default 7, max 12).
+        /// </summary>
+        [DataMember]
+        public int MaxCuratedStreams { get; set; } = 7;
+
+        /// <summary>
+        /// JSON-serialized bucket definitions for stream selection.
+        /// Each bucket: { "resTier": int, "srcMax": int, "maxCount": int }
+        /// resTier: 0=4K 1=1080p 2=720p 3=480p
+        /// srcMax:  0=Remux-only 1=+BluRay 2=+WEB-DL 3=+WEB
+        /// maxCount: max streams from this bucket
+        /// </summary>
+        [DataMember]
+        public string StreamBucketsJson { get; set; } = @"[
+  {""resTier"":0,""srcMax"":0,""maxCount"":2},
+  {""resTier"":0,""srcMax"":1,""maxCount"":1},
+  {""resTier"":0,""srcMax"":2,""maxCount"":1},
+  {""resTier"":1,""srcMax"":0,""maxCount"":1},
+  {""resTier"":1,""srcMax"":1,""maxCount"":2},
+  {""resTier"":2,""srcMax"":1,""maxCount"":1}
+]";
+
+        /// <summary>
+        /// When <c>true</c> (default), InfiniteDrive skips the Emby transcoding
+        /// pipeline and serves the resolved CDN URL directly to the client.
+        /// Set to <c>false</c> to force Emby to open the stream through its
+        /// normal <c>OpenMediaSource()</c> path (enables transcode/remux).
+        /// </summary>
+        [DataMember]
+        public bool DirectPlayEnabled { get; set; } = true;
+
+        /// <summary>
+        /// Prefix string prepended to version/slot labels in the UI.
+        /// Default: <c>"InfiniteDrive · "</c>
+        /// </summary>
+        [DataMember]
+        public string VersionLabelPrefix { get; set; } = "InfiniteDrive · ";
 
         /// <summary>
         /// Timeout in seconds for on-demand (synchronous) AIOStreams resolution
@@ -779,11 +834,15 @@ namespace InfiniteDrive
             // -1 is the "disabled" sentinel; any other out-of-range value clamps to 0–23
             SyncScheduleHour          = SyncScheduleHour == -1 ? -1 : Clamp(SyncScheduleHour, 0, 23);
             CandidatesPerProvider     = Clamp(CandidatesPerProvider,     1,     10);
+            MaxCuratedStreams         = Clamp(MaxCuratedStreams,         1,     12);
             CandidateTtlHours         = Clamp(CandidateTtlHours,         1,     168);    // 1 h – 7 days
             SignatureValidityDays    = Clamp(SignatureValidityDays,    1,     3650);
             SkipFutureEpisodes          = SkipFutureEpisodes;
             FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);
             UserCatalogLimit          = Clamp(UserCatalogLimit, 0, 50);
+
+            // Derive UseRequiresOpening from DirectPlayEnabled
+            UseRequiresOpening = !DirectPlayEnabled;
 
             // Recompute instance type from manifest URL
             ResolvedInstanceType = DetectInstanceType(PrimaryManifestUrl);
