@@ -559,6 +559,7 @@ All available trigger keys for `POST /EmbyStreams/Trigger?task={key}`:
 |----------|-------------|
 | `catalog_sync` | Run catalog sync immediately (all sources) |
 | `link_resolver` | Run background URL pre-resolution pass |
+| `precache` | Run stream pre-cache task — resolves AIO streams for uncached library items |
 | `file_resurrection` | Write `.strm` files for DB items that are missing them |
 | `library_readoption` | Detect real media files and optionally remove redundant `.strm` files |
 | `episode_expand` | Expand next-episode queue for active series |
@@ -571,6 +572,54 @@ All available trigger keys for `POST /EmbyStreams/Trigger?task={key}`:
 | `reset_wizard` | Reset `IsFirstRunComplete` to show Setup Wizard again |
 
 > **⚠️ Warning:** `purge_catalog` and `reset_all` are irreversible. The database rows are hard-deleted; disk files are permanently removed. Run `catalog_sync` after either to repopulate.
+
+---
+
+## Stream Pre-Cache
+
+### Version picker is slow (20-40s) for some items
+
+**Cause:** The item has not been pre-cached yet. The pre-cache task runs on a schedule and may not have reached this item.
+
+**Fix 1:** Wait for the next scheduled pre-cache run (every 6 hours by default).
+
+**Fix 2:** Trigger an immediate pre-cache run:
+```bash
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=precache" \
+     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
+```
+
+**Fix 3:** Check if pre-cache is enabled:
+```bash
+grep EnablePreCache /var/lib/emby/data/plugins/configurations/EmbyStreams.xml
+```
+
+### Pre-cache task completes with 0 items resolved
+
+**Step 1:** Check if there are uncached items:
+```bash
+sqlite3 /var/lib/emby/data/EmbyStreams/embystreams.db \
+  "SELECT COUNT(*) FROM media_items WHERE imdb_id NOT IN (SELECT imdb_id FROM cached_streams)"
+```
+
+**Step 2:** Check if API budget is exhausted:
+```bash
+sqlite3 /var/lib/emby/data/EmbyStreams/embystreams.db \
+  "SELECT * FROM api_budget WHERE date = date('now')"
+```
+
+**Step 3:** Check for rate-limit backoff in logs:
+```bash
+grep "\[PreCache\]" /var/log/emby/embyserver.txt | tail -20
+```
+
+### Pre-cache is consuming too much API budget
+
+**Fix 1:** Reduce `PreCacheBatchSize` (default 42, range 1-500).
+
+**Fix 2:** Increase `PreCacheIntervalHours` (default 6, range 1-48) to run less frequently.
+
+**Fix 3:** Increase `ApiDailyBudget` if you have room.
 
 ---
 

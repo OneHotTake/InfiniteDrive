@@ -38,7 +38,23 @@ CDN URLs never appear in `.strm` content or `MediaSourceInfo.Path` during picker
 
 `PluginConfiguration.UseRequiresOpening` (bool, default `true`). Set to `false` to revert to CDN-URL-in-Path behavior without redeploy. Old Resolve/Stream endpoints remain running as fallback for pre-existing `.strm` files.
 
-## Binge Watching
+## Pre-Cached Stream Flow
+
+When `AioMediaSourceProvider` serves a pre-cached item (from `cached_streams` table):
+
+1. `StreamCacheService.GetByImdbAsync()` returns a `CachedStreamEntry`
+2. `BuildMediaSources()` creates `MediaSourceInfo[]` with `RequiresOpening=true`
+3. Each source's `OpenToken` = JSON-serialized `CachedStreamOpenToken`:
+   ```
+   { infoHash, fileIdx, imdbId, season, episode, mediaType, url, headersJson, providerName }
+   ```
+4. User selects version → Emby calls `OpenMediaSource(openToken)`
+5. `OpenFromCachedTokenAsync()`:
+   - Tries cached URL first (HEAD request for freshness)
+   - On expiry: re-resolves via AIO using `infoHash + fileIdx` matching against fresh `/stream/{type}/{id}.json` response
+   - Returns `InfiniteDriveLiveStream` with fresh CDN URL
+
+This means pre-cached streams never rely on M3U8 probing. The durable `infoHash + fileIdx` identity allows fresh URL resolution even after CDN URL rotation.
 
 `BingePrefetchService` pre-loads next episode. When Emby auto-plays next episode:
 1. `GetMediaSources()` → DB hit → instant decorated sources (no AIOStreams call)

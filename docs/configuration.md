@@ -236,6 +236,40 @@ Quality tier **always** overrides provider priority: a 4K TorBox stream beats a 
 
 ---
 
+## Stream Pre-Cache
+
+The pre-cache system proactively resolves stream metadata for library items before users browse them, making the version picker appear instantly instead of requiring a 20-40s live resolve.
+
+### `EnablePreCache`
+**Type:** bool · **Default:** `true`
+
+Enables the background `PreCacheAioStreamsTask` that resolves AIO streams for uncached library items and stores them in the `cached_streams` table.
+
+When disabled, all items require live resolution when browsed (20-40s delay for first browse). Existing cached entries remain usable but are not refreshed.
+
+### `PreCacheBatchSize`
+**Type:** int · **Range:** 1–500 · **Default:** `42`
+
+Maximum number of items to resolve per pre-cache task run. Each item may trigger multiple AIO provider calls (one per configured provider until a hit is found).
+
+Lower values reduce API consumption; higher values warm the cache faster. 42 is a good balance for most catalogs.
+
+### `PreCacheIntervalHours`
+**Type:** int · **Range:** 1–48 · **Default:** `6`
+
+Hours between automatic pre-cache task runs. The task runs as an Emby scheduled task.
+
+For large catalogs (>5000 items), consider 4-6 hours to keep the cache warm. For small catalogs, 12-24 hours is sufficient.
+
+### `PreCacheTTLDays`
+**Type:** int · **Range:** 1–90 · **Default:** `14`
+
+Days after which a cached stream entry is considered expired. Expired entries are re-resolved on the next pre-cache run.
+
+Shorter TTLs (7 days) ensure fresher stream data but increase API usage. Longer TTLs (30 days) reduce API load but may serve stale provider info.
+
+---
+
 ## Streaming & Proxy
 
 ### `ProxyMode`
@@ -363,3 +397,6 @@ These fields are populated automatically by the plugin and should not be edited 
 | `NextUpLookaheadEpisodes` | 0 | 10 |
 | `SyncScheduleHour` | -1 or 0 | 23 |
 | `CandidatesPerProvider` | 1 | 10 |
+| `PreCacheBatchSize` | 1 | 500 |
+| `PreCacheIntervalHours` | 1 | 48 |
+| `PreCacheTTLDays` | 1 | 90 |

@@ -414,3 +414,43 @@ This document describes every failure state the plugin can encounter and exactly
 **Behaviour:** The task's `CancellationToken` is cancelled. Partial progress is preserved (already-written items remain in DB/disk). The task stops cleanly.
 
 **Logging:** `[EmbyStreams] TriggerService: '{task}' timed out (30 min)` (Warning)
+
+---
+
+### T-05: PreCacheAioStreamsTask — API budget exhausted mid-batch
+
+**Trigger:** `IsBudgetExhaustedAsync()` returns true while the pre-cache task is running.
+
+**Behaviour:** The task logs how many items were resolved before exhaustion and stops. Remaining items are retried on the next scheduled run. No items are lost.
+
+**Logging:** `[PreCache] Budget exhausted after {N} items — {M} remaining` (Warning)
+
+---
+
+### T-06: PreCacheAioStreamsTask — AIO rate limit (429)
+
+**Trigger:** AIOStreams returns HTTP 429 during pre-cache resolution.
+
+**Behaviour:** The task catches `AioStreamsRateLimitException`, applies exponential backoff (5s → 10s → 20s → 40s → 60s max with 0-2s jitter), and continues to the next item. The rate-limited item is not counted as failed — it will be retried on the next run. The `CooldownGate` is also notified for global 429 tracking.
+
+**Logging:** `[PreCache] AIO rate limit hit — backing off {Seconds}s (consecutive: {Hits}) for {Imdb}` (Warning)
+
+---
+
+### T-07: PreCacheAioStreamsTask — all providers fail for an item
+
+**Trigger:** Every configured provider returns no streams or throws an exception for a specific item.
+
+**Behaviour:** The item is counted as `failed` in stats. No entry is written to `cached_streams`. The item will appear as uncached on the next run and be retried.
+
+**Logging:** `[PreCache] Failed {Imdb}` (Debug)
+
+---
+
+### T-08: PreCacheAioStreamsTask — plugin not initialised
+
+**Trigger:** The pre-cache task runs but `Plugin.Instance`, `DatabaseManager`, or `StreamCacheService` is null.
+
+**Behaviour:** The task logs a warning and exits cleanly. No items are processed.
+
+**Logging:** `[PreCache] Plugin not initialised — aborting` or `[PreCache] StreamCacheService not initialised — aborting` (Warning)
