@@ -49,6 +49,13 @@ namespace InfiniteDrive.Services
             Timeout = TimeSpan.FromSeconds(5),
         };
 
+        /// <summary>
+        /// Lazy-resolved stream cache service from Plugin.Instance singleton.
+        /// Avoids constructor injection issues with Emby's DI container.
+        /// </summary>
+        private IStreamCacheService StreamCache => Plugin.Instance?.StreamCacheService
+            ?? new StreamCacheService(Microsoft.Extensions.Logging.Abstractions.NullLogger<StreamCacheService>.Instance);
+
         public AioMediaSourceProvider(
             ILogManager logManager,
             IMediaSourceManager mediaSourceManager,
@@ -75,6 +82,20 @@ namespace InfiniteDrive.Services
         public async Task<ILiveStream> OpenMediaSource(
             string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {
+            // ── Try new CachedStreamOpenToken format first ────────────────────────
+            CachedStreamOpenToken? cachedToken = null;
+            try
+            {
+                cachedToken = JsonSerializer.Deserialize<CachedStreamOpenToken>(openToken);
+            }
+            catch { /* not a cached-stream token — try legacy format */ }
+
+            if (cachedToken != null && !string.IsNullOrEmpty(cachedToken.ImdbId))
+            {
+                return await OpenFromCachedTokenAsync(cachedToken, cancellationToken).ConfigureAwait(false);
+            }
+
+            // ── Legacy OpenTokenData format ────────────────────────────────────────
             OpenTokenData? tokenData;
             try
             {
@@ -137,6 +158,136 @@ namespace InfiniteDrive.Services
             throw new InvalidOperationException("All candidates failed HEAD check");
         }
 
+        /// <summary>
+        /// Resolves a fresh CDN URL from a CachedStreamOpenToken using infoHash+fileIdx.
+        /// No M3U8, no StreamProbeService fallback — direct AIO resolution.
+        /// </summary>
+        private async Task<ILiveStream> OpenFromCachedTokenAsync(
+            CachedStreamOpenToken token, CancellationToken cancellationToken)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) throw new InvalidOperationException("Plugin not configured");
+
+            // If we have a direct URL, try it first (fast path)
+            if (!string.IsNullOrEmpty(token.Url))
+            {
+                try
+                {
+                    using var req = new HttpRequestMessage(HttpMethod.Head, token.Url);
+                    if (!string.IsNullOrEmpty(token.HeadersJson))
+                    {
+                        var headers = JsonSerializer.Deserialize<Dictionary<string, string>>(token.HeadersJson);
+                        if (headers != null)
+                            foreach (var h in headers)
+                                req.Headers.TryAddWithoutValidation(h.Key, h.Value);
+                    }
+
+                    using var resp = await _headClient.SendAsync(req, cancellationToken).ConfigureAwait(false);
+                    if (resp.IsSuccessStatusCode)
+                    {
+                        var source = new MediaSourceInfo
+                        {
+                            Id = Guid.NewGuid().ToString("N"),
+                            Name = token.ProviderName ?? "Stream",
+                            Path = token.Url,
+                            Protocol = MediaProtocol.Http,
+                            SupportsDirectPlay = true,
+                            SupportsDirectStream = true,
+                            RequiresOpening = false,
+                        };
+                        if (!string.IsNullOrEmpty(token.HeadersJson))
+                        {
+                            try
+                            {
+                                source.RequiredHttpHeaders =
+                                    JsonSerializer.Deserialize<Dictionary<string, string>>(token.HeadersJson);
+                            }
+                            catch { }
+                        }
+
+                        var liveStream = new InfiniteDriveLiveStream(source, _logger);
+                        await liveStream.Open(cancellationToken).ConfigureAwait(false);
+                        _logger.LogInformation("[AioMediaSourceProvider] Opened cached URL for {Imdb}", token.ImdbId);
+                        return liveStream;
+                    }
+                }
+                catch { /* URL expired — fall through to fresh resolve */ }
+            }
+
+            // Fresh resolve via AIOStreams using infoHash+fileIdx
+            if (string.IsNullOrEmpty(token.InfoHash))
+                throw new InvalidOperationException("No infoHash and cached URL expired");
+
+            var providers = ProviderHelper.GetProviders(config);
+            var healthTracker = Plugin.Instance?.ResolverHealthTracker;
+
+            foreach (var provider in providers)
+            {
+                if (healthTracker != null && healthTracker.ShouldSkip(provider.DisplayName))
+                    continue;
+
+                try
+                {
+                    using var client = new AioStreamsClient(
+                        provider.Url, provider.Uuid, provider.Token, _logger);
+
+                    // Re-resolve streams for this item from AIO
+                    AioStreamsStreamResponse? response;
+                    if (token.MediaType == "series" && token.Season.HasValue && token.Episode.HasValue)
+                        response = await client.GetSeriesStreamsAsync(
+                            token.ImdbId, token.Season.Value, token.Episode.Value, cancellationToken).ConfigureAwait(false);
+                    else
+                        response = await client.GetMovieStreamsAsync(token.ImdbId, cancellationToken).ConfigureAwait(false);
+
+                    if (response?.Streams == null || response.Streams.Count == 0) continue;
+
+                    if (healthTracker != null) healthTracker.RecordSuccess(provider.DisplayName);
+
+                    // Find the stream matching our infoHash+fileIdx
+                    var match = response.Streams.FirstOrDefault(s =>
+                        string.Equals(s.InfoHash, token.InfoHash, StringComparison.OrdinalIgnoreCase)
+                        && s.FileIdx == token.FileIdx);
+
+                    // Fallback: first stream with a direct URL
+                    if (match == null || string.IsNullOrEmpty(match.Url))
+                        match = response.Streams.FirstOrDefault(s => !string.IsNullOrEmpty(s.Url));
+
+                    if (match == null || string.IsNullOrEmpty(match.Url)) continue;
+
+                    var source = new MediaSourceInfo
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        Name = token.ProviderName ?? "Stream",
+                        Path = match.Url,
+                        Protocol = MediaProtocol.Http,
+                        SupportsDirectPlay = true,
+                        SupportsDirectStream = true,
+                        RequiresOpening = false,
+                    };
+
+                    if (match.Headers != null)
+                        source.RequiredHttpHeaders = match.Headers;
+
+                    var liveStream = new InfiniteDriveLiveStream(source, _logger);
+                    await liveStream.Open(cancellationToken).ConfigureAwait(false);
+
+                    _logger.LogInformation(
+                        "[AioMediaSourceProvider] Opened fresh CDN for {Imdb} via infoHash from {Provider}",
+                        token.ImdbId, provider.DisplayName);
+
+                    return liveStream;
+                }
+                catch (Exception ex)
+                {
+                    if (healthTracker != null) healthTracker.RecordFailure(provider.DisplayName);
+                    _logger.LogDebug(ex, "[AioMediaSourceProvider] Provider {Name} failed for {Imdb}",
+                        provider.DisplayName, token.ImdbId);
+                }
+            }
+
+            throw new InvalidOperationException($"Could not resolve stream for {token.ImdbId}");
+        }
+
         private async Task<List<MediaSourceInfo>> GetMediaSourcesCoreAsync(BaseItem item, CancellationToken ct)
         {
             if (item == null) return new List<MediaSourceInfo>();
@@ -192,7 +343,27 @@ namespace InfiniteDrive.Services
         {
             var db = Plugin.Instance?.DatabaseManager;
 
-            // DB cache check
+            // ── Pre-cache lookup (cached_streams table) ──────────────────────────
+            try
+            {
+                var cached = await StreamCache.GetByImdbAsync(imdbId, season, episode).ConfigureAwait(false);
+                if (cached != null)
+                {
+                    var preSources = StreamCache.BuildMediaSources(cached);
+                    if (preSources.Count > 0)
+                    {
+                        _logger.LogDebug("[AioMediaSourceProvider] Pre-cache hit for {Imdb}", imdbId);
+                        _cache[cacheKey] = (preSources, DateTime.UtcNow.Add(CacheTtl));
+                        return preSources;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[AioMediaSourceProvider] Pre-cache lookup failed for {Key}", cacheKey);
+            }
+
+            // ── Legacy DB cache check (stream_candidates) ─────────────────────────
             if (db != null)
             {
                 try
@@ -237,6 +408,9 @@ namespace InfiniteDrive.Services
 
                 // Cache candidates to DB (async, non-blocking)
                 CacheCandidatesToDb(db, imdbId, season, episode, candidates);
+
+                // Also write to cached_streams for pre-cache (fire-and-forget)
+                _ = WriteToStreamCacheAsync(imdbId, mediaType, season, episode, candidates);
 
                 // Fire-and-forget background probe for top candidates
                 _ = BackgroundProbeAsync(candidates.Take(3).ToList());
@@ -931,6 +1105,87 @@ namespace InfiniteDrive.Services
         // ═══════════════════════════════════════════════════════════════════════════
         //  Config helpers
         // ═══════════════════════════════════════════════════════════════════════════
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        //  Pre-cache write-through
+        // ═══════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Fire-and-forget: writes live-resolved candidates to cached_streams
+        /// so future lookups are instant.
+        /// </summary>
+        private async Task WriteToStreamCacheAsync(
+            string imdbId, string mediaType, int? season, int? episode,
+            List<StreamCandidate> candidates)
+        {
+            try
+            {
+                var config = Plugin.Instance?.Configuration;
+                if (config == null) return;
+
+                var cacheService = StreamCache;
+
+                var variants = candidates.Take(6).Select(c => new StreamVariant
+                {
+                    InfoHash = c.InfoHash,
+                    FileIdx = c.FileIdx,
+                    FileName = c.FileName,
+                    Resolution = c.QualityTier,
+                    QualityTier = c.QualityTier,
+                    SizeBytes = c.FileSize,
+                    Bitrate = c.BitrateKbps,
+                    VideoCodec = InferCodec(c.FileName),
+                    AudioStreams = !string.IsNullOrEmpty(c.Languages)
+                        ? c.Languages.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                            .Select((lang, i) => new AudioStreamInfo { Language = lang.Trim(), IsDefault = i == 0 })
+                            .ToList()
+                        : null,
+                    ProviderName = c.ProviderKey,
+                    StreamType = c.StreamType,
+                    SourceName = c.FileName ?? c.StreamKey ?? $"Stream #{c.Rank + 1}",
+                    BingeGroup = c.BingeGroup,
+                    StreamKey = c.StreamKey,
+                    Url = c.Url,
+                    HeadersJson = c.HeadersJson,
+                }).ToList();
+
+                var ttlDays = config.PreCacheTTLDays > 0 ? config.PreCacheTTLDays : 14;
+
+                // Build primary key: prefer TMDB, fallback to IMDB
+                var tmdbId = await cacheService.ResolveTmdbIdAsync(imdbId).ConfigureAwait(false);
+                var primaryKey = cacheService.BuildPrimaryKey(tmdbId, imdbId, mediaType, season, episode);
+
+                var entry = new CachedStreamEntry
+                {
+                    TmdbKey = primaryKey,
+                    ImdbId = imdbId,
+                    MediaType = mediaType,
+                    Season = season,
+                    Episode = episode,
+                    VariantsJson = System.Text.Json.JsonSerializer.Serialize(variants),
+                    CachedAt = DateTime.UtcNow.ToString("o"),
+                    ExpiresAt = DateTime.UtcNow.AddDays(ttlDays).ToString("o"),
+                    Status = "valid",
+                };
+
+                await cacheService.StoreAsync(entry).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[AioMediaSourceProvider] WriteToStreamCache failed for {Imdb}", imdbId);
+            }
+        }
+
+        private static string? InferCodec(string? filename)
+        {
+            if (string.IsNullOrEmpty(filename)) return null;
+            var lower = filename.ToLowerInvariant();
+            if (lower.Contains("x265") || lower.Contains("hevc")) return "hevc";
+            if (lower.Contains("x264") || lower.Contains("h264") || lower.Contains("h.264")) return "h264";
+            if (lower.Contains("av1")) return "av1";
+            if (lower.Contains("xvid")) return "xvid";
+            return null;
+        }
 
         // ═══════════════════════════════════════════════════════════════════════════
         //  Config helpers
