@@ -133,12 +133,6 @@ namespace InfiniteDrive
         public HomeSectionTracker HomeSectionTracker { get; private set; } = null!;
 
         /// <summary>
-        /// Home section manager for adding rails to Emby home screen.
-        /// Sprint 118: Home Screen Rails.
-        /// </summary>
-        public HomeSectionManager HomeSectionManager { get; private set; } = null!;
-
-        /// <summary>
         /// Catalog repository for catalog item operations (Sprint 104D-02).
         /// Delegates to DatabaseManager - temporary adapter during split.
         /// </summary>
