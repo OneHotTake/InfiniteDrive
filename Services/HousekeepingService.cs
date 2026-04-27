@@ -220,9 +220,9 @@ namespace InfiniteDrive.Services
                     var quality = System.Uri.UnescapeDataString(qualityMatch.Groups[1].Value);
 
                     // Generate fresh token (token is opaque - id and quality are query params)
-                    var expiresAt = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
+                    var expiresAt = DateTimeOffset.UtcNow.AddDays(config.SignatureValidityDays).ToUnixTimeSeconds();
                     var newToken = PlaybackTokenService.GenerateResolveToken(
-                        config.PluginSecret, 365 * 24);
+                        config.PluginSecret, config.SignatureValidityDays * 24);
 
                     // Build new URL
                     var urlBuilder = new System.Text.StringBuilder();

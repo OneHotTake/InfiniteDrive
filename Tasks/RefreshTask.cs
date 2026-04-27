@@ -605,7 +605,7 @@ namespace InfiniteDrive.Tasks
                 item.StrmPath = folderPath;
                 item.LocalPath = folderPath;
                 item.LocalSource = "strm";
-                item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
+                item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(Plugin.Instance!.Configuration.SignatureValidityDays).ToUnixTimeSeconds();
                 item.UpdatedAt = DateTime.UtcNow.ToString("o");
 
                 await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
@@ -927,7 +927,7 @@ namespace InfiniteDrive.Tasks
                     }
 
                     // Update token expiry timestamp
-                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
+                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(Plugin.Instance!.Configuration.SignatureValidityDays).ToUnixTimeSeconds();
                     item.UpdatedAt = DateTime.UtcNow.ToString("o");
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 
