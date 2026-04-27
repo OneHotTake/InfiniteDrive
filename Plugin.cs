@@ -174,6 +174,12 @@ namespace InfiniteDrive
         public Services.ResolverHealthTracker ResolverHealthTracker { get; private set; } = null!;
 
         /// <summary>
+        /// Stream pre-cache service for the cached_streams table.
+        /// Singleton shared across AioMediaSourceProvider, PreCacheAioStreamsTask.
+        /// </summary>
+        public Services.IStreamCacheService StreamCacheService { get; private set; } = null!;
+
+        /// <summary>
         /// Active provider state for self-healing failover (Sprint 311).
         /// Tracks whether primary or secondary provider is currently active.
         /// </summary>
@@ -430,6 +436,11 @@ namespace InfiniteDrive
                     DatabaseManager);
                 ResolverHealthTracker.RestoreState();
                 _logger.LogInformation("[InfiniteDrive] ResolverHealthTracker initialised");
+
+                // Initialise StreamCacheService (pre-cache singleton)
+                StreamCacheService = new Services.StreamCacheService(
+                    new EmbyLoggerAdapter<Services.StreamCacheService>(_logManager.GetLogger("StreamCacheService")));
+                _logger.LogInformation("[InfiniteDrive] StreamCacheService initialised");
 
                 // Sprint 350: Restore active provider state from database
                 try

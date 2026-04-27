@@ -393,6 +393,37 @@ namespace InfiniteDrive
         public int MaxConcurrentProxyStreams { get; set; } = 5;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  STREAM PRE-CACHE                                                    ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// PRE-CACHE SYSTEM (highly recommended)
+        ///
+        /// Enables background pre-warming of stream metadata for all library items.
+        /// When enabled, navigation into movies/series becomes near-instant (cache hit)
+        /// instead of waiting 20-40 seconds for live AIO resolution.
+        ///
+        /// The background task automatically respects AIO rate limits and backoff headers.
+        /// It processes newest items first and runs on a schedule.
+        ///
+        /// Default: Enabled (42 items per run, every 6 hours)
+        /// </summary>
+        [DataMember]
+        public bool EnablePreCache { get; set; } = true;
+
+        /// <summary>Number of items to resolve per pre-cache run. Default: 42.</summary>
+        [DataMember]
+        public int PreCacheBatchSize { get; set; } = 42;
+
+        /// <summary>Hours between automatic pre-cache runs. Default: 6.</summary>
+        [DataMember]
+        public int PreCacheIntervalHours { get; set; } = 6;
+
+        /// <summary>Days before a pre-cached entry expires and needs re-resolution. Default: 14.</summary>
+        [DataMember]
+        public int PreCacheTTLDays { get; set; } = 14;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  STREAM SIGNING SECRET                                               ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -833,6 +864,9 @@ namespace InfiniteDrive
             CatalogItemCap            = Clamp(CatalogItemCap,            1,     50_000);
             CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     24);     // 1 h – 24 h
             MaxConcurrentProxyStreams  = Clamp(MaxConcurrentProxyStreams, 1,     20);
+            PreCacheBatchSize          = Clamp(PreCacheBatchSize,         1,     500);
+            PreCacheIntervalHours      = Clamp(PreCacheIntervalHours,     1,     48);
+            PreCacheTTLDays            = Clamp(PreCacheTTLDays,           1,     90);
             SyncResolveTimeoutSeconds = Clamp(SyncResolveTimeoutSeconds, 5,     300);
             NextUpLookaheadEpisodes   = Clamp(NextUpLookaheadEpisodes,   0,     10);
             // -1 is the "disabled" sentinel; any other out-of-range value clamps to 0–23

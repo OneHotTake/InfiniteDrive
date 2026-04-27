@@ -111,6 +111,7 @@ namespace InfiniteDrive.Services
         private const string TaskResetWizard          = "reset_wizard";   // re-show first-run wizard
         private const string TaskSeriesGapScan        = "series_gap_scan";
         private const string TaskSeriesGapRepair      = "series_gap_repair";
+        private const string TaskPreCache             = "precache";
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -185,6 +186,19 @@ namespace InfiniteDrive.Services
                 case TaskSeriesGapScan:
                 case TaskSeriesGapRepair:
                     _logger.LogWarning("[Trigger] {Trigger} is deprecated — superseded by catalog-first episode sync (Sprint 222)", taskKey);
+                    break;
+
+                case TaskPreCache:
+                    var precacheConfig = Plugin.Instance?.Configuration;
+                    if (precacheConfig == null || !precacheConfig.EnablePreCache)
+                        return new TriggerResponse
+                        {
+                            Status = "error",
+                            Task = taskKey,
+                            Message = "Pre-cache is disabled. Enable EnablePreCache in plugin settings.",
+                        };
+                    FireAndForget(ct => new PreCacheAioStreamsTask(_logManager)
+                        .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
                 case TaskClearClientProfiles:
@@ -350,7 +364,7 @@ namespace InfiniteDrive.Services
                                   $"{TaskEpisodeExpand}, {TaskCollectionSync}, " +
                                   $"{TaskClearClientProfiles}, " +
                                   $"{TaskForceSyncReset}, {TaskClearCache}, {TaskDeadLinkScan}, " +
-                                  $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}",
+                                  $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}, {TaskPreCache}",
                     };
             }
 

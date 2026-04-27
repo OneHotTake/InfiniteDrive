@@ -3258,6 +3258,22 @@ CREATE TABLE IF NOT EXISTS stream_cache (
     expires_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_cache_expires ON stream_cache(expires_at);
+
+-- ── cached_streams ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS cached_streams (
+    tmdb_key     TEXT PRIMARY KEY,
+    imdb_id      TEXT NOT NULL,
+    media_type   TEXT NOT NULL,
+    season       INTEGER,
+    episode      INTEGER,
+    item_id      TEXT,
+    variants     TEXT NOT NULL,
+    cached_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at   TEXT NOT NULL,
+    status       TEXT NOT NULL DEFAULT 'valid'
+);
+CREATE INDEX IF NOT EXISTS idx_cs_imdb ON cached_streams(imdb_id, season, episode);
+CREATE INDEX IF NOT EXISTS idx_cs_item ON cached_streams(item_id) WHERE item_id IS NOT NULL;
 ";
             // Split on semicolons but preserve BEGIN...END blocks in triggers.
             var statements = SplitDdl(ddl);
@@ -5944,6 +5960,231 @@ LIMIT 1";
             BindText(stmt, "@slot_key", slotKey);
             stmt.MoveNext();
             return Task.CompletedTask;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        //  cached_streams — pre-cached stream metadata
+        // ═══════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Resolves the TMDB ID for an IMDB ID by joining media_item_ids.
+        /// Returns null if no TMDB ID is found.
+        /// </summary>
+        public async Task<string?> GetTmdbIdForImdbAsync(string imdbId)
+        {
+            const string sql = @"
+                SELECT tmdb_ids.id_value
+                FROM media_item_ids AS imdb_ids
+                INNER JOIN media_item_ids AS tmdb_ids
+                    ON tmdb_ids.media_item_id = imdb_ids.media_item_id
+                    AND tmdb_ids.id_type = 'tmdb'
+                WHERE lower(imdb_ids.id_type) = 'imdb'
+                  AND lower(imdb_ids.id_value) = lower(@imdb_id)
+                LIMIT 1";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@imdb_id", imdbId),
+                r => r.GetString(0)).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Gets a cached stream entry by its TMDB key.
+        /// Returns null if not found or expired.
+        /// </summary>
+        public async Task<CachedStreamEntry?> GetCachedStreamsAsync(string tmdbKey)
+        {
+            const string sql = @"
+                SELECT tmdb_key, imdb_id, media_type, season, episode, item_id,
+                       variants, cached_at, expires_at, status
+                FROM cached_streams
+                WHERE tmdb_key = @tmdb_key
+                  AND status = 'valid'
+                  AND expires_at > datetime('now')";
+
+            return await QuerySingleAsync(sql,
+                cmd => BindText(cmd, "@tmdb_key", tmdbKey),
+                ReadCachedStreamEntry).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Gets a cached stream entry by IMDB ID (+ optional season/episode).
+        /// Fallback when TMDB key is not known.
+        /// </summary>
+        public async Task<CachedStreamEntry?> GetCachedStreamsByImdbAsync(
+            string imdbId, int? season, int? episode)
+        {
+            const string sql = @"
+                SELECT tmdb_key, imdb_id, media_type, season, episode, item_id,
+                       variants, cached_at, expires_at, status
+                FROM cached_streams
+                WHERE imdb_id = @imdb_id
+                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))
+                  AND status = 'valid'
+                  AND expires_at > datetime('now')
+                LIMIT 1";
+
+            return await QuerySingleAsync(sql, cmd =>
+            {
+                BindText(cmd, "@imdb_id", imdbId);
+                BindNullableInt(cmd, "@season", season);
+                BindNullableInt(cmd, "@episode", episode);
+            }, ReadCachedStreamEntry).ConfigureAwait(false);
+        }
+
+        /// <summary>Inserts or replaces a cached stream entry.</summary>
+        public async Task UpsertCachedStreamAsync(CachedStreamEntry entry)
+        {
+            const string sql = @"
+                INSERT OR REPLACE INTO cached_streams
+                    (tmdb_key, imdb_id, media_type, season, episode, item_id,
+                     variants, cached_at, expires_at, status)
+                VALUES
+                    (@tmdb_key, @imdb_id, @media_type, @season, @episode, @item_id,
+                     @variants, @cached_at, @expires_at, @status)";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@tmdb_key", entry.TmdbKey);
+                BindText(cmd, "@imdb_id", entry.ImdbId);
+                BindText(cmd, "@media_type", entry.MediaType);
+                BindNullableInt(cmd, "@season", entry.Season);
+                BindNullableInt(cmd, "@episode", entry.Episode);
+                BindNullableText(cmd, "@item_id", entry.ItemId);
+                BindText(cmd, "@variants", entry.VariantsJson);
+                BindText(cmd, "@cached_at", entry.CachedAt);
+                BindText(cmd, "@expires_at", entry.ExpiresAt);
+                BindText(cmd, "@status", entry.Status);
+            }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Returns media items that have no corresponding cached_streams row.
+        /// For movies: one row per movie. For series: expands episodes from
+        /// catalog_items.videos_json via join on IMDB.
+        /// </summary>
+        public async Task<List<UncachedItem>> GetUncachedItemsAsync(
+            int limit, CancellationToken ct)
+        {
+            // Movies: media_items with media_type='movie' that are active and have no cached_streams row
+            const string moviesSql = @"
+                SELECT DISTINCT
+                    ids.id_value AS imdb_id,
+                    tmdb_ids.id_value AS tmdb_id,
+                    'movie' AS media_type,
+                    NULL AS season,
+                    NULL AS episode,
+                    mi.title
+                FROM media_items mi
+                INNER JOIN media_item_ids ids
+                    ON ids.media_item_id = mi.id AND ids.id_type = 'imdb'
+                LEFT JOIN media_item_ids tmdb_ids
+                    ON tmdb_ids.media_item_id = mi.id AND tmdb_ids.id_type = 'tmdb'
+                WHERE mi.media_type = 'movie'
+                  AND mi.status IN ('active','indexed','created')
+                  AND mi.blocked = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM cached_streams cs
+                      WHERE cs.imdb_id = ids.id_value
+                        AND cs.media_type = 'movie'
+                        AND cs.status = 'valid'
+                  )
+                ORDER BY mi.created_at DESC
+                LIMIT @limit";
+
+            // Series: get series items and expand their episodes from catalog_items.videos_json
+            const string seriesSql = @"
+                SELECT DISTINCT
+                    ids.id_value AS imdb_id,
+                    tmdb_ids.id_value AS tmdb_id,
+                    'series' AS media_type,
+                    (season_num) AS season,
+                    (episode_num) AS episode,
+                    mi.title
+                FROM media_items mi
+                INNER JOIN media_item_ids ids
+                    ON ids.media_item_id = mi.id AND ids.id_type = 'imdb'
+                LEFT JOIN media_item_ids tmdb_ids
+                    ON tmdb_ids.media_item_id = mi.id AND tmdb_ids.id_type = 'tmdb'
+                INNER JOIN catalog_items ci
+                    ON lower(ci.imdb_id) = lower(ids.id_value)
+                CROSS JOIN json_each(
+                    CASE
+                        WHEN ci.videos_json IS NOT NULL AND ci.videos_json != ''
+                        THEN ci.videos_json
+                        ELSE '[]'
+                    END
+                ) AS video
+                CROSS JOIN json_extract(video.value, '$.season') AS season_num
+                CROSS JOIN json_extract(video.value, '$.episode') AS episode_num
+                WHERE mi.media_type = 'series'
+                  AND mi.status IN ('active','indexed','created')
+                  AND mi.blocked = 0
+                  AND season_num IS NOT NULL
+                  AND episode_num IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM cached_streams cs
+                      WHERE cs.imdb_id = ids.id_value
+                        AND cs.media_type = 'series'
+                        AND cs.season = season_num
+                        AND cs.episode = episode_num
+                        AND cs.status = 'valid'
+                  )
+                ORDER BY mi.created_at DESC
+                LIMIT @limit";
+
+            var results = new List<UncachedItem>();
+
+            // Fetch movies
+            var movies = await QueryListAsync(moviesSql,
+                cmd => BindInt(cmd, "@limit", limit / 2),
+                r => new UncachedItem
+                {
+                    ImdbId = r.GetString(0),
+                    TmdbId = r.IsDBNull(1) ? null : r.GetString(1),
+                    MediaType = r.GetString(2),
+                    Title = r.IsDBNull(5) ? "" : r.GetString(5),
+                }).ConfigureAwait(false);
+            results.AddRange(movies);
+
+            if (ct.IsCancellationRequested) return results;
+
+            // Fetch series episodes
+            var remaining = Math.Max(0, limit - results.Count);
+            if (remaining > 0)
+            {
+                var episodes = await QueryListAsync(seriesSql,
+                    cmd => BindInt(cmd, "@limit", remaining),
+                    r => new UncachedItem
+                    {
+                        ImdbId = r.GetString(0),
+                        TmdbId = r.IsDBNull(1) ? null : r.GetString(1),
+                        MediaType = r.GetString(2),
+                        Season = r.IsDBNull(3) ? (int?)null : r.GetInt(3),
+                        Episode = r.IsDBNull(4) ? (int?)null : r.GetInt(4),
+                        Title = r.IsDBNull(5) ? "" : r.GetString(5),
+                    }).ConfigureAwait(false);
+                results.AddRange(episodes);
+            }
+
+            return results;
+        }
+
+        private static CachedStreamEntry ReadCachedStreamEntry(IResultSet r)
+        {
+            return new CachedStreamEntry
+            {
+                TmdbKey = r.GetString(0),
+                ImdbId = r.GetString(1),
+                MediaType = r.GetString(2),
+                Season = r.IsDBNull(3) ? (int?)null : r.GetInt(3),
+                Episode = r.IsDBNull(4) ? (int?)null : r.GetInt(4),
+                ItemId = r.IsDBNull(5) ? null : r.GetString(5),
+                VariantsJson = r.GetString(6),
+                CachedAt = r.GetString(7),
+                ExpiresAt = r.GetString(8),
+                Status = r.GetString(9),
+            };
         }
     }
 
