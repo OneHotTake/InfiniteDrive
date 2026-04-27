@@ -303,7 +303,7 @@ namespace InfiniteDrive.Services
                 var entries = await _db.GetDiscoverCatalogAsync(limit, offset);
                 var maxRating = GetUserMaxParentalRating();
                 var filtered = ApplyParentalFilter(entries, maxRating);
-                var items = filtered.Select(e => MapToDiscoverItem(e, null)).ToList();
+                var items = (await Task.WhenAll(filtered.Select(e => MapToDiscoverItemAsync(e, null)))).ToList();
                 var total = await _db.GetDiscoverCatalogCountAsync();
 
                 return new DiscoverBrowseResponse
@@ -341,7 +341,7 @@ namespace InfiniteDrive.Services
                 var localEntries = await _db.SearchDiscoverCatalogAsync(req.Query, req.Type);
                 var maxRating = GetUserMaxParentalRating();
                 var filtered = ApplyParentalFilter(localEntries, maxRating);
-                var localItems = filtered.Select(e => MapToDiscoverItem(e, null)).ToList();
+                var localItems = (await Task.WhenAll(filtered.Select(e => MapToDiscoverItemAsync(e, null)))).ToList();
 
                 // Step 2: Determine if we should do a live AIOStreams search
                 var shouldLiveSearch = req.Live || localItems.Count < 5;
@@ -648,7 +648,7 @@ namespace InfiniteDrive.Services
                 // Apply parental filter
                 var maxRating = GetUserMaxParentalRating();
                 var filtered = ApplyParentalFilter(new List<DiscoverCatalogEntry> { entry }, maxRating);
-                var item = filtered.Count > 0 ? MapToDiscoverItem(filtered[0], null) : null;
+                var item = filtered.Count > 0 ? await MapToDiscoverItemAsync(filtered[0], null) : null;
 
                 return new DiscoverDetailResponse { Item = item };
             }
@@ -926,7 +926,7 @@ namespace InfiniteDrive.Services
         /// Looks up the Emby internal item ID for library items.
         /// userPinnedImdbIds: when non-null, overrides InLibrary with per-user pin status.
         /// </summary>
-        private DiscoverItem MapToDiscoverItem(DiscoverCatalogEntry entry, HashSet<string>? userPinnedImdbIds = null)
+        private async Task<DiscoverItem> MapToDiscoverItemAsync(DiscoverCatalogEntry entry, HashSet<string>? userPinnedImdbIds = null)
         {
             var inLibrary = userPinnedImdbIds != null
                 ? (!string.IsNullOrEmpty(entry.ImdbId) && userPinnedImdbIds.Contains(entry.ImdbId))
@@ -973,16 +973,15 @@ namespace InfiniteDrive.Services
                 InLibrary = inLibrary,
                 EmbyItemId = embyItemId,
                 CatalogSource = entry.CatalogSource,
-                AudioLanguages = GetAudioLanguages(entry.ImdbId),
+                AudioLanguages = await GetAudioLanguagesAsync(entry.ImdbId),
             };
         }
 
-        private string? GetAudioLanguages(string imdbId)
+        private async Task<string?> GetAudioLanguagesAsync(string imdbId)
         {
             try
             {
-                var candidates = _db.GetStreamCandidatesAsync(imdbId, null, null)
-                    .GetAwaiter().GetResult();
+                var candidates = await _db.GetStreamCandidatesAsync(imdbId, null, null);
                 var langs = candidates?
                     .Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Languages))
                     .Select(c => c.Languages)
