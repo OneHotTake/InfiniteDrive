@@ -1409,11 +1409,6 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        // ── Private: .strm file I/O ──────────────────────────────────────────────
-
-        private static void WriteStrmFile(string path, string url)
-            => File.WriteAllText(path, url, new System.Text.UTF8Encoding(false));
-
         /// <summary>
         /// Builds a dictionary mapping IMDB ID → item path for all Movie and
         /// Series items in the Emby library that live <em>outside</em> the
