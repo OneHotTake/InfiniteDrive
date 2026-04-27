@@ -223,7 +223,7 @@ namespace InfiniteDrive.Services
             }
 
             // Live resolve: fetch from AIOStreams, rank, dedup, cap
-            var candidates = ResolveFromAioStreams(imdbId, mediaType, season, episode, config);
+            var candidates = await ResolveFromAioStreams(imdbId, mediaType, season, episode, config).ConfigureAwait(false);
             if (candidates.Count == 0) return new List<MediaSourceInfo>();
 
             var liveSources = BuildSourcesFromCandidates(candidates, imdbId);
@@ -255,7 +255,7 @@ namespace InfiniteDrive.Services
         //  Live resolve: AIOStreams → RankAndFilterStreams → tier dedup → cap
         // ═══════════════════════════════════════════════════════════════════════════
 
-        private List<StreamCandidate> ResolveFromAioStreams(
+        private async Task<List<StreamCandidate>> ResolveFromAioStreams(
             string imdbId, string mediaType, int? season, int? episode, PluginConfiguration config)
         {
             var providers = GetProviders(config);
@@ -279,9 +279,9 @@ namespace InfiniteDrive.Services
                     AioStreamsStreamResponse? response;
 
                     if (mediaType == "series" && season.HasValue && episode.HasValue)
-                        response = client.GetSeriesStreamsAsync(imdbId, season.Value, episode.Value).GetAwaiter().GetResult();
+                        response = await client.GetSeriesStreamsAsync(imdbId, season.Value, episode.Value).ConfigureAwait(false);
                     else
-                        response = client.GetMovieStreamsAsync(imdbId).GetAwaiter().GetResult();
+                        response = await client.GetMovieStreamsAsync(imdbId).ConfigureAwait(false);
 
                     var streams = response?.Streams;
                     if (streams == null || streams.Count == 0)
