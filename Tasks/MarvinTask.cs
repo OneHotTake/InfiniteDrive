@@ -460,7 +460,7 @@ namespace InfiniteDrive.Tasks
                         File.Move(tmpPath, fullPath, overwrite: true);
                     }
 
-                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(365).ToUnixTimeSeconds();
+                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(config.SignatureValidityDays).ToUnixTimeSeconds();
                     item.UpdatedAt = DateTime.UtcNow.ToString("o");
                     await db.UpsertCatalogItemAsync(item, cancellationToken);
 
