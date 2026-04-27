@@ -375,9 +375,9 @@ namespace InfiniteDrive.Services
             {
                 var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
 
-                // Generate resolve token (365-day validity for .strm files)
+                // Generate resolve token for .strm files
                 // Token is opaque - IMDB ID and quality are passed as query parameters
-                var token = Services.PlaybackTokenService.GenerateResolveToken(secret, 365 * 24);
+                var token = Services.PlaybackTokenService.GenerateResolveToken(secret, config.SignatureValidityDays * 24);
 
                 var sb = new System.Text.StringBuilder();
                 sb.Append(baseUrl);

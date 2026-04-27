@@ -25,7 +25,7 @@ The system transitioned from a monolithic StatusService + "God Task" pattern (pr
 │    DatabaseManager, StrmWriterService, CooldownGate,                │
 │    ResolverHealthTracker, ActiveProviderState, SlotMatcher,          │
 │    CandidateNormalizer, IdResolverService, CertificationResolver,    │
-│    HomeSectionTracker, HomeSectionManager,                          │
+│    HomeSectionTracker,                                              │
 │    VersionSlotRepository, CandidateRepository,                      │
 │    SnapshotRepository, MaterializedVersionRepository                │
 └──────────────────────────────────┬───────────────────────────────────┘

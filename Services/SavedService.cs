@@ -129,12 +129,12 @@ namespace InfiniteDrive.Services
             _logger.LogDebug("[SavedService] Item {ItemId} unblocked successfully", itemId);
         }
 
-        private Task LogPipelineEvent(string itemId, string phase, PipelineTrigger trigger, bool success, string? error, CancellationToken ct)
+        private async Task LogPipelineEvent(string itemId, string phase, PipelineTrigger trigger, bool success, string? error, CancellationToken ct)
         {
-            var item = _db.GetMediaItemAsync(itemId, ct).GetAwaiter().GetResult();
-            if (item == null) return Task.CompletedTask;
+            var item = await _db.GetMediaItemAsync(itemId, ct);
+            if (item == null) return;
 
-            return _db.LogPipelineEventAsync(
+            await _db.LogPipelineEventAsync(
                 item.PrimaryId.Value,
                 item.PrimaryId.Type.ToString(),
                 item.MediaType,
