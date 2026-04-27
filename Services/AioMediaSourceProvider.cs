@@ -39,7 +39,6 @@ namespace InfiniteDrive.Services
         // In-memory cache: key = "imdbId" or "imdbId:S{season}E{episode}", value = (sources, expiry)
         private static readonly ConcurrentDictionary<string, (List<MediaSourceInfo> Sources, DateTime Expires)> _cache
             = new();
-        private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(60);
 
         // Single-flight lock: prevents duplicate AIOStreams fetches for the same item
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks = new();
@@ -133,6 +132,41 @@ namespace InfiniteDrive.Services
                         _logger.LogWarning(
                             "[AioMediaSourceProvider] CDN HEAD failed for rank {Rank} (HTTP {Status}), trying next",
                             cand.Rank, (int)resp.StatusCode);
+
+                        // CDN refresh: if candidate has StreamKey + InfoHash, try fresh AIO resolve
+                        if (!string.IsNullOrEmpty(cand.StreamKey) && !string.IsNullOrEmpty(cand.InfoHash))
+                        {
+                            try
+                            {
+                                var freshUrl = await TryRefreshCandidateUrlAsync(
+                                    cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
+                                if (!string.IsNullOrEmpty(freshUrl))
+                                {
+                                    _logger.LogInformation(
+                                        "[AioMediaSourceProvider] Refreshed CDN URL for rank {Rank}", cand.Rank);
+                                    cand.Url = freshUrl;
+
+                                    var refreshedSource = BuildSourceFromCandidate(cand, tokenData.ImdbId);
+                                    var refreshedStream = new InfiniteDriveLiveStream(refreshedSource, _logger);
+                                    await refreshedStream.Open(cancellationToken).ConfigureAwait(false);
+                                    return refreshedStream;
+                                }
+                            }
+                            catch (Exception refreshEx)
+                            {
+                                _logger.LogDebug(refreshEx,
+                                    "[AioMediaSourceProvider] CDN refresh failed for rank {Rank}", cand.Rank);
+                            }
+                        }
+
+                        // Mark failed candidate in stream_candidates for deprioritization
+                        var failedDb = Plugin.Instance?.DatabaseManager;
+                        if (failedDb != null)
+                        {
+                            _ = failedDb.UpdateCandidateStatusAsync(
+                                tokenData.ImdbId, null, null, cand.Rank, "failed");
+                        }
+
                         continue;
                     }
 
@@ -342,6 +376,8 @@ namespace InfiniteDrive.Services
             PluginConfiguration config, CancellationToken ct)
         {
             var db = Plugin.Instance?.DatabaseManager;
+            var cacheTtl = TimeSpan.FromMinutes(
+                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
 
             // ── Pre-cache lookup (cached_streams table) ──────────────────────────
             try
@@ -353,7 +389,7 @@ namespace InfiniteDrive.Services
                     if (preSources.Count > 0)
                     {
                         _logger.LogDebug("[AioMediaSourceProvider] Pre-cache hit for {Imdb}", imdbId);
-                        _cache[cacheKey] = (preSources, DateTime.UtcNow.Add(CacheTtl));
+                        _cache[cacheKey] = (preSources, DateTime.UtcNow.Add(cacheTtl));
                         return preSources;
                     }
                 }
@@ -382,8 +418,8 @@ namespace InfiniteDrive.Services
                             var sources = BuildSourcesFromCandidates(scored, imdbId);
 
                             SortByLanguagePreference(sources, config, null);
-                            SetOpenTokens(sources, imdbId);
-                            _cache[cacheKey] = (sources, DateTime.UtcNow.Add(CacheTtl));
+                            SetOpenTokens(sources, imdbId, scored);
+                            _cache[cacheKey] = (sources, DateTime.UtcNow.Add(cacheTtl));
                             return sources;
                         }
                     }
@@ -403,11 +439,11 @@ namespace InfiniteDrive.Services
             if (liveSources.Count > 0)
             {
                 SortByLanguagePreference(liveSources, config, null);
-                SetOpenTokens(liveSources, imdbId);
-                _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(CacheTtl));
+                SetOpenTokens(liveSources, imdbId, candidates);
+                _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(cacheTtl));
 
                 // Cache candidates to DB (async, non-blocking)
-                CacheCandidatesToDb(db, imdbId, season, episode, candidates);
+                CacheCandidatesToDb(db, imdbId, season, episode, candidates, cacheTtl);
 
                 // Also write to cached_streams for pre-cache (fire-and-forget)
                 _ = WriteToStreamCacheAsync(imdbId, mediaType, season, episode, candidates);
@@ -688,16 +724,25 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Serializes all candidates into the OpenToken so OpenMediaSource can failover.
         /// </summary>
-        private void SetOpenTokens(List<MediaSourceInfo> sources, string imdbId)
+        private void SetOpenTokens(List<MediaSourceInfo> sources, string imdbId,
+            List<StreamCandidate>? originalCandidates = null)
         {
             // Build a shared token with ALL candidates, attach to each source
-            var candidates = sources.Select((s, i) => new OpenTokenCandidate
+            var candidates = sources.Select((s, i) =>
             {
-                Rank = i,
-                Url = s.Path,
-                Headers = s.RequiredHttpHeaders,
-                ProviderKey = ExtractProviderFromName(s.Name),
-                Size = s.Size,
+                var orig = originalCandidates != null && i < originalCandidates.Count
+                    ? originalCandidates[i] : null;
+                return new OpenTokenCandidate
+                {
+                    Rank = i,
+                    Url = s.Path,
+                    Headers = s.RequiredHttpHeaders,
+                    ProviderKey = ExtractProviderFromName(s.Name),
+                    Size = s.Size,
+                    StreamKey = orig?.StreamKey,
+                    InfoHash = orig?.InfoHash,
+                    FileIdx = orig?.FileIdx,
+                };
             }).ToList();
 
             var tokenJson = JsonSerializer.Serialize(new OpenTokenData
@@ -797,7 +842,7 @@ namespace InfiniteDrive.Services
 
         private void CacheCandidatesToDb(
             Data.DatabaseManager? db, string imdbId, int? season, int? episode,
-            List<StreamCandidate> candidates)
+            List<StreamCandidate> candidates, TimeSpan cacheTtl)
         {
             if (db == null || candidates.Count == 0) return;
 
@@ -816,7 +861,7 @@ namespace InfiniteDrive.Services
                         FileName = null,
                         Status = "valid",
                         ResolvedAt = now.ToString("o"),
-                        ExpiresAt = now.Add(CacheTtl).ToString("o"),
+                        ExpiresAt = now.Add(cacheTtl).ToString("o"),
                         ResolutionTier = "media_source_provider"
                     };
 
@@ -827,6 +872,65 @@ namespace InfiniteDrive.Services
                     _logger.LogDebug(ex, "[AioMediaSourceProvider] DB cache write failed for {Id} (non-fatal)", imdbId);
                 }
             });
+        }
+
+        /// <summary>
+        /// Attempts to re-resolve a fresh CDN URL for a candidate whose HEAD check failed.
+        /// Queries AIOStreams for the item, finds the stream matching infoHash+fileIdx,
+        /// and updates stream_candidates with the fresh URL.
+        /// </summary>
+        private async Task<string?> TryRefreshCandidateUrlAsync(
+            OpenTokenCandidate cand, string imdbId, CancellationToken ct)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return null;
+
+            var providers = ProviderHelper.GetProviders(config);
+            var db = Plugin.Instance?.DatabaseManager;
+
+            foreach (var provider in providers)
+            {
+                try
+                {
+                    using var client = new AioStreamsClient(
+                        provider.Url, provider.Uuid, provider.Token, _logger);
+
+                    AioStreamsStreamResponse? response;
+                    response = await client.GetMovieStreamsAsync(imdbId, ct).ConfigureAwait(false);
+
+                    if (response?.Streams == null || response.Streams.Count == 0) continue;
+
+                    // Find matching stream by infoHash
+                    var match = response.Streams.FirstOrDefault(s =>
+                        string.Equals(s.InfoHash, cand.InfoHash, StringComparison.OrdinalIgnoreCase));
+
+                    if (match == null || string.IsNullOrEmpty(match.Url))
+                    {
+                        // infoHash absent from response — mark failed
+                        if (db != null)
+                            _ = db.UpdateCandidateStatusAsync(imdbId, null, null, cand.Rank, "failed");
+                        continue;
+                    }
+
+                    // Fresh URL found — update stream_candidates
+                    if (db != null)
+                    {
+                        var now = DateTime.UtcNow;
+                        _ = db.UpdateCandidateUrlAsync(
+                            cand.StreamKey!, match.Url,
+                            now.ToString("o"), now.AddHours(24).ToString("o"));
+                    }
+
+                    return match.Url;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex,
+                        "[AioMediaSourceProvider] CDN refresh provider {Name} failed", provider.DisplayName);
+                }
+            }
+
+            return null;
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1208,5 +1312,8 @@ namespace InfiniteDrive.Services
         public Dictionary<string, string>? Headers { get; set; }
         public string ProviderKey { get; set; } = "unknown";
         public long? Size { get; set; }
+        public string? StreamKey { get; set; }
+        public string? InfoHash { get; set; }
+        public int? FileIdx { get; set; }
     }
 }

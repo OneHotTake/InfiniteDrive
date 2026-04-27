@@ -1540,6 +1540,136 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
+        /// Refreshes the CDN URL and expiry timestamps for a candidate identified by stream_key.
+        /// Used by OpenMediaSource when a HEAD check fails and a fresh URL is obtained via infoHash.
+        /// </summary>
+        public async Task UpdateCandidateUrlAsync(
+            string streamKey, string url, string resolvedAt, string expiresAt,
+            CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrEmpty(streamKey) || string.IsNullOrEmpty(url)) return;
+            const string sql = @"
+                UPDATE stream_candidates
+                SET url = @url, url_resolved_at = @resolved_at, url_expires_at = @expires_at
+                WHERE stream_key = @stream_key";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@stream_key",  streamKey);
+                BindText(cmd, "@url",         url);
+                BindText(cmd, "@resolved_at", resolvedAt);
+                BindText(cmd, "@expires_at",  expiresAt);
+            }, cancellationToken).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Returns media items (movies + series episodes) that have no <c>stream_candidates</c>
+        /// rows with status != 'failed'.  Used by <c>StreamPrefetchTask</c> to populate the
+        /// candidates table proactively before users browse.
+        /// </summary>
+        public async Task<List<UncachedItem>> GetItemsWithNoStreamCandidatesAsync(
+            int limit, CancellationToken ct)
+        {
+            const string moviesSql = @"
+                SELECT DISTINCT
+                    ids.id_value AS imdb_id,
+                    tmdb_ids.id_value AS tmdb_id,
+                    'movie' AS media_type,
+                    NULL AS season,
+                    NULL AS episode,
+                    mi.title
+                FROM media_items mi
+                INNER JOIN media_item_ids ids
+                    ON ids.media_item_id = mi.id AND ids.id_type = 'imdb'
+                LEFT JOIN media_item_ids tmdb_ids
+                    ON tmdb_ids.media_item_id = mi.id AND tmdb_ids.id_type = 'tmdb'
+                WHERE mi.media_type = 'movie'
+                  AND mi.status IN ('active','indexed','created')
+                  AND mi.blocked = 0
+                  AND NOT EXISTS (
+                      SELECT 1 FROM stream_candidates sc
+                      WHERE lower(sc.imdb_id) = lower(ids.id_value)
+                        AND sc.season IS NULL
+                        AND sc.status != 'failed'
+                  )
+                ORDER BY mi.created_at DESC
+                LIMIT @limit";
+
+            const string seriesSql = @"
+                SELECT DISTINCT
+                    ids.id_value AS imdb_id,
+                    tmdb_ids.id_value AS tmdb_id,
+                    'series' AS media_type,
+                    (season_num) AS season,
+                    (episode_num) AS episode,
+                    mi.title
+                FROM media_items mi
+                INNER JOIN media_item_ids ids
+                    ON ids.media_item_id = mi.id AND ids.id_type = 'imdb'
+                LEFT JOIN media_item_ids tmdb_ids
+                    ON tmdb_ids.media_item_id = mi.id AND tmdb_ids.id_type = 'tmdb'
+                INNER JOIN catalog_items ci
+                    ON lower(ci.imdb_id) = lower(ids.id_value)
+                CROSS JOIN json_each(
+                    CASE
+                        WHEN ci.videos_json IS NOT NULL AND ci.videos_json != ''
+                        THEN ci.videos_json
+                        ELSE '[]'
+                    END
+                ) AS video
+                CROSS JOIN json_extract(video.value, '$.season') AS season_num
+                CROSS JOIN json_extract(video.value, '$.episode') AS episode_num
+                WHERE mi.media_type = 'series'
+                  AND mi.status IN ('active','indexed','created')
+                  AND mi.blocked = 0
+                  AND season_num IS NOT NULL
+                  AND episode_num IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM stream_candidates sc
+                      WHERE lower(sc.imdb_id) = lower(ids.id_value)
+                        AND sc.season = season_num
+                        AND sc.episode = episode_num
+                        AND sc.status != 'failed'
+                  )
+                ORDER BY mi.created_at DESC
+                LIMIT @limit";
+
+            var results = new List<UncachedItem>();
+
+            var movies = await QueryListAsync(moviesSql,
+                cmd => BindInt(cmd, "@limit", limit / 2),
+                r => new UncachedItem
+                {
+                    ImdbId    = r.GetString(0),
+                    TmdbId    = r.IsDBNull(1) ? null : r.GetString(1),
+                    MediaType = r.GetString(2),
+                    Title     = r.IsDBNull(5) ? "" : r.GetString(5),
+                }).ConfigureAwait(false);
+            results.AddRange(movies);
+
+            if (ct.IsCancellationRequested) return results;
+
+            var remaining = Math.Max(0, limit - results.Count);
+            if (remaining > 0)
+            {
+                var episodes = await QueryListAsync(seriesSql,
+                    cmd => BindInt(cmd, "@limit", remaining),
+                    r => new UncachedItem
+                    {
+                        ImdbId    = r.GetString(0),
+                        TmdbId    = r.IsDBNull(1) ? null : r.GetString(1),
+                        MediaType = r.GetString(2),
+                        Season    = r.IsDBNull(3) ? (int?)null : r.GetInt(3),
+                        Episode   = r.IsDBNull(4) ? (int?)null : r.GetInt(4),
+                        Title     = r.IsDBNull(5) ? "" : r.GetString(5),
+                    }).ConfigureAwait(false);
+                results.AddRange(episodes);
+            }
+
+            return results;
+        }
+
+        /// <summary>
         /// Updates the <c>status</c> of a single candidate row identified by
         /// (imdb_id, season, episode, rank).  Used to mark a URL as
         /// <c>suspect</c> or <c>failed</c> without discarding other ranks.
@@ -2929,7 +3059,9 @@ CREATE TABLE IF NOT EXISTS stream_candidates (
     absolute_episode_number INTEGER,
     languages               TEXT,
     subtitles_json          TEXT,
-    probe_json              TEXT
+    probe_json              TEXT,
+    url_resolved_at         TEXT,
+    url_expires_at          TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_key ON stream_candidates(imdb_id, COALESCE(season,-1), COALESCE(episode,-1), rank);
 CREATE INDEX IF NOT EXISTS idx_candidates_item ON stream_candidates(imdb_id, season, episode, rank);

@@ -195,6 +195,22 @@ namespace InfiniteDrive.Tasks
 
                 progress?.Report(1.0);
                 _logger.LogInformation("[InfiniteDrive] MarvinTask completed successfully (4-phase pipeline)");
+
+                // Auto-trigger stream prefetch after successful pipeline
+                var marvinConfig = Plugin.Instance?.Configuration;
+                if (marvinConfig?.EnableStreamPrefetch == true)
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(TimeSpan.FromMinutes(1), CancellationToken.None).ConfigureAwait(false);
+                            await new StreamPrefetchTask(_logManager)
+                                .Execute(CancellationToken.None, new Progress<double>()).ConfigureAwait(false);
+                        }
+                        catch { /* fire-and-forget — never crash MarvinTask */ }
+                    });
+                }
             }
             catch (Exception ex)
             {

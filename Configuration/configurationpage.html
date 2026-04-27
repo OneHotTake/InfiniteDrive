@@ -128,7 +128,7 @@
 
 <!-- ── Tab bar ── -->
 <div class="es-tabs">
-  <button class="es-tab active" data-es-tab="overview">Overview <span class="es-version" id="es-plugin-version">…</span></button>
+  <button class="es-tab active" data-es-tab="overview">Setup <span class="es-version" id="es-plugin-version">…</span></button>
   <button class="es-tab" data-es-tab="providers">Providers
     <span id="es-pill-aio" class="es-status-pill es-pill-hidden">●</span>
     <span id="es-pill-backup" class="es-status-pill es-pill-hidden">B</span>
@@ -136,10 +136,10 @@
   <button class="es-tab" data-es-tab="libraries">Libraries</button>
   <button class="es-tab" data-es-tab="lists">Lists</button>
   <button class="es-tab" data-es-tab="sources">Catalogs</button>
-  <button class="es-tab" data-es-tab="streams">Streams</button>
-  <button class="es-tab" data-es-tab="parental">Content Filtering</button>
-  <button class="es-tab" data-es-tab="security">Security</button>
-  <button class="es-tab" data-es-tab="inspector">Inspector</button>
+  <button class="es-tab" data-es-tab="streams">Playback</button>
+  <button class="es-tab" data-es-tab="parental">Parental</button>
+  <button class="es-tab" data-es-tab="advanced">Advanced</button>
+  <button class="es-tab" data-es-tab="inspector">Health</button>
   <button class="es-tab" data-es-tab="metadata">Metadata</button>
 </div>
 
@@ -741,18 +741,42 @@
 
 
 <!-- ════════════════════════════ TAB — Security ════════════════════════════ -->
-<div class="es-tab-content" id="es-tab-content-security">
+<div class="es-tab-content" id="es-tab-content-advanced">
 
-  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Security</h1>
+  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Advanced</h1>
 
-  <div class="es-card" style="border-color:rgba(255,193,7,0.2);background:rgba(255,193,7,0.04)">
-    <h3>Storage</h3>
-    <p style="font-size:.85em;opacity:.65;margin:0">
-      Configuration is stored in <code>config/plugins/InfiniteDrive.xml</code> (plaintext, same as debrid API keys).
-      Restrict filesystem access to the Emby config directory to trusted users only.
+  <!-- Stream Pre-cache -->
+  <div class="es-card">
+    <div class="es-card-title">Stream Pre-cache</div>
+    <p class="es-card-text">
+      Pre-caching resolves stream URLs in the background so the version picker loads instantly.
     </p>
+    <div style="margin-bottom:1em">
+      <label style="display:flex;align-items:center;gap:.6em;cursor:pointer">
+        <input type="checkbox" is="emby-checkbox" id="es-enable-stream-prefetch" />
+        <span style="font-size:.9em">Enable stream pre-caching</span>
+      </label>
+      <p class="es-hint">Runs automatically after Marvin completes, or via the Health tab.</p>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1em;margin-top:.75em">
+      <div>
+        <label style="font-size:.82em;opacity:.65;display:block;margin-bottom:.3em">Cache TTL (minutes)</label>
+        <input type="number" is="emby-input" id="es-cache-ttl-minutes" min="10" max="1440" step="10" style="width:100%" />
+        <p class="es-hint">How long pre-cached stream URLs remain valid (10–1440)</p>
+      </div>
+      <div>
+        <label style="font-size:.82em;opacity:.65;display:block;margin-bottom:.3em">Batch delay (ms)</label>
+        <input type="number" is="emby-input" id="es-prefetch-batch-delay" min="0" max="10000" step="100" style="width:100%" />
+        <p class="es-hint">Delay between pre-cache batches (0–10000)</p>
+      </div>
+    </div>
+    <div style="margin-top:.75em">
+      <button type="button" is="emby-button" class="raised button-submit" data-es-action="save-advanced">Save Advanced Settings</button>
+      <span id="es-advanced-save-result" style="font-size:.85em"></span>
+    </div>
   </div>
 
+  <!-- Security -->
   <div class="es-card">
     <div class="es-card-title">Playback Security</div>
     <p class="es-card-text">
@@ -766,10 +790,9 @@
       Generated: <span id="sec-generated-date">—</span>
     </p>
 
-    <!-- Advanced: rotate (collapsed) -->
     <div class="es-card" style="margin-top:1em;padding:.75em 1em;border:1px solid rgba(128,128,128,0.15)">
-      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" data-es-action="toggle-advanced">
-        <h3 style="margin:0;font-size:.85em;opacity:.6">Advanced</h3>
+      <div style="display:flex;align-items:center;justify-content:space-between;cursor:pointer" data-es-action="toggle-sec-rotate">
+        <h3 style="margin:0;font-size:.85em;opacity:.6">Rotate Secret</h3>
         <span id="es-advanced-arrow" style="opacity:.5;font-size:.85em">▼ show</span>
       </div>
       <div id="es-advanced-inner" style="display:none;margin-top:.75em">
@@ -789,7 +812,15 @@
     </div>
   </div>
 
-</div><!-- /security tab -->
+  <div class="es-card" style="border-color:rgba(255,193,7,0.2);background:rgba(255,193,7,0.04)">
+    <h3>Storage</h3>
+    <p style="font-size:.85em;opacity:.65;margin:0">
+      Configuration is stored in <code>config/plugins/InfiniteDrive.xml</code> (plaintext, same as debrid API keys).
+      Restrict filesystem access to the Emby config directory to trusted users only.
+    </p>
+  </div>
+
+</div><!-- /advanced tab -->
 
 
 <!-- ════════════════════════════ TAB — Inspector ════════════════════════════ -->
@@ -873,6 +904,12 @@
         <td><button type="button" is="emby-button" class="raised button-submit" data-es-task="link_resolver">Run Now</button></td>
         <td style="padding-left:.75em;font-size:.78em;opacity:.45">Pre-resolves stream URLs into cache</td>
         <td style="padding-left:.75em;font-size:.78em;opacity:.6;text-align:center" id="es-task-schedule-resolver">Hourly</td>
+      </tr>
+      <tr>
+        <td style="padding-right:1.5em;opacity:.8;font-size:.88em">Stream Pre-fetch</td>
+        <td><button type="button" is="emby-button" class="raised button-submit" data-es-task="stream_prefetch">Pre-fetch Now</button></td>
+        <td style="padding-left:.75em;font-size:.78em;opacity:.45">Pre-caches stream URLs for instant playback</td>
+        <td style="padding-left:.75em;font-size:.78em;opacity:.6;text-align:center">After Marvin</td>
       </tr>
       </tbody>
     </table>

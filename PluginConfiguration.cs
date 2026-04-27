@@ -423,6 +423,21 @@ namespace InfiniteDrive
         [DataMember]
         public int PreCacheTTLDays { get; set; } = 14;
 
+        /// <summary>
+        /// Whether to proactively populate stream_candidates for items that have none.
+        /// Runs automatically after catalog sync completes. Default: true.
+        /// </summary>
+        [DataMember]
+        public bool EnableStreamPrefetch { get; set; } = true;
+
+        /// <summary>Milliseconds to pause between items during stream prefetch. Default: 2000.</summary>
+        [DataMember]
+        public int PrefetchBatchDelayMs { get; set; } = 2000;
+
+        /// <summary>In-memory source list TTL in minutes. Default: 360 (6h).</summary>
+        [DataMember]
+        public int InMemoryCacheTtlMinutes { get; set; } = 360;
+
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  STREAM SIGNING SECRET                                               ║
         // ╚══════════════════════════════════════════════════════════════════════╝
@@ -867,6 +882,8 @@ namespace InfiniteDrive
             PreCacheBatchSize          = Clamp(PreCacheBatchSize,         1,     500);
             PreCacheIntervalHours      = Clamp(PreCacheIntervalHours,     1,     48);
             PreCacheTTLDays            = Clamp(PreCacheTTLDays,           1,     90);
+            PrefetchBatchDelayMs       = Clamp(PrefetchBatchDelayMs,      500,   30_000);
+            InMemoryCacheTtlMinutes    = Clamp(InMemoryCacheTtlMinutes,   10,    1_440);
             SyncResolveTimeoutSeconds = Clamp(SyncResolveTimeoutSeconds, 5,     300);
             NextUpLookaheadEpisodes   = Clamp(NextUpLookaheadEpisodes,   0,     10);
             // -1 is the "disabled" sentinel; any other out-of-range value clamps to 0–23
