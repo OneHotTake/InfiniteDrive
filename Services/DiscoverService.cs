@@ -252,6 +252,27 @@ namespace InfiniteDrive.Services
         public string? AudioLanguages { get; set; }
     }
 
+    // ── Rails DTOs ─────────────────────────────────────────────────────────────
+
+    [Route("/InfiniteDrive/Discover/Rails", "GET", Summary = "Get default rails for discover page")]
+    public class DiscoverRailsRequest : IReturn<DiscoverRailsResponse>
+    {
+        /// <summary>Filter: movie, series, or empty for both.</summary>
+        public string? Type { get; set; }
+    }
+
+    public class DiscoverRailsResponse
+    {
+        public List<DiscoverRail> Rails { get; set; } = new();
+    }
+
+    public class DiscoverRail
+    {
+        public string Title { get; set; } = string.Empty;
+        public string? Type { get; set; }
+        public List<DiscoverItem> Items { get; set; } = new();
+    }
+
     // ── Service ──────────────────────────────────────────────────────────────────
 
     /// <summary>
@@ -322,68 +343,112 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Handles <c>GET /InfiniteDrive/Discover/Search</c>.
-        /// Searches local FTS5 index first; if results are thin or live=true, fans out to AIOStreams.
+        /// Live AIOStreams search — no local cache. Falls back to Cinemeta if AIOStreams fails.
         /// </summary>
         public async Task<object> Get(DiscoverSearchRequest req)
         {
-            // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
             var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
             try
             {
                 if (string.IsNullOrWhiteSpace(req.Query))
-                {
                     return new DiscoverSearchResponse { Items = new() };
-                }
 
-                // Step 1: Search local FTS5 index
-                var localEntries = await _db.SearchDiscoverCatalogAsync(req.Query, req.Type);
-                var maxRating = GetUserMaxParentalRating();
-                var filtered = ApplyParentalFilter(localEntries, maxRating);
-                var localItems = (await Task.WhenAll(filtered.Select(e => MapToDiscoverItemAsync(e, null)))).ToList();
-
-                // Step 2: Determine if we should do a live AIOStreams search
-                var shouldLiveSearch = req.Live || localItems.Count < 5;
                 var config = Plugin.Instance?.Configuration;
-                var liveItems = new List<DiscoverItem>();
+                if (config == null)
+                    return new DiscoverSearchResponse { Items = new() };
 
-                if (shouldLiveSearch && config != null &&
-                    (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl) || !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl)))
+                var type = string.IsNullOrEmpty(req.Type) ? "movie" : req.Type.ToLowerInvariant();
+                var items = new List<DiscoverItem>();
+
+                // Live search via AIOStreams
+                if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl) || !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                 {
-                    try
+                    using var client = new AioStreamsClient(config, _logger);
+                    client.Cooldown = Plugin.Instance?.CooldownGate;
+
+                    // Search both movie and series if no type filter
+                    var types = type == "movie" || type == "series"
+                        ? new[] { type }
+                        : new[] { "movie", "series" };
+
+                    foreach (var t in types)
                     {
-                        liveItems = await GetLiveSearchResultsAsync(req.Query, req.Type);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Live search failed, returning local results only");
+                        try
+                        {
+                            var result = await client.SearchLiveAsync(req.Query, t, 0, 50, CancellationToken.None);
+                            if (result?.Metas != null)
+                            {
+                                foreach (var meta in result.Metas)
+                                    items.Add(await MapMetaToDiscoverItemAsync(meta));
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "[Discover] Live search failed for type '{Type}'", t);
+                        }
                     }
                 }
 
-                // Step 3: Merge and deduplicate (local results take priority)
-                var mergedByImdbId = new Dictionary<string, DiscoverItem>(StringComparer.OrdinalIgnoreCase);
+                // Deduplicate by IMDB ID
+                var deduped = items
+                    .GroupBy(i => i.ImdbId, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .OrderBy(x => x.InLibrary ? 0 : 1)
+                    .Take(50)
+                    .ToList();
 
-                // Add live results first
-                foreach (var item in liveItems)
-                {
-                    if (!mergedByImdbId.ContainsKey(item.ImdbId))
-                    {
-                        mergedByImdbId[item.ImdbId] = item;
-                    }
-                }
-
-                // Override with local results (they're more up-to-date)
-                foreach (var item in localItems)
-                    mergedByImdbId[item.ImdbId] = item;
-
-                var merged = mergedByImdbId.Values.OrderBy(x => x.InLibrary ? 0 : 1).ToList();
-
-                return new DiscoverSearchResponse { Items = merged.Take(50).ToList() };
+                return new DiscoverSearchResponse { Items = deduped };
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error searching Discover catalog");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Handles <c>GET /InfiniteDrive/Discover/Rails</c>.
+        /// Returns default rails: user playlists > admin catalogs > Cinemeta top 10.
+        /// </summary>
+        public async Task<object> Get(DiscoverRailsRequest req)
+        {
+            var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
+            if (deny != null) return deny;
+
+            try
+            {
+                var rails = new List<DiscoverRail>();
+                var config = Plugin.Instance?.Configuration;
+                var type = string.IsNullOrEmpty(req.Type) ? null : req.Type.ToLowerInvariant();
+
+                // Rail 1: Cinemeta Top (always available as fallback)
+                if (config != null)
+                {
+                    using var client = AioStreamsClient.CreateForStremioBase(
+                        "https://v3-cinemeta.strem.io", _logger);
+
+                    var types = type != null ? new[] { type } : new[] { "movie", "series" };
+                    foreach (var t in types)
+                    {
+                        var label = t == "movie" ? "Popular Movies" : "Popular Shows";
+                        var metas = await client.GetCinemetaTopAsync(t, 20, CancellationToken.None);
+                        if (metas.Count > 0)
+                        {
+                            var rail = new DiscoverRail { Title = label, Type = t };
+                            foreach (var meta in metas)
+                                rail.Items.Add(await MapMetaToDiscoverItemAsync(meta));
+                            rails.Add(rail);
+                        }
+                    }
+                }
+
+                return new DiscoverRailsResponse { Rails = rails };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error fetching rails");
                 throw;
             }
         }
@@ -919,6 +984,54 @@ namespace InfiniteDrive.Services
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Maps an AioStreamsMeta to a DiscoverItem, checking Emby library for InLibrary status.
+        /// </summary>
+        private async Task<DiscoverItem> MapMetaToDiscoverItemAsync(AioStreamsMeta meta)
+        {
+            var imdbId = meta.ImdbId ?? meta.Id ?? "";
+            string? embyItemId = null;
+            var inLibrary = false;
+
+            if (!string.IsNullOrWhiteSpace(imdbId))
+            {
+                try
+                {
+                    var match = _libraryManager.GetItemList(
+                        new MediaBrowser.Controller.Entities.InternalItemsQuery
+                        {
+                            AnyProviderIdEquals = new[] { new KeyValuePair<string, string>("Imdb", imdbId) },
+                            IncludeItemTypes = meta.Type == "series"
+                                ? new[] { "Series" }
+                                : new[] { "Movie" },
+                            Recursive = true
+                        }).FirstOrDefault();
+                    if (match != null)
+                    {
+                        inLibrary = true;
+                        embyItemId = match.Id.ToString("N");
+                    }
+                }
+                catch { /* non-critical */ }
+            }
+
+            return await Task.FromResult(new DiscoverItem
+            {
+                ImdbId = imdbId,
+                Title = meta.Name ?? "",
+                Year = ParseYear(meta.ReleaseInfo),
+                MediaType = meta.Type ?? "movie",
+                PosterUrl = meta.Poster,
+                BackdropUrl = meta.Background,
+                Overview = meta.Description,
+                Genres = meta.Genres != null && meta.Genres.Count > 0 ? string.Join(", ", meta.Genres) : null,
+                ImdbRating = string.IsNullOrEmpty(meta.ImdbRating) || !double.TryParse(meta.ImdbRating, out var r) ? null : r,
+                InLibrary = inLibrary,
+                EmbyItemId = embyItemId,
+                CatalogSource = "live"
+            });
         }
 
         /// <summary>

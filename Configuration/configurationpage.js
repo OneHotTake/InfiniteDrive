@@ -167,7 +167,7 @@ function (BaseView, loading) {
 
     // ── Tab switching ─────────────────────────────────────────────────────────
     function showTab(view, name) {
-        var tabs = ['overview','providers','libraries','lists','sources','parental','advanced','inspector','metadata'];
+        var tabs = ['overview','providers','libraries','lists','sources','parental','blocked','advanced','inspector','metadata'];
 
         tabs.forEach(function(t) {
             var c = q(view, 'es-tab-content-' + t);
@@ -190,6 +190,7 @@ function (BaseView, loading) {
         if (name === 'streams')    { loadStreamsTab(view, _loadedConfig); }
         if (name === 'metadata')   { loadMetadataTab(view); }
         if (name === 'parental')   { loadBlockedItems(view); }
+        if (name === 'blocked')    { loadBlockedTab(view); }
         if (name === 'advanced')   { loadAdvancedTab(view, _loadedConfig); }
         if (name === 'inspector')  { refreshDashboard(view); loadImprobabilityStatus(view);
                                           if (!_dashInterval) _dashInterval = setInterval(function() { refreshDashboard(view); }, 30000); }
@@ -3928,6 +3929,57 @@ function (BaseView, loading) {
                 });
             });
         }
+    }
+
+    function loadBlockedTab(view) {
+        var tbody = view.querySelector('#es-blocked-tbody');
+        var emptyEl = view.querySelector('#es-blocked-empty');
+        var loadingEl = view.querySelector('#es-blocked-loading');
+        if (!tbody) return;
+
+        tbody.innerHTML = '';
+        if (emptyEl) emptyEl.style.display = 'none';
+        if (loadingEl) loadingEl.style.display = '';
+
+        esFetch('/InfiniteDrive/Admin/BlockedItems')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (loadingEl) loadingEl.style.display = 'none';
+                if (!data.Items || data.Items.length === 0) {
+                    if (emptyEl) emptyEl.style.display = '';
+                    return;
+                }
+                tbody.innerHTML = data.Items.map(function(item) {
+                    return '<tr>' +
+                        '<td>' + esc(item.Title || '') + '</td>' +
+                        '<td>' + esc(item.MediaType || '') + '</td>' +
+                        '<td>' + esc(item.ImdbId || '—') + '</td>' +
+                        '<td>' + esc(item.TmdbId || '—') + '</td>' +
+                        '<td>' + esc(item.BlockedAt || '') + '</td>' +
+                        '<td><button class="emby-button raised es-unblock-row-btn" data-id="' + esc(String(item.Id)) + '">Unblock</button></td>' +
+                        '</tr>';
+                }).join('');
+
+                // Wire unblock buttons
+                var btns = tbody.querySelectorAll('.es-unblock-row-btn');
+                for (var i = 0; i < btns.length; i++) {
+                    btns[i].addEventListener('click', function() {
+                        var id = this.getAttribute('data-id');
+                        if (!confirm('Unblock this item?')) return;
+                        esFetch('/InfiniteDrive/Admin/UnblockItems', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ ItemIds: [Number(id)] })
+                        })
+                        .then(function() { loadBlockedTab(view); })
+                        .catch(function() { Dashboard.alert('Unblock failed.'); });
+                    });
+                }
+            })
+            .catch(function() {
+                if (loadingEl) loadingEl.style.display = 'none';
+                tbody.innerHTML = '<tr><td colspan="6" style="opacity:.4;text-align:center">Failed to load blocked items.</td></tr>';
+            });
     }
 
     // ── Module export — BaseView pattern (required for is="emby-scroller") ──

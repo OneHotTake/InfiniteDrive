@@ -96,7 +96,6 @@ namespace InfiniteDrive.Services
         // ── Constants ────────────────────────────────────────────────────────────
 
         private const string TaskCatalogSync          = "catalog_sync";
-        private const string TaskCatalogDiscover     = "catalog_discover";
         private const string TaskLinkResolver         = "link_resolver";
         private const string TaskLibraryReadoption    = "library_readoption";
         private const string TaskEpisodeExpand        = "episode_expand";
@@ -153,11 +152,6 @@ namespace InfiniteDrive.Services
             {
                 case TaskCatalogSync:
                     FireAndForget(ct => new MarvinTask(_logManager, _libraryManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
-                    break;
-
-                case TaskCatalogDiscover:
-                    FireAndForget(ct => new CatalogDiscoverTask(_logManager)
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
@@ -372,7 +366,7 @@ namespace InfiniteDrive.Services
                         Status  = "error",
                         Task    = taskKey,
                         Message = $"Unknown task '{taskKey}'. Valid keys: " +
-                                  $"{TaskCatalogSync}, {TaskCatalogDiscover}, " +
+                                  $"{TaskCatalogSync}, " +
                                   $"{TaskLinkResolver}, " +
                                   $"{TaskLibraryReadoption}, " +
                                   $"{TaskEpisodeExpand}, {TaskCollectionSync}, " +

@@ -179,6 +179,15 @@ namespace InfiniteDrive
         /// </summary>
         public Services.IStreamCacheService StreamCacheService { get; private set; } = null!;
 
+        /// <summary>Block list management (DB-only, no SDK deps).</summary>
+        public Services.BlockListService BlockListService { get; private set; } = null!;
+
+        /// <summary>Playlist management (requires IPlaylistManager, set via InitializePlaylistService).</summary>
+        public Services.PlaylistService? PlaylistService { get; private set; }
+
+        /// <summary>Unified add pipeline (requires ILibraryManager, set via InitializePlaylistService).</summary>
+        public Services.UnifiedItemService? UnifiedItemService { get; private set; }
+
         /// <summary>
         /// Active provider state for self-healing failover (Sprint 311).
         /// Tracks whether primary or secondary provider is currently active.
@@ -275,7 +284,7 @@ namespace InfiniteDrive
                     Name = "InfiniteDrive",
                     EmbeddedResourcePath = "InfiniteDrive.Configuration.configurationpage.html",
                     IsMainConfigPage = true,
-                    EnableInMainMenu = true,
+                    EnableInMainMenu = false,
                     DisplayName = "InfiniteDrive"
                 },
                 new PluginPageInfo
@@ -445,6 +454,12 @@ namespace InfiniteDrive
                     _logManager);
                 _logger.LogInformation("[InfiniteDrive] StreamCacheService initialised");
 
+                // Initialise BlockListService (DB-only, no SDK deps)
+                BlockListService = new Services.BlockListService(
+                    DatabaseManager,
+                    new EmbyLoggerAdapter<Services.BlockListService>(_logManager.GetLogger("BlockListService")));
+                _logger.LogInformation("[InfiniteDrive] BlockListService initialised");
+
                 // Sprint 350: Restore active provider state from database
                 try
                 {
@@ -464,6 +479,29 @@ namespace InfiniteDrive
             {
                 _logger.LogError(ex, "[InfiniteDrive] Failed to initialise database — plugin may not function correctly");
             }
+        }
+
+        /// <summary>
+        /// Initializes PlaylistService with SDK-provided interfaces.
+        /// Called from an IServerEntryPoint that has IPlaylistManager/ILibraryManager injected.
+        /// </summary>
+        public void InitializePlaylistService(
+            MediaBrowser.Controller.Playlists.IPlaylistManager playlistManager,
+            MediaBrowser.Controller.Library.ILibraryManager libraryManager)
+        {
+            PlaylistService = new Services.PlaylistService(
+                playlistManager,
+                libraryManager,
+                new Logging.EmbyLoggerAdapter<Services.PlaylistService>(_logManager.GetLogger("PlaylistService")));
+            _logger.LogInformation("[InfiniteDrive] PlaylistService initialised");
+
+            UnifiedItemService = new Services.UnifiedItemService(
+                new Logging.EmbyLoggerAdapter<Services.UnifiedItemService>(_logManager.GetLogger("UnifiedItemService")),
+                DatabaseManager,
+                StrmWriterService,
+                BlockListService,
+                libraryManager);
+            _logger.LogInformation("[InfiniteDrive] UnifiedItemService initialised");
         }
 
         /// <summary>

@@ -182,7 +182,7 @@ namespace InfiniteDrive.Tasks
                 await TokenRenewalAsync(cancellationToken);
                 progress?.Report(0.95);
 
-                await SaveMaintenancePassAsync(cancellationToken);
+                // Sprint 530: removed SaveMaintenancePassAsync (user_item_saves deprecated)
 
                 // Persist last run time
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync(
@@ -490,35 +490,6 @@ namespace InfiniteDrive.Tasks
 
             if (renewedCount > 0)
                 _logger.LogInformation("[InfiniteDrive] Token renewal: Renewed {Count} items", renewedCount);
-        }
-
-        private async Task SaveMaintenancePassAsync(CancellationToken cancellationToken)
-        {
-            var db = Plugin.Instance!.DatabaseManager;
-
-            var orphans = await db.GetOrphanedUserSavesAsync(cancellationToken);
-            var orphanCount = 0;
-            foreach (var (saveId, userId, mediaItemId) in orphans)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await db.DeleteUserSaveByIdAsync(saveId, cancellationToken);
-                orphanCount++;
-            }
-
-            if (orphanCount > 0)
-                _logger.LogInformation("[InfiniteDrive] Save maintenance: Removed {Count} orphaned saves", orphanCount);
-
-            var savedItems = await db.GetItemsBySavedAsync(true, cancellationToken);
-            var reSyncedCount = 0;
-            foreach (var item in savedItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await db.SyncGlobalSavedFlagAsync(item.Id, cancellationToken);
-                reSyncedCount++;
-            }
-
-            if (reSyncedCount > 0)
-                _logger.LogDebug("[InfiniteDrive] Save maintenance: Re-synced {Count} global saved flags", reSyncedCount);
         }
 
         private async Task PersistEnrichmentCountsAsync(CancellationToken cancellationToken)

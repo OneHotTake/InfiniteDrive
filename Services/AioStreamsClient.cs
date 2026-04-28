@@ -731,6 +731,57 @@ namespace InfiniteDrive.Services
             return await GetJsonAsync<AioStreamsCatalogResponse>(url, cancellationToken);
         }
 
+        // ── Live Search ──────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Performs a live search against AIOStreams using the "top" catalog with search extra.
+        /// Falls back to Cinemeta search if AIOStreams returns no results.
+        /// </summary>
+        public async Task<AioStreamsCatalogResponse?> SearchLiveAsync(
+            string query, string type, int skip, int limit,
+            CancellationToken cancellationToken = default)
+        {
+            // Search AIOStreams top catalog
+            var result = await GetCatalogAsync(type, "top", query, null, skip, cancellationToken);
+            if (result?.Metas?.Count > 0)
+                return new AioStreamsCatalogResponse { Metas = result.Metas.Take(limit).ToList() };
+
+            // Fallback: try Cinemeta search
+            try
+            {
+                var cinemetaUrl = $"https://v3-cinemeta.strem.io/catalog/{type}/top/search={Uri.EscapeDataString(query)}.json";
+                var cinemetaResult = await GetJsonAsync<AioStreamsCatalogResponse>(cinemetaUrl, cancellationToken);
+                if (cinemetaResult?.Metas?.Count > 0)
+                    return new AioStreamsCatalogResponse { Metas = cinemetaResult.Metas.Skip(skip).Take(limit).ToList() };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[InfiniteDrive] Cinemeta search fallback failed for '{Query}'", query);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Fetches Cinemeta Top 10 items for a given type.
+        /// Returns up to <paramref name="count"/> items.
+        /// </summary>
+        public async Task<List<AioStreamsMeta>> GetCinemetaTopAsync(
+            string type, int count, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var url = $"https://v3-cinemeta.strem.io/catalog/{type}/top.json";
+                var result = await GetJsonAsync<AioStreamsCatalogResponse>(url, cancellationToken);
+                return result?.Metas?.Take(count).ToList() ?? new List<AioStreamsMeta>();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[InfiniteDrive] Cinemeta top fetch failed for type '{Type}'", type);
+                return new List<AioStreamsMeta>();
+            }
+        }
+
         // ── Streams ─────────────────────────────────────────────────────────────
 
         /// <summary>

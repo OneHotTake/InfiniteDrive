@@ -82,6 +82,13 @@
 @keyframes toastSlideUp { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 .id-lists-toolbar { display: flex; gap: 0.75em; margin-bottom: 1.5em; }
 .id-lists-toolbar button { padding: 0.5em 1em; font-size: 0.9em; }
+.id-rail { margin-bottom: 2em; }
+.id-rail-title { font-size: 1.1em; font-weight: 600; margin-bottom: 0.75em; padding-left: 0.25em; }
+.id-rail-scroll { display: flex; gap: 0.75em; overflow-x: auto; padding-bottom: 0.5em; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+.id-rail-scroll::-webkit-scrollbar { height: 6px; }
+.id-rail-scroll::-webkit-scrollbar-thumb { background: rgba(128,128,128,0.3); border-radius: 3px; }
+.id-rail-scroll .id-card { flex: 0 0 140px; scroll-snap-align: start; }
+@media (min-width: 768px) { .id-rail-scroll .id-card { flex: 0 0 160px; } }
 </style>
 
     <div class="id-header">
@@ -94,22 +101,27 @@
     <!-- Tab Navigation -->
     <div class="id-tabs">
       <button class="id-tab active" data-tab="discover">Discover</button>
-      <button class="id-tab" data-tab="picks">My Picks</button>
-      <button class="id-tab" data-tab="lists">My Lists</button>
+      <button class="id-tab" data-tab="picks">My InfiniteDrive</button>
+      <button class="id-tab" data-tab="lists">Lists</button>
     </div>
 
     <!-- Tab Content Containers -->
     <div class="id-tab-content">
       <div id="id-tab-discover" class="id-tab-panel active">
-        <!-- Search Bar -->
+        <!-- Search Bar with Type Filter -->
         <div class="id-search">
           <input type="search" id="id-search-input" placeholder="Search movies and shows..." />
+          <select id="id-type-filter" is="emby-select" style="min-width:120px">
+            <option value="">All</option>
+            <option value="movie">Movies</option>
+            <option value="series">Shows</option>
+          </select>
           <button id="id-search-btn" class="raised button-submit">Search</button>
         </div>
-        <!-- Browse Grid -->
-        <div id="id-discover-grid" class="id-grid"></div>
-        <!-- Pagination -->
-        <div id="id-pagination" class="id-pagination"></div>
+        <!-- Default Rails (shown when not searching) -->
+        <div id="id-rails-container"></div>
+        <!-- Search Results Grid -->
+        <div id="id-discover-grid" class="id-grid" style="display:none"></div>
         <!-- Loading Spinner -->
         <div id="id-loading" class="id-loading" style="display:none">
           <div class="spinner"></div>
@@ -124,12 +136,12 @@
       <div id="id-tab-picks" class="id-tab-panel">
         <div id="id-picks-grid" class="id-grid"></div>
         <div id="id-picks-empty" class="id-empty" style="display:none">
-          <p>You haven't saved any items yet.</p>
+          <p>Your InfiniteDrive playlist is empty.</p>
           <button id="id-browse-discover" class="raised button-submit">Browse Discover</button>
         </div>
         <div id="id-picks-loading" class="id-loading" style="display:none">
           <div class="spinner"></div>
-          <span>Loading your picks...</span>
+          <span>Loading your InfiniteDrive...</span>
         </div>
       </div>
 

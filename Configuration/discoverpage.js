@@ -5,9 +5,7 @@ function (loading) {
     // ── Module-level state ────────────────────────────────────────────────────
     var _currentTab = 'discover';
     var _searchTimeout = null;
-    var _browseOffset = 0;
-    var _browseLimit = 50;
-    var _totalItems = 0;
+    var _isSearching = false;
     var _currentDetailItem = null;
     var _currentUserId = null;
     var _userListLimit = -1; // -1 = not yet fetched
@@ -76,7 +74,11 @@ function (loading) {
 
         // Load content for the active tab
         if (tabName === 'discover') {
-            loadBrowse();
+            if (_isSearching) {
+                // Already searching, keep results
+            } else {
+                loadRails();
+            }
         } else if (tabName === 'picks') {
             loadPicks();
         } else if (tabName === 'lists') {
@@ -84,41 +86,85 @@ function (loading) {
         }
     }
 
-    // ── Discover Tab: Browse ──────────────────────────────────────────────────
-    function loadBrowse() {
-        setGridLoading('id-discover-grid', 'id-loading', true);
-        q('id-pagination').style.display = 'none';
+    // ── Discover Tab: Default Rails ──────────────────────────────────────────
+    function loadRails() {
+        _isSearching = false;
+        q('id-rails-container').style.display = '';
+        q('id-discover-grid').style.display = 'none';
+        q('id-loading').style.display = 'flex';
         q('id-empty-discover').style.display = 'none';
 
-        var url = '/InfiniteDrive/Discover/Browse?limit=' + _browseLimit + '&offset=' + _browseOffset;
+        var typeFilter = q('id-type-filter');
+        var type = typeFilter ? typeFilter.value : '';
+        var url = '/InfiniteDrive/Discover/Rails';
+        if (type) url += '?type=' + encodeURIComponent(type);
+
         idFetch(url)
             .then(function(res) { return res.json(); })
             .then(function(data) {
-                _totalItems = data.total || 0;
-                renderGrid('id-discover-grid', data.items || []);
-                setGridLoading('id-discover-grid', 'id-loading', false);
-                renderPagination();
+                var rails = data.rails || [];
+                var container = q('id-rails-container');
+                container.innerHTML = '';
+
+                rails.forEach(function(rail) {
+                    var railHtml = '<div class="id-rail">' +
+                        '<div class="id-rail-title">' + esc(rail.title) + '</div>' +
+                        '<div class="id-rail-scroll" id="id-rail-' + esc(rail.title.replace(/\s/g, '-')) + '"></div>' +
+                    '</div>';
+                    container.insertAdjacentHTML('beforeend', railHtml);
+
+                    var scrollId = 'id-rail-' + rail.title.replace(/\s/g, '-');
+                    renderRail(scrollId, rail.items || []);
+                });
+
+                q('id-loading').style.display = 'none';
+
+                if (rails.length === 0) {
+                    q('id-empty-discover').style.display = 'block';
+                }
             })
             .catch(function(err) {
-                console.error('Failed to load browse:', err);
-                showToast('Failed to load catalog', 'error');
-                setGridLoading('id-discover-grid', 'id-loading', false);
+                console.error('Failed to load rails:', err);
+                showToast('Failed to load content', 'error');
+                q('id-loading').style.display = 'none';
             });
     }
 
-    // ── Discover Tab: Search ──────────────────────────────────────────────────
+    function renderRail(containerId, items) {
+        var container = document.getElementById(containerId);
+        if (!container || items.length === 0) return;
+
+        var html = items.map(function(item) { return renderCard(item); }).join('');
+        container.innerHTML = html;
+
+        container.querySelectorAll('.id-card').forEach(function(card) {
+            card.addEventListener('click', function() {
+                var imdbId = this.getAttribute('data-imdb');
+                var mediaType = this.getAttribute('data-type');
+                if (imdbId) openDetailModal(imdbId, mediaType);
+            });
+        });
+    }
+
+    // ── Discover Tab: Live Search ──────────────────────────────────────────
     function performSearch(query) {
-        setGridLoading('id-discover-grid', 'id-loading', true);
-        q('id-pagination').style.display = 'none';
+        _isSearching = true;
+        q('id-rails-container').style.display = 'none';
+        q('id-discover-grid').style.display = '';
+        q('id-loading').style.display = 'flex';
         q('id-empty-discover').style.display = 'none';
 
-        var url = '/InfiniteDrive/Discover/Search?q=' + encodeURIComponent(query) + '&limit=50';
+        var typeFilter = q('id-type-filter');
+        var type = typeFilter ? typeFilter.value : '';
+        var url = '/InfiniteDrive/Discover/Search?q=' + encodeURIComponent(query);
+        if (type) url += '&type=' + encodeURIComponent(type);
+
         idFetch(url)
             .then(function(res) { return res.json(); })
             .then(function(data) {
                 var items = data.items || [];
                 renderGrid('id-discover-grid', items);
-                setGridLoading('id-discover-grid', 'id-loading', false);
+                q('id-loading').style.display = 'none';
 
                 if (items.length === 0) {
                     q('id-empty-discover').style.display = 'block';
@@ -127,13 +173,14 @@ function (loading) {
             .catch(function(err) {
                 console.error('Failed to search:', err);
                 showToast('Search failed', 'error');
-                setGridLoading('id-discover-grid', 'id-loading', false);
+                q('id-loading').style.display = 'none';
             });
     }
 
     function setupSearch() {
         var searchInput = q('id-search-input');
         var searchBtn = q('id-search-btn');
+        var typeFilter = q('id-type-filter');
 
         // Debounced search on input
         searchInput.addEventListener('input', function(e) {
@@ -141,9 +188,8 @@ function (loading) {
             var query = e.target.value.trim();
 
             if (query.length === 0) {
-                // Reset to browse
-                _browseOffset = 0;
-                loadBrowse();
+                _isSearching = false;
+                loadRails();
                 return;
             }
 
@@ -161,6 +207,18 @@ function (loading) {
                 performSearch(query);
             }
         });
+
+        // Type filter change
+        if (typeFilter) {
+            typeFilter.addEventListener('change', function() {
+                if (_isSearching) {
+                    var query = searchInput.value.trim();
+                    if (query.length >= 2) performSearch(query);
+                } else {
+                    loadRails();
+                }
+            });
+        }
     }
 
     // ── Grid rendering ───────────────────────────────────────────────────────
@@ -207,41 +265,6 @@ function (loading) {
                 '</div>' +
             '</div>' +
         '</div>';
-    }
-
-    // ── Pagination ───────────────────────────────────────────────────────────
-    function renderPagination() {
-        var pagination = q('id-pagination');
-        if (_totalItems <= _browseLimit) {
-            pagination.style.display = 'none';
-            return;
-        }
-
-        pagination.style.display = 'flex';
-
-        var totalPages = Math.ceil(_totalItems / _browseLimit);
-        var currentPage = Math.floor(_browseOffset / _browseLimit) + 1;
-
-        var html = '';
-        html += '<button id="id-prev-page"' + (_browseOffset === 0 ? ' disabled' : '') + '>Previous</button>';
-        html += '<span class="id-page-info">Page ' + currentPage + ' of ' + totalPages + '</span>';
-        html += '<button id="id-next-page"' + (_browseOffset + _browseLimit >= _totalItems ? ' disabled' : '') + '>Next</button>';
-
-        pagination.innerHTML = html;
-
-        q('id-prev-page').addEventListener('click', function() {
-            if (_browseOffset > 0) {
-                _browseOffset -= _browseLimit;
-                loadBrowse();
-            }
-        });
-
-        q('id-next-page').addEventListener('click', function() {
-            if (_browseOffset + _browseLimit < _totalItems) {
-                _browseOffset += _browseLimit;
-                loadBrowse();
-            }
-        });
     }
 
     // ── Detail Modal ─────────────────────────────────────────────────────────
@@ -324,7 +347,7 @@ function (loading) {
                         showToast('Added to library', 'success');
                         closeModal('id-detail-modal');
                         // Refresh current view
-                        if (_currentTab === 'discover') loadBrowse();
+                        if (_currentTab === 'discover') { if (_isSearching) performSearch(q('id-search-input').value.trim()); else loadRails(); }
                         else if (_currentTab === 'picks') loadPicks();
                     } else {
                         throw new Error('Add failed');
@@ -354,7 +377,7 @@ function (loading) {
                         showToast('Removed from library', 'success');
                         closeModal('id-detail-modal');
                         // Refresh current view
-                        if (_currentTab === 'discover') loadBrowse();
+                        if (_currentTab === 'discover') { if (_isSearching) performSearch(q('id-search-input').value.trim()); else loadRails(); }
                         else if (_currentTab === 'picks') loadPicks();
                     } else {
                         throw new Error('Remove failed');

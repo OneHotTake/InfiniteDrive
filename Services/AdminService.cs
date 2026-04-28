@@ -202,20 +202,22 @@ namespace InfiniteDrive.Services
 
             try
             {
-                var items = await _db.GetBlockedItemsAsync(CancellationToken.None);
+                var blockList = Plugin.Instance?.BlockListService;
+                if (blockList == null)
+                    return new GetBlockedItemsResponse { Items = new() };
+
+                var items = await blockList.GetBlockedItemsAsync(0, 200);
 
                 return new GetBlockedItemsResponse
                 {
                     Items = items.Select(i => new BlockedItemDto
                     {
-                        Id        = i.Id,
+                        Id        = i.Id.ToString(),
                         ImdbId    = i.ImdbId,
                         Title     = i.Title,
-                        Year      = i.Year,
                         MediaType = i.MediaType,
                         BlockedAt = i.BlockedAt,
-                        BlockedBy = i.BlockedBy,
-                        RetryCount = i.RetryCount
+                        BlockedBy = i.BlockedBy
                     }).ToList()
                 };
             }
@@ -274,8 +276,14 @@ namespace InfiniteDrive.Services
 
             try
             {
+                var blockList = Plugin.Instance?.BlockListService;
+                var adminUser = _authCtx.GetAuthorizationInfo(Request).User;
+
                 foreach (var itemId in req.ItemIds)
-                    await _db.UnblockItemAsync(itemId, CancellationToken.None);
+                {
+                    if (long.TryParse(itemId, out var id))
+                        await blockList!.UnblockItemAsync(id, adminUser?.Id ?? Guid.Empty);
+                }
 
                 _logger.LogInformation("[AdminService] Unblocked {Count} items", req.ItemIds.Count);
 
