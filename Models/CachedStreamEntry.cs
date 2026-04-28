@@ -62,6 +62,7 @@ namespace InfiniteDrive.Models
         public string? StreamType { get; set; }
         public string? SourceName { get; set; }
         public string? BingeGroup { get; set; }
+        public string? Description { get; set; }
         public string? StreamKey { get; set; }
         /// <summary>Direct CDN URL (may expire; used for immediate playback).</summary>
         public string? Url { get; set; }

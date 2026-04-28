@@ -253,73 +253,45 @@ namespace InfiniteDrive.Services
                 throw new InvalidOperationException("No infoHash and cached URL expired");
 
             var providers = ProviderHelper.GetProviders(config);
-            var healthTracker = Plugin.Instance?.ResolverHealthTracker;
+            var response = await AioStreamsClient.FetchAioStreamsAsync(
+                providers, token.ImdbId, token.MediaType ?? "movie",
+                token.Season, token.Episode,
+                _logger, Plugin.Instance?.ResolverHealthTracker,
+                cooldown: null, cancellationToken).ConfigureAwait(false);
 
-            foreach (var provider in providers)
+            if (response?.Streams == null)
+                throw new InvalidOperationException($"Could not resolve stream for {token.ImdbId}");
+
+            // Find the stream matching our infoHash+fileIdx
+            var match = response.Streams.FirstOrDefault(s =>
+                string.Equals(s.InfoHash, token.InfoHash, StringComparison.OrdinalIgnoreCase)
+                && s.FileIdx == token.FileIdx);
+
+            // Fallback: first stream with a direct URL
+            if (match == null || string.IsNullOrEmpty(match.Url))
+                match = response.Streams.FirstOrDefault(s => !string.IsNullOrEmpty(s.Url));
+
+            if (match == null || string.IsNullOrEmpty(match.Url))
+                throw new InvalidOperationException($"No usable stream URL for {token.ImdbId}");
+
+            var freshSource = new MediaSourceInfo
             {
-                if (healthTracker != null && healthTracker.ShouldSkip(provider.DisplayName))
-                    continue;
+                Id = Guid.NewGuid().ToString("N"),
+                Name = token.ProviderName ?? "Stream",
+                Path = match.Url,
+                Protocol = MediaProtocol.Http,
+                SupportsDirectPlay = true,
+                SupportsDirectStream = true,
+                RequiresOpening = false,
+            };
 
-                try
-                {
-                    using var client = new AioStreamsClient(
-                        provider.Url, provider.Uuid, provider.Token, _logger);
+            if (match.Headers != null)
+                freshSource.RequiredHttpHeaders = match.Headers;
 
-                    // Re-resolve streams for this item from AIO
-                    AioStreamsStreamResponse? response;
-                    if (token.MediaType == "series" && token.Season.HasValue && token.Episode.HasValue)
-                        response = await client.GetSeriesStreamsAsync(
-                            token.ImdbId, token.Season.Value, token.Episode.Value, cancellationToken).ConfigureAwait(false);
-                    else
-                        response = await client.GetMovieStreamsAsync(token.ImdbId, cancellationToken).ConfigureAwait(false);
-
-                    if (response?.Streams == null || response.Streams.Count == 0) continue;
-
-                    if (healthTracker != null) healthTracker.RecordSuccess(provider.DisplayName);
-
-                    // Find the stream matching our infoHash+fileIdx
-                    var match = response.Streams.FirstOrDefault(s =>
-                        string.Equals(s.InfoHash, token.InfoHash, StringComparison.OrdinalIgnoreCase)
-                        && s.FileIdx == token.FileIdx);
-
-                    // Fallback: first stream with a direct URL
-                    if (match == null || string.IsNullOrEmpty(match.Url))
-                        match = response.Streams.FirstOrDefault(s => !string.IsNullOrEmpty(s.Url));
-
-                    if (match == null || string.IsNullOrEmpty(match.Url)) continue;
-
-                    var source = new MediaSourceInfo
-                    {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Name = token.ProviderName ?? "Stream",
-                        Path = match.Url,
-                        Protocol = MediaProtocol.Http,
-                        SupportsDirectPlay = true,
-                        SupportsDirectStream = true,
-                        RequiresOpening = false,
-                    };
-
-                    if (match.Headers != null)
-                        source.RequiredHttpHeaders = match.Headers;
-
-                    var liveStream = new InfiniteDriveLiveStream(source, _logger);
-                    await liveStream.Open(cancellationToken).ConfigureAwait(false);
-
-                    _logger.LogInformation(
-                        "[AioMediaSourceProvider] Opened fresh CDN for {Imdb} via infoHash from {Provider}",
-                        token.ImdbId, provider.DisplayName);
-
-                    return liveStream;
-                }
-                catch (Exception ex)
-                {
-                    if (healthTracker != null) healthTracker.RecordFailure(provider.DisplayName);
-                    _logger.LogDebug(ex, "[AioMediaSourceProvider] Provider {Name} failed for {Imdb}",
-                        provider.DisplayName, token.ImdbId);
-                }
-            }
-
-            throw new InvalidOperationException($"Could not resolve stream for {token.ImdbId}");
+            var freshLiveStream = new InfiniteDriveLiveStream(freshSource, _logger);
+            await freshLiveStream.Open(cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("[AioMediaSourceProvider] Opened fresh CDN for {Imdb} via infoHash", token.ImdbId);
+            return freshLiveStream;
         }
 
         private async Task<List<MediaSourceInfo>> GetMediaSourcesCoreAsync(BaseItem item, CancellationToken ct)
@@ -472,60 +444,20 @@ namespace InfiniteDrive.Services
             var providers = ProviderHelper.GetProviders(config);
             if (providers.Count == 0) return new List<StreamCandidate>();
 
-            var healthTracker = Plugin.Instance?.ResolverHealthTracker;
+            var response = await AioStreamsClient.FetchAioStreamsAsync(
+                providers, imdbId, mediaType, season, episode,
+                _logger, Plugin.Instance?.ResolverHealthTracker,
+                cooldown: null, ct: CancellationToken.None).ConfigureAwait(false);
 
-            foreach (var provider in providers)
-            {
-                if (healthTracker != null && healthTracker.ShouldSkip(provider.DisplayName))
-                {
-                    _logger.LogDebug("[AioMediaSourceProvider] Skipping {Name} — circuit open", provider.DisplayName);
-                    continue;
-                }
+            if (response == null) return new List<StreamCandidate>();
 
-                try
-                {
-                    using var client = new AioStreamsClient(
-                        provider.Url, provider.Uuid, provider.Token, _logger);
+            var ranked = StreamHelpers.RankAndFilterStreams(
+                response, imdbId, season, episode,
+                config.ProviderPriorityOrder ?? "",
+                config.CandidatesPerProvider > 0 ? config.CandidatesPerProvider : 5,
+                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
 
-                    AioStreamsStreamResponse? response;
-
-                    if (mediaType == "series" && season.HasValue && episode.HasValue)
-                        response = await client.GetSeriesStreamsAsync(imdbId, season.Value, episode.Value).ConfigureAwait(false);
-                    else
-                        response = await client.GetMovieStreamsAsync(imdbId).ConfigureAwait(false);
-
-                    var streams = response?.Streams;
-                    if (streams == null || streams.Count == 0)
-                    {
-                        _logger.LogDebug("[AioMediaSourceProvider] No streams from {Name} for {Id}", provider.DisplayName, imdbId);
-                        continue;
-                    }
-
-                    if (healthTracker != null) healthTracker.RecordSuccess(provider.DisplayName);
-
-                    _logger.LogInformation(
-                        "[AioMediaSourceProvider] Got {Count} streams for {Id} from {Provider}",
-                        streams.Count, imdbId, provider.DisplayName);
-
-                    // Run through RankAndFilterStreams (existing scoring logic)
-                    var ranked = StreamHelpers.RankAndFilterStreams(
-                        response!, imdbId, season, episode,
-                        config.ProviderPriorityOrder ?? "",
-                        config.CandidatesPerProvider > 0 ? config.CandidatesPerProvider : 5,
-                        config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
-
-                    // Bucket-based scoring
-                    var scoringService = new StreamScoringService(_logger, config);
-                    return scoringService.SelectBest(ranked);
-                }
-                catch (Exception ex)
-                {
-                    if (healthTracker != null) healthTracker.RecordFailure(provider.DisplayName);
-                    _logger.LogError(ex, "[AioMediaSourceProvider] {Name} failed for {Id}", provider.DisplayName, imdbId);
-                }
-            }
-
-            return new List<StreamCandidate>();
+            return new StreamScoringService(_logger, config).SelectBest(ranked);
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -548,7 +480,7 @@ namespace InfiniteDrive.Services
 
             var config = Plugin.Instance?.Configuration;
             var prefix = config?.VersionLabelPrefix ?? "";
-            var name = prefix + BuildCandidateSourceName(candidate);
+            var name = prefix + FormatCandidateName(candidate);
             var source = new MediaSourceInfo
             {
                 Id = candidate.Id ?? Guid.NewGuid().ToString("N"),
@@ -608,26 +540,12 @@ namespace InfiniteDrive.Services
             return source;
         }
 
-        private static string BuildCandidateSourceName(StreamCandidate c)
+        private static string FormatCandidateName(StreamCandidate c)
         {
-            // Resolution (derive from QualityTier)
-            var res = (c.QualityTier ?? "") switch
-            {
-                "remux" => GetResolutionFromFilename(c.FileName) ?? "4K",
-                "2160p" => "4K",
-                "1080p" => "1080p",
-                "720p"  => "720p",
-                "480p"  => "480p",
-                _ => GetResolutionFromFilename(c.FileName) ?? c.QualityTier ?? ""
-            };
-
-            // Source type (derive from QualityTier and filename)
-            var src = GetSourceTypeFromQualityTier(c.QualityTier, c.FileName);
-
-            // Audio label: extract from filename
+            var res        = StreamHelpers.ResolutionToLabel(c.QualityTier, c.FileName);
+            var src        = GetSourceTypeFromQualityTier(c.QualityTier, c.FileName);
             var audioLabel = BuildAudioLabelFromFilename(c.FileName);
 
-            // File size
             var sizeLabel = "";
             if (c.FileSize.HasValue && c.FileSize.Value > 0)
             {
@@ -635,24 +553,7 @@ namespace InfiniteDrive.Services
                 sizeLabel = gb >= 1 ? $"{gb:F0} GiB" : $"{c.FileSize.Value / (1024.0 * 1024.0):F0} MiB";
             }
 
-            var parts = new List<string>();
-            if (!string.IsNullOrEmpty(res))       parts.Add(res);
-            if (!string.IsNullOrEmpty(src))       parts.Add(src);
-            if (!string.IsNullOrEmpty(audioLabel))parts.Add(audioLabel);
-            if (!string.IsNullOrEmpty(sizeLabel)) parts.Add(sizeLabel);
-
-            return parts.Count > 0 ? string.Join(" · ", parts) : "Stream";
-        }
-
-        private static string? GetResolutionFromFilename(string? filename)
-        {
-            if (string.IsNullOrEmpty(filename)) return null;
-            var fn = filename.ToUpperInvariant();
-            if (fn.Contains("2160") || fn.Contains("4K")) return "4K";
-            if (fn.Contains("1080")) return "1080p";
-            if (fn.Contains("720"))  return "720p";
-            if (fn.Contains("480"))  return "480p";
-            return null;
+            return StreamHelpers.BuildDisplayName(c.Description, "Stream", res, src, audioLabel, sizeLabel);
         }
 
         private static string GetSourceTypeFromQualityTier(string? qualityTier, string? filename)

@@ -232,7 +232,7 @@ namespace InfiniteDrive.Services
                 var v = variants[idx];
 
                 // Build display name: "1080p · HEVC · English" style
-                var name = prefix + BuildVariantDisplayName(v, idx);
+                var name = prefix + FormatVariantName(v, idx);
 
                 // Stable ID from infoHash:fileIdx or position-based
                 var stableId = !string.IsNullOrEmpty(v.InfoHash) && v.FileIdx.HasValue
@@ -279,7 +279,7 @@ namespace InfiniteDrive.Services
                 var streams = new List<MediaStream>();
 
                 // Video stream
-                var (width, height) = ParseResolution(v.Resolution ?? v.QualityTier);
+                var (width, height) = StreamHelpers.ResolutionToPixels(v.Resolution ?? v.QualityTier);
                 if (width > 0 || !string.IsNullOrEmpty(v.VideoCodec))
                 {
                     streams.Add(new MediaStream
@@ -355,56 +355,31 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Builds a human-readable display name like "1080p · HEVC · English".
         /// </summary>
-        private static string BuildVariantDisplayName(StreamVariant v, int fallbackIndex)
+        private static string FormatVariantName(StreamVariant v, int fallbackIndex)
         {
-            var parts = new List<string>();
+            var tier = v.Resolution ?? v.QualityTier ?? "";
+            var res = string.Equals(tier, "remux", StringComparison.OrdinalIgnoreCase)
+                ? "4K Remux"
+                : StreamHelpers.ResolutionToLabel(tier, null);
 
-            // Resolution
-            var res = (v.Resolution ?? v.QualityTier ?? "") switch
-            {
-                "remux" => "4K Remux",
-                "2160p" => "4K",
-                "1080p" => "1080p",
-                "720p" => "720p",
-                "480p" => "480p",
-                var r when !string.IsNullOrEmpty(r) => r,
-                _ => ""
-            };
-            if (!string.IsNullOrEmpty(res)) parts.Add(res);
-
-            // Codec
             var codec = v.VideoCodec?.ToUpperInvariant() switch
             {
                 "HEVC" => "HEVC",
                 "H264" => "AVC",
-                "AV1" => "AV1",
+                "AV1"  => "AV1",
                 var c when !string.IsNullOrEmpty(c) => c.ToUpperInvariant(),
                 _ => ""
             };
-            if (!string.IsNullOrEmpty(codec)) parts.Add(codec);
 
-            // Primary audio language
             var lang = v.AudioStreams?.FirstOrDefault(a => a.IsDefault)?.Language
                 ?? v.AudioStreams?.FirstOrDefault()?.Language;
-            if (!string.IsNullOrEmpty(lang)) parts.Add(lang.ToUpperInvariant());
 
-            // Provider
-            if (!string.IsNullOrEmpty(v.ProviderName) && v.ProviderName != "unknown")
-                parts.Add(v.ProviderName);
+            var provider = (!string.IsNullOrEmpty(v.ProviderName) && v.ProviderName != "unknown")
+                ? v.ProviderName : null;
 
-            return parts.Count > 0 ? string.Join(" · ", parts) : $"Stream #{fallbackIndex + 1}";
-        }
-
-        private static (int width, int height) ParseResolution(string? resolution)
-        {
-            return resolution?.ToLowerInvariant() switch
-            {
-                "2160p" or "4k" or "remux" => (3840, 2160),
-                "1080p" => (1920, 1080),
-                "720p" => (1280, 720),
-                "480p" => (854, 480),
-                _ => (0, 0),
-            };
+            return StreamHelpers.BuildDisplayName(
+                v.Description, $"Stream #{fallbackIndex + 1}",
+                res, codec, lang?.ToUpperInvariant(), provider);
         }
     }
 

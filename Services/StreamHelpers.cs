@@ -248,6 +248,79 @@ namespace InfiniteDrive.Services
             return baseMs + jitter;
         }
 
+        // ── Codec detection ─────────────────────────────────────────────────
+
+        /// <summary>
+        /// Infers a video codec identifier from a filename.
+        /// Returns "hevc", "h264", "av1", "xvid", or null when unrecognised.
+        /// </summary>
+        public static string? ParseVideoCodec(string? filename)
+        {
+            if (string.IsNullOrEmpty(filename)) return null;
+            var lower = filename.ToLowerInvariant();
+            if (lower.Contains("x265") || lower.Contains("hevc")) return "hevc";
+            if (lower.Contains("x264") || lower.Contains("h264") || lower.Contains("h.264")) return "h264";
+            if (lower.Contains("av1"))  return "av1";
+            if (lower.Contains("xvid")) return "xvid";
+            return null;
+        }
+
+        // ── Backoff (seconds) ───────────────────────────────────────────────
+
+        /// <summary>
+        /// Computes exponential back-off in seconds: baseSec × 2^(hits-1), capped at maxSec,
+        /// plus 0–2 s random jitter.
+        /// </summary>
+        public static double ExponentialBackoffSeconds(int hits, int baseSec = 5, int maxSec = 60)
+        {
+            var baseSeconds = Math.Min(maxSec, baseSec * (1 << (hits - 1)));
+            return baseSeconds + Random.Shared.NextDouble() * 2.0;
+        }
+
+        // ── Resolution helpers ──────────────────────────────────────────────
+
+        /// <summary>
+        /// Converts a quality tier and optional filename to a human-readable resolution label.
+        /// "2160p"→"4K", "1080p"→"1080p", "720p"→"720p", "480p"→"480p".
+        /// For unknown tiers, infers from filename keywords; "remux" without a
+        /// recognisable filename defaults to "4K".
+        /// </summary>
+        public static string ResolutionToLabel(string? tier, string? filename = null)
+        {
+            switch (tier?.ToLowerInvariant())
+            {
+                case "2160p": return "4K";
+                case "1080p": return "1080p";
+                case "720p":  return "720p";
+                case "480p":  return "480p";
+                default:
+                    if (!string.IsNullOrEmpty(filename))
+                    {
+                        var fn = filename.ToUpperInvariant();
+                        if (fn.Contains("2160") || fn.Contains("4K")) return "4K";
+                        if (fn.Contains("1080")) return "1080p";
+                        if (fn.Contains("720"))  return "720p";
+                        if (fn.Contains("480"))  return "480p";
+                    }
+                    if (string.Equals(tier, "remux", StringComparison.OrdinalIgnoreCase)) return "4K";
+                    return tier ?? "";
+            }
+        }
+
+        /// <summary>
+        /// Converts a quality tier to physical pixel dimensions (width × height).
+        /// Returns (0, 0) for unknown tiers.
+        /// </summary>
+        public static (int width, int height) ResolutionToPixels(string? tier)
+            => tier?.ToLowerInvariant() switch
+            {
+                "2160p" or "4k" or "remux" => (3840, 2160),
+                "1080p" => (1920, 1080),
+                "720p"  => (1280, 720),
+                "480p"  => (854, 480),
+                _ => (0, 0),
+            };
+
         // ── Stream ranking ──────────────────────────────────────────────────────
 
         /// <summary>
@@ -389,6 +462,7 @@ namespace InfiniteDrive.Services
                     FileIdx     = s.FileIdx,
                     StreamKey   = streamKey,
                     BingeGroup  = s.BingeGroup ?? s.BehaviorHints?.BingeGroup,
+                    Description = StreamHelpers.CollapseDescription(s.Description ?? s.Title),
                     ResolvedAt  = DateTime.UtcNow.ToString("o"),
                     ExpiresAt   = DateTime.UtcNow.AddMinutes(cacheMinutes).ToString("o"),
                     Status      = "valid",
@@ -460,5 +534,35 @@ namespace InfiniteDrive.Services
 
         private static bool ContainsI(string s, string value)
             => s.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
+
+        // ── Display name formatting ─────────────────────────────────────────────
+
+        /// <summary>
+        /// Collapses a raw AIOStreams description into a single-line display name.
+        /// Replaces newlines and ▫ bullets with " · " and trims whitespace.
+        /// </summary>
+        public static string CollapseDescription(string? raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return "";
+            return string.Join(" · ", raw!
+                .Replace("\r\n", "\n")
+                .Replace("\n", " · ")
+                .Replace("▫", "·")
+                .Split("·", StringSplitOptions.RemoveEmptyEntries)
+                .Select(p => p.Trim())
+                .Where(p => p.Length > 0));
+        }
+
+        /// <summary>
+        /// Builds a display name: uses AIOStreams description if available,
+        /// otherwise joins non-empty fallback parts with " · ".
+        /// </summary>
+        public static string BuildDisplayName(string? description, string fallback, params string?[] parts)
+        {
+            var collapsed = CollapseDescription(description);
+            if (collapsed.Length > 0) return collapsed;
+            var nonEmpty = parts.Where(p => !string.IsNullOrEmpty(p)).ToList();
+            return nonEmpty.Count > 0 ? string.Join(" · ", nonEmpty) : fallback;
+        }
     }
 }
