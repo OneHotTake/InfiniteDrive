@@ -37,7 +37,7 @@ At sprint end: update REPO_MAP.md (one-liner only), archive old sprint, commit, 
 
 ## Quick Ref
 dotnet build -c Release
-./emby-reset.sh (canonical reset)
+./scripts/emby-control.sh {start|stop|reset} — ALWAYS use this, NEVER sudo/systemctl
 
 High-risk files (require human review): Plugin.cs, DatabaseManager.cs, any auth/resolution code.
 

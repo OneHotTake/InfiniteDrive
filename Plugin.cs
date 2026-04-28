@@ -21,6 +21,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
+using MediaBrowser.Model.Plugins.UI;
 using MediaBrowser.Model.Serialization;
 using MediaBrowser.Model.Users;
 using Microsoft.Extensions.Logging;
@@ -34,7 +35,7 @@ namespace InfiniteDrive
     /// Inherits <see cref="BasePlugin{TConfiguration}"/> which handles XML config
     /// persistence at {DataPath}/plugins/configurations/EmbyStreams.xml.
     /// </summary>
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages, IHasThumbImage
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasUIPages, IHasThumbImage
     {
         /// <summary>Stable plugin GUID — never change this after first release.</summary>
         public static readonly Guid PluginGuid = new Guid("3c45a87e-2b4f-4d1a-9e73-8f12c3456789");
@@ -272,44 +273,26 @@ namespace InfiniteDrive
         }
 
 
-        // ── IHasWebPages ────────────────────────────────────────────────────────
+        // ── IHasUIPages ────────────────────────────────────────────────────────
+
+        private IReadOnlyCollection<IPluginUIPageController> _uiPages;
 
         /// <inheritdoc/>
-        public IEnumerable<PluginPageInfo> GetPages()
+        public IReadOnlyCollection<IPluginUIPageController> UIPageControllers
         {
-            return new[]
+            get
             {
-                new PluginPageInfo
+                if (_uiPages == null)
                 {
-                    Name = "InfiniteDrive",
-                    EmbeddedResourcePath = "InfiniteDrive.Configuration.configurationpage.html",
-                    IsMainConfigPage = true,
-                    EnableInMainMenu = false,
-                    DisplayName = "InfiniteDrive"
-                },
-                new PluginPageInfo
-                {
-                    Name = "InfiniteDriveConfigJS",
-                    EmbeddedResourcePath = "InfiniteDrive.Configuration.configurationpage.js"
-                },
-                // Sprint 210: User-facing Discover UI
-                new PluginPageInfo
-                {
-                    Name = "InfiniteDiscover",
-                    EmbeddedResourcePath = "InfiniteDrive.Configuration.discoverpage.html",
-                    IsMainConfigPage = false,
-                    EnableInMainMenu = true,
-                    EnableInUserMenu = true,
-                    DisplayName = "Discover",
-                    MenuIcon = "explore",
-                    MenuSection = "server"
-                },
-                new PluginPageInfo
-                {
-                    Name = "InfiniteDiscoverJS",
-                    EmbeddedResourcePath = "InfiniteDrive.Configuration.discoverpage.js"
+                    var id = Id.ToString();
+                    _uiPages = new List<IPluginUIPageController>
+                    {
+                        new UI.Settings.SettingsController(id),
+                        new UI.Discover.DiscoverController(id),
+                    }.AsReadOnly();
                 }
-            };
+                return _uiPages;
+            }
         }
 
         // ── IHasThumbImage ───────────────────────────────────────────────────────
