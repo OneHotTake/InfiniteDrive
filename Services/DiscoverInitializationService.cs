@@ -81,89 +81,12 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Checks if Discover catalog is empty and AIOStreams is configured.
-        /// If so, triggers an automatic initial sync.
+        /// Discover now uses live AIOStreams search — no catalog sync needed.
         /// </summary>
-        private async Task CheckAndAutoTriggerInitialSyncAsync(CancellationToken cancellationToken)
+        private Task CheckAndAutoTriggerInitialSyncAsync(CancellationToken cancellationToken)
         {
-            try
-            {
-                var config = Plugin.Instance?.Configuration;
-                var db = Plugin.Instance?.DatabaseManager;
-
-                if (config == null || db == null)
-                {
-                    _logger.LogWarning("[Discover] Plugin not fully initialized yet");
-                    return;
-                }
-
-                // Check if AIOStreams manifest URL is configured
-                if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl)
-                    && string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-                {
-                    _logger.LogInformation("[Discover] AIOStreams manifest URL not configured; skipping auto-sync");
-                    return;
-                }
-
-                // Check if catalog is empty
-                var catalogCount = await db.GetDiscoverCatalogCountAsync();
-                if (catalogCount > 0)
-                {
-                    _logger.LogInformation("[Discover] Catalog already populated ({Count} items); skipping auto-sync", catalogCount);
-                    return;
-                }
-
-                _logger.LogInformation("[Discover] Catalog empty and AIOStreams configured; triggering auto-sync");
-
-                // Trigger sync in background with event-based coordination
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        // Wait for CatalogSyncTask to complete by polling sync_state
-                        // (not ideal but safe — check every 10s for up to 10min)
-                        var waited = 0;
-                        while (waited < 600)
-                        {
-                            await Task.Delay(10_000, cancellationToken);
-                            waited += 10;
-
-                            var syncState = await db.GetSyncStateAsync("aiostreams");
-                            // If CatalogSync has completed at least once, proceed
-                            if (syncState?.LastSyncAt != null)
-                                break;
-
-                            // If catalog is now populated (sync ran before us), skip
-                            var count = await db.GetDiscoverCatalogCountAsync();
-                            if (count > 0)
-                            {
-                                _logger.LogInformation("[Discover] Catalog was populated during wait; skipping auto-sync");
-                                return;
-                            }
-                        }
-
-                        // Double-check catalog is still empty before syncing
-                        var currentCount = await db.GetDiscoverCatalogCountAsync();
-                        if (currentCount > 0)
-                        {
-                            _logger.LogInformation("[Discover] Catalog was populated during wait; skipping auto-sync");
-                            return;
-                        }
-
-                        var discoverService = new CatalogDiscoverService(_logManager, db);
-                        await discoverService.SyncDiscoverCatalogAsync(cancellationToken);
-                        _logger.LogInformation("[Discover] Auto-sync completed successfully");
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "[Discover] Auto-sync failed");
-                    }
-                }, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[Discover] Error checking for auto-sync");
-            }
+            _logger.LogInformation("[Discover] Using live AIOStreams search — no catalog sync required");
+            return Task.CompletedTask;
         }
 
         /// <summary>

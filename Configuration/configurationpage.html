@@ -140,6 +140,7 @@
   <button class="es-tab" data-es-tab="parental">Parental</button>
   <button class="es-tab" data-es-tab="advanced">Advanced</button>
   <button class="es-tab" data-es-tab="inspector">Health</button>
+  <button class="es-tab" data-es-tab="blocked">Blocked Items</button>
   <button class="es-tab" data-es-tab="metadata">Metadata</button>
 </div>
 
@@ -1178,6 +1179,34 @@
 
 </div><!-- /inspector tab -->
 
+
+<!-- ════════════════════════════ TAB — Blocked Items ════════════════════════════ -->
+<div class="es-tab-content" id="es-tab-content-blocked">
+
+  <h1 style="margin:0 0 1em;font-size:1.35em;font-weight:700">Blocked Items</h1>
+  <p style="opacity:.7;margin-bottom:1.5em">Items blocked from being re-added to the library. Blocking removes the item and prevents future auto-addition.</p>
+
+  <div id="es-blocked-table-wrap" style="overflow-x:auto">
+    <table class="es-table" style="width:100%">
+      <thead>
+        <tr>
+          <th>Title</th>
+          <th>Type</th>
+          <th>IMDB</th>
+          <th>TMDB</th>
+          <th>Blocked</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody id="es-blocked-tbody"></tbody>
+    </table>
+  </div>
+  <div id="es-blocked-empty" class="es-empty-state" style="display:none">
+    <p>No items are currently blocked.</p>
+  </div>
+  <div id="es-blocked-loading" style="text-align:center;padding:2em;opacity:.6">Loading...</div>
+
+</div>
 
 <!-- ════════════════════════════ TAB — Metadata ════════════════════════════ -->
 <div class="es-tab-content" id="es-tab-content-metadata">

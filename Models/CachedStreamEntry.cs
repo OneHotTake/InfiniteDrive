@@ -39,6 +39,9 @@ namespace InfiniteDrive.Models
 
         /// <summary>valid | expired | error</summary>
         public string Status { get; set; } = "valid";
+
+        /// <summary>primary | secondary — which AIOStreams manifest provided this cache entry.</summary>
+        public string? ManifestSource { get; set; }
     }
 
     /// <summary>

@@ -3337,18 +3337,36 @@ CREATE TABLE IF NOT EXISTS stream_cache (
 );
 CREATE INDEX IF NOT EXISTS idx_cache_expires ON stream_cache(expires_at);
 
+-- ── blocked_items ──────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS blocked_items (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    imdb_id      TEXT,
+    tmdb_id      TEXT,
+    anilist_id   TEXT,
+    title        TEXT NOT NULL,
+    media_type   TEXT NOT NULL,
+    blocked_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    blocked_by   TEXT NOT NULL,
+    unblocked_at TEXT,
+    unblocked_by TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_bi_imdb ON blocked_items(lower(imdb_id));
+CREATE INDEX IF NOT EXISTS idx_bi_tmdb ON blocked_items(lower(tmdb_id));
+CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
+
 -- ── cached_streams ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS cached_streams (
-    tmdb_key     TEXT PRIMARY KEY,
-    imdb_id      TEXT NOT NULL,
-    media_type   TEXT NOT NULL,
-    season       INTEGER,
-    episode      INTEGER,
-    item_id      TEXT,
-    variants     TEXT NOT NULL,
-    cached_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at   TEXT NOT NULL,
-    status       TEXT NOT NULL DEFAULT 'valid'
+    tmdb_key          TEXT PRIMARY KEY,
+    imdb_id           TEXT NOT NULL,
+    media_type        TEXT NOT NULL,
+    season            INTEGER,
+    episode           INTEGER,
+    item_id           TEXT,
+    variants          TEXT NOT NULL,
+    cached_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at        TEXT NOT NULL,
+    status            TEXT NOT NULL DEFAULT 'valid',
+    manifest_source   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_cs_imdb ON cached_streams(imdb_id, season, episode);
 CREATE INDEX IF NOT EXISTS idx_cs_item ON cached_streams(item_id) WHERE item_id IS NOT NULL;
@@ -6074,7 +6092,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT tmdb_key, imdb_id, media_type, season, episode, item_id,
-                       variants, cached_at, expires_at, status
+                       variants, cached_at, expires_at, status, manifest_source
                 FROM cached_streams
                 WHERE tmdb_key = @tmdb_key
                   AND status = 'valid'
@@ -6094,7 +6112,7 @@ LIMIT 1";
         {
             const string sql = @"
                 SELECT tmdb_key, imdb_id, media_type, season, episode, item_id,
-                       variants, cached_at, expires_at, status
+                       variants, cached_at, expires_at, status, manifest_source
                 FROM cached_streams
                 WHERE imdb_id = @imdb_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
@@ -6117,10 +6135,10 @@ LIMIT 1";
             const string sql = @"
                 INSERT OR REPLACE INTO cached_streams
                     (tmdb_key, imdb_id, media_type, season, episode, item_id,
-                     variants, cached_at, expires_at, status)
+                     variants, cached_at, expires_at, status, manifest_source)
                 VALUES
                     (@tmdb_key, @imdb_id, @media_type, @season, @episode, @item_id,
-                     @variants, @cached_at, @expires_at, @status)";
+                     @variants, @cached_at, @expires_at, @status, @manifest_source)";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -6134,6 +6152,7 @@ LIMIT 1";
                 BindText(cmd, "@cached_at", entry.CachedAt);
                 BindText(cmd, "@expires_at", entry.ExpiresAt);
                 BindText(cmd, "@status", entry.Status);
+                BindNullableText(cmd, "@manifest_source", entry.ManifestSource);
             }).ConfigureAwait(false);
         }
 
@@ -6283,11 +6302,111 @@ LIMIT 1";
                 CachedAt = r.GetString(7),
                 ExpiresAt = r.GetString(8),
                 Status = r.GetString(9),
+                ManifestSource = r.IsDBNull(10) ? null : r.GetString(10),
             };
         }
-    }
 
-    /// <summary>
+        // ═══════════════════════════════════════════════════════════════════════════
+        //  blocked_items — admin-managed block list
+        // ═══════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Checks if an item is blocked by any of its IDs (OR match).
+        /// Null IDs are skipped. Only checks active blocks (unblocked_at IS NULL).
+        /// </summary>
+        public Task<bool> IsBlockedAsync(string? imdbId, string? tmdbId, string? anilistId)
+        {
+            var conditions = new List<string>();
+            if (!string.IsNullOrEmpty(imdbId))
+                conditions.Add("lower(imdb_id) = lower(@imdb_id)");
+            if (!string.IsNullOrEmpty(tmdbId))
+                conditions.Add("lower(tmdb_id) = lower(@tmdb_id)");
+            if (!string.IsNullOrEmpty(anilistId))
+                conditions.Add("lower(anilist_id) = lower(@anilist_id)");
+
+            if (conditions.Count == 0)
+                return Task.FromResult(false);
+
+            var sql = $"SELECT COUNT(*) FROM blocked_items WHERE ({string.Join(" OR ", conditions)}) AND unblocked_at IS NULL";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            if (!string.IsNullOrEmpty(imdbId)) BindText(stmt, "@imdb_id", imdbId);
+            if (!string.IsNullOrEmpty(tmdbId)) BindText(stmt, "@tmdb_id", tmdbId);
+            if (!string.IsNullOrEmpty(anilistId)) BindText(stmt, "@anilist_id", anilistId);
+
+            foreach (var row in stmt.AsRows())
+                return Task.FromResult(row.GetInt(0) > 0);
+
+            return Task.FromResult(false);
+        }
+
+        /// <summary>Inserts or updates a blocked item.</summary>
+        public async Task UpsertBlockedItemAsync(
+            string? imdbId, string? tmdbId, string? anilistId,
+            string title, string mediaType, string blockedBy)
+        {
+            const string sql = @"
+                INSERT INTO blocked_items (imdb_id, tmdb_id, anilist_id, title, media_type, blocked_by)
+                VALUES (@imdb_id, @tmdb_id, @anilist_id, @title, @media_type, @blocked_by)";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindNullableText(cmd, "@imdb_id", imdbId);
+                BindNullableText(cmd, "@tmdb_id", tmdbId);
+                BindNullableText(cmd, "@anilist_id", anilistId);
+                BindText(cmd, "@title", title);
+                BindText(cmd, "@media_type", mediaType);
+                BindText(cmd, "@blocked_by", blockedBy);
+            }).ConfigureAwait(false);
+        }
+
+        /// <summary>Unblocks an item by setting unblocked_at and unblocked_by.</summary>
+        public async Task UnblockItemAsync(long id, string unblockedBy)
+        {
+            const string sql = @"
+                UPDATE blocked_items
+                SET unblocked_at = datetime('now'),
+                    unblocked_by = @unblocked_by
+                WHERE id = @id";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@id", (int)id);
+                BindText(cmd, "@unblocked_by", unblockedBy);
+            }).ConfigureAwait(false);
+        }
+
+        /// <summary>Gets paginated active blocked items.</summary>
+        public async Task<List<BlockedItem>> GetBlockedItemsAsync(int skip, int limit)
+        {
+            const string sql = @"
+                SELECT id, imdb_id, tmdb_id, anilist_id, title, media_type,
+                       blocked_at, blocked_by, unblocked_at, unblocked_by
+                FROM blocked_items
+                WHERE unblocked_at IS NULL
+                ORDER BY blocked_at DESC
+                LIMIT @limit OFFSET @skip";
+
+            return await QueryListAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@limit", limit);
+                BindInt(cmd, "@skip", skip);
+            }, r => new BlockedItem
+            {
+                Id = r.GetInt(0),
+                ImdbId = r.IsDBNull(1) ? null : r.GetString(1),
+                TmdbId = r.IsDBNull(2) ? null : r.GetString(2),
+                AnilistId = r.IsDBNull(3) ? null : r.GetString(3),
+                Title = r.GetString(4),
+                MediaType = r.GetString(5),
+                BlockedAt = r.GetString(6),
+                BlockedBy = r.GetString(7),
+                UnblockedAt = r.IsDBNull(8) ? null : r.GetString(8),
+                UnblockedBy = r.IsDBNull(9) ? null : r.GetString(9),
+            }).ConfigureAwait(false);
+        }
+    }
     /// Extension methods to bridge <see cref="IStatement"/> (IEnumerator) to
     /// a LINQ-compatible <see cref="IEnumerable{IResultSet}"/> for foreach usage.
     /// <c>IStatement</c> implements <c>IEnumerator&lt;IResultSet&gt;</c>; wrapping
