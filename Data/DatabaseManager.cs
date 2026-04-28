@@ -1299,6 +1299,76 @@ namespace InfiniteDrive.Data
 
         // ── stream_candidates repository ────────────────────────────────────────
 
+        private const string CandidateDeleteSql = @"
+            DELETE FROM stream_candidates
+            WHERE imdb_id = @imdb_id
+              AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+              AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
+
+        private const string CandidateInsertSql = @"
+            INSERT INTO stream_candidates
+                (id, imdb_id, season, episode, rank,
+                 provider_key, stream_type, url, headers_json,
+                 quality_tier, file_name, file_size, bitrate_kbps,
+                 is_cached, resolved_at, expires_at, status,
+                 info_hash, file_idx, stream_key, binge_group,
+                 languages, subtitles_json, description)
+            VALUES
+                (@id, @imdb_id, @season, @episode, @rank,
+                 @provider_key, @stream_type, @url, @headers_json,
+                 @quality_tier, @file_name, @file_size, @bitrate_kbps,
+                 @is_cached, @resolved_at, @expires_at, @status,
+                 @info_hash, @file_idx, @stream_key, @binge_group,
+                 @languages, @subtitles_json, @description);";
+
+        /// <summary>
+        /// Replaces all stream_candidates rows for the item identified by the first
+        /// candidate's (imdb_id, season, episode).  Must be called inside a transaction.
+        /// </summary>
+        private void InsertCandidatesCore(IDatabaseConnection c, List<StreamCandidate> candidates)
+        {
+            if (candidates == null || candidates.Count == 0) return;
+
+            var first = candidates[0];
+            using (var delStmt = c.PrepareStatement(CandidateDeleteSql))
+            {
+                BindText(delStmt,        "@imdb_id", first.ImdbId);
+                BindNullableInt(delStmt, "@season",  first.Season);
+                BindNullableInt(delStmt, "@episode", first.Episode);
+                while (delStmt.MoveNext()) { }
+            }
+
+            foreach (var cand in candidates)
+            {
+                using var insStmt = c.PrepareStatement(CandidateInsertSql);
+                BindText(insStmt,         "@id",           cand.Id);
+                BindText(insStmt,         "@imdb_id",      cand.ImdbId);
+                BindNullableInt(insStmt,  "@season",       cand.Season);
+                BindNullableInt(insStmt,  "@episode",      cand.Episode);
+                insStmt.BindParameters["@rank"].Bind(cand.Rank);
+                BindText(insStmt,         "@provider_key", cand.ProviderKey);
+                BindText(insStmt,         "@stream_type",  cand.StreamType);
+                BindText(insStmt,         "@url",          cand.Url);
+                BindNullableText(insStmt, "@headers_json", cand.HeadersJson);
+                BindNullableText(insStmt, "@quality_tier", cand.QualityTier);
+                BindNullableText(insStmt, "@file_name",    cand.FileName);
+                BindNullableLong(insStmt, "@file_size",    cand.FileSize);
+                BindNullableInt(insStmt,  "@bitrate_kbps", cand.BitrateKbps);
+                insStmt.BindParameters["@is_cached"].Bind(cand.IsCached ? 1 : 0);
+                BindText(insStmt,         "@resolved_at",    cand.ResolvedAt);
+                BindText(insStmt,         "@expires_at",     cand.ExpiresAt);
+                BindText(insStmt,         "@status",         cand.Status);
+                BindNullableText(insStmt, "@info_hash",      cand.InfoHash);
+                BindNullableInt(insStmt,  "@file_idx",       cand.FileIdx);
+                BindNullableText(insStmt, "@stream_key",     cand.StreamKey);
+                BindNullableText(insStmt, "@binge_group",    cand.BingeGroup);
+                BindNullableText(insStmt, "@languages",      cand.Languages);
+                BindNullableText(insStmt, "@subtitles_json", cand.SubtitlesJson);
+                BindNullableText(insStmt, "@description",    cand.Description);
+                while (insStmt.MoveNext()) { }
+            }
+        }
+
         /// <summary>
         /// Atomically replaces all candidate rows for a given (imdb_id, season, episode)
         /// with the supplied list.  Runs as a single transaction: delete then bulk-insert.
@@ -1308,75 +1378,11 @@ namespace InfiniteDrive.Data
         {
             if (candidates == null || candidates.Count == 0) return;
 
-            var first = candidates[0];
-
-            const string deleteSql = @"
-                DELETE FROM stream_candidates
-                WHERE imdb_id = @imdb_id
-                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
-                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
-
-            const string insertSql = @"
-                INSERT INTO stream_candidates
-                    (id, imdb_id, season, episode, rank,
-                     provider_key, stream_type, url, headers_json,
-                     quality_tier, file_name, file_size, bitrate_kbps,
-                     is_cached, resolved_at, expires_at, status,
-                     info_hash, file_idx, stream_key, binge_group,
-                     languages, subtitles_json)
-                VALUES
-                    (@id, @imdb_id, @season, @episode, @rank,
-                     @provider_key, @stream_type, @url, @headers_json,
-                     @quality_tier, @file_name, @file_size, @bitrate_kbps,
-                     @is_cached, @resolved_at, @expires_at, @status,
-                     @info_hash, @file_idx, @stream_key, @binge_group,
-                     @languages, @subtitles_json);";
-
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
             {
                 using var conn = OpenConnection();
-                conn.RunInTransaction(c =>
-                {
-                    // Delete existing candidates for this item
-                    using (var delStmt = c.PrepareStatement(deleteSql))
-                    {
-                        BindText(delStmt,        "@imdb_id", first.ImdbId);
-                        BindNullableInt(delStmt, "@season",  first.Season);
-                        BindNullableInt(delStmt, "@episode", first.Episode);
-                        while (delStmt.MoveNext()) { }
-                    }
-
-                    // Bulk-insert new candidates
-                    foreach (var cand in candidates)
-                    {
-                        using var insStmt = c.PrepareStatement(insertSql);
-                        BindText(insStmt,        "@id",           cand.Id);
-                        BindText(insStmt,        "@imdb_id",      cand.ImdbId);
-                        BindNullableInt(insStmt, "@season",       cand.Season);
-                        BindNullableInt(insStmt, "@episode",      cand.Episode);
-                        insStmt.BindParameters["@rank"].Bind(cand.Rank);
-                        BindText(insStmt,        "@provider_key", cand.ProviderKey);
-                        BindText(insStmt,        "@stream_type",  cand.StreamType);
-                        BindText(insStmt,        "@url",          cand.Url);
-                        BindNullableText(insStmt, "@headers_json", cand.HeadersJson);
-                        BindNullableText(insStmt, "@quality_tier", cand.QualityTier);
-                        BindNullableText(insStmt, "@file_name",    cand.FileName);
-                        BindNullableLong(insStmt, "@file_size",    cand.FileSize);
-                        BindNullableInt(insStmt,  "@bitrate_kbps", cand.BitrateKbps);
-                        insStmt.BindParameters["@is_cached"].Bind(cand.IsCached ? 1 : 0);
-                        BindText(insStmt, "@resolved_at", cand.ResolvedAt);
-                        BindText(insStmt, "@expires_at",  cand.ExpiresAt);
-                        BindText(insStmt, "@status",      cand.Status);
-                        BindNullableText(insStmt, "@info_hash",   cand.InfoHash);
-                        BindNullableInt(insStmt,  "@file_idx",    cand.FileIdx);
-                        BindNullableText(insStmt, "@stream_key",  cand.StreamKey);
-                        BindNullableText(insStmt, "@binge_group", cand.BingeGroup);
-                        BindNullableText(insStmt, "@languages",      cand.Languages);
-                        BindNullableText(insStmt, "@subtitles_json",  cand.SubtitlesJson);
-                        while (insStmt.MoveNext()) { }
-                    }
-                });
+                conn.RunInTransaction(c => InsertCandidatesCore(c, candidates));
             }
             finally
             {
@@ -1392,80 +1398,19 @@ namespace InfiniteDrive.Data
         /// </summary>
         public async Task UpsertResolutionResultAsync(ResolutionEntry entry, List<StreamCandidate> candidates, CancellationToken cancellationToken = default)
         {
-            const string deleteSql = @"
-                DELETE FROM stream_candidates
-                WHERE imdb_id = @imdb_id
-                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
-                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
-
-            const string insertSql = @"
-                INSERT INTO stream_candidates
-                    (id, imdb_id, season, episode, rank,
-                     provider_key, stream_type, url, headers_json,
-                     quality_tier, file_name, file_size, bitrate_kbps,
-                     is_cached, resolved_at, expires_at, status,
-                     info_hash, file_idx, stream_key, binge_group,
-                     languages, subtitles_json)
-                VALUES
-                    (@id, @imdb_id, @season, @episode, @rank,
-                     @provider_key, @stream_type, @url, @headers_json,
-                     @quality_tier, @file_name, @file_size, @bitrate_kbps,
-                     @is_cached, @resolved_at, @expires_at, @status,
-                     @info_hash, @file_idx, @stream_key, @binge_group,
-                     @languages, @subtitles_json);";
-
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
             {
                 using var conn = OpenConnection();
                 conn.RunInTransaction(c =>
                 {
-                    // 1. Upsert resolution_cache entry
                     using (var stmt = c.PrepareStatement(ResolutionCacheUpsertSql))
                     {
                         BindResolutionCacheParams(stmt, entry);
                         while (stmt.MoveNext()) { }
                     }
 
-                    // 2. Replace stream_candidates for this item (delete then bulk-insert)
-                    if (candidates != null && candidates.Count > 0)
-                    {
-                        var first = candidates[0];
-                        using (var delStmt = c.PrepareStatement(deleteSql))
-                        {
-                            BindText(delStmt,        "@imdb_id", first.ImdbId);
-                            BindNullableInt(delStmt, "@season",  first.Season);
-                            BindNullableInt(delStmt, "@episode", first.Episode);
-                            while (delStmt.MoveNext()) { }
-                        }
-                        foreach (var cand in candidates)
-                        {
-                            using var insStmt = c.PrepareStatement(insertSql);
-                            BindText(insStmt,        "@id",           cand.Id);
-                            BindText(insStmt,        "@imdb_id",      cand.ImdbId);
-                            BindNullableInt(insStmt, "@season",       cand.Season);
-                            BindNullableInt(insStmt, "@episode",      cand.Episode);
-                            insStmt.BindParameters["@rank"].Bind(cand.Rank);
-                            BindText(insStmt,        "@provider_key", cand.ProviderKey);
-                            BindText(insStmt,        "@stream_type",  cand.StreamType);
-                            BindText(insStmt,        "@url",          cand.Url);
-                            BindNullableText(insStmt, "@headers_json", cand.HeadersJson);
-                            BindNullableText(insStmt, "@quality_tier", cand.QualityTier);
-                            BindNullableText(insStmt, "@file_name",    cand.FileName);
-                            BindNullableLong(insStmt, "@file_size",    cand.FileSize);
-                            BindNullableInt(insStmt,  "@bitrate_kbps", cand.BitrateKbps);
-                            insStmt.BindParameters["@is_cached"].Bind(cand.IsCached ? 1 : 0);
-                            BindText(insStmt, "@resolved_at", cand.ResolvedAt);
-                            BindText(insStmt, "@expires_at",  cand.ExpiresAt);
-                            BindText(insStmt, "@status",      cand.Status);
-                            BindNullableText(insStmt, "@info_hash",   cand.InfoHash);
-                            BindNullableInt(insStmt,  "@file_idx",    cand.FileIdx);
-                            BindNullableText(insStmt, "@stream_key",  cand.StreamKey);
-                            BindNullableText(insStmt, "@binge_group", cand.BingeGroup);
-                            BindNullableText(insStmt, "@languages",   cand.Languages);
-                            while (insStmt.MoveNext()) { }
-                        }
-                    }
+                    InsertCandidatesCore(c, candidates);
                 });
             }
             finally
@@ -1489,7 +1434,7 @@ namespace InfiniteDrive.Data
                        quality_tier, file_name, file_size, bitrate_kbps,
                        is_cached, resolved_at, expires_at, status,
                        info_hash, file_idx, stream_key, binge_group,
-                       languages, subtitles_json, probe_json
+                       languages, subtitles_json, probe_json, description
                 FROM stream_candidates
                 WHERE imdb_id = @imdb_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
@@ -3061,7 +3006,8 @@ CREATE TABLE IF NOT EXISTS stream_candidates (
     subtitles_json          TEXT,
     probe_json              TEXT,
     url_resolved_at         TEXT,
-    url_expires_at          TEXT
+    url_expires_at          TEXT,
+    description             TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_key ON stream_candidates(imdb_id, COALESCE(season,-1), COALESCE(episode,-1), rank);
 CREATE INDEX IF NOT EXISTS idx_candidates_item ON stream_candidates(imdb_id, season, episode, rank);
@@ -4201,6 +4147,7 @@ LIMIT 1";
             Languages     = r.IsDBNull(21) ? null : r.GetString(21),
             SubtitlesJson = r.IsDBNull(22) ? null : r.GetString(22),
             ProbeJson     = r.IsDBNull(23) ? null : r.GetString(23),
+            Description   = r.IsDBNull(24) ? null : r.GetString(24),
         };
 
         private static PlaybackEntry ReadPlaybackEntry(IResultSet r) => new PlaybackEntry

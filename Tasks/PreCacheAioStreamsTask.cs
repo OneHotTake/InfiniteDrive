@@ -28,8 +28,7 @@ namespace InfiniteDrive.Tasks
         private const string TaskKey      = "InfiniteDrivePreCacheStreams";
         private const string TaskCategory = "InfiniteDrive";
         private const int MaxVariantsPerItem = 6;
-        private const int BackoffBaseSeconds = 5;
-        private const int BackoffMaxSeconds = 60;
+
 
         private readonly ILogger<PreCacheAioStreamsTask> _logger;
 
@@ -159,7 +158,7 @@ namespace InfiniteDrive.Tasks
                 {
                     rateLimited++;
                     backoffConsecutiveHits++;
-                    var backoffSeconds = ComputeBackoff(backoffConsecutiveHits);
+                    var backoffSeconds = StreamHelpers.ExponentialBackoffSeconds(backoffConsecutiveHits);
                     _logger.LogWarning("[PreCache] AIO rate limit hit — backing off {Seconds}s (consecutive: {Hits}) for {Imdb}",
                         backoffSeconds, backoffConsecutiveHits, item.ImdbId);
                     await Task.Delay(TimeSpan.FromSeconds(backoffSeconds), cancellationToken).ConfigureAwait(false);
@@ -191,77 +190,44 @@ namespace InfiniteDrive.Tasks
             int ttlDays,
             CancellationToken ct)
         {
-            var healthTracker = Plugin.Instance?.ResolverHealthTracker;
+            if (item.MediaType != "movie" && item.MediaType != "series") return null;
 
-            foreach (var provider in providers)
+            var response = await AioStreamsClient.FetchAioStreamsAsync(
+                providers, item.ImdbId, item.MediaType, item.Season, item.Episode,
+                _logger, Plugin.Instance?.ResolverHealthTracker,
+                Plugin.Instance?.CooldownGate, ct).ConfigureAwait(false);
+
+            if (response == null) return null;
+
+            var ranked = StreamHelpers.RankAndFilterStreams(
+                response, item.ImdbId, item.Season, item.Episode,
+                config.ProviderPriorityOrder ?? "",
+                config.CandidatesPerProvider > 0 ? config.CandidatesPerProvider : 5,
+                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
+
+            var scoringService = new StreamScoringService(
+                _logger as ILogger<StreamScoringService>
+                ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<StreamScoringService>.Instance,
+                config);
+            var best = scoringService.SelectBest(ranked);
+            if (best.Count == 0) return null;
+
+            var variants = best.Take(MaxVariantsPerItem).Select(MapToVariant).ToList();
+            var tmdbId = item.TmdbId ?? await cacheService.ResolveTmdbIdAsync(item.ImdbId).ConfigureAwait(false);
+            var primaryKey = cacheService.BuildPrimaryKey(tmdbId, item.ImdbId, item.MediaType, item.Season, item.Episode);
+
+            return new CachedStreamEntry
             {
-                if (healthTracker != null && healthTracker.ShouldSkip(provider.DisplayName))
-                    continue;
-
-                try
-                {
-                    using var client = new AioStreamsClient(
-                        provider.Url, provider.Uuid, provider.Token, _logger);
-                    client.Cooldown = Plugin.Instance?.CooldownGate;
-
-                    AioStreamsStreamResponse? response;
-
-                    if (item.MediaType == "series" && item.Season.HasValue && item.Episode.HasValue)
-                        response = await client.GetSeriesStreamsAsync(
-                            item.ImdbId, item.Season.Value, item.Episode.Value, ct).ConfigureAwait(false);
-                    else if (item.MediaType == "movie")
-                        response = await client.GetMovieStreamsAsync(item.ImdbId, ct).ConfigureAwait(false);
-                    else
-                        continue;
-
-                    if (response?.Streams == null || response.Streams.Count == 0)
-                        continue;
-
-                    if (healthTracker != null) healthTracker.RecordSuccess(provider.DisplayName);
-
-                    // Rank and filter using existing scoring
-                    var ranked = StreamHelpers.RankAndFilterStreams(
-                        response, item.ImdbId, item.Season, item.Episode,
-                        config.ProviderPriorityOrder ?? "",
-                        config.CandidatesPerProvider > 0 ? config.CandidatesPerProvider : 5,
-                        config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
-
-                    // Score and cap to MaxVariantsPerItem
-                    var scoringService = new StreamScoringService(
-                        _logger as ILogger<StreamScoringService>
-                        ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<StreamScoringService>.Instance,
-                        config);
-                    var best = scoringService.SelectBest(ranked);
-
-                    if (best.Count == 0) continue;
-
-                    var variants = best.Take(MaxVariantsPerItem).Select(MapToVariant).ToList();
-
-                    // Build primary key: prefer TMDB, fallback to IMDB
-                    var tmdbId = item.TmdbId ?? await cacheService.ResolveTmdbIdAsync(item.ImdbId).ConfigureAwait(false);
-                    var primaryKey = cacheService.BuildPrimaryKey(tmdbId, item.ImdbId, item.MediaType, item.Season, item.Episode);
-
-                    return new CachedStreamEntry
-                    {
-                        TmdbKey = primaryKey,
-                        ImdbId = item.ImdbId,
-                        MediaType = item.MediaType,
-                        Season = item.Season,
-                        Episode = item.Episode,
-                        VariantsJson = JsonSerializer.Serialize(variants),
-                        CachedAt = DateTime.UtcNow.ToString("o"),
-                        ExpiresAt = DateTime.UtcNow.AddDays(ttlDays).ToString("o"),
-                        Status = "valid",
-                    };
-                }
-                catch (Exception ex)
-                {
-                    if (healthTracker != null) healthTracker.RecordFailure(provider.DisplayName);
-                    _logger.LogDebug(ex, "[PreCache] Provider {Name} failed for {Imdb}", provider.DisplayName, item.ImdbId);
-                }
-            }
-
-            return null;
+                TmdbKey = primaryKey,
+                ImdbId = item.ImdbId,
+                MediaType = item.MediaType,
+                Season = item.Season,
+                Episode = item.Episode,
+                VariantsJson = JsonSerializer.Serialize(variants),
+                CachedAt = DateTime.UtcNow.ToString("o"),
+                ExpiresAt = DateTime.UtcNow.AddDays(ttlDays).ToString("o"),
+                Status = "valid",
+            };
         }
 
         private static StreamVariant MapToVariant(StreamCandidate c)
@@ -301,41 +267,19 @@ namespace InfiniteDrive.Tasks
                 QualityTier = c.QualityTier,
                 SizeBytes = c.FileSize,
                 Bitrate = c.BitrateKbps,
-                VideoCodec = InferCodec(c.FileName),
+                VideoCodec = StreamHelpers.ParseVideoCodec(c.FileName),
                 AudioStreams = audioStreams.Count > 0 ? audioStreams : null,
                 SubtitleStreams = subtitles,
                 ProviderName = c.ProviderKey,
                 StreamType = c.StreamType,
                 SourceName = c.FileName ?? c.StreamKey ?? $"Stream #{c.Rank + 1}",
                 BingeGroup = c.BingeGroup,
+                Description = c.Description,
                 StreamKey = c.StreamKey,
                 Url = c.Url,
                 HeadersJson = c.HeadersJson,
             };
         }
 
-        private static string? InferCodec(string? filename)
-        {
-            if (string.IsNullOrEmpty(filename)) return null;
-            var lower = filename.ToLowerInvariant();
-            if (lower.Contains("x265") || lower.Contains("hevc")) return "hevc";
-            if (lower.Contains("x264") || lower.Contains("h264") || lower.Contains("h.264")) return "h264";
-            if (lower.Contains("av1")) return "av1";
-            if (lower.Contains("xvid")) return "xvid";
-            return null;
-        }
-
-        /// <summary>
-        /// Computes exponential backoff: 5s, 10s, 20s, 40s, 60s (max).
-        /// Adds 0-2s random jitter.
-        /// </summary>
-        private static double ComputeBackoff(int consecutiveHits)
-        {
-            var baseSeconds = Math.Min(
-                BackoffMaxSeconds,
-                BackoffBaseSeconds * (1 << (consecutiveHits - 1))); // 5, 10, 20, 40, 60...
-            var jitter = Random.Shared.NextDouble() * 2.0; // 0-2s jitter
-            return baseSeconds + jitter;
-        }
     }
 }

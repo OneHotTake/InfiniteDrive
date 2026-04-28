@@ -342,6 +342,9 @@ namespace InfiniteDrive.Services
         /// </summary>
         [JsonPropertyName("name")]          public string? Name          { get; set; }
 
+        /// <summary>Rich description from AIOStreams (e.g. "Title · Year · Size · Quality · Audio").</summary>
+        [JsonPropertyName("description")]   public string? Description   { get; set; }
+
         /// <summary>YouTube video ID (for YouTube-sourced streams).</summary>
         [JsonPropertyName("ytId")]          public string? YtId          { get; set; }
 
@@ -771,6 +774,61 @@ namespace InfiniteDrive.Services
             return CheckForErrorStub(result, id);
         }
 
+        // ── Multi-provider fetch loop ─────────────────────────────────────
+
+        /// <summary>
+        /// Iterates providers in order, skipping unhealthy ones, and returns the first
+        /// non-empty <see cref="AioStreamsStreamResponse"/>.  Records health tracking.
+        /// Returns null when no provider yields streams.
+        /// </summary>
+        internal static async Task<AioStreamsStreamResponse?> FetchAioStreamsAsync(
+            IReadOnlyList<ProviderInfo> providers,
+            string imdbId, string mediaType, int? season, int? episode,
+            ILogger logger,
+            ResolverHealthTracker? healthTracker,
+            CooldownGate? cooldown,
+            CancellationToken ct)
+        {
+            foreach (var provider in providers)
+            {
+                if (healthTracker != null && healthTracker.ShouldSkip(provider.DisplayName))
+                {
+                    logger.LogDebug("[InfiniteDrive] Skipping {Name} — circuit open", provider.DisplayName);
+                    continue;
+                }
+
+                try
+                {
+                    using var client = new AioStreamsClient(provider.Url, provider.Uuid, provider.Token, logger);
+                    if (cooldown != null) client.Cooldown = cooldown;
+
+                    AioStreamsStreamResponse? response;
+                    if (mediaType == "series" && season.HasValue && episode.HasValue)
+                        response = await client.GetSeriesStreamsAsync(imdbId, season.Value, episode.Value, ct).ConfigureAwait(false);
+                    else
+                        response = await client.GetMovieStreamsAsync(imdbId, ct).ConfigureAwait(false);
+
+                    if (response?.Streams == null || response.Streams.Count == 0)
+                    {
+                        logger.LogDebug("[InfiniteDrive] No streams from {Name} for {Id}", provider.DisplayName, imdbId);
+                        continue;
+                    }
+
+                    if (healthTracker != null) healthTracker.RecordSuccess(provider.DisplayName);
+                    logger.LogInformation("[InfiniteDrive] Got {Count} streams for {Id} from {Provider}",
+                        response.Streams.Count, imdbId, provider.DisplayName);
+                    return response;
+                }
+                catch (Exception ex)
+                {
+                    if (healthTracker != null) healthTracker.RecordFailure(provider.DisplayName);
+                    logger.LogWarning(ex, "[InfiniteDrive] Provider {Name} failed for {Id}", provider.DisplayName, imdbId);
+                }
+            }
+
+            return null;
+        }
+
         // ── Error stub detection (Sprint 100A-05) ────────────────────────
 
         /// <summary>
@@ -1079,9 +1137,31 @@ namespace InfiniteDrive.Services
             CancellationToken cancellationToken,
             bool throwOnUnreachable = false) where T : class
         {
+            var raw = await GetRawStringAsync(url, cancellationToken, throwOnUnreachable);
+            if (raw == null) return null;
+            try
+            {
+                return JsonSerializer.Deserialize<T>(raw, _jsonOptions);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "[InfiniteDrive] Error deserializing {Url}", SanitizeUrl(url));
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Core HTTP-with-retry primitive used by all three JSON fetch variants.
+        /// Applies 3-attempt exponential backoff (1s/4s/16s).
+        /// When <paramref name="throwOnUnreachable"/> is true, throws
+        /// <see cref="AioStreamsUnreachableException"/> instead of returning null
+        /// after connection failure or timeout exhausts all retries.
+        /// </summary>
+        private async Task<string?> GetRawStringAsync(string url, CancellationToken cancellationToken,
+            bool throwOnUnreachable = false)
+        {
             var safeUrl = SanitizeUrl(url);
-            // Sprint 100A-11: Inline retry with exponential backoff
-            int maxAttempts = 3;
+            const int maxAttempts = 3;
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
@@ -1090,7 +1170,6 @@ namespace InfiniteDrive.Services
                     _logger.LogDebug("[InfiniteDrive] GET {Url} (attempt {Attempt}/{Max})",
                         safeUrl, attempt, maxAttempts);
 
-                    // Pre-call throttle via CooldownGate (Sprint 155)
                     if (Cooldown != null)
                         await Cooldown.WaitAsync(ActiveCooldownKind, cancellationToken);
 
@@ -1099,15 +1178,12 @@ namespace InfiniteDrive.Services
                     if (!response.IsSuccessStatusCode)
                     {
                         var code = (int)response.StatusCode;
-
-                        // Sprint 100A-11: Do NOT retry 401, 403, 404
                         if (code == 401 || code == 403 || code == 404)
                         {
                             _logger.LogDebug("[InfiniteDrive] {Code} from AIOStreams: {Url} — not retrying",
                                 code, safeUrl);
                             return null;
                         }
-
                         if (code == 429)
                         {
                             Cooldown?.Tripped(CooldownGate.ParseRetryAfter(
@@ -1116,56 +1192,38 @@ namespace InfiniteDrive.Services
                                     : null));
                             throw new AioStreamsRateLimitException(safeUrl);
                         }
-                        if (code == 404)
-                            _logger.LogDebug("[InfiniteDrive] 404 from AIOStreams: {Url}", safeUrl);
-                        else
-                            _logger.LogWarning(
-                                "[InfiniteDrive] AIOStreams returned {Status} for {Url}", code, safeUrl);
+                        _logger.LogWarning("[InfiniteDrive] AIOStreams returned {Status} for {Url}", code, safeUrl);
                         return null;
                     }
 
-                    var json = await response.Content.ReadAsStringAsync();
-                    return JsonSerializer.Deserialize<T>(json, _jsonOptions);
+                    return await response.Content.ReadAsStringAsync();
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch (TaskCanceledException ex)
                 {
-                    _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}: {Msg}",
-                        safeUrl, ex.Message);
-
-                    // Sprint 100A-11: Retry on timeout with delays: 1s, 4s, 16s
+                    _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}: {Msg}", safeUrl, ex.Message);
                     if (attempt < maxAttempts)
                     {
                         int delayMs = attempt == 1 ? 1000 : (attempt == 2 ? 4000 : 16000);
-                        _logger.LogWarning(
-                            "[InfiniteDrive] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
+                        _logger.LogWarning("[InfiniteDrive] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
                             safeUrl, delayMs, attempt, maxAttempts);
                         await Task.Delay(delayMs, cancellationToken);
                         continue;
                     }
-
                     if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, null);
                     return null;
                 }
                 catch (HttpRequestException ex)
                 {
-                    _logger.LogWarning("[InfiniteDrive] Connection failed for {Url}: {Msg}",
-                        safeUrl, ex.Message);
-
-                    // Sprint 100A-11: Retry on HttpRequestException
+                    _logger.LogWarning("[InfiniteDrive] Connection failed for {Url}: {Msg}", safeUrl, ex.Message);
                     if (attempt < maxAttempts)
                     {
                         int delayMs = attempt == 1 ? 1000 : (attempt == 2 ? 4000 : 16000);
-                        _logger.LogWarning(
-                            "[InfiniteDrive] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
+                        _logger.LogWarning("[InfiniteDrive] Retrying {Url} in {DelayMs}ms (attempt {Attempt}/{Max})",
                             safeUrl, delayMs, attempt, maxAttempts);
                         await Task.Delay(delayMs, cancellationToken);
                         continue;
                     }
-
                     if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, ex);
                     return null;
                 }
@@ -1184,72 +1242,20 @@ namespace InfiniteDrive.Services
         private async Task<JsonElement?> GetJsonElementAsync(
             string url, CancellationToken cancellationToken)
         {
-            var safeUrl = SanitizeUrl(url);
-            try
-            {
-                _logger.LogDebug("[InfiniteDrive] GET {Url}", safeUrl);
-                var response = await _sharedHttp.GetAsync(url, cancellationToken);
-                if (!response.IsSuccessStatusCode)
-                {
-                    var code = (int)response.StatusCode;
-                    if (code == 429) throw new AioStreamsRateLimitException(safeUrl);
-                    _logger.LogDebug("[InfiniteDrive] {Status} from AIOStreams: {Url}", code, safeUrl);
-                    return null;
-                }
-
-                var json = await response.Content.ReadAsStringAsync();
-                using var doc = JsonDocument.Parse(json);
-                return doc.RootElement.Clone();
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}", safeUrl);
-                return null;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[InfiniteDrive] Error fetching {Url}", safeUrl);
-                return null;
-            }
+            var raw = await GetRawStringAsync(url, cancellationToken);
+            if (raw == null) return null;
+            using var doc = JsonDocument.Parse(raw);
+            return doc.RootElement.Clone();
         }
 
         /// <summary>
-        /// Fetches raw JSON string from a URL.
-        /// Sprint 101A-02: Used for typed metadata deserialization.
+        /// Fetches raw JSON string from a URL with full retry logic.
         /// Returns null on error.
         /// </summary>
         private async Task<string?> GetJsonAsync(
             string url,
             CancellationToken cancellationToken)
-        {
-            var safeUrl = SanitizeUrl(url);
-            try
-            {
-                _logger.LogDebug("[InfiniteDrive] GET {Url}", safeUrl);
-                var response = await _sharedHttp.GetAsync(url, cancellationToken);
-                if (!response.IsSuccessStatusCode)
-                {
-                    var code = (int)response.StatusCode;
-                    if (code == 429) throw new AioStreamsRateLimitException(safeUrl);
-                    _logger.LogDebug("[InfiniteDrive] {Status} from AIOStreams: {Url}", code, safeUrl);
-                    return null;
-                }
-
-                return await response.Content.ReadAsStringAsync();
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-            catch (TaskCanceledException)
-            {
-                _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}", safeUrl);
-                return null;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[InfiniteDrive] Error fetching {Url}", safeUrl);
-                return null;
-            }
-        }
+            => await GetRawStringAsync(url, cancellationToken);
 
         private static string BuildStremioBase(string baseUrl, string? uuid, string? token)
         {
