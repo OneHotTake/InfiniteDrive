@@ -25,12 +25,15 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Setup → Catalogs & Lists → Libraries → Playback → Health → Advanced
+            // Tab order: Setup → Catalogs & Lists → Content Controls → Libraries → Playback → Health → Advanced
             _tabs.Add(new TabPageController(pid, "Setup", "Setup", () =>
                 new SetupTabView(pid, LoadSetup())));
 
             _tabs.Add(new TabPageController(pid, "CatalogsAndLists", "Catalogs & Lists", () =>
                 new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
+
+            _tabs.Add(new TabPageController(pid, "ContentControls", "Content Controls", () =>
+                new ContentControlsTabView(pid, LoadContentControls())));
 
             _tabs.Add(new TabPageController(pid, "Libraries", "Libraries", () =>
                 new LibrariesTabView(pid, LoadLibraries())));
@@ -112,6 +115,16 @@ namespace InfiniteDrive.UI.Settings
                 TraktClientId = c.TraktClientId ?? string.Empty,
                 TmdbApiKey = c.TmdbApiKey ?? string.Empty,
                 MaxListsPerUser = c.MaxListsPerUser,
+            };
+        }
+
+        private static ContentControlsUI LoadContentControls()
+        {
+            var c = Plugin.Instance.Configuration;
+            return new ContentControlsUI
+            {
+                DefaultQualityTier = c.DefaultQualityTier ?? "1080p (any)",
+                HideUnratedContent = c.HideUnratedContent,
             };
         }
 

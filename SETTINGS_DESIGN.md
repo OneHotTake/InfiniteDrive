@@ -15,6 +15,44 @@
 
 *(Full detailed spec of every field, section, help text, defaults, and UI controls will be added in Sprint 503–507. This file will be updated at the end of those sprints.)*
 
+## Tab 3: Content Controls — Detailed Layout (Sprint 505)
+
+### Section 1: Quality & Resolution Preferences
+
+**Preferred Quality Tiers** (PreferredQualityTiers)
+- Multi-select checkboxes — exactly these 8 items, all checked by default:
+  - 4K REMUX / HDR / Atmos
+  - 4K 5.1 / DTS
+  - 4K (any)
+  - 1080p Atmos / TrueHD
+  - 1080p 5.1
+  - 1080p (any)
+  - 720p
+  - SD / Unknown / Low-bandwidth
+
+**Default Quality Tier** (DefaultQualityTier)
+- Single dropdown (required). Default value: "1080p (any)"
+
+### Section 2: Parental Controls (Discover-only)
+
+**Hide unrated content** (HideUnratedContent) — yes/no checkbox
+- Help text: "Only affects InfiniteDrive Discover / search / browse results. Emby native library restrictions still apply for persisted items."
+
+### Section 3: Blocked Content Management
+
+Dynamic table using GenericItemList:
+- **Columns:** Title | ID (TMDB/IMDB) | Reason | Blocked By | Blocked Since | Unblock
+- **Add to Block List** button (opens a simple search modal: title or ID)
+
+### Footer (on every tab)
+- Small gray text in bottom-right corner:
+  *Don't Panic* — Marvin is on the case.
+  (Click → tooltip: "42 is the answer, but we batch at 42 anyway.")
+
+### Required Behavior
+- After any save on this tab → MarvinTask.TriggerFullRun() fires automatically.
+- Virtual item providers (CatalogDiscoverService, GetMediaItems, etc.) filter using HideUnratedContent and the blocked list (implemented in Sprint 502).
+
 ## Tab 1: Setup — Detailed Layout (Sprint 503)
 
 ### Status Banner

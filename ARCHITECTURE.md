@@ -29,3 +29,4 @@ See MARVIN_STATE_MACHINE.md for full details.
 - Consolidates existing CatalogsUI.cs + new admin list management
 - Uses GenericItemList pattern for dynamic tables
 - Marvin-on-save hook triggers full Marvin run after any save (Sprint 502)
+- **Tab 3: Content Controls** (Sprint 505) — quality tiers, Discover-only parental controls, and blocked content management
