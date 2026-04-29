@@ -202,16 +202,6 @@ namespace InfiniteDrive
         public int SignatureValidityDays { get; set; } = 365;
 
         /// <summary>
-        /// When <c>true</c>, <c>type: "anime"</c> items from AIOStreams are routed
-        /// to a dedicated anime library.  When <c>false</c> (default), anime items
-        /// are filtered out entirely during catalog sync.
-        ///
-        /// Requires the Emby Anime Plugin to be installed.
-        /// </summary>
-        [DataMember]
-        public bool EnableAnimeLibrary { get; set; } = true;
-
-        /// <summary>
         /// Absolute path where anime .strm files are written.
         /// InfiniteDrive creates a Series library at this path when anime is enabled.
         /// Default: <c>/media/infinitedrive/anime</c>
@@ -250,7 +240,6 @@ namespace InfiniteDrive
 
         /// <summary>
         /// Default number of seasons to write when series metadata is unavailable.
-        /// Used by SeriesPreExpansionService when Stremio metadata returns 404.
         /// Default: 1.
         /// </summary>
         [DataMember]
@@ -258,29 +247,10 @@ namespace InfiniteDrive
 
         /// <summary>
         /// Default number of episodes per season to write when series metadata is unavailable.
-        /// Used by SeriesPreExpansionService when Stremio metadata returns 404.
         /// Default: 10.
         /// </summary>
         [DataMember]
         public int DefaultSeriesEpisodesPerSeason { get; set; } = 10;
-
-        /// <summary>
-        /// When <c>true</c> (default), InfiniteDrive writes a minimal Kodi-format
-        /// <c>.nfo</c> file alongside every <c>.strm</c> file it creates.
-        ///
-        /// The <c>.nfo</c> contains only IMDB and TMDB <c>&lt;uniqueid&gt;</c> tags —
-        /// no plot, poster, or cast data.  Emby reads these IDs to match the item
-        /// against its internal scraper rather than relying solely on the filename.
-        ///
-        /// This improves metadata lookup reliability (especially for movies whose
-        /// titles differ between Cinemeta and Emby's TMDB scraper) and eliminates
-        /// the need for exact filename formatting.
-        ///
-        /// Disable only if another tool manages your <c>.nfo</c> files and you do
-        /// not want InfiniteDrive to overwrite them.
-        /// </summary>
-        [DataMember]
-        public bool EnableNfoHints { get; set; } = true;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  CACHE & RESOLUTION                                                  ║
@@ -422,17 +392,6 @@ namespace InfiniteDrive
         /// <summary>Days before a pre-cached entry expires and needs re-resolution. Default: 14.</summary>
         [DataMember]
         public int PreCacheTTLDays { get; set; } = 14;
-
-        /// <summary>
-        /// Whether to proactively populate stream_candidates for items that have none.
-        /// Runs automatically after catalog sync completes. Default: true.
-        /// </summary>
-        [DataMember]
-        public bool EnableStreamPrefetch { get; set; } = true;
-
-        /// <summary>Milliseconds to pause between items during stream prefetch. Default: 2000.</summary>
-        [DataMember]
-        public int PrefetchBatchDelayMs { get; set; } = 2000;
 
         /// <summary>In-memory source list TTL in minutes. Default: 360 (6h).</summary>
         [DataMember]
@@ -794,6 +753,114 @@ namespace InfiniteDrive
         public int UserCatalogLimit { get; set; } = 5;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  SETUP TAB (Sprint 502)                                               ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>Display name for the Movies library created by the plugin. Default: "InfiniteDrive Movies".</summary>
+        [DataMember]
+        public string MoviesLibraryName { get; set; } = "InfiniteDrive Movies";
+
+        /// <summary>Filesystem path for the Movies library. Set during first-run setup.</summary>
+        [DataMember]
+        public string MoviesLibraryPath { get; set; } = "";
+
+        /// <summary>Display name for the Series library created by the plugin. Default: "InfiniteDrive Series".</summary>
+        [DataMember]
+        public string SeriesLibraryName { get; set; } = "InfiniteDrive Series";
+
+        /// <summary>Filesystem path for the Series library. Set during first-run setup.</summary>
+        [DataMember]
+        public string SeriesLibraryPath { get; set; } = "";
+
+        /// <summary>Display name for the Anime library created by the plugin. Default: "InfiniteDrive Anime".</summary>
+        [DataMember]
+        public string AnimeLibraryName { get; set; } = "InfiniteDrive Anime";
+
+        /// <summary>Filesystem path for the Anime library. Set during first-run setup.</summary>
+        [DataMember]
+        public string AnimeLibraryPath { get; set; } = "";
+
+        /// <summary>Country code for certification lookup (e.g., "US", "GB"). Default: "US".</summary>
+        [DataMember]
+        public string CertificationCountry { get; set; } = "US";
+
+        /// <summary>Preferred subtitle language for Emby libraries. Default: "en".</summary>
+        [DataMember]
+        public string DefaultSubtitleLanguage { get; set; } = "en";
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  CONTENT CONTROLS TAB (Sprint 502)                                   ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// Ordered list of quality tier labels shown in the Playback tab.
+        /// Marvin picks the highest matching tier when resolving streams.
+        /// </summary>
+        [DataMember]
+        public List<string> PreferredQualityTiers { get; set; } = new()
+        {
+            "4K REMUX / HDR / Atmos",
+            "4K 5.1 / DTS",
+            "4K (any)",
+            "1080p Atmos / TrueHD",
+            "1080p 5.1",
+            "1080p (any)",
+            "720p",
+            "SD / Unknown / Low-bandwidth"
+        };
+
+        /// <summary>Default quality tier selected when no user preference is set. Default: "1080p (any)".</summary>
+        [DataMember]
+        public string DefaultQualityTier { get; set; } = "1080p (any)";
+
+        /// <summary>
+        /// When true, catalog items without a known rating are hidden from all users (admin-level global toggle).
+        /// Default: false.
+        /// </summary>
+        [DataMember]
+        public bool HideUnratedContent { get; set; } = false;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  CATALOGS & LISTS TAB (Sprint 502)                                   ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>Maximum number of external lists a non-admin user may create. Default: 10.</summary>
+        [DataMember]
+        public int MaxListsPerUser { get; set; } = 10;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  SYNC & MARVIN TAB (Sprint 502)                                      ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>How often Marvin's main loop fires, in minutes. Default: 10.</summary>
+        [DataMember]
+        public int MarvinProcessIntervalMinutes { get; set; } = 10;
+
+        /// <summary>Number of items Marvin resolves per batch during stream resolution. Default: 42.</summary>
+        [DataMember]
+        public int StreamResolutionBatchSize { get; set; } = 42;
+
+        /// <summary>Maximum AIOStreams API calls Marvin is allowed to make per hour. Default: 360.</summary>
+        [DataMember]
+        public int MarvinActionsPerHour { get; set; } = 360;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  ADVANCED TAB (Sprint 502)                                           ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>Minimum log verbosity level for InfiniteDrive. Default: "Info".</summary>
+        [DataMember]
+        public string PluginLogLevel { get; set; } = "Info";
+
+        /// <summary>
+        /// Days before a cached stream entry is refreshed by Marvin.
+        /// In AIOStreams proxy mode, cached URLs have effectively infinite life.
+        /// Default: 30.
+        /// </summary>
+        [DataMember]
+        public int CacheRefreshIntervalDays { get; set; } = 30;
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  INSTANCE TYPE DETECTION                                             ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
@@ -882,7 +949,6 @@ namespace InfiniteDrive
             PreCacheBatchSize          = Clamp(PreCacheBatchSize,         1,     500);
             PreCacheIntervalHours      = Clamp(PreCacheIntervalHours,     1,     48);
             PreCacheTTLDays            = Clamp(PreCacheTTLDays,           1,     90);
-            PrefetchBatchDelayMs       = Clamp(PrefetchBatchDelayMs,      500,   30_000);
             InMemoryCacheTtlMinutes    = Clamp(InMemoryCacheTtlMinutes,   10,    1_440);
             SyncResolveTimeoutSeconds = Clamp(SyncResolveTimeoutSeconds, 5,     300);
             NextUpLookaheadEpisodes   = Clamp(NextUpLookaheadEpisodes,   0,     10);
@@ -895,6 +961,13 @@ namespace InfiniteDrive
             SkipFutureEpisodes          = SkipFutureEpisodes;
             FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);
             UserCatalogLimit          = Clamp(UserCatalogLimit, 0, 50);
+
+            // Sprint 502 additions
+            if (MarvinProcessIntervalMinutes < 1) MarvinProcessIntervalMinutes = 10;
+            if (StreamResolutionBatchSize < 1) StreamResolutionBatchSize = 42;
+            if (MarvinActionsPerHour < 1) MarvinActionsPerHour = 360;
+            if (CacheRefreshIntervalDays < 1) CacheRefreshIntervalDays = 30;
+            if (MaxListsPerUser < 0) MaxListsPerUser = 10;
 
             // Derive UseRequiresOpening from DirectPlayEnabled
             UseRequiresOpening = !DirectPlayEnabled;

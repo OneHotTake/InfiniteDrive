@@ -18,14 +18,40 @@ namespace InfiniteDrive.UI.Settings
         public ProvidersTabView(string pluginId, ProvidersUI ui) : base(pluginId)
         {
             ContentData = ui;
+
+            // Smart initial status — reflect whether URLs are actually configured
+            if (!string.IsNullOrWhiteSpace(ui.PrimaryManifestUrl))
+            {
+                ui.PrimaryStatus.StatusText = "Not tested";
+                ui.PrimaryStatus.Status = ItemStatus.None;
+            }
+            if (!string.IsNullOrWhiteSpace(ui.SecondaryManifestUrl))
+            {
+                ui.SecondaryStatus.StatusText = "Not tested";
+                ui.SecondaryStatus.Status = ItemStatus.None;
+            }
+            else
+            {
+                ui.SecondaryStatus.StatusText = "Not configured";
+                ui.SecondaryStatus.Status = ItemStatus.Unavailable;
+            }
         }
 
         private ProvidersUI UI => (ProvidersUI)ContentData;
 
+        public override bool IsCommandAllowed(string commandKey)
+        {
+            return true;
+        }
+
         public override async Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
         {
-            var effectiveCommand = data?.Split(':')[0] ?? commandId;
-            switch (effectiveCommand)
+            // The framework may pass the button Data1 via commandId OR data
+            var cmd = commandId;
+            if (string.IsNullOrEmpty(cmd) && !string.IsNullOrEmpty(data))
+                cmd = data.Split(':')[0];
+
+            switch (cmd)
             {
                 case ProvidersUI.TestPrimaryCommand:
                     await TestConnectionAsync(UI.PrimaryManifestUrl, UI, isPrimary: true);
@@ -95,6 +121,7 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             SettingsController.SaveProviders(UI, cfg);
             Plugin.Instance.SaveConfiguration();
+            Plugin.Instance.TriggerBackgroundSync();
             return base.OnSaveCommand(itemId, commandId, data);
         }
     }

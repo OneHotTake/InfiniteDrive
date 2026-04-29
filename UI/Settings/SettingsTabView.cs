@@ -28,6 +28,7 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             _saver(UI, cfg);
             Plugin.Instance.SaveConfiguration();
+            Plugin.Instance.TriggerBackgroundSync();
             return base.OnSaveCommand(itemId, commandId, data);
         }
     }

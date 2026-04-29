@@ -1,5 +1,5 @@
-define(['baseView', 'loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea', 'emby-scroller'],
-function (BaseView, loading) {
+define(['loading', 'emby-input', 'emby-select', 'emby-checkbox', 'emby-button', 'emby-textarea', 'emby-scroller'],
+function (loading) {
     'use strict';
 
     var pluginId = '3c45a87e-2b4f-4d1a-9e73-8f12c3456789';
@@ -3982,22 +3982,18 @@ function (BaseView, loading) {
             });
     }
 
-    // ── Module export — BaseView pattern (required for is="emby-scroller") ──
-    function View(view, params) {
-        BaseView.apply(this, arguments);
+    // ── Module export ──────────────────────────────────────────────────────────
+    // Emby pages are position:absolute stacked. Restored views reuse their original
+    // DOM position, so later-appended pages paint on top. Fix: move view to end of
+    // parent on viewshow so it is always topmost regardless of navigation history.
+    return function (view) {
         try { initView(view); } catch(e) { console.error('initView error:', e); }
-    }
-
-    Object.assign(View.prototype, BaseView.prototype);
-
-    View.prototype.onResume = function (options) {
-        BaseView.prototype.onResume.apply(this, arguments);
-        try { loadConfig(this.view); } catch(e) { console.error('loadConfig error:', e); }
+        view.addEventListener('viewshow', function () {
+            if (view.parentNode) { view.parentNode.appendChild(view); }
+            try { loadConfig(view); } catch(e) { console.error('loadConfig error:', e); }
+        });
+        view.addEventListener('viewhide', function () {
+            try { cleanup(); } catch(e) { console.error('cleanup error:', e); }
+        });
     };
-
-    View.prototype.onPause = function () {
-        try { cleanup(); } catch(e) { console.error('cleanup error:', e); }
-    };
-
-    return View;
 });

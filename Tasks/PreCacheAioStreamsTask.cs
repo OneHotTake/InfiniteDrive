@@ -9,7 +9,6 @@ using InfiniteDrive.Models;
 using InfiniteDrive.Services;
 using InfiniteDrive.Services.Scoring;
 using MediaBrowser.Model.Logging;
-using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace InfiniteDrive.Tasks
@@ -22,11 +21,8 @@ namespace InfiniteDrive.Tasks
     ///
     /// Default schedule: interval based on <see cref="PluginConfiguration.PreCacheIntervalHours"/>.
     /// </summary>
-    public class PreCacheAioStreamsTask : IScheduledTask
+    internal class PreCacheAioStreamsTask
     {
-        private const string TaskName     = "InfiniteDrive Stream Pre-Cache";
-        private const string TaskKey      = "InfiniteDrivePreCacheStreams";
-        private const string TaskCategory = "InfiniteDrive";
         private const int MaxVariantsPerItem = 6;
 
 
@@ -35,26 +31,6 @@ namespace InfiniteDrive.Tasks
         public PreCacheAioStreamsTask(ILogManager logManager)
         {
             _logger = new EmbyLoggerAdapter<PreCacheAioStreamsTask>(logManager.GetLogger("InfiniteDrive"));
-        }
-
-        public string Name => TaskName;
-        public string Key => TaskKey;
-        public string Description => "Pre-resolves stream metadata for library items so the version picker appears instantly.";
-        public string Category => TaskCategory;
-
-        public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-        {
-            var config = Plugin.Instance?.Configuration;
-            var hours = config?.PreCacheIntervalHours ?? 6;
-
-            return new[]
-            {
-                new TaskTriggerInfo
-                {
-                    Type          = TaskTriggerInfo.TriggerInterval,
-                    IntervalTicks = TimeSpan.FromHours(hours).Ticks,
-                }
-            };
         }
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)

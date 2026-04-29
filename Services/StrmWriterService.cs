@@ -166,8 +166,7 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Writes a .strm file to a caller-specified path.
-        /// For use by SeriesPreExpansionService and EpisodeExpandTask which construct
-        /// their own paths. Idempotent — no-op if file already exists.
+        /// Idempotent — no-op if file already exists.
         /// </summary>
         public Task WriteStrmWithVersionsAsync(
             string filePath, string imdbId, int season, int episode,

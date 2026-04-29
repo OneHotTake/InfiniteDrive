@@ -28,6 +28,11 @@ namespace InfiniteDrive.UI.Settings
 
         private HealthUI UI => (HealthUI)ContentData;
 
+        public override bool IsCommandAllowed(string commandKey)
+        {
+            return true;
+        }
+
         // ── Load ────────────────────────────────────────────────────────────
 
         private async Task LoadHealthAsync(HealthUI ui)
@@ -95,8 +100,11 @@ namespace InfiniteDrive.UI.Settings
 
         public override async Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
         {
-            var effectiveCommand = data?.Split(':')[0] ?? commandId;
-            switch (effectiveCommand)
+            var cmd = commandId;
+            if (string.IsNullOrEmpty(cmd) && !string.IsNullOrEmpty(data))
+                cmd = data.Split(':')[0];
+
+            switch (cmd)
             {
                 case HealthUI.SummonMarvinCommand:
                     await TriggerViaApiAsync("marvin", UI.MarvinStatus, "Marvin summoned");
@@ -114,7 +122,7 @@ namespace InfiniteDrive.UI.Settings
             return await base.RunCommand(itemId, commandId, data);
         }
 
-        private async Task TriggerViaApiAsync(string taskKey, StatusItem status, string successMsg)
+        private Task TriggerViaApiAsync(string taskKey, StatusItem status, string successMsg)
         {
             status.StatusText = "Triggering...";
             status.Status = ItemStatus.InProgress;
@@ -122,24 +130,68 @@ namespace InfiniteDrive.UI.Settings
 
             try
             {
-                var cfg = Plugin.Instance.Configuration;
-                var baseUrl = cfg.EmbyBaseUrl.TrimEnd('/');
-                var url = $"{baseUrl}/emby/InfiniteDrive/Trigger?task={taskKey}";
+                var plugin = Plugin.Instance;
+                var logMgr = plugin.LogManager;
+                var libMgr = plugin.LibraryManager;
 
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-                var resp = await http.PostAsync(url, new StringContent("{}")).ConfigureAwait(false);
+                switch (taskKey)
+                {
+                    case "marvin":
+                        if (libMgr == null) throw new InvalidOperationException("LibraryManager not available");
+                        _ = System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var marvin = new Tasks.MarvinTask(logMgr, libMgr);
+                                await marvin.Execute(CancellationToken.None, new Progress<double>()).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                plugin.Logger.LogWarning(ex, "[HealthUI] Marvin failed");
+                            }
+                        });
+                        break;
 
-                if (resp.IsSuccessStatusCode)
-                {
-                    status.StatusText = successMsg;
-                    status.Status = ItemStatus.Succeeded;
+                    case "catalog_sync":
+                        if (libMgr == null) throw new InvalidOperationException("LibraryManager not available");
+                        _ = System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var marvin = new Tasks.MarvinTask(logMgr, libMgr);
+                                await marvin.Execute(CancellationToken.None, new Progress<double>()).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                plugin.Logger.LogWarning(ex, "[HealthUI] Catalog sync failed");
+                            }
+                        });
+                        break;
+
+                    case "precache":
+                        var precacheConfig = plugin.Configuration;
+                        if (precacheConfig == null || !precacheConfig.EnablePreCache)
+                            throw new InvalidOperationException("Pre-cache is disabled");
+                        _ = System.Threading.Tasks.Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var task = new Tasks.PreCacheAioStreamsTask(logMgr);
+                                await task.Execute(CancellationToken.None, new Progress<double>()).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                plugin.Logger.LogWarning(ex, "[HealthUI] Pre-cache failed");
+                            }
+                        });
+                        break;
+
+                    default:
+                        throw new InvalidOperationException($"Unknown task: {taskKey}");
                 }
-                else
-                {
-                    var body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    status.StatusText = $"Failed ({resp.StatusCode}): {body}";
-                    status.Status = ItemStatus.Failed;
-                }
+
+                status.StatusText = successMsg;
+                status.Status = ItemStatus.Succeeded;
             }
             catch (Exception ex)
             {
@@ -155,6 +207,8 @@ namespace InfiniteDrive.UI.Settings
                 await Task.Delay(3000).ConfigureAwait(false);
                 await LoadHealthAsync(UI).ConfigureAwait(false);
             });
+
+            return Task.CompletedTask;
         }
     }
 }

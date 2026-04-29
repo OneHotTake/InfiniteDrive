@@ -819,8 +819,6 @@ namespace InfiniteDrive.Data
         /// <summary>
         /// Returns all active series catalog items that have no episode data yet
         /// (<c>seasons_json</c> is NULL or empty).
-        /// Used by <see cref="Tasks.EpisodeExpandTask"/> to find series that still
-        /// need their full episode list written.
         /// </summary>
         public async Task<List<CatalogItem>> GetSeriesWithoutSeasonsJsonAsync()
         {
@@ -835,8 +833,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Returns all <c>media_items</c> rows for series that have been indexed by Emby
-        /// (emby_item_id is set) and have a strm_path. Used by SeriesGapDetector
-        /// as the bounded input set for gap scanning.
+        /// (emby_item_id is set) and have a strm_path.
         /// </summary>
         public async Task<List<MediaItem>> GetIndexedSeriesAsync(CancellationToken ct = default)
         {
@@ -858,7 +855,6 @@ namespace InfiniteDrive.Data
         /// <summary>
         /// Returns series catalog items where <c>seasons_json</c> contains gap data
         /// (at least one season with <c>missingEpisodeNumbers</c>).
-        /// Used by <see cref="Services.SeriesGapRepairService"/> to find repair candidates.
         /// </summary>
         public async Task<List<CatalogItem>> GetSeriesWithGapsAsync(int limit, CancellationToken ct = default)
         {
@@ -880,7 +876,6 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Updates the <c>seasons_json</c> column for a catalog item.
-        /// Called by <see cref="Tasks.EpisodeExpandTask"/> after writing episode .strm files.
         /// </summary>
         public async Task UpdateSeasonsJsonAsync(string imdbId, string source, string seasonsJson, CancellationToken cancellationToken = default)
         {
@@ -3390,11 +3385,11 @@ CREATE INDEX IF NOT EXISTS idx_cs_item ON cached_streams(item_id) WHERE item_id 
         {
             var slots = new (string Key, string Label, string Resolution, string VideoCodecs, string HdrClasses, string AudioPreferences, int Enabled, int IsDefault, int SortOrder)[]
             {
-                ("hd_broad",       "HD · Broad",       "1080p", "h264", "",    "dd_plus_51,dd_51,aac_stereo",        1, 1, 0),
-                ("best_available", "Best Available",    "highest", "any", "any", "atmos,dd_plus_71,dd_plus_51,dd_51", 0, 0, 1),
-                ("4k_dv",          "4K · Dolby Vision", "2160p", "hevc,av1", "dv",   "atmos,dd_plus_71,dd_plus_51",     0, 0, 2),
-                ("4k_hdr",         "4K · HDR",          "2160p", "hevc,av1", "hdr10","atmos,dd_plus_51,dd_51",          0, 0, 3),
-                ("4k_sdr",         "4K · SDR",          "2160p", "hevc,av1", "",    "dd_plus_51,dd_51,aac",             0, 0, 4),
+                ("best_available", "Best Available",    "highest", "any", "any", "atmos,dd_plus_71,dd_plus_51,dd_51", 1, 1, 0),
+                ("4k_dv",          "4K · Dolby Vision", "2160p", "hevc,av1", "dv",   "atmos,dd_plus_71,dd_plus_51",     0, 0, 1),
+                ("4k_hdr",         "4K · HDR",          "2160p", "hevc,av1", "hdr10","atmos,dd_plus_51,dd_51",          0, 0, 2),
+                ("4k_sdr",         "4K · SDR",          "2160p", "hevc,av1", "",    "dd_plus_51,dd_51,aac",             0, 0, 3),
+                ("hd_broad",       "HD · Broad",        "1080p", "h264", "",       "dd_plus_51,dd_51,aac_stereo",      0, 0, 4),
                 ("hd_efficient",   "HD · Efficient",    "1080p", "hevc",     "",    "dd_plus_51,aac_stereo",            0, 0, 5),
                 ("compact",        "Compact",           "720p",  "h264",     "",    "aac,dd",                           0, 0, 6),
             };

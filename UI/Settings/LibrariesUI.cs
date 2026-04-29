@@ -66,5 +66,22 @@ namespace InfiniteDrive.UI.Settings
             "Use the external/reachable URL — NOT localhost or 127.0.0.1. " +
             "Example: http://192.168.1.100:8096 or https://emby.mydomain.com")]
         public string EmbyBaseUrl { get; set; } = "http://192.168.1.100:8096";
+
+        // ── Language & Ratings ────────────────────────────────────────────────
+
+        public SpacerItem Spacer4 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionLanguage { get; set; } = new CaptionItem("Language & Ratings");
+
+        [DisplayName("Metadata Language")]
+        [Description("Language code for titles and overviews. Libraries use this for metadata downloads. Default: en.")]
+        public string MetadataLanguage { get; set; } = "en";
+
+        [DisplayName("Certification Country")]
+        [Description("Country code for content ratings (US, GB, etc). Default: US.")]
+        public string MetadataCertificationCountry { get; set; } = "US";
+
+        [DisplayName("Subtitle Languages")]
+        [Description("Preferred subtitle languages, comma-separated. Default: en.")]
+        public string SubtitleDownloadLanguages { get; set; } = "en";
     }
 }

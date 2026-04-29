@@ -12,7 +12,6 @@ using InfiniteDrive.Models;
 using InfiniteDrive.Services;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Logging;
-using MediaBrowser.Model.Tasks;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 using Microsoft.Extensions.Logging;
 
@@ -25,14 +24,10 @@ namespace InfiniteDrive.Tasks
     ///
     /// Runs on a 6-minute cycle, processing only incremental changes since the last run.
     /// </summary>
-    [Obsolete("MarvinTask now orchestrates the full pipeline. Kept for backward-compat IScheduledTask registration.")]
-    public class RefreshTask : IScheduledTask
+    internal class RefreshTask
     {
         // ── Constants ────────────────────────────────────────────────────────────
 
-        private const string TaskName     = "InfiniteDrive Refresh Worker";
-        private const string TaskKey      = "InfiniteDriveRefresh";
-        private const string TaskCategory = "InfiniteDrive";
         private const int NotifyLimit = 50;
 
         // ── Fields ───────────────────────────────────────────────────────────────
@@ -40,7 +35,6 @@ namespace InfiniteDrive.Tasks
         private readonly ILogger<RefreshTask>           _logger;
         private readonly ILibraryManager               _libraryManager;
         private readonly VersionMaterializer?           _materializer;
-        private SeriesPreExpansionService?              _expansionService;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
 
@@ -54,72 +48,6 @@ namespace InfiniteDrive.Tasks
             _libraryManager = libraryManager;
             _materializer   = new VersionMaterializer(_logger);
 
-            // SeriesPreExpansionService — created lazily when config is available
-            _expansionService = null; // initialized on first use via EnsureExpansionService()
-        }
-
-        // ── IScheduledTask ───────────────────────────────────────────────────────
-
-        /// <inheritdoc/>
-        public string Name => TaskName;
-
-        /// <inheritdoc/>
-        public string Key => TaskKey;
-
-        /// <inheritdoc/>
-        public string Description =>
-            "Incremental library worker that Collects new/changed items, Writes .strm files, and Creates Identity Hint NFOs.";
-
-        /// <inheritdoc/>
-        public string Category => TaskCategory;
-
-        /// <inheritdoc/>
-        public IEnumerable<TaskTriggerInfo> GetDefaultTriggers() =>
-            new[]
-            {
-                new TaskTriggerInfo
-                {
-                    Type          = TaskTriggerInfo.TriggerInterval,
-                    IntervalTicks = TimeSpan.FromMinutes(6).Ticks,
-                }
-            };
-
-        /// <inheritdoc/>
-        public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
-        {
-            // Concurrency guard — skip if another instance is already running
-            if (!_runningGate.Wait(0))
-            {
-                _logger.LogInformation("[InfiniteDrive] RefreshTask already running, skipping");
-                return;
-            }
-
-            try
-            {
-                // Acquire global sync lock to prevent conflicts with other sync operations
-                await Plugin.SyncLock.WaitAsync(cancellationToken);
-                try
-                {
-                    await ExecuteInternalAsync(cancellationToken, progress);
-                }
-                finally
-                {
-                    Plugin.SyncLock.Release();
-                }
-            }
-            finally
-            {
-                _runningGate.Release();
-            }
-        }
-
-        // ── Internal execution ─────────────────────────────────────────────────
-
-        private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
-        {
-            // Backward compat: run both halves in sequence (Marvin calls them individually)
-            var writtenItems = await RunPopulateAsync(cancellationToken, progress);
-            await RunResolveAsync(cancellationToken, progress, writtenItems);
         }
 
         /// <summary>
@@ -505,57 +433,15 @@ namespace InfiniteDrive.Tasks
                                 continue;
                             }
                         }
-                        // Fall through to SeriesPreExpansionService if VideosJson write fails
+                        // Fall through to single-strm write if VideosJson write fails
                     }
                 }
 
                 if (isSeries)
                 {
-                    // Fallback: SeriesPreExpansionService (fetches from Stremio)
-                    var expansion = EnsureExpansionService();
-                    if (expansion != null)
-                    {
-                        _logger.LogInformation(
-                            "[InfiniteDrive] Expanding series via Stremio: {ImdbId} ({Title})",
-                            item.ImdbId, item.Title);
-
-                        var expanded = await expansion.ExpandSeriesFromMetadataAsync(item, config, cancellationToken);
-
-                        // Sprint 301: Only mark series as expanded if expansion succeeded
-                        // Series won't be promoted to Visible until all episodes are written
-                        if (expanded)
-                        {
-                            item.EpisodesExpanded = true;
-                            item.ItemState = ItemState.Written;
-                            _logger.LogInformation(
-                                "[InfiniteDrive] Series expansion succeeded for {ImdbId} ({Title}) - all episodes written",
-                                item.ImdbId, item.Title);
-                        }
-                        else
-                        {
-                            item.EpisodesExpanded = false;
-                            item.ItemState = ItemState.Queued; // Keep in Queued to retry later
-                            _logger.LogWarning(
-                                "[InfiniteDrive] Series expansion failed for {ImdbId} ({Title}) - will retry",
-                                item.ImdbId, item.Title);
-                        }
-
-                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
-
-                        // Set StrmPath to the series folder for downstream hint step
-                        item.StrmPath = Path.Combine(basePath, folderName);
-                        item.LocalPath = item.StrmPath;
-                        item.LocalSource = "strm";
-
-                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-                        written++;
-                        continue;
-                    }
-
-                    // Expansion service unavailable — fall through to single-strm write
-                    _logger.LogWarning(
-                        "[InfiniteDrive] SeriesPreExpansionService unavailable for {ImdbId}, writing single .strm",
-                        item.ImdbId);
+                    _logger.LogDebug(
+                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no VideosJson, writing single .strm fallback",
+                        item.ImdbId, item.Title);
                 }
 
                 // ── Movies (or series fallback): write single .strm per slot ─────
@@ -630,8 +516,7 @@ namespace InfiniteDrive.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Skip hint for series/anime items — SeriesPreExpansionService already
-                // handled during WriteStepAsync
+                // Skip hint for series/anime items — handled during WriteStepAsync
                 var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
                             || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
                 if (isSeries && !string.IsNullOrEmpty(item.StrmPath))
@@ -981,36 +866,6 @@ namespace InfiniteDrive.Tasks
         }
 
         // ── Helper methods ───────────────────────────────────────────────────────
-
-        private SeriesPreExpansionService? EnsureExpansionService()
-        {
-            if (_expansionService != null)
-                return _expansionService;
-
-            var config = Plugin.Instance?.Configuration;
-            if (config == null || string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
-                return null;
-
-            var (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
-
-            // Fall back to secondary manifest URL if primary failed
-            if (string.IsNullOrWhiteSpace(baseUrl) && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-                (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
-
-            if (string.IsNullOrWhiteSpace(baseUrl))
-                return null;
-
-            // Build stremio base (same logic as AioStreamsClient.BuildStremioBase)
-            var stremioBase = string.Equals(uuid, "DIRECT", StringComparison.Ordinal)
-                ? baseUrl.TrimEnd('/')
-                : $"{baseUrl.TrimEnd('/')}/stremio" +
-                  (!string.IsNullOrWhiteSpace(uuid) ? $"/{uuid}" : "") +
-                  (!string.IsNullOrWhiteSpace(token) ? $"/{token}" : "");
-
-            var provider = new StremioMetadataProvider(stremioBase, _logger);
-            _expansionService = new SeriesPreExpansionService(_libraryManager, _logger, provider);
-            return _expansionService;
-        }
 
         private static string GetLibraryPath(PluginConfiguration config, string mediaType)
         {

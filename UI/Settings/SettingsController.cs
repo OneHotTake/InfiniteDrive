@@ -17,7 +17,7 @@ namespace InfiniteDrive.UI.Settings
             PageInfo = new PluginPageInfo
             {
                 Name = "InfiniteDriveSettings",
-                DisplayName = "InfiniteDrive",
+                DisplayName = "Connect",
                 IsMainConfigPage = true,
                 EnableInMainMenu = false,
                 MenuIcon = "settings",
@@ -25,33 +25,29 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            _tabs.Add(new TabPageController(pid, "Providers", "Providers", () =>
-                new ProvidersTabView(pid, LoadProviders())));
-
+            // Tab order: Libraries → Catalogs → Playback → Quality → Health → Advanced
             _tabs.Add(new TabPageController(pid, "Libraries", "Libraries", () =>
-                new SettingsTabView<LibrariesUI>(pid, LoadLibraries(), SaveLibraries)));
+                new LibrariesTabView(pid, LoadLibraries())));
 
             _tabs.Add(new TabPageController(pid, "Catalogs", "Catalogs", () =>
                 new CatalogsTabView(pid, LoadCatalogs())));
 
             _tabs.Add(new TabPageController(pid, "Playback", "Playback", () =>
-                new SettingsTabView<PlaybackUI>(pid, LoadPlayback(), SavePlayback)));
-
-            _tabs.Add(new TabPageController(pid, "Metadata", "Metadata", () =>
-                new SettingsTabView<MetadataUI>(pid, LoadMetadata(), SaveMetadata)));
-
-            _tabs.Add(new TabPageController(pid, "Security", "Security", () =>
-                new SettingsTabView<SecurityUI>(pid, LoadSecurity(), SaveSecurity)));
+                new PlaybackTabView(pid, LoadPlayback())));
 
             _tabs.Add(new TabPageController(pid, "Health", "Health", () =>
                 new HealthTabView(pid, LoadHealth())));
+
+            // Advanced is last — "you don't need this unless you have a reason"
+            _tabs.Add(new TabPageController(pid, "Advanced", "Advanced", () =>
+                new AdvancedTabView(pid, LoadAdvanced())));
         }
 
         public override PluginPageInfo PageInfo { get; }
         public IReadOnlyList<IPluginUIPageController> TabPageControllers => _tabs.AsReadOnly();
 
         public override Task<IPluginUIView> CreateDefaultPageView()
-            => _tabs[0].CreateDefaultPageView();
+            => Task.FromResult<IPluginUIView>(new ProvidersTabView(PluginId, LoadProviders()));
 
         // ── Load ─────────────────────────────────────────────────────────────
 
@@ -77,6 +73,9 @@ namespace InfiniteDrive.UI.Settings
                 LibraryNameSeries = c.LibraryNameSeries ?? "Streamed Series",
                 LibraryNameAnime = c.LibraryNameAnime ?? "Streamed Anime",
                 EmbyBaseUrl = ResolveEmbyBaseUrl(c.EmbyBaseUrl),
+                MetadataLanguage = c.MetadataLanguage ?? "en",
+                MetadataCertificationCountry = c.MetadataCertificationCountry ?? "US",
+                SubtitleDownloadLanguages = c.SubtitleDownloadLanguages ?? "en",
             };
         }
 
@@ -85,7 +84,6 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new CatalogsUI
             {
-                CatalogItemCap = c.CatalogItemCap,
                 CatalogSyncIntervalHours = c.CatalogSyncIntervalHours,
             };
         }
@@ -95,42 +93,30 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new PlaybackUI
             {
-                CacheLifetimeMinutes = c.CacheLifetimeMinutes,
-                ApiDailyBudget = c.ApiDailyBudget,
-                MaxConcurrentResolutions = c.MaxConcurrentResolutions,
                 EnablePreCache = c.EnablePreCache,
-                PreCacheBatchSize = c.PreCacheBatchSize,
-                PreCacheIntervalHours = c.PreCacheIntervalHours,
-                PreCacheTTLDays = c.PreCacheTTLDays,
-            };
-        }
-
-        private static MetadataUI LoadMetadata()
-        {
-            var c = Plugin.Instance.Configuration;
-            return new MetadataUI
-            {
-                MetadataLanguage = c.MetadataLanguage ?? "en",
-                MetadataCertificationCountry = c.MetadataCertificationCountry ?? "US",
-                SubtitleDownloadLanguages = c.SubtitleDownloadLanguages ?? "en",
-                SkipFutureEpisodes = c.SkipFutureEpisodes,
-                FutureEpisodeBufferDays = c.FutureEpisodeBufferDays,
-            };
-        }
-
-        private static SecurityUI LoadSecurity()
-        {
-            var c = Plugin.Instance.Configuration;
-            return new SecurityUI
-            {
-                SignatureValidityDays = c.SignatureValidityDays,
-                PluginSecret = c.PluginSecret ?? string.Empty,
             };
         }
 
         private static HealthUI LoadHealth()
         {
             return new HealthUI();
+        }
+
+        internal static AdvancedUI LoadAdvanced()
+        {
+            var c = Plugin.Instance.Configuration;
+            return new AdvancedUI
+            {
+                SkipFutureEpisodes = c.SkipFutureEpisodes,
+                ApiDailyBudget = c.ApiDailyBudget,
+                CacheLifetimeMinutes = c.CacheLifetimeMinutes,
+                SignatureValidityDays = c.SignatureValidityDays,
+                PluginSecret = c.PluginSecret ?? string.Empty,
+                DefaultSeriesSeasons = c.DefaultSeriesSeasons,
+                DefaultSeriesEpisodesPerSeason = c.DefaultSeriesEpisodesPerSeason,
+                DontPanic = c.DontPanic,
+                MaxConcurrentProxyStreams = c.MaxConcurrentProxyStreams,
+            };
         }
 
         // ── Save ─────────────────────────────────────────────────────────────
@@ -143,7 +129,7 @@ namespace InfiniteDrive.UI.Settings
             c.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(ui.SecondaryManifestUrl);
         }
 
-        private static void SaveLibraries(LibrariesUI ui, PluginConfiguration c)
+        internal static void SaveLibraries(LibrariesUI ui, PluginConfiguration c)
         {
             c.SyncPathMovies = ui.SyncPathMovies ?? string.Empty;
             c.SyncPathShows = ui.SyncPathShows ?? string.Empty;
@@ -152,38 +138,21 @@ namespace InfiniteDrive.UI.Settings
             c.LibraryNameSeries = ui.LibraryNameSeries ?? string.Empty;
             c.LibraryNameAnime = ui.LibraryNameAnime ?? string.Empty;
             c.EmbyBaseUrl = ui.EmbyBaseUrl ?? string.Empty;
+            c.MetadataLanguage = ui.MetadataLanguage ?? "en";
+            c.MetadataCertificationCountry = ui.MetadataCertificationCountry ?? "US";
+            c.SubtitleDownloadLanguages = ui.SubtitleDownloadLanguages ?? "en";
         }
 
         internal static void SaveCatalogs(CatalogsUI ui, PluginConfiguration c)
         {
-            c.CatalogItemCap = ui.CatalogItemCap;
             c.CatalogSyncIntervalHours = ui.CatalogSyncIntervalHours;
         }
 
-        private static void SavePlayback(PlaybackUI ui, PluginConfiguration c)
+        internal static void SavePlayback(PlaybackUI ui, PluginConfiguration c)
         {
-            c.CacheLifetimeMinutes = ui.CacheLifetimeMinutes;
-            c.ApiDailyBudget = ui.ApiDailyBudget;
-            c.MaxConcurrentResolutions = ui.MaxConcurrentResolutions;
+            // Playback tab is intentionally minimal — only EnablePreCache is user-facing.
+            // CacheLifetimeMinutes, ApiDailyBudget, etc. live in Advanced.
             c.EnablePreCache = ui.EnablePreCache;
-            c.PreCacheBatchSize = ui.PreCacheBatchSize;
-            c.PreCacheIntervalHours = ui.PreCacheIntervalHours;
-            c.PreCacheTTLDays = ui.PreCacheTTLDays;
-        }
-
-        private static void SaveMetadata(MetadataUI ui, PluginConfiguration c)
-        {
-            c.MetadataLanguage = ui.MetadataLanguage ?? string.Empty;
-            c.MetadataCertificationCountry = ui.MetadataCertificationCountry ?? string.Empty;
-            c.SubtitleDownloadLanguages = ui.SubtitleDownloadLanguages ?? string.Empty;
-            c.SkipFutureEpisodes = ui.SkipFutureEpisodes;
-            c.FutureEpisodeBufferDays = ui.FutureEpisodeBufferDays;
-        }
-
-        private static void SaveSecurity(SecurityUI ui, PluginConfiguration c)
-        {
-            c.SignatureValidityDays = ui.SignatureValidityDays;
-            c.PluginSecret = ui.PluginSecret ?? string.Empty;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────

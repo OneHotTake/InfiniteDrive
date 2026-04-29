@@ -7,29 +7,31 @@ namespace InfiniteDrive.UI.Settings
 {
     public class CatalogsUI : EditableOptionsBase
     {
+        public const string SyncNowCommand = nameof(SyncNowCommand);
         public const string ToggleCatalogCommand = nameof(ToggleCatalogCommand);
-        public const string RefreshCatalogsCommand = nameof(RefreshCatalogsCommand);
 
         public override string EditorTitle => "Catalogs";
         public override string EditorDescription =>
             "Catalogs are discovered automatically from your AIOStreams manifest during sync. " +
-            "Toggle individual catalogs on or off, or adjust the sync settings below.";
+            "Toggle catalogs on/off to control which ones sync to your library.";
 
         public CaptionItem CaptionCatalogs { get; set; } = new CaptionItem("Catalog Sources");
 
-        [DisplayName("Catalogs")]
-        [Description("Sources fetched from AIOStreams. Toggle to enable/disable individual catalogs.")]
         public GenericItemList CatalogList { get; set; } = new GenericItemList();
+
+        public ButtonItem SyncNowButton { get; set; } = new ButtonItem("Sync Catalogs Now")
+        {
+            Icon = IconNames.sync,
+            Data1 = SyncNowCommand,
+        };
+
+        public StatusItem SyncStatus { get; set; } = new StatusItem("Sync", "Idle", ItemStatus.None);
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
         public CaptionItem CaptionSync { get; set; } = new CaptionItem("Sync Settings");
 
-        [DisplayName("Max Items Per Catalog")]
-        [Description("Maximum items fetched per catalog per sync. Default: 500.")]
-        public int CatalogItemCap { get; set; } = 500;
-
         [DisplayName("Sync Interval (hours)")]
-        [Description("Minimum hours between catalog syncs. Default: 1.")]
+        [Description("Minimum hours between catalog syncs. Marvin runs every 10 min but will skip sync if within this interval. Default: 1.")]
         public int CatalogSyncIntervalHours { get; set; } = 1;
     }
 }
