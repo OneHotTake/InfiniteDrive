@@ -1245,15 +1245,24 @@ namespace InfiniteDrive.Services
         /// </summary>
         private List<DiscoverCatalogEntry> ApplyParentalFilter(List<DiscoverCatalogEntry> items, int maxRating)
         {
-            // Unrestricted user: never block anything
-            if (maxRating >= 999)
-                return items;
-
             var config = Plugin.Instance?.Configuration;
+            var hideUnrated = config?.HideUnratedContent ?? false;
             var blockUnrated = config?.BlockUnratedForRestricted ?? false;
+
+            // Unrestricted user: only apply global HideUnratedContent toggle
+            if (maxRating >= 999)
+            {
+                if (!hideUnrated)
+                    return items;
+                return items.Where(item => !string.IsNullOrEmpty(item.Certification)).ToList();
+            }
 
             return items.Where(item =>
             {
+                // Global admin toggle: hide unrated from everyone
+                if (hideUnrated && string.IsNullOrEmpty(item.Certification))
+                    return false;
+
                 var itemRating = ParseRating(item.Certification);
 
                 // Rated item: block if exceeds user's ceiling

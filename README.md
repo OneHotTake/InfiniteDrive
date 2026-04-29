@@ -10,6 +10,14 @@ An Emby plugin that discovers streaming catalogs from [AIOStreams](https://githu
 
 ---
 
+## Documentation
+
+- [ARCHITECTURE.md](./ARCHITECTURE.md) – High-level system design
+- [MARVIN_STATE_MACHINE.md](./MARVIN_STATE_MACHINE.md) – How the core engine works
+- [SETTINGS_DESIGN.md](./SETTINGS_DESIGN.md) – Current 5-tab settings UI design
+
+---
+
 ## Design Principle: Simplicity Over Complexity
 
 Users want simplicity, administrators want flexibility, nobody wants complexity. Fortunately for us, the debrid and usenet streaming world is inherently complex.

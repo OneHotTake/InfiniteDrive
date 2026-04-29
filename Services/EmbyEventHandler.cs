@@ -28,8 +28,7 @@ namespace InfiniteDrive.Services
     ///         episode finishes, covering the brief inter-episode gap as a safety net.</item>
     ///   <item><b>Instant episode expansion</b>: when Emby indexes a new Episode item
     ///         from an InfiniteDrive .strm folder, resets the parent series'
-    ///         <c>seasons_json</c> so <see cref="Tasks.EpisodeExpandTask"/> rewrites all
-    ///         .strm files on its next run.</item>
+    ///         <c>seasons_json</c> so MarvinTask rewrites all .strm files on its next run.</item>
     ///   <item><b>Redirect-success learning</b>: each completed redirect play
     ///         increments the client's <c>test_count</c> so the auto-mode decision
     ///         improves over time.</item>
@@ -98,9 +97,8 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Fires whenever Emby indexes a new library item.  When the item is an
         /// <c>Episode</c> and its path lives inside the InfiniteDrive shows folder,
-        /// the parent series' <c>seasons_json</c> is cleared so
-        /// <see cref="Tasks.EpisodeExpandTask"/> rewrites all episode .strm files on
-        /// its next run.
+        /// the parent series' <c>seasons_json</c> is cleared so MarvinTask
+        /// rewrites all episode .strm files on its next run.
         /// </summary>
         private void OnItemAdded(object? sender, ItemChangeEventArgs e)
         {
@@ -136,15 +134,14 @@ namespace InfiniteDrive.Services
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
 
-                // Clear seasons_json — EpisodeExpandTask will rewrite it with the
-                // updated episode list on its next run (within 4 hours, or trigger manually).
+                // Clear seasons_json — MarvinTask will rewrite it on its next run.
                 var catalogItem = await db.GetCatalogItemByImdbIdAsync(imdbId);
                 if (catalogItem == null) return;
 
                 await db.UpdateSeasonsJsonAsync(imdbId, catalogItem.Source, string.Empty);
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] New episode indexed for {ImdbId} — seasons_json cleared for EpisodeExpandTask",
+                    "[InfiniteDrive] New episode indexed for {ImdbId} — seasons_json cleared",
                     imdbId);
             }
             catch (Exception ex)

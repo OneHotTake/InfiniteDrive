@@ -12,11 +12,10 @@ namespace InfiniteDrive.UI.Settings
         public const string TestPrimaryCommand = nameof(TestPrimaryCommand);
         public const string TestSecondaryCommand = nameof(TestSecondaryCommand);
 
-        public override string EditorTitle => "Providers";
+        public override string EditorTitle => "Connect";
         public override string EditorDescription =>
-            "Paste your AIOStreams manifest URL below. " +
-            "Get it from your AIOStreams web UI — the same URL you'd paste into Stremio. " +
-            "If you have a backup instance, add it as the secondary URL.";
+            "Paste your AIOStreams manifest URL below — the same URL you'd paste into Stremio. " +
+            "If you have a backup AIOStreams instance, add it as the secondary URL.";
 
         public CaptionItem CaptionGettingStarted { get; set; } = new CaptionItem("Getting Started");
 

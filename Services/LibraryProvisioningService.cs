@@ -132,6 +132,9 @@ namespace InfiniteDrive.Services
                 }
                 catch { /* non-critical */ }
 
+                // Auto-select metadata downloaders and image fetchers via TypeOptions
+                libraryOptions.TypeOptions = BuildTypeOptions(contentType);
+
                 _libraryManager.AddVirtualFolder(name, libraryOptions, refreshLibrary: false);
 
                 _logger.LogInformation(
@@ -149,6 +152,104 @@ namespace InfiniteDrive.Services
             }
 
             await Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Builds TypeOptions with auto-selected metadata downloaders and image fetchers
+        /// matching what a manually-configured library would have.
+        /// </summary>
+        private static TypeOptions[] BuildTypeOptions(string contentType)
+        {
+            if (contentType == "movies")
+            {
+                return new[]
+                {
+                    new TypeOptions
+                    {
+                        Type = "Movie",
+                        MetadataFetchers = new[] { "TheMovieDb", "TheTVDB", "InfiniteDrive" },
+                        MetadataFetcherOrder = Array.Empty<string>(),
+                        ImageFetchers = new[] { "TheTVDB", "TheMovieDb", "FanArt", "Image Capture", "InfiniteDrive" },
+                        ImageFetcherOrder = Array.Empty<string>(),
+                        ImageOptions = Array.Empty<ImageOption>(),
+                    },
+                };
+            }
+
+            if (contentType == "tvshows")
+            {
+                return new[]
+                {
+                    new TypeOptions
+                    {
+                        Type = "Series",
+                        MetadataFetchers = new[] { "TheTVDB", "TheMovieDb", "InfiniteDrive" },
+                        MetadataFetcherOrder = Array.Empty<string>(),
+                        ImageFetchers = new[] { "TheTVDB", "FanArt", "InfiniteDrive", "TheMovieDb" },
+                        ImageFetcherOrder = Array.Empty<string>(),
+                        ImageOptions = Array.Empty<ImageOption>(),
+                    },
+                    new TypeOptions
+                    {
+                        Type = "Season",
+                        MetadataFetchers = new[] { "TheTVDB" },
+                        MetadataFetcherOrder = Array.Empty<string>(),
+                        ImageFetchers = new[] { "TheTVDB", "InfiniteDrive" },
+                        ImageFetcherOrder = Array.Empty<string>(),
+                        ImageOptions = Array.Empty<ImageOption>(),
+                    },
+                    new TypeOptions
+                    {
+                        Type = "Episode",
+                        MetadataFetchers = new[] { "TheTVDB" },
+                        MetadataFetcherOrder = Array.Empty<string>(),
+                        ImageFetchers = new[] { "TheTVDB", "Image Capture", "InfiniteDrive" },
+                        ImageFetcherOrder = Array.Empty<string>(),
+                        ImageOptions = Array.Empty<ImageOption>(),
+                    },
+                };
+            }
+
+            // Anime / mixed — both Movie and Series types
+            return new[]
+            {
+                new TypeOptions
+                {
+                    Type = "Series",
+                    MetadataFetchers = new[] { "TheTVDB", "TheMovieDb", "InfiniteDrive" },
+                    MetadataFetcherOrder = Array.Empty<string>(),
+                    ImageFetchers = new[] { "TheTVDB", "FanArt", "InfiniteDrive", "TheMovieDb" },
+                    ImageFetcherOrder = Array.Empty<string>(),
+                    ImageOptions = Array.Empty<ImageOption>(),
+                },
+                new TypeOptions
+                {
+                    Type = "Season",
+                    MetadataFetchers = new[] { "TheTVDB" },
+                    MetadataFetcherOrder = Array.Empty<string>(),
+                    ImageFetchers = new[] { "TheTVDB", "InfiniteDrive" },
+                    ImageFetcherOrder = Array.Empty<string>(),
+                    ImageOptions = Array.Empty<ImageOption>(),
+                },
+                new TypeOptions
+                {
+                    Type = "Episode",
+                    MetadataFetchers = new[] { "TheTVDB" },
+                    MetadataFetcherOrder = Array.Empty<string>(),
+                    ImageFetchers = new[] { "TheTVDB", "Image Capture", "InfiniteDrive" },
+                    ImageFetcherOrder = Array.Empty<string>(),
+                    ImageOptions = Array.Empty<ImageOption>(),
+                },
+                new TypeOptions
+                {
+                    Type = "Movie",
+                    MetadataFetchers = new[] { "TheMovieDb", "TheTVDB", "InfiniteDrive" },
+                    MetadataFetcherOrder = Array.Empty<string>(),
+                    ImageFetchers = new[] { "TheTVDB", "TheMovieDb", "FanArt", "Image Capture", "InfiniteDrive" },
+                    ImageFetcherOrder = Array.Empty<string>(),
+                    ImageOptions = Array.Empty<ImageOption>(),
+                },
+            };
         }
     }
 }

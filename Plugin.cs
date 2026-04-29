@@ -176,7 +176,7 @@ namespace InfiniteDrive
 
         /// <summary>
         /// Stream pre-cache service for the cached_streams table.
-        /// Singleton shared across AioMediaSourceProvider, PreCacheAioStreamsTask.
+        /// Singleton shared across AioMediaSourceProvider.
         /// </summary>
         public Services.IStreamCacheService StreamCacheService { get; private set; } = null!;
 
@@ -188,6 +188,15 @@ namespace InfiniteDrive
 
         /// <summary>Unified add pipeline (requires ILibraryManager, set via InitializePlaylistService).</summary>
         public Services.UnifiedItemService? UnifiedItemService { get; private set; }
+
+        /// <summary>ILibraryManager reference for triggering tasks from UI.</summary>
+        public ILibraryManager? LibraryManager { get; private set; }
+
+        /// <summary>ILogManager reference for triggering tasks from UI.</summary>
+        public ILogManager LogManager => _logManager;
+
+        /// <summary>Library provisioning service (creates Emby libraries from config paths).</summary>
+        public Services.LibraryProvisioningService? LibraryProvisioningService { get; private set; }
 
         /// <summary>
         /// Active provider state for self-healing failover (Sprint 311).
@@ -472,6 +481,12 @@ namespace InfiniteDrive
             MediaBrowser.Controller.Playlists.IPlaylistManager playlistManager,
             MediaBrowser.Controller.Library.ILibraryManager libraryManager)
         {
+            LibraryManager = libraryManager;
+
+            LibraryProvisioningService = new Services.LibraryProvisioningService(
+                libraryManager,
+                new Logging.EmbyLoggerAdapter<Services.LibraryProvisioningService>(_logManager.GetLogger("InfiniteDrive")));
+
             PlaylistService = new Services.PlaylistService(
                 playlistManager,
                 libraryManager,
@@ -485,6 +500,29 @@ namespace InfiniteDrive
                 BlockListService,
                 libraryManager);
             _logger.LogInformation("[InfiniteDrive] UnifiedItemService initialised");
+        }
+
+        /// <summary>
+        /// Fire-and-forget background sync via MarvinTask. Safe to call from any UI save handler.
+        /// </summary>
+        public void TriggerBackgroundSync()
+        {
+            if (LibraryManager == null) return;
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    _logger.LogInformation("[InfiniteDrive] Post-save sync triggered");
+                    var marvin = new Tasks.MarvinTask(_logManager, LibraryManager);
+                    await marvin.Execute(CancellationToken.None, new Progress<double>()).ConfigureAwait(false);
+                    _logger.LogInformation("[InfiniteDrive] Post-save sync complete");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[InfiniteDrive] Post-save sync failed");
+                }
+            });
         }
 
         /// <summary>

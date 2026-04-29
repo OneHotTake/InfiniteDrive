@@ -1,8 +1,9 @@
-define(['loading', 'emby-input', 'emby-button', 'emby-select', 'emby-scrollpanel'],
-function (loading) {
+define(['baseView', 'loading', 'emby-input', 'emby-button', 'emby-select', 'emby-scrollpanel'],
+function (BaseView, loading) {
     'use strict';
 
     // ── Module-level state ────────────────────────────────────────────────────
+    var _view = null;
     var _currentTab = 'discover';
     var _searchTimeout = null;
     var _isSearching = false;
@@ -19,7 +20,7 @@ function (loading) {
     }
 
     // ── DOM helpers ───────────────────────────────────────────────────────────
-    function q(id) { return document.getElementById(id); }
+    function q(id) { return _view ? _view.querySelector('#' + id) : null; }
     function esc(s) {
         if (!s) return '';
         return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -56,7 +57,7 @@ function (loading) {
         }
 
         // Update active tab button
-        document.querySelectorAll('.id-tab').forEach(function(tab) {
+        _view.querySelectorAll('.id-tab').forEach(function(tab) {
             tab.classList.remove('active');
             if (tab.getAttribute('data-tab') === tabName) {
                 tab.classList.add('active');
@@ -64,7 +65,7 @@ function (loading) {
         });
 
         // Update active panel
-        document.querySelectorAll('.id-tab-panel').forEach(function(panel) {
+        _view.querySelectorAll('.id-tab-panel').forEach(function(panel) {
             panel.classList.remove('active');
         });
         var activePanel = q('id-tab-' + tabName);
@@ -131,7 +132,7 @@ function (loading) {
     }
 
     function renderRail(containerId, items) {
-        var container = document.getElementById(containerId);
+        var container = _view.querySelector('#' + containerId);
         if (!container || items.length === 0) return;
 
         var html = items.map(function(item) { return renderCard(item); }).join('');
@@ -776,7 +777,7 @@ function (loading) {
                 var limit = data.Limit != null ? data.Limit : 5;
                 _userListLimit = limit;
 
-                var listsTab = document.querySelector('.id-tab[data-tab="lists"]');
+                var listsTab = _view.querySelector('.id-tab[data-tab="lists"]');
                 if (listsTab) {
                     listsTab.style.display = limit === 0 ? 'none' : '';
                 }
@@ -791,7 +792,7 @@ function (loading) {
 
     // ── Tab setup ───────────────────────────────────────────────────────────
     function setupTabs() {
-        document.querySelectorAll('.id-tab').forEach(function(tab) {
+        _view.querySelectorAll('.id-tab').forEach(function(tab) {
             tab.addEventListener('click', function() {
                 var tabName = this.getAttribute('data-tab');
                 switchTab(tabName);
@@ -799,30 +800,42 @@ function (loading) {
         });
     }
 
-    // ── Initialize ───────────────────────────────────────────────────────────
-    return function (view, params) {
-        view.addEventListener('viewshow', function() {
-            // Get current user
-            if (typeof ApiClient !== 'undefined') {
-                _currentUserId = ApiClient.getCurrentUserId();
-                var welcomeEl = q('id-welcome');
-                if (welcomeEl) {
-                    var user = ApiClient.getCurrentUser();
-                    if (user && user.Name) {
-                        welcomeEl.textContent = 'Welcome back, ' + user.Name;
-                    }
+    // ── BaseView controller ───────────────────────────────────────────────────
+    function View(view, params) {
+        BaseView.apply(this, arguments);
+        _view = view;
+        // One-time DOM setup
+        setupTabs();
+        setupSearch();
+        setupDetailModal();
+        setupAddListModal();
+    }
+
+    Object.assign(View.prototype, BaseView.prototype);
+
+    View.prototype.onResume = function (options) {
+        BaseView.prototype.onResume.apply(this, arguments);
+        _view = this.view;
+
+        // Update welcome message
+        if (typeof ApiClient !== 'undefined') {
+            _currentUserId = ApiClient.getCurrentUserId();
+            var welcomeEl = q('id-welcome');
+            if (welcomeEl) {
+                var user = ApiClient.getCurrentUser();
+                if (user && user.Name) {
+                    welcomeEl.textContent = 'Welcome back, ' + user.Name;
                 }
             }
+        }
 
-            // Setup UI
-            setupTabs();
-            setupSearch();
-            setupDetailModal();
-            setupAddListModal();
-            checkListLimit();
-
-            // Load initial content
-            switchTab('discover');
-        });
+        checkListLimit();
+        switchTab('discover');
     };
+
+    View.prototype.onPause = function () {
+        clearTimeout(_searchTimeout);
+    };
+
+    return View;
 });

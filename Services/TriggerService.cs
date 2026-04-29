@@ -25,9 +25,9 @@ namespace InfiniteDrive.Services
     ///
     /// Accepted values:
     /// <list type="bullet">
-    ///   <item><c>catalog_sync</c> — <see cref="CatalogSyncTask"/></item>
-    ///   <item><c>link_resolver</c> — <see cref="LinkResolverTask"/></item>
-    ///   <item><c>library_readoption</c> — <see cref="LibraryReadoptionTask"/></item>
+    ///   <item><c>catalog_sync</c> — <see cref="MarvinTask"/></item>
+    ///   <item><c>clear_cache</c> — clears resolution cache</item>
+    ///   <item><c>reset_all</c> — full clean slate</item>
     /// </list>
     /// </summary>
     [Route("/InfiniteDrive/Trigger", "POST",
@@ -96,11 +96,6 @@ namespace InfiniteDrive.Services
         // ── Constants ────────────────────────────────────────────────────────────
 
         private const string TaskCatalogSync          = "catalog_sync";
-        private const string TaskLinkResolver         = "link_resolver";
-        private const string TaskLibraryReadoption    = "library_readoption";
-        private const string TaskEpisodeExpand        = "episode_expand";
-        // Old Doctor task removed in Sprint 147 - replaced by MarvinTask + RefreshTask
-        private const string TaskCollectionSync       = "collection_sync"; // Sprint 100C-02: Collection sync task
         private const string TaskClearClientProfiles  = "clear_client_profiles";
         private const string TaskForceSyncReset       = "force_sync";   // A7: bypass interval guard
         private const string TaskClearCache           = "clear_cache";  // A4: nuke resolution cache
@@ -110,8 +105,6 @@ namespace InfiniteDrive.Services
         private const string TaskResetWizard          = "reset_wizard";   // re-show first-run wizard
         private const string TaskSeriesGapScan        = "series_gap_scan";
         private const string TaskSeriesGapRepair      = "series_gap_repair";
-        private const string TaskPreCache             = "precache";
-        private const string TaskStreamPrefetch       = "stream_prefetch";
 
         // ── Fields ───────────────────────────────────────────────────────────────
 
@@ -155,58 +148,9 @@ namespace InfiniteDrive.Services
                         .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
-                case TaskLinkResolver:
-                    FireAndForget(ct => new LinkResolverTask(_logManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
-                    break;
-
-#pragma warning disable CS0618 // Type is obsolete (kept for backward compatibility)
-                case TaskLibraryReadoption:
-                    FireAndForget(ct => new LibraryReadoptionTask(_libraryManager, _logManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
-                    break;
-
-                case TaskEpisodeExpand:
-                    FireAndForget(ct => new EpisodeExpandTask(_libraryManager, _logManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
-                    break;
-#pragma warning restore CS0618
-
-                // Sprint 100C-02: Collection sync task
-                case TaskCollectionSync:
-                    FireAndForget(ct => new CollectionSyncTask(_logManager, _libraryManager)
-                        .Execute(ct, new Progress<double>()), TaskCollectionSync);
-                    break;
-
                 case TaskSeriesGapScan:
                 case TaskSeriesGapRepair:
                     _logger.LogWarning("[Trigger] {Trigger} is deprecated — superseded by catalog-first episode sync (Sprint 222)", taskKey);
-                    break;
-
-                case TaskPreCache:
-                    var precacheConfig = Plugin.Instance?.Configuration;
-                    if (precacheConfig == null || !precacheConfig.EnablePreCache)
-                        return new TriggerResponse
-                        {
-                            Status = "error",
-                            Task = taskKey,
-                            Message = "Pre-cache is disabled. Enable EnablePreCache in plugin settings.",
-                        };
-                    FireAndForget(ct => new PreCacheAioStreamsTask(_logManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
-                    break;
-
-                case TaskStreamPrefetch:
-                    var spConfig = Plugin.Instance?.Configuration;
-                    if (spConfig == null || !spConfig.EnableStreamPrefetch)
-                        return new TriggerResponse
-                        {
-                            Status = "error",
-                            Task = taskKey,
-                            Message = "Stream prefetch is disabled. Enable EnableStreamPrefetch in plugin settings.",
-                        };
-                    FireAndForget(ct => new StreamPrefetchTask(_logManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
                     break;
 
                 case TaskClearClientProfiles:
@@ -367,12 +311,9 @@ namespace InfiniteDrive.Services
                         Task    = taskKey,
                         Message = $"Unknown task '{taskKey}'. Valid keys: " +
                                   $"{TaskCatalogSync}, " +
-                                  $"{TaskLinkResolver}, " +
-                                  $"{TaskLibraryReadoption}, " +
-                                  $"{TaskEpisodeExpand}, {TaskCollectionSync}, " +
                                   $"{TaskClearClientProfiles}, " +
                                   $"{TaskForceSyncReset}, {TaskClearCache}, {TaskDeadLinkScan}, " +
-                                  $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}, {TaskPreCache}, {TaskStreamPrefetch}",
+                                  $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}",
                     };
             }
 

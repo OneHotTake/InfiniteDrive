@@ -30,6 +30,10 @@ namespace InfiniteDrive.Services
         Task PreCacheSingleAsync(string imdbId, string mediaType, int? season, int? episode);
     }
 
+    // Cache stores FULL stream URLs (Sprint 502).
+    // Proxy mode on AIOStreams = effectively infinite life.
+    // Otherwise, Marvin refreshes after CacheRefreshIntervalDays.
+
     /// <summary>
     /// Singleton service for reading/writing the <c>cached_streams</c> table
     /// and converting cached variants into Emby <see cref="MediaSourceInfo"/> objects.

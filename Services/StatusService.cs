@@ -121,7 +121,7 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Number of series in the catalog that have not yet had their seasons/episodes
-        /// expanded by <c>EpisodeExpandTask</c> (i.e. <c>seasons_json</c> is empty).
+        /// expanded (i.e. <c>seasons_json</c> is empty).
         /// </summary>
         public int PendingExpansionCount { get; set; }
 
@@ -557,7 +557,7 @@ namespace InfiniteDrive.Services
                 response.StrmItemCount       = await db.GetCatalogItemCountByLocalSourceAsync("strm");
                 response.ResurrectionCount   = await db.GetTotalResurrectionCountAsync();
                 response.ReadoptedCount      = await db.GetReadoptedCountAsync();
-                // A2: count series with no seasons_json yet (pending EpisodeExpandTask)
+                // A2: count series with no seasons_json yet (pending episode expansion)
                 var pending = await db.GetSeriesWithoutSeasonsJsonAsync();
                 response.PendingExpansionCount = pending.Count;
 
@@ -755,37 +755,6 @@ namespace InfiniteDrive.Services
                 response.CooldownUntil = gate.GlobalCooldownUntil > DateTimeOffset.MinValue
                     ? gate.GlobalCooldownUntil.ToString("o") : null;
                 response.SuggestPrivateInstance = gate.SuggestPrivateInstance;
-            }
-
-            // ── Sprint 220: Series gap scan summary ──────────────────────────
-            var gapSnapshot = SeriesGapDetector.LastSnapshot;
-            if (gapSnapshot.LastScanAt.HasValue)
-            {
-                response.SeriesGapSummary = new GapScanSummary
-                {
-                    TotalSeriesScanned   = gapSnapshot.TotalSeriesScanned,
-                    CompleteSeriesCount  = gapSnapshot.CompleteSeriesCount,
-                    SeriesWithGaps       = gapSnapshot.SeriesWithGaps,
-                    TotalMissingEpisodes = gapSnapshot.TotalMissingEpisodes,
-                    LastScanAt           = gapSnapshot.LastScanAt.Value.ToString("o"),
-                    LastRepairAt         = SeriesGapRepairService.LastRepairAt?.ToString("o"),
-                    EpisodesRepairedLastRun = SeriesGapRepairService.EpisodesRepairedLastRun,
-                    EpisodesRepairedTotal  = SeriesGapRepairService.EpisodesRepairedTotal
-                };
-            }
-
-            // ── Sprint 222: Episode sync summary ──────────────────────────────
-            var syncResult = SeriesPreExpansionService.LastSyncResult;
-            if (syncResult != null)
-            {
-                response.EpisodeSyncSummary = new EpisodeSyncSummary
-                {
-                    LastSyncAt              = syncResult.SyncedAt?.ToString("o"),
-                    SeriesProcessed         = syncResult.SeriesProcessed,
-                    EpisodesWritten         = syncResult.EpisodesWritten,
-                    EpisodesRemoved         = syncResult.EpisodesRemoved,
-                    VerificationMismatches  = 0
-                };
             }
 
             return response;

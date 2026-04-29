@@ -12,7 +12,6 @@ using InfiniteDrive.Models;
 using InfiniteDrive.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
-using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -810,16 +809,12 @@ namespace InfiniteDrive.Tasks
     ///
     /// Default schedule: every 30 minutes.
     /// </summary>
-    [Obsolete("MarvinTask now orchestrates the full pipeline. Kept for backward-compat IScheduledTask registration.")]
-    public class CatalogSyncTask : IScheduledTask
+    internal class CatalogSyncTask
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
         private const int    StrmBatchSize    = 42;          // The answer was obvious
         private const int    StrmBatchPauseMs = 60_000;
-        private const string TaskName         = "InfiniteDrive Catalog Sync";
-        private const string TaskKey          = "InfiniteDriveCatalogSync";
-        private const string TaskCategory     = "InfiniteDrive";
 
         // ── Fields ──────────────────────────────────────────────────────────────
 
@@ -840,74 +835,6 @@ namespace InfiniteDrive.Tasks
             _libraryManager = libraryManager;
             _logManager     = logManager;
             _logger         = new EmbyLoggerAdapter<CatalogSyncTask>(logManager.GetLogger("InfiniteDrive"));
-        }
-
-        // ── IScheduledTask ──────────────────────────────────────────────────────
-
-        /// <inheritdoc/>
-        public string Name => TaskName;
-
-        /// <inheritdoc/>
-        public string Key => TaskKey;
-
-        /// <inheritdoc/>
-        public string Description =>
-            "Fetches catalog from AIOStreams (all configured addons) and Trakt, then writes .strm files and triggers an Emby library scan.";
-
-        /// <inheritdoc/>
-        public string Category => TaskCategory;
-
-        /// <inheritdoc/>
-        public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-        {
-            var hour = Plugin.Instance?.Configuration?.SyncScheduleHour ?? 3;
-            return new[]
-            {
-                new TaskTriggerInfo
-                {
-                    Type             = TaskTriggerInfo.TriggerDaily,
-                    TimeOfDayTicks   = TimeSpan.FromHours(hour < 0 ? 3 : hour).Ticks,
-                },
-                new TaskTriggerInfo
-                {
-                    Type          = TaskTriggerInfo.TriggerStartup,
-                },
-            };
-        }
-
-        /// <inheritdoc/>
-        public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
-        {
-            // Sprint 100A-12: Startup jitter to prevent thundering herd on Emby restart
-            await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
-
-            // Sprint 100A-10: Acquire global sync lock to prevent concurrent catalog operations
-            await Plugin.SyncLock.WaitAsync(cancellationToken);
-            try
-            {
-                await RunSyncAsync(cancellationToken, progress);
-            }
-            finally
-            {
-                // Sprint 102A-03: Persist last sync time
-                if (Plugin.Instance?.DatabaseManager != null)
-                {
-                    try
-                    {
-                        await Plugin.Instance.DatabaseManager.PersistMetadataAsync(
-                            "last_sync_time",
-                            DateTimeOffset.UtcNow.ToString("o"),
-                            CancellationToken.None);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to persist last_sync_time");
-                    }
-                }
-                // Sprint 100A-10: Release global sync lock
-                Plugin.SyncLock.Release();
-                Plugin.Pipeline.Clear();
-            }
         }
 
         /// <summary>
