@@ -180,3 +180,4 @@ All fields in `PluginConfiguration.cs` with `[DataMember]` are persisted. Key gr
 | Wizard | `IsFirstRunComplete` |
 
 All numeric fields clamped to safe ranges in `Validate()` (called on deserialization).
+- Setup tab (Sprint 503) consolidates the complete success-state path — providers, libraries, metadata, and quality in one place.
