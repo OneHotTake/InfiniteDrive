@@ -40,3 +40,52 @@
 
 ### Section 5: Default Quality
 - Default Quality Tier (dropdown, 8 options)
+
+## Tab 2: Catalogs & Lists — Detailed Layout (Sprint 504)
+
+### Section 1: AIOStreams System Catalogs
+- Dynamic `GenericItemList` table (reuse existing catalog loading code):
+  **Columns:** Catalog Name | Media Type | Source Manifest (Primary / SecondaryManifestUrl) | Last Synced | Item Count | Status
+- Per-catalog toggle (enable/disable – already exists)
+- Buttons: `Refresh All Catalogs Now` (lightweight) + per-row "Refresh Now"
+- **Catalog Sync Interval (hours)** (bind to existing `CatalogSyncIntervalHours`)
+
+### Section 2: List Provider API Keys
+- **Trakt Client ID**
+- **TMDB API Key**
+  Help text: "Used for all system-wide and user lists. Public RSS feeds work without keys."
+
+### Section 3: System-Wide Lists
+- Dynamic table: Name | Provider (Trakt / MDBList / AniList) | URL | Last Synced | Item Count | Status
+- **Add New List** button (modal: Name + URL; provider auto-detected)
+- Per-row: Edit / Remove / Refresh Now
+
+### Section 4: User Lists
+- Same columns as System-Wide Lists
+- **Max Lists Per User** (new property if not present; default 10)
+  Help text: "Each user list automatically creates a native Emby playlist."
+- Help text: "User lists are managed by individual users via the Discover page. This is a read-only summary for admins."
+
+### Status Banner
+- Green: "Ready — Primary manifest configured"
+- Yellow: "Degraded — Primary manifest unreachable, using backup"
+- Red: "Not Ready — configure required fields"
+- Button: `Run Full Setup Test`
+
+### Section 1: AIOStreams Providers
+- Primary Manifest URL (PrimaryManifestUrl) + Test button
+- Secondary Manifest URL (SecondaryManifestUrl) + Test button
+
+### Section 2: Emby Server
+- External Base URL (EmbyBaseUrl) — must be externally reachable
+
+### Section 3: Library Mappings
+- Movies: name + path
+- Series: name + path
+- Anime: name + path (always enabled)
+
+### Section 4: Metadata Defaults
+- Metadata Language, Certification Country, Default Subtitle Language
+
+### Section 5: Default Quality
+- Default Quality Tier (dropdown, 8 options)

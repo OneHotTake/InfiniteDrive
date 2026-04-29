@@ -25,15 +25,15 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Setup → Libraries → Catalogs → Playback → Health → Advanced
+            // Tab order: Setup → Catalogs & Lists → Libraries → Playback → Health → Advanced
             _tabs.Add(new TabPageController(pid, "Setup", "Setup", () =>
                 new SetupTabView(pid, LoadSetup())));
 
+            _tabs.Add(new TabPageController(pid, "CatalogsAndLists", "Catalogs & Lists", () =>
+                new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
+
             _tabs.Add(new TabPageController(pid, "Libraries", "Libraries", () =>
                 new LibrariesTabView(pid, LoadLibraries())));
-
-            _tabs.Add(new TabPageController(pid, "Catalogs", "Catalogs", () =>
-                new CatalogsTabView(pid, LoadCatalogs())));
 
             _tabs.Add(new TabPageController(pid, "Playback", "Playback", () =>
                 new PlaybackTabView(pid, LoadPlayback())));
@@ -103,6 +103,19 @@ namespace InfiniteDrive.UI.Settings
             };
         }
 
+        private static CatalogsAndListsUI LoadCatalogsAndLists()
+        {
+            var c = Plugin.Instance.Configuration;
+            return new CatalogsAndListsUI
+            {
+                CatalogSyncIntervalHours = c.CatalogSyncIntervalHours,
+                TraktClientId = c.TraktClientId ?? string.Empty,
+                TmdbApiKey = c.TmdbApiKey ?? string.Empty,
+                MaxListsPerUser = c.MaxListsPerUser,
+            };
+        }
+
+        // Deprecated: replaced by CatalogsAndListsUI
         private static CatalogsUI LoadCatalogs()
         {
             var c = Plugin.Instance.Configuration;
