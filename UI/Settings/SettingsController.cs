@@ -25,7 +25,7 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Setup → Catalogs & Lists → Content Controls → Libraries → Playback → Health → Advanced
+            // Tab order: Setup → Catalogs & Lists → Content Controls → Sync & Marvin → Advanced
             _tabs.Add(new TabPageController(pid, "Setup", "Setup", () =>
                 new SetupTabView(pid, LoadSetup())));
 
@@ -35,14 +35,8 @@ namespace InfiniteDrive.UI.Settings
             _tabs.Add(new TabPageController(pid, "ContentControls", "Content Controls", () =>
                 new ContentControlsTabView(pid, LoadContentControls())));
 
-            _tabs.Add(new TabPageController(pid, "Libraries", "Libraries", () =>
-                new LibrariesTabView(pid, LoadLibraries())));
-
-            _tabs.Add(new TabPageController(pid, "Playback", "Playback", () =>
-                new PlaybackTabView(pid, LoadPlayback())));
-
-            _tabs.Add(new TabPageController(pid, "Health", "Health", () =>
-                new HealthTabView(pid, LoadHealth())));
+            _tabs.Add(new TabPageController(pid, "SyncAndMarvin", "Sync & Marvin", () =>
+                new SyncAndMarvinTabView(pid, LoadSyncAndMarvin())));
 
             // Advanced is last — "you don't need this unless you have a reason"
             _tabs.Add(new TabPageController(pid, "Advanced", "Advanced", () =>
@@ -78,34 +72,6 @@ namespace InfiniteDrive.UI.Settings
             };
         }
 
-        internal static ProvidersUI LoadProviders()
-        {
-            var c = Plugin.Instance.Configuration;
-            return new ProvidersUI
-            {
-                PrimaryManifestUrl = c.PrimaryManifestUrl ?? string.Empty,
-                SecondaryManifestUrl = c.SecondaryManifestUrl ?? string.Empty,
-            };
-        }
-
-        private static LibrariesUI LoadLibraries()
-        {
-            var c = Plugin.Instance.Configuration;
-            return new LibrariesUI
-            {
-                SyncPathMovies = c.SyncPathMovies ?? "/media/infinitedrive/movies",
-                SyncPathShows = c.SyncPathShows ?? "/media/infinitedrive/shows",
-                SyncPathAnime = c.SyncPathAnime ?? "/media/infinitedrive/anime",
-                LibraryNameMovies = c.LibraryNameMovies ?? "Streamed Movies",
-                LibraryNameSeries = c.LibraryNameSeries ?? "Streamed Series",
-                LibraryNameAnime = c.LibraryNameAnime ?? "Streamed Anime",
-                EmbyBaseUrl = ResolveEmbyBaseUrl(c.EmbyBaseUrl),
-                MetadataLanguage = c.MetadataLanguage ?? "en",
-                MetadataCertificationCountry = c.MetadataCertificationCountry ?? "US",
-                SubtitleDownloadLanguages = c.SubtitleDownloadLanguages ?? "en",
-            };
-        }
-
         private static CatalogsAndListsUI LoadCatalogsAndLists()
         {
             var c = Plugin.Instance.Configuration;
@@ -128,28 +94,17 @@ namespace InfiniteDrive.UI.Settings
             };
         }
 
-        // Deprecated: replaced by CatalogsAndListsUI
-        private static CatalogsUI LoadCatalogs()
+        private static SyncAndMarvinUI LoadSyncAndMarvin()
         {
             var c = Plugin.Instance.Configuration;
-            return new CatalogsUI
+            return new SyncAndMarvinUI
             {
-                CatalogSyncIntervalHours = c.CatalogSyncIntervalHours,
+                MarvinProcessIntervalMinutes = c.MarvinProcessIntervalMinutes,
+                StreamResolutionBatchSize = c.StreamResolutionBatchSize,
+                MarvinActionsPerHour = c.MarvinActionsPerHour,
+                RespectPlaylistsWhenPruning = c.RespectPlaylistsWhenPruning,
+                AutoDeduplicatePhysicalMedia = c.AutoDeduplicatePhysicalMedia,
             };
-        }
-
-        private static PlaybackUI LoadPlayback()
-        {
-            var c = Plugin.Instance.Configuration;
-            return new PlaybackUI
-            {
-                EnablePreCache = c.EnablePreCache,
-            };
-        }
-
-        private static HealthUI LoadHealth()
-        {
-            return new HealthUI();
         }
 
         internal static AdvancedUI LoadAdvanced()
@@ -157,52 +112,9 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new AdvancedUI
             {
-                SkipFutureEpisodes = c.SkipFutureEpisodes,
-                ApiDailyBudget = c.ApiDailyBudget,
-                CacheLifetimeMinutes = c.CacheLifetimeMinutes,
-                SignatureValidityDays = c.SignatureValidityDays,
-                PluginSecret = c.PluginSecret ?? string.Empty,
-                DefaultSeriesSeasons = c.DefaultSeriesSeasons,
-                DefaultSeriesEpisodesPerSeason = c.DefaultSeriesEpisodesPerSeason,
-                DontPanic = c.DontPanic,
-                MaxConcurrentProxyStreams = c.MaxConcurrentProxyStreams,
+                PluginLogLevel = c.PluginLogLevel ?? "Info",
+                CacheRefreshIntervalDays = c.CacheRefreshIntervalDays,
             };
-        }
-
-        // ── Save ─────────────────────────────────────────────────────────────
-
-        internal static void SaveProviders(ProvidersUI ui, PluginConfiguration c)
-        {
-            c.PrimaryManifestUrl = ui.PrimaryManifestUrl ?? string.Empty;
-            c.SecondaryManifestUrl = ui.SecondaryManifestUrl ?? string.Empty;
-            // EnableBackup is implicit: if SecondaryManifestUrl is non-empty, it's enabled
-            c.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(ui.SecondaryManifestUrl);
-        }
-
-        internal static void SaveLibraries(LibrariesUI ui, PluginConfiguration c)
-        {
-            c.SyncPathMovies = ui.SyncPathMovies ?? string.Empty;
-            c.SyncPathShows = ui.SyncPathShows ?? string.Empty;
-            c.SyncPathAnime = ui.SyncPathAnime ?? string.Empty;
-            c.LibraryNameMovies = ui.LibraryNameMovies ?? string.Empty;
-            c.LibraryNameSeries = ui.LibraryNameSeries ?? string.Empty;
-            c.LibraryNameAnime = ui.LibraryNameAnime ?? string.Empty;
-            c.EmbyBaseUrl = ui.EmbyBaseUrl ?? string.Empty;
-            c.MetadataLanguage = ui.MetadataLanguage ?? "en";
-            c.MetadataCertificationCountry = ui.MetadataCertificationCountry ?? "US";
-            c.SubtitleDownloadLanguages = ui.SubtitleDownloadLanguages ?? "en";
-        }
-
-        internal static void SaveCatalogs(CatalogsUI ui, PluginConfiguration c)
-        {
-            c.CatalogSyncIntervalHours = ui.CatalogSyncIntervalHours;
-        }
-
-        internal static void SavePlayback(PlaybackUI ui, PluginConfiguration c)
-        {
-            // Playback tab is intentionally minimal — only EnablePreCache is user-facing.
-            // CacheLifetimeMinutes, ApiDailyBudget, etc. live in Advanced.
-            c.EnablePreCache = ui.EnablePreCache;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
