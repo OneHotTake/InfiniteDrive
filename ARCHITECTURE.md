@@ -22,3 +22,10 @@
 
 ## State Machine
 See MARVIN_STATE_MACHINE.md for full details.
+
+## Settings UI (Native PluginUI)
+- **Tab 1: Setup** (Sprint 503) — AIOStreams providers, Emby server, library mappings, metadata defaults, quality
+- **Tab 2: Catalogs & Lists** (Sprint 504) — AIOStreams system catalogs, list provider API keys (Trakt/TMDB), system-wide lists, user lists summary
+- Consolidates existing CatalogsUI.cs + new admin list management
+- Uses GenericItemList pattern for dynamic tables
+- Marvin-on-save hook triggers full Marvin run after any save (Sprint 502)
