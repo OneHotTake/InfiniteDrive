@@ -146,5 +146,10 @@ namespace InfiniteDrive.UI.Settings
 
         public SpacerItem Spacer8 { get; set; } = new SpacerItem();
         public StatusItem SetupTestResult { get; set; } = new StatusItem("Test Result", "", ItemStatus.None);
+
+        // ── Footer ────────────────────────────────────────────────────────────
+
+        public SpacerItem FooterSpacer { get; set; } = new SpacerItem();
+        public LabelItem Footer { get; set; } = new LabelItem("*Don't Panic* — Marvin is on the case.");
     }
 }

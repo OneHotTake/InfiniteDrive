@@ -1,6 +1,7 @@
 using System;
-using System.Security.Cryptography;
+using System.Collections.Generic;
 using System.Threading.Tasks;
+using Emby.Web.GenericEdit.Elements;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
 using Microsoft.Extensions.Logging;
@@ -18,57 +19,234 @@ namespace InfiniteDrive.UI.Settings
 
         public override bool IsCommandAllowed(string commandKey) => true;
 
-        public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
+        public override async Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
         {
-            Save(UI);
-            return base.OnSaveCommand(itemId, commandId, data);
-        }
+            var cmd = commandId;
+            if (string.IsNullOrEmpty(cmd) && !string.IsNullOrEmpty(data))
+                cmd = data.Split(':')[0];
 
-        public override Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
-        {
-            var effective = commandId;
-            if (string.IsNullOrEmpty(effective) && !string.IsNullOrEmpty(data))
-                effective = data.Split(':')[0];
-
-            if (effective == AdvancedUI.RotateSecretCommand)
+            switch (cmd)
             {
-                try
-                {
-                    var newSecret = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
-                    UI.PluginSecret = newSecret;
-                    var cfg = Plugin.Instance.Configuration;
-                    cfg.PluginSecret = newSecret;
-                    cfg.PluginSecretRotatedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-                    Plugin.Instance.SaveConfiguration();
-                    Plugin.Instance.Logger.LogInformation("[Advanced] Plugin secret rotated");
-                    RaiseUIViewInfoChanged();
-                }
-                catch (Exception ex)
-                {
-                    Plugin.Instance.Logger.LogWarning(ex, "[Advanced] Secret rotation failed");
-                }
+                case AdvancedUI.ClearCacheCommand:
+                    await ClearCacheAsync();
+                    return this;
 
-                return Task.FromResult<IPluginUIView>(this);
+                case AdvancedUI.ResetAllDataCommand:
+                    await ResetAllDataAsync();
+                    return this;
+
+                case AdvancedUI.RebuildLibrariesCommand:
+                    await RebuildLibrariesAsync();
+                    return this;
+
+                case AdvancedUI.ResetFactoryDefaultsCommand:
+                    await ResetFactoryDefaultsAsync();
+                    return this;
             }
 
-            return base.RunCommand(itemId, commandId, data);
+            return await base.RunCommand(itemId, commandId, data);
         }
 
-        internal static void Save(AdvancedUI ui)
+        // ═══════════════════════════════════════════════════════════════
+        // Commands
+        // ═══════════════════════════════════════════════════════════════
+
+        private async Task ClearCacheAsync()
+        {
+            UI.CacheStatus.StatusText = "Clearing cache...";
+            UI.CacheStatus.Status = ItemStatus.InProgress;
+            RaiseUIViewInfoChanged();
+
+            try
+            {
+                var db = Plugin.Instance.DatabaseManager;
+                await db.ClearResolutionCacheAsync();
+                await db.VacuumAsync();
+
+                UI.CacheStatus.StatusText = "Cache cleared and database vacuumed";
+                UI.CacheStatus.Status = ItemStatus.Succeeded;
+                Plugin.Instance.Logger.LogInformation("[Advanced] Resolution cache cleared");
+            }
+            catch (Exception ex)
+            {
+                UI.CacheStatus.StatusText = $"Failed: {ex.Message}";
+                UI.CacheStatus.Status = ItemStatus.Failed;
+                Plugin.Instance.Logger.LogWarning(ex, "[Advanced] Cache clear failed");
+            }
+
+            RaiseUIViewInfoChanged();
+        }
+
+        private async Task ResetAllDataAsync()
+        {
+            UI.MaintenanceStatus.StatusText = "Resetting all data...";
+            UI.MaintenanceStatus.Status = ItemStatus.InProgress;
+            RaiseUIViewInfoChanged();
+
+            try
+            {
+                var db = Plugin.Instance.DatabaseManager;
+                var paths = await db.ResetAllAsync();
+
+                UI.MaintenanceStatus.StatusText = $"All data reset — {paths.Count} path(s) cleaned";
+                UI.MaintenanceStatus.Status = ItemStatus.Succeeded;
+                Plugin.Instance.Logger.LogInformation("[Advanced] All data reset");
+            }
+            catch (Exception ex)
+            {
+                UI.MaintenanceStatus.StatusText = $"Failed: {ex.Message}";
+                UI.MaintenanceStatus.Status = ItemStatus.Failed;
+                Plugin.Instance.Logger.LogWarning(ex, "[Advanced] Reset all data failed");
+            }
+
+            RaiseUIViewInfoChanged();
+        }
+
+        private Task RebuildLibrariesAsync()
+        {
+            UI.MaintenanceStatus.StatusText = "Rebuild triggered — full catalog sync will run";
+            UI.MaintenanceStatus.Status = ItemStatus.InProgress;
+            RaiseUIViewInfoChanged();
+
+            try
+            {
+                Plugin.Instance.TriggerBackgroundSync();
+                UI.MaintenanceStatus.StatusText = "Rebuild triggered — refresh page to see updates";
+                UI.MaintenanceStatus.Status = ItemStatus.Succeeded;
+            }
+            catch (Exception ex)
+            {
+                UI.MaintenanceStatus.StatusText = $"Failed: {ex.Message}";
+                UI.MaintenanceStatus.Status = ItemStatus.Failed;
+            }
+
+            RaiseUIViewInfoChanged();
+            return Task.CompletedTask;
+        }
+
+        private Task ResetFactoryDefaultsAsync()
+        {
+            UI.MaintenanceStatus.StatusText = "Factory reset — restarting plugin...";
+            UI.MaintenanceStatus.Status = ItemStatus.Warning;
+            RaiseUIViewInfoChanged();
+
+            try
+            {
+                var cfg = Plugin.Instance.Configuration;
+                cfg.PrimaryManifestUrl = string.Empty;
+                cfg.SecondaryManifestUrl = string.Empty;
+                cfg.EnableBackupAioStreams = false;
+                cfg.EnableAioStreamsCatalog = true;
+                cfg.AioStreamsCatalogIds = string.Empty;
+                cfg.AioStreamsAcceptedStreamTypes = "debrid";
+                cfg.EmbyBaseUrl = "http://127.0.0.1:8096";
+                cfg.EmbyApiKey = string.Empty;
+                cfg.LibraryRootMovies = "/media/infinitedrive/movies";
+                cfg.SyncPathMovies = "/media/infinitedrive/movies";
+                cfg.SyncPathShows = "/media/infinitedrive/shows";
+                cfg.SyncPathAnime = "/media/infinitedrive/anime";
+                cfg.LibraryNameMovies = "Streamed Movies";
+                cfg.LibraryNameSeries = "Streamed Series";
+                cfg.LibraryNameAnime = "Streamed Anime";
+                cfg.SignatureValidityDays = 365;
+                cfg.MetadataLanguage = "en";
+                cfg.MetadataCertificationCountry = "US";
+                cfg.DontPanic = false;
+                cfg.ImageLanguage = "en";
+                cfg.SubtitleDownloadLanguages = "en";
+                cfg.SkipFutureEpisodes = true;
+                cfg.FutureEpisodeBufferDays = 2;
+                cfg.DefaultSeriesSeasons = 1;
+                cfg.DefaultSeriesEpisodesPerSeason = 10;
+                cfg.CacheLifetimeMinutes = 360;
+                cfg.ApiDailyBudget = 2000;
+                cfg.MaxConcurrentResolutions = 3;
+                cfg.CatalogItemCap = 500;
+                cfg.CatalogItemLimitsJson = string.Empty;
+                cfg.CatalogSyncIntervalHours = 1;
+                cfg.ProxyMode = "auto";
+                cfg.UseRequiresOpening = true;
+                cfg.MaxConcurrentProxyStreams = 5;
+                cfg.EnablePreCache = true;
+                cfg.PreCacheBatchSize = 42;
+                cfg.PreCacheIntervalHours = 6;
+                cfg.PreCacheTTLDays = 14;
+                cfg.InMemoryCacheTtlMinutes = 360;
+                cfg.PluginSecret = string.Empty;
+                cfg.PluginSecretRotatedAt = 0;
+                cfg.ProviderPriorityOrder = "realdebrid,torbox,alldebrid,debridlink,premiumize,stremthru,usenet,http";
+                cfg.CandidatesPerProvider = 3;
+                cfg.MaxCuratedStreams = 7;
+                cfg.StreamBucketsJson = @"[{""resTier"":0,""srcMax"":0,""maxCount"":2},{""resTier"":0,""srcMax"":1,""maxCount"":1},{""resTier"":0,""srcMax"":2,""maxCount"":1},{""resTier"":1,""srcMax"":0,""maxCount"":1},{""resTier"":1,""srcMax"":1,""maxCount"":2},{""resTier"":2,""srcMax"":1,""maxCount"":1}]";
+                cfg.DirectPlayEnabled = true;
+                cfg.VersionLabelPrefix = "InfiniteDrive · ";
+                cfg.SyncResolveTimeoutSeconds = 30;
+                cfg.AioStreamsDiscoveredTimeoutSeconds = 0;
+                cfg.AioStreamsDiscoveredName = string.Empty;
+                cfg.AioStreamsDiscoveredVersion = string.Empty;
+                cfg.AioStreamsIsStreamOnly = false;
+                cfg.AioStreamsStreamIdPrefixes = string.Empty;
+                cfg.EnableCinemetaDefault = false;
+                cfg.CandidateTtlHours = 6;
+                cfg.DefaultSlotKey = "hd_broad";
+                cfg.PendingRehydrationOperations = new List<string>();
+                cfg.NextUpLookaheadEpisodes = 2;
+                cfg.SyncScheduleHour = 3;
+                cfg.DeleteStrmOnReadoption = true;
+                cfg.AioMetadataBaseUrl = string.Empty;
+                cfg.MetadataIdTypeCensus = "{}";
+                cfg.MetadataEnabledIdTypes = "[]";
+                cfg.SystemRssFeedUrls = string.Empty;
+                cfg.DisabledSourceKeysJson = string.Empty;
+                cfg.IsFirstRunComplete = false;
+                cfg.TmdbApiKey = string.Empty;
+                cfg.BlockUnratedForRestricted = true;
+                cfg.TraktClientId = string.Empty;
+                cfg.UserCatalogLimit = 5;
+                cfg.MoviesLibraryName = "InfiniteDrive Movies";
+                cfg.MoviesLibraryPath = "";
+                cfg.SeriesLibraryName = "InfiniteDrive Series";
+                cfg.SeriesLibraryPath = "";
+                cfg.AnimeLibraryName = "InfiniteDrive Anime";
+                cfg.AnimeLibraryPath = "";
+                cfg.CertificationCountry = "US";
+                cfg.DefaultSubtitleLanguage = "en";
+                cfg.DefaultQualityTier = "1080p (any)";
+                cfg.HideUnratedContent = false;
+                cfg.MaxListsPerUser = 10;
+                cfg.MarvinProcessIntervalMinutes = 10;
+                cfg.StreamResolutionBatchSize = 42;
+                cfg.MarvinActionsPerHour = 360;
+                cfg.PluginLogLevel = "Info";
+                cfg.CacheRefreshIntervalDays = 30;
+                cfg.RespectPlaylistsWhenPruning = true;
+                cfg.AutoDeduplicatePhysicalMedia = true;
+                Plugin.Instance.SaveConfiguration();
+                Plugin.Instance.Logger.LogInformation("[Advanced] Factory defaults restored");
+            }
+            catch (Exception ex)
+            {
+                UI.MaintenanceStatus.StatusText = $"Failed: {ex.Message}";
+                UI.MaintenanceStatus.Status = ItemStatus.Failed;
+                Plugin.Instance.Logger.LogWarning(ex, "[Advanced] Factory reset failed");
+            }
+
+            RaiseUIViewInfoChanged();
+            return Task.CompletedTask;
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Save
+        // ═══════════════════════════════════════════════════════════════
+
+        public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
         {
             var cfg = Plugin.Instance.Configuration;
-            cfg.SkipFutureEpisodes = ui.SkipFutureEpisodes;
-            cfg.ApiDailyBudget = ui.ApiDailyBudget;
-            cfg.CacheLifetimeMinutes = ui.CacheLifetimeMinutes;
-            cfg.SignatureValidityDays = ui.SignatureValidityDays;
-            cfg.PluginSecret = ui.PluginSecret ?? string.Empty;
-            cfg.DefaultSeriesSeasons = ui.DefaultSeriesSeasons;
-            cfg.DefaultSeriesEpisodesPerSeason = ui.DefaultSeriesEpisodesPerSeason;
-            cfg.DontPanic = ui.DontPanic;
-            cfg.MaxConcurrentProxyStreams = ui.MaxConcurrentProxyStreams;
+            cfg.PluginLogLevel = UI.PluginLogLevel ?? "Info";
+            cfg.CacheRefreshIntervalDays = UI.CacheRefreshIntervalDays;
             Plugin.Instance.SaveConfiguration();
-            // GLOBAL RULE (Sprint 502): After ANY settings change on ANY tab, immediately summon Marvin.
             Plugin.Instance.TriggerBackgroundSync();
+            return base.OnSaveCommand(itemId, commandId, data);
         }
     }
 }

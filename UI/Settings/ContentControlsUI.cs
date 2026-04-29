@@ -61,5 +61,10 @@ namespace InfiniteDrive.UI.Settings
         };
 
         public StatusItem BlockListStatus { get; set; } = new StatusItem("Block List", "Idle", ItemStatus.None);
+
+        // ── Footer ────────────────────────────────────────────────────────────
+
+        public SpacerItem FooterSpacer { get; set; } = new SpacerItem();
+        public LabelItem Footer { get; set; } = new LabelItem("*Don't Panic* — Marvin is on the case.");
     }
 }

@@ -844,6 +844,14 @@ namespace InfiniteDrive
         [DataMember]
         public int MarvinActionsPerHour { get; set; } = 360;
 
+        /// <summary>When true, respect user playlists and self-managed collections when pruning. Default: true.</summary>
+        [DataMember]
+        public bool RespectPlaylistsWhenPruning { get; set; } = true;
+
+        /// <summary>When true, auto-deduplicate against physical media in other libraries. Default: true.</summary>
+        [DataMember]
+        public bool AutoDeduplicatePhysicalMedia { get; set; } = true;
+
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  ADVANCED TAB (Sprint 502)                                           ║
         // ╚══════════════════════════════════════════════════════════════════════╝

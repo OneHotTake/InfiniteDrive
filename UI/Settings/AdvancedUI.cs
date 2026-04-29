@@ -5,89 +5,84 @@ using MediaBrowser.Model.Attributes;
 
 namespace InfiniteDrive.UI.Settings
 {
-    /// <summary>
-    /// Merged advanced settings: language, rate limits, security, series fallbacks, edge cases.
-    /// Description intentionally says "you don't need to touch this."
-    /// </summary>
     public class AdvancedUI : EditableOptionsBase
     {
-        public const string RotateSecretCommand = nameof(RotateSecretCommand);
+        public const string ShowAdvancedCommand = nameof(ShowAdvancedCommand);
+        public const string ClearCacheCommand = nameof(ClearCacheCommand);
+        public const string ResetAllDataCommand = nameof(ResetAllDataCommand);
+        public const string RebuildLibrariesCommand = nameof(RebuildLibrariesCommand);
+        public const string ResetFactoryDefaultsCommand = nameof(ResetFactoryDefaultsCommand);
 
         public override string EditorTitle => "Advanced";
         public override string EditorDescription =>
-            "These settings have sensible defaults. You don't need to change them unless you have a specific reason.";
+            "Power-user and maintenance options. You don't need to touch this unless you have a specific reason. " +
+            "*Don't Panic* — Marvin is on the case.";
 
-        // ── Skip / Filters ──────────────────────────────────────────────────
+        // ── Toggle ──────────────────────────────────────────────────────────────
 
-        [DisplayName("Skip Unaired Episodes")]
-        [Description("Don't write .strm files for episodes that haven't aired yet.")]
-        public bool SkipFutureEpisodes { get; set; } = true;
+        [DisplayName("Show advanced settings")]
+        [Description("Enable to reveal logging, cache, and maintenance options below.")]
+        public bool ShowAdvanced { get; set; } = false;
 
-        // ── Rate Limits ───────────────────────────────────────────────────────
+        // ── Section 1: Logging & Debugging ──────────────────────────────────────
 
-        public SpacerItem Spacer1 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionRateLimits { get; set; } = new CaptionItem("Rate Limits");
+        public CaptionItem CaptionLogging { get; set; } = new CaptionItem("Logging & Debugging");
 
-        [DisplayName("API Daily Budget")]
-        [Description("Maximum AIOStreams API calls per day. Default: 2000.")]
-        public int ApiDailyBudget { get; set; } = 2000;
+        [DisplayName("Log Level")]
+        [Description("Minimum log verbosity level for InfiniteDrive. Default: Info.")]
+        public string PluginLogLevel { get; set; } = "Info";
 
-        [DisplayName("Stream Cache Lifetime (minutes)")]
-        [Description("How long a resolved CDN URL is valid before re-checking. Default: 360.")]
-        public int CacheLifetimeMinutes { get; set; } = 360;
-
-        // ── Security ─────────────────────────────────────────────────────────
-
-        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionSecurity { get; set; } = new CaptionItem("Security");
-
-        public LabelItem SecurityInfo { get; set; } = new LabelItem(
-            "The plugin signs .strm URLs with an HMAC-SHA256 secret — auto-generated on first run. " +
-            "Rotating it invalidates all existing .strm files; a sync will regenerate them.");
-
-        [DisplayName("Signature Validity (days)")]
-        [Description("Days signed .strm URLs remain valid before expiring. Default: 365.")]
-        public int SignatureValidityDays { get; set; } = 365;
-
-        [DisplayName("Plugin Secret")]
-        [Description("Auto-generated signing secret. Do not share this value.")]
-        [IsPassword]
-        public string PluginSecret { get; set; } = string.Empty;
-
-        public ButtonItem RotateSecretButton { get; set; } = new ButtonItem("Rotate Secret")
+        public ButtonItem ClearCacheButton { get; set; } = new ButtonItem("Clear All Caches")
         {
-            Icon = IconNames.vpn_key,
-            Data1 = RotateSecretCommand,
-            ConfirmationPrompt = "Rotating the secret invalidates all existing .strm files. The next catalog sync will regenerate them. Continue?"
+            Icon = IconNames.delete_sweep,
+            Data1 = ClearCacheCommand,
+            ConfirmationPrompt = "Clear the resolution cache and vacuum the database?",
         };
 
-        // ── Series Fallback Defaults ──────────────────────────────────────────
+        public StatusItem CacheStatus { get; set; } = new StatusItem("Cache", "Idle", ItemStatus.None);
 
-        public SpacerItem Spacer3 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionSeriesDefaults { get; set; } = new CaptionItem("Series Fallback Defaults");
+        // ── Section 2: Cache Settings ───────────────────────────────────────────
 
-        public LabelItem SeriesDefaultsInfo { get; set; } = new LabelItem(
-            "Used only when AIOStreams returns incomplete series metadata (rare).");
+        public SpacerItem Spacer1 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionCache { get; set; } = new CaptionItem("Cache Settings");
 
-        [DisplayName("Default Seasons")]
-        [Description("Seasons to write when metadata is unavailable. Default: 1.")]
-        public int DefaultSeriesSeasons { get; set; } = 1;
+        [DisplayName("Cache Refresh Interval (days)")]
+        [Description(
+            "Marvin will automatically refresh the full stream URLs stored in the SQLite database after this many days. " +
+            "Enable proxy mode on your AIOStreams instance (highly recommended) for best results.")]
+        public int CacheRefreshIntervalDays { get; set; } = 30;
 
-        [DisplayName("Default Episodes Per Season")]
-        [Description("Episodes per season when metadata is unavailable. Default: 10.")]
-        public int DefaultSeriesEpisodesPerSeason { get; set; } = 10;
+        // ── Section 3: Maintenance & Reset ──────────────────────────────────────
 
-        // ── Other ─────────────────────────────────────────────────────────────
+        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionMaintenance { get; set; } = new CaptionItem("Maintenance & Reset");
 
-        public SpacerItem Spacer4 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionOther { get; set; } = new CaptionItem("Other");
+        public ButtonItem ResetAllDataButton { get; set; } = new ButtonItem("Reset All InfiniteDrive Data")
+        {
+            Icon = IconNames.warning,
+            Data1 = ResetAllDataCommand,
+            ConfirmationPrompt = "WARNING: This will delete all catalog items, stream candidates, and cached data. Your .strm files will also be removed. This cannot be undone. Continue?",
+        };
 
-        [DisplayName("Suppress Outage Banners")]
-        [Description("Hide timeout/outage UI banners during provider downtime.")]
-        public bool DontPanic { get; set; } = false;
+        public ButtonItem RebuildLibrariesButton { get; set; } = new ButtonItem("Rebuild Libraries from Scratch")
+        {
+            Icon = IconNames.refresh,
+            Data1 = RebuildLibrariesCommand,
+            ConfirmationPrompt = "Rebuild all libraries from scratch? This will clear existing data and trigger a full catalog sync.",
+        };
 
-        [DisplayName("Max Proxy Streams")]
-        [Description("Max simultaneous proxied streams before redirecting. Default: 5.")]
-        public int MaxConcurrentProxyStreams { get; set; } = 5;
+        public ButtonItem ResetFactoryDefaultsButton { get; set; } = new ButtonItem("Reset to Factory Defaults")
+        {
+            Icon = IconNames.restore,
+            Data1 = ResetFactoryDefaultsCommand,
+            ConfirmationPrompt = "Reset all InfiniteDrive settings to factory defaults? This will clear all configuration and data. This cannot be undone. Continue?",
+        };
+
+        public StatusItem MaintenanceStatus { get; set; } = new StatusItem("Maintenance", "Idle", ItemStatus.None);
+
+        // ── Footer ────────────────────────────────────────────────────────────
+
+        public SpacerItem FooterSpacer { get; set; } = new SpacerItem();
+        public LabelItem Footer { get; set; } = new LabelItem("*Don't Panic* — Marvin is on the case.");
     }
 }
