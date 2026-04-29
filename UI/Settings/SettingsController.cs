@@ -25,7 +25,10 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Libraries → Catalogs → Playback → Quality → Health → Advanced
+            // Tab order: Setup → Libraries → Catalogs → Playback → Health → Advanced
+            _tabs.Add(new TabPageController(pid, "Setup", "Setup", () =>
+                new SetupTabView(pid, LoadSetup())));
+
             _tabs.Add(new TabPageController(pid, "Libraries", "Libraries", () =>
                 new LibrariesTabView(pid, LoadLibraries())));
 
@@ -47,9 +50,30 @@ namespace InfiniteDrive.UI.Settings
         public IReadOnlyList<IPluginUIPageController> TabPageControllers => _tabs.AsReadOnly();
 
         public override Task<IPluginUIView> CreateDefaultPageView()
-            => Task.FromResult<IPluginUIView>(new ProvidersTabView(PluginId, LoadProviders()));
+            => Task.FromResult<IPluginUIView>(new SetupTabView(PluginId, LoadSetup()));
 
         // ── Load ─────────────────────────────────────────────────────────────
+
+        internal static SetupUI LoadSetup()
+        {
+            var c = Plugin.Instance.Configuration;
+            return new SetupUI
+            {
+                PrimaryManifestUrl = c.PrimaryManifestUrl ?? string.Empty,
+                SecondaryManifestUrl = c.SecondaryManifestUrl ?? string.Empty,
+                EmbyBaseUrl = ResolveEmbyBaseUrl(c.EmbyBaseUrl),
+                MoviesLibraryName = c.MoviesLibraryName ?? "InfiniteDrive Movies",
+                MoviesLibraryPath = c.MoviesLibraryPath ?? string.Empty,
+                SeriesLibraryName = c.SeriesLibraryName ?? "InfiniteDrive Series",
+                SeriesLibraryPath = c.SeriesLibraryPath ?? string.Empty,
+                AnimeLibraryName = c.AnimeLibraryName ?? "InfiniteDrive Anime",
+                AnimeLibraryPath = c.AnimeLibraryPath ?? string.Empty,
+                MetadataLanguage = c.MetadataLanguage ?? "en",
+                CertificationCountry = c.CertificationCountry ?? "US",
+                DefaultSubtitleLanguage = c.DefaultSubtitleLanguage ?? "en",
+                DefaultQualityTier = c.DefaultQualityTier ?? "1080p (any)",
+            };
+        }
 
         internal static ProvidersUI LoadProviders()
         {
