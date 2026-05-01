@@ -186,5 +186,12 @@ namespace InfiniteDrive.Models
         /// Null if never verified.
         /// </summary>
         public long? LastVerifiedAt { get; set; }
+
+        /// <summary>
+        /// The manifest URL that originally provided this item (primary or secondary).
+        /// Used to route episode expansion queries to the correct AIOStreams instance.
+        /// Null for items migrated before this field was added.
+        /// </summary>
+        public string? SourceManifestUrl { get; set; }
     }
 }

@@ -238,20 +238,6 @@ namespace InfiniteDrive
         [DataMember]
         public int FutureEpisodeBufferDays { get; set; } = 2;
 
-        /// <summary>
-        /// Default number of seasons to write when series metadata is unavailable.
-        /// Default: 1.
-        /// </summary>
-        [DataMember]
-        public int DefaultSeriesSeasons { get; set; } = 1;
-
-        /// <summary>
-        /// Default number of episodes per season to write when series metadata is unavailable.
-        /// Default: 10.
-        /// </summary>
-        [DataMember]
-        public int DefaultSeriesEpisodesPerSeason { get; set; } = 24;
-
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  CACHE & RESOLUTION                                                  ║
         // ╚══════════════════════════════════════════════════════════════════════╝
