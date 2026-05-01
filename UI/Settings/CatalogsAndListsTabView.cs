@@ -276,14 +276,52 @@ namespace InfiniteDrive.UI.Settings
             }
         }
 
-        private Task AddSystemListAsync()
+        private async Task AddSystemListAsync()
         {
-            // For MVP, show a status message saying "Use API to add system lists"
-            // Full implementation would require a modal dialog input
-            UI.SystemListStatus.StatusText = "Add via API: POST /InfiniteDrive/Admin/Lists/Add";
-            UI.SystemListStatus.Status = ItemStatus.Warning;
-            RaiseUIViewInfoChanged();
-            return Task.CompletedTask;
+            var url = UI.SystemListUrlInput?.Trim();
+            var name = UI.SystemListNameInput?.Trim();
+
+            if (string.IsNullOrEmpty(url))
+            {
+                UI.SystemListStatus.StatusText = "Enter a list URL above, then click Add New System List.";
+                UI.SystemListStatus.Status = ItemStatus.Warning;
+                RaiseUIViewInfoChanged();
+                return;
+            }
+
+            try
+            {
+                // Detect service from URL
+                var service = "unknown";
+                if (url.Contains("trakt.tv", StringComparison.OrdinalIgnoreCase))
+                    service = "trakt";
+                else if (url.Contains("themoviedb.org", StringComparison.OrdinalIgnoreCase) ||
+                         url.Contains("tmdb.org", StringComparison.OrdinalIgnoreCase))
+                    service = "tmdb";
+
+                if (string.IsNullOrEmpty(name))
+                    name = url.Split('?')[0].Split('/').LastOrDefault() ?? "System List";
+
+                var db = Plugin.Instance.DatabaseManager;
+                await db.CreateUserCatalogAsync("SERVER", service, url, name).ConfigureAwait(false);
+
+                Plugin.Instance.Logger.LogInformation(
+                    "[CatalogsAndListsUI] Added system list: {Name} ({Url})", name, url);
+
+                UI.SystemListUrlInput = string.Empty;
+                UI.SystemListNameInput = string.Empty;
+                UI.SystemListStatus.StatusText = $"Added: {name}";
+                UI.SystemListStatus.Status = ItemStatus.Succeeded;
+
+                await LoadSystemListsAsync();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.LogWarning(ex, "[CatalogsAndListsUI] Failed to add system list");
+                UI.SystemListStatus.StatusText = $"Failed: {ex.Message}";
+                UI.SystemListStatus.Status = ItemStatus.Failed;
+                RaiseUIViewInfoChanged();
+            }
         }
 
         private async Task RemoveSystemListAsync(string catalogId)

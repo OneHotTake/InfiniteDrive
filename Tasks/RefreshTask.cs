@@ -230,6 +230,23 @@ namespace InfiniteDrive.Tasks
                 }
             }
 
+            // Also re-collect series items that have .strm files but episodes never expanded
+            var seriesNeedingExpansion = existingItems
+                .Where(i => (i.MediaType == "series" || i.MediaType == "anime")
+                         && i.EpisodesExpanded != true
+                         && !string.IsNullOrEmpty(i.ImdbId))
+                .ToList();
+
+            if (seriesNeedingExpansion.Count > 0)
+            {
+                _logger.LogInformation("[InfiniteDrive] Found {Count} series items needing episode expansion", seriesNeedingExpansion.Count);
+                foreach (var item in seriesNeedingExpansion)
+                {
+                    if (!newItems.Any(i => i.Id == item.Id))
+                        newItems.Add(item);
+                }
+            }
+
             // Diff: identify new and changed items from manifest
             foreach (var catalogItem in catalogItems)
             {
@@ -402,7 +419,7 @@ namespace InfiniteDrive.Tasks
 
                 if (isSeries && client.IsConfigured && !string.IsNullOrEmpty(item.ImdbId))
                 {
-                    // Sprint 370: Try one-pass sync from AIOStreams meta endpoint first
+                    // Fetch real episode list from metadata providers
                     var aioVideos = await FetchAioVideosAsync(item.ImdbId, item.MediaType, client, cancellationToken);
                     if (aioVideos != null && aioVideos.Count > 0)
                     {
@@ -410,7 +427,7 @@ namespace InfiniteDrive.Tasks
                         item.VideosJson = EpisodeDiffService.SerializeForStorage(aioVideos);
 
                         _logger.LogInformation(
-                            "[InfiniteDrive] Writing episodes from AIOStreams meta: {ImdbId} ({Title})",
+                            "[InfiniteDrive] Writing episodes from metadata: {ImdbId} ({Title})",
                             item.ImdbId, item.Title);
 
                         var strm = Plugin.Instance?.StrmWriterService;
@@ -427,20 +444,19 @@ namespace InfiniteDrive.Tasks
                                 item.UpdatedAt = DateTime.UtcNow.ToString("o");
                                 await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                                 _logger.LogInformation(
-                                    "[InfiniteDrive] One-pass sync complete for {ImdbId} ({Title}) - {Count} episodes written",
+                                    "[InfiniteDrive] Episode expansion complete for {ImdbId} ({Title}) - {Count} episodes",
                                     item.ImdbId, item.Title, episodesWritten);
                                 written++;
                                 continue;
                             }
                         }
-                        // Fall through to single-strm write if VideosJson write fails
                     }
                 }
 
                 if (isSeries)
                 {
                     _logger.LogDebug(
-                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no VideosJson, writing single .strm fallback",
+                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no episode metadata, writing S01E01 seed",
                         item.ImdbId, item.Title);
                 }
 
@@ -904,53 +920,104 @@ namespace InfiniteDrive.Tasks
         }
 
         /// <summary>
-        /// Fetches Videos[] from AIOStreams meta endpoint for one-pass series episode sync.
-        /// Sprint 370: One-pass series episode sync from AIOStreams.
-        /// Returns null on failure or if no videos found.
+        /// Fetches episode lists from metadata providers.
+        /// Tries AIOStreams first, then falls back to Cinemeta (for IMDB IDs)
+        /// or Kitsu/AniList APIs (for anime IDs).
+        /// Only returns episodes that actually exist — no guessing.
         /// </summary>
         private async Task<List<Services.StremioVideo>?> FetchAioVideosAsync(
             string imdbId, string mediaType, AioStreamsClient client, CancellationToken cancellationToken)
         {
+            // Try AIOStreams meta first
             try
             {
                 var metaResponse = await client.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
-                if (metaResponse?.Meta?.Videos == null || metaResponse.Meta.Videos.Count == 0)
+                if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                 {
-                    _logger.LogDebug("[InfiniteDrive] No Videos[] found in AIOStreams meta for {ImdbId}", imdbId);
-                    return null;
-                }
-
-                // Convert AioVideo[] to StremioVideo[]
-                var videos = new List<Services.StremioVideo>();
-                foreach (var aioVideo in metaResponse.Meta.Videos)
-                {
-                    if (aioVideo.Season.HasValue && aioVideo.Episode.HasValue)
+                    var videos = ConvertAioVideos(metaResponse.Meta.Videos);
+                    if (videos.Count > 0)
                     {
-                        videos.Add(new Services.StremioVideo
-                        {
-                            Id = aioVideo.Id ?? $"{aioVideo.Season}-{aioVideo.Episode}",
-                            Name = aioVideo.Title,
-                            Season = aioVideo.Season,
-                            Episode = aioVideo.Episode,
-                            Number = aioVideo.Episode,
-                            Released = ParseAioVideoReleased(aioVideo.Released)
-                        });
+                        _logger.LogInformation(
+                            "[InfiniteDrive] Fetched {Count} episodes from AIOStreams meta for {Id}",
+                            videos.Count, imdbId);
+                        return videos;
                     }
                 }
-
-                _logger.LogInformation(
-                    "[InfiniteDrive] Fetched {Count} episodes from AIOStreams meta for {ImdbId}",
-                    videos.Count, imdbId);
-
-                return videos;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex,
-                    "[InfiniteDrive] Failed to fetch Videos[] from AIOStreams meta for {ImdbId}",
-                    imdbId);
-                return null;
+                _logger.LogDebug(ex,
+                    "[InfiniteDrive] AIOStreams meta failed for {Id}, trying fallback", imdbId);
             }
+
+            // Fallback: Cinemeta for IMDB IDs
+            if (imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    return await FetchCinemetaVideosAsync(imdbId, cancellationToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex,
+                        "[InfiniteDrive] Cinemeta meta failed for {Id}", imdbId);
+                }
+            }
+
+            // TODO: Kitsu/AniList fallback for anime IDs (kitsu:XXXXX, anilist:XXXXX)
+
+            _logger.LogInformation(
+                "[InfiniteDrive] No episode metadata available for {Id} ({MediaType})",
+                imdbId, mediaType);
+            return null;
+        }
+
+        /// <summary>
+        /// Fetches episode list from Cinemeta (public Stremio metadata provider).
+        /// Only used for IMDB IDs. Returns actual episode data — no guessing.
+        /// </summary>
+        private async Task<List<Services.StremioVideo>?> FetchCinemetaVideosAsync(
+            string imdbId, CancellationToken cancellationToken)
+        {
+            var url = $"https://v3-cinemeta.strem.io/meta/series/{Uri.EscapeDataString(imdbId)}.json";
+            var json = await Services.AioStreamsClient.GetRawJsonStaticAsync(url, cancellationToken);
+
+            if (string.IsNullOrEmpty(json))
+                return null;
+
+            var metaResponse = System.Text.Json.JsonSerializer.Deserialize<Models.AioMetaResponse>(json);
+            if (metaResponse?.Meta?.Videos == null || metaResponse.Meta.Videos.Count == 0)
+                return null;
+
+            var videos = ConvertAioVideos(metaResponse.Meta.Videos);
+            if (videos.Count > 0)
+            {
+                _logger.LogInformation(
+                    "[InfiniteDrive] Fetched {Count} episodes from Cinemeta for {Id}",
+                    videos.Count, imdbId);
+            }
+            return videos;
+        }
+
+        private static List<Services.StremioVideo> ConvertAioVideos(List<Models.AioVideo> aioVideos)
+        {
+            var videos = new List<Services.StremioVideo>();
+            foreach (var aioVideo in aioVideos)
+            {
+                if (aioVideo.Season.HasValue && aioVideo.Episode.HasValue && aioVideo.Season.Value > 0)
+                {
+                    videos.Add(new Services.StremioVideo
+                    {
+                        Id = aioVideo.Id ?? $"{aioVideo.Season}-{aioVideo.Episode}",
+                        Name = aioVideo.Title,
+                        Season = aioVideo.Season,
+                        Episode = aioVideo.Episode,
+                        Number = aioVideo.Episode,
+                        Released = ParseAioVideoReleased(aioVideo.Released)
+                    });
+                }
+            }
+            return videos;
         }
 
         /// <summary>

@@ -63,6 +63,14 @@ namespace InfiniteDrive.UI.Settings
 
         public GenericItemList SystemListTable { get; set; } = new GenericItemList();
 
+        [DisplayName("List URL")]
+        [Description("Paste a Trakt, TMDB, or other supported list URL. Example: https://trakt.tv/users/username/lists/list-name")]
+        public string SystemListUrlInput { get; set; } = string.Empty;
+
+        [DisplayName("Display Name")]
+        [Description("A friendly name for this list. Shown in the lists table above.")]
+        public string SystemListNameInput { get; set; } = string.Empty;
+
         public ButtonItem AddSystemListButton { get; set; } = new ButtonItem("Add New System List")
         {
             Icon = IconNames.add,
@@ -86,9 +94,5 @@ namespace InfiniteDrive.UI.Settings
         [Description("Maximum number of lists each user can create. Each user list automatically creates a native Emby playlist. Set to 0 to disable user lists entirely.")]
         public int MaxListsPerUser { get; set; } = 10;
 
-        // ── Footer ────────────────────────────────────────────────────────────
-
-        public SpacerItem FooterSpacer { get; set; } = new SpacerItem();
-        public LabelItem Footer { get; set; } = new LabelItem("*Don't Panic* — Marvin is on the case.");
     }
 }

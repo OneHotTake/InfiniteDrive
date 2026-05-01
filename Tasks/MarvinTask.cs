@@ -316,7 +316,22 @@ namespace InfiniteDrive.Tasks
                     continue;
 
                 var strmFiles = Directory.GetFiles(libPath, "*.strm", SearchOption.AllDirectories);
-                var orphanedFiles = strmFiles.Where(f => !activeStrmPaths.Contains(Path.GetDirectoryName(f) ?? ""));
+
+                bool IsOrphan(string filePath)
+                {
+                    // Walk up from the .strm file's directory to the library root
+                    // checking if any ancestor matches an active StrmPath (series root or movie folder)
+                    var dir = Path.GetDirectoryName(filePath);
+                    while (!string.IsNullOrEmpty(dir) && dir.Length >= libPath.Length)
+                    {
+                        if (activeStrmPaths.Contains(dir))
+                            return false;
+                        dir = Path.GetDirectoryName(dir);
+                    }
+                    return true;
+                }
+
+                var orphanedFiles = strmFiles.Where(IsOrphan);
 
                 foreach (var orphanFile in orphanedFiles)
                 {

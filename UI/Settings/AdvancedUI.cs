@@ -15,8 +15,11 @@ namespace InfiniteDrive.UI.Settings
 
         public override string EditorTitle => "Advanced";
         public override string EditorDescription =>
-            "Power-user and maintenance options. You don't need to touch this unless you have a specific reason. " +
-            "*Don't Panic* — Marvin is on the case.";
+            "Power-user and maintenance options. You don't need to touch this unless you have a specific reason.";
+
+        // ── DON'T PANIC Header ────────────────────────────────────────────────
+
+        public CaptionItem DontPanicHeader { get; set; } = new CaptionItem("DON'T PANIC");
 
         // ── Toggle ──────────────────────────────────────────────────────────────
 
@@ -80,9 +83,5 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem MaintenanceStatus { get; set; } = new StatusItem("Maintenance", "Idle", ItemStatus.None);
 
-        // ── Footer ────────────────────────────────────────────────────────────
-
-        public SpacerItem FooterSpacer { get; set; } = new SpacerItem();
-        public LabelItem Footer { get; set; } = new LabelItem("*Don't Panic* — Marvin is on the case.");
     }
 }

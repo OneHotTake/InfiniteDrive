@@ -203,12 +203,6 @@ namespace InfiniteDrive.UI.Settings
                 cfg.BlockUnratedForRestricted = true;
                 cfg.TraktClientId = string.Empty;
                 cfg.UserCatalogLimit = 5;
-                cfg.MoviesLibraryName = "InfiniteDrive Movies";
-                cfg.MoviesLibraryPath = "";
-                cfg.SeriesLibraryName = "InfiniteDrive Series";
-                cfg.SeriesLibraryPath = "";
-                cfg.AnimeLibraryName = "InfiniteDrive Anime";
-                cfg.AnimeLibraryPath = "";
                 cfg.CertificationCountry = "US";
                 cfg.DefaultSubtitleLanguage = "en";
                 cfg.DefaultQualityTier = "1080p (any)";
