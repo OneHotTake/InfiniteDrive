@@ -281,19 +281,12 @@ namespace InfiniteDrive
         public Services.InstanceType ResolvedInstanceType { get; set; } = Services.InstanceType.Shared;
 
         /// <summary>
-        /// Maximum number of items fetched from any single catalog source per sync run.
-        /// Protects API quota and SQLite performance.  Default: 500.
-        /// </summary>
-        [DataMember]
-        public int CatalogItemCap { get; set; } = 500;
-
-        /// <summary>
         /// Per-catalog item limit overrides, serialised as a JSON object mapping
         /// source keys to integer limits.
         ///
         /// Format: <c>{"aio:movie:30ae3b0.tmdb.top":200,"aio:series:668e3b0.nfx":50}</c>
         ///
-        /// Leave empty to use <see cref="CatalogItemCap"/> for every catalog.
+        /// Leave empty for no per-catalog limit.
         /// The config page builds and saves this JSON automatically from the
         /// per-row limit inputs on the Catalog panel.
         /// </summary>
@@ -909,7 +902,6 @@ namespace InfiniteDrive
             CacheLifetimeMinutes      = Clamp(CacheLifetimeMinutes,      30,    1_440);  // 30 min – 24 h
             ApiDailyBudget            = Clamp(ApiDailyBudget,            1,     100_000);
             MaxConcurrentResolutions  = Clamp(MaxConcurrentResolutions,  1,     20);
-            CatalogItemCap            = Clamp(CatalogItemCap,            1,     50_000);
             CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     24);     // 1 h – 24 h
             MaxConcurrentProxyStreams  = Clamp(MaxConcurrentProxyStreams, 1,     20);
             PreCacheBatchSize          = Clamp(PreCacheBatchSize,         1,     500);

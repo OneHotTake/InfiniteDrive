@@ -183,13 +183,7 @@ namespace InfiniteDrive.Tasks
                 phaseSw.Restart();
                 await TokenRenewalAsync(cancellationToken);
                 _logger.LogDebug("[Marvin] Phase 4c (TokenRenewal) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
-                progress?.Report(0.85);
-
-                await EnrichmentTrickleAsync(cancellationToken);
                 progress?.Report(0.90);
-
-                await TokenRenewalAsync(cancellationToken);
-                progress?.Report(0.95);
 
                 // Sprint 530: removed SaveMaintenancePassAsync (user_item_saves deprecated)
 

@@ -159,7 +159,6 @@ namespace InfiniteDrive.UI.Settings
                 cfg.CacheLifetimeMinutes = 360;
                 cfg.ApiDailyBudget = 2000;
                 cfg.MaxConcurrentResolutions = 3;
-                cfg.CatalogItemCap = 500;
                 cfg.CatalogItemLimitsJson = string.Empty;
                 cfg.CatalogSyncIntervalHours = 1;
                 cfg.ProxyMode = "auto";
