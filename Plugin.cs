@@ -19,6 +19,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Drawing;
+using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI;
@@ -194,6 +195,9 @@ namespace InfiniteDrive
 
         /// <summary>ILogManager reference for triggering tasks from UI.</summary>
         public ILogManager LogManager => _logManager;
+
+        /// <summary>ILocalizationManager for language/country dropdowns from Emby.</summary>
+        public ILocalizationManager? LocalizationManager { get; internal set; }
 
         /// <summary>Library provisioning service (creates Emby libraries from config paths).</summary>
         public Services.LibraryProvisioningService? LibraryProvisioningService { get; private set; }

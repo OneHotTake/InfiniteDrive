@@ -13,8 +13,7 @@ namespace InfiniteDrive.UI.Settings
 
         public override string EditorTitle => "Sync & Marvin";
         public override string EditorDescription =>
-            "Marvin process schedule, pruning rules, and rate-limit safety. " +
-            "*Don't Panic* — Marvin is on the case.";
+            "Marvin process schedule, pruning rules, and rate-limit safety.";
 
         // ═══════════════════════════════════════════════════════════════
         // Section 1: Marvin Process Schedule
@@ -70,9 +69,5 @@ namespace InfiniteDrive.UI.Settings
             "Default: 360.")]
         public int MarvinActionsPerHour { get; set; } = 360;
 
-        // ── Footer ────────────────────────────────────────────────────────────
-
-        public SpacerItem FooterSpacer { get; set; } = new SpacerItem();
-        public LabelItem Footer { get; set; } = new LabelItem("*Don't Panic* — Marvin is on the case.");
     }
 }

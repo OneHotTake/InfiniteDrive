@@ -6,6 +6,7 @@ using InfiniteDrive.Repositories;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Model.Globalization;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
@@ -22,15 +23,18 @@ namespace InfiniteDrive.Services
         private readonly ILogManager _logManager;
         private readonly ILibraryManager _libraryManager;
         private readonly IPlaylistManager _playlistManager;
+        private readonly ILocalizationManager _localizationManager;
 
         public InfiniteDriveInitializationService(
             ILogManager logManager,
             ILibraryManager libraryManager,
-            IPlaylistManager playlistManager)
+            IPlaylistManager playlistManager,
+            ILocalizationManager localizationManager)
         {
             _logManager = logManager;
             _libraryManager = libraryManager;
             _playlistManager = playlistManager;
+            _localizationManager = localizationManager;
             _logger = new EmbyLoggerAdapter<InfiniteDriveInitializationService>(
                 logManager.GetLogger("InfiniteDrive"));
         }
@@ -51,6 +55,9 @@ namespace InfiniteDrive.Services
                 }
 
                 _logger.LogInformation("[InfiniteDrive] Core initialization starting");
+
+                // Store localization manager for UI dropdowns
+                instance.LocalizationManager = _localizationManager;
 
                 // Initialize database — ApplicationPaths guaranteed settled here
                 instance.InitialiseDatabaseManager();

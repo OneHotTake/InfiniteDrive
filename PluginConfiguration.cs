@@ -250,7 +250,7 @@ namespace InfiniteDrive
         /// Default: 10.
         /// </summary>
         [DataMember]
-        public int DefaultSeriesEpisodesPerSeason { get; set; } = 10;
+        public int DefaultSeriesEpisodesPerSeason { get; set; } = 24;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  CACHE & RESOLUTION                                                  ║
@@ -751,34 +751,6 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public int UserCatalogLimit { get; set; } = 5;
-
-        // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  SETUP TAB (Sprint 502)                                               ║
-        // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>Display name for the Movies library created by the plugin. Default: "InfiniteDrive Movies".</summary>
-        [DataMember]
-        public string MoviesLibraryName { get; set; } = "InfiniteDrive Movies";
-
-        /// <summary>Filesystem path for the Movies library. Set during first-run setup.</summary>
-        [DataMember]
-        public string MoviesLibraryPath { get; set; } = "";
-
-        /// <summary>Display name for the Series library created by the plugin. Default: "InfiniteDrive Series".</summary>
-        [DataMember]
-        public string SeriesLibraryName { get; set; } = "InfiniteDrive Series";
-
-        /// <summary>Filesystem path for the Series library. Set during first-run setup.</summary>
-        [DataMember]
-        public string SeriesLibraryPath { get; set; } = "";
-
-        /// <summary>Display name for the Anime library created by the plugin. Default: "InfiniteDrive Anime".</summary>
-        [DataMember]
-        public string AnimeLibraryName { get; set; } = "InfiniteDrive Anime";
-
-        /// <summary>Filesystem path for the Anime library. Set during first-run setup.</summary>
-        [DataMember]
-        public string AnimeLibraryPath { get; set; } = "";
 
         /// <summary>Country code for certification lookup (e.g., "US", "GB"). Default: "US".</summary>
         [DataMember]

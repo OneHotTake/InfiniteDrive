@@ -195,12 +195,55 @@ namespace InfiniteDrive.UI.Settings
             return Task.CompletedTask;
         }
 
-        private Task AddToBlockListAsync()
+        private async Task AddToBlockListAsync()
         {
-            UI.BlockListStatus.StatusText = "Block via API: POST /InfiniteDrive/Admin/Block (title or TMDB/IMDB ID)";
-            UI.BlockListStatus.Status = ItemStatus.Warning;
-            RaiseUIViewInfoChanged();
-            return Task.CompletedTask;
+            var input = UI.BlockListInput?.Trim();
+            if (string.IsNullOrEmpty(input))
+            {
+                UI.BlockListStatus.StatusText = "Enter a title or ID above, then click Add to Block List.";
+                UI.BlockListStatus.Status = ItemStatus.Warning;
+                RaiseUIViewInfoChanged();
+                return;
+            }
+
+            try
+            {
+                var db = Plugin.Instance.DatabaseManager;
+
+                // Detect ID type
+                string? imdbId = null, tmdbId = null;
+                var title = input;
+                var mediaType = "movie";
+
+                if (input.StartsWith("tt", StringComparison.OrdinalIgnoreCase) && input.Length >= 3)
+                {
+                    imdbId = input;
+                    title = $"Blocked IMDB: {input}";
+                }
+                else if (int.TryParse(input, out _))
+                {
+                    tmdbId = input;
+                    title = $"Blocked TMDB: {input}";
+                }
+
+                await db.UpsertBlockedItemAsync(imdbId, tmdbId, null, title, mediaType, "admin").ConfigureAwait(false);
+
+                Plugin.Instance.Logger.LogInformation(
+                    "[ContentControlsUI] Blocked: {Input}", input);
+
+                UI.BlockListInput = string.Empty;
+                UI.BlockListStatus.StatusText = $"Blocked: {input}";
+                UI.BlockListStatus.Status = ItemStatus.Succeeded;
+
+                await LoadBlockedItemsAsync();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Instance.Logger.LogWarning(ex, "[ContentControlsUI] Failed to block: {Input}", input);
+                UI.BlockListStatus.StatusText = $"Failed: {ex.Message}";
+                UI.BlockListStatus.Status = ItemStatus.Failed;
+                RaiseUIViewInfoChanged();
+            }
         }
 
         private async Task UnblockItemAsync(string itemIdStr)

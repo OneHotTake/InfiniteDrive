@@ -27,20 +27,65 @@ namespace InfiniteDrive.Services
 
         internal static readonly Dictionary<string, string> TierToSel = new()
         {
-            ["4k_hdr"]   = "slice(resolution(visualTag(streams,'DV','HDR','HDR10+'),'2160p'),0,1)",
-            ["4k_sdr"]   = "slice(resolution(streams,'2160p'),0,1)",
-            ["hd_broad"] = "slice(resolution(streams,'1080p'),0,1)",
-            ["sd_broad"] = "slice(resolution(streams,'720p','480p'),0,1)",
+            // 4K tiers
+            ["4k_remux_hdr"] = "slice(resolution(visualTag(streams,'DV','HDR','HDR10+','Remux'),'2160p'),0,1)",
+            ["4k_51"]        = "slice(resolution(streams,'2160p'),0,1)",
+            ["4k_any"]       = "slice(resolution(streams,'2160p'),0,1)",
+            // 1080p tiers
+            ["1080p_atmos"]  = "slice(resolution(visualTag(streams,'Atmos','TrueHD'),'1080p'),0,1)",
+            ["1080p_51"]     = "slice(resolution(streams,'1080p'),0,1)",
+            ["1080p_any"]    = "slice(resolution(streams,'1080p'),0,1)",
+            // Lower tiers
+            ["720p"]         = "slice(resolution(streams,'720p'),0,1)",
+            ["sd"]           = "slice(resolution(streams,'480p','unknown'),0,1)",
+            // Legacy keys (kept for .strm files written by older versions)
+            ["4k_hdr"]       = "slice(resolution(visualTag(streams,'DV','HDR','HDR10+'),'2160p'),0,1)",
+            ["4k_sdr"]       = "slice(resolution(streams,'2160p'),0,1)",
+            ["hd_broad"]     = "slice(resolution(streams,'1080p'),0,1)",
+            ["sd_broad"]     = "slice(resolution(streams,'720p','480p'),0,1)",
+            ["best_available"] = "slice(resolution(visualTag(streams,'DV','HDR','HDR10+'),'2160p'),0,1)",
+            ["4k_dv"]        = "slice(resolution(visualTag(streams,'DV'),'2160p'),0,1)",
+            ["hd_efficient"] = "slice(resolution(streams,'1080p'),0,1)",
+            ["compact"]      = "slice(resolution(streams,'720p'),0,1)",
+        };
+
+        /// Map from UI display names (ContentControlsTabView.AllQualityTiers) to tier keys.
+        internal static readonly Dictionary<string, string> UiTierNameToKey = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["4K REMUX / HDR / Atmos"] = "4k_remux_hdr",
+            ["4K 5.1 / DTS"]          = "4k_51",
+            ["4K (any)"]              = "4k_any",
+            ["1080p Atmos / TrueHD"]  = "1080p_atmos",
+            ["1080p 5.1"]             = "1080p_51",
+            ["1080p (any)"]           = "1080p_any",
+            ["720p"]                  = "720p",
+            ["SD / Unknown / Low-bandwidth"] = "sd",
         };
 
         private const string AnySel = "slice(streams,0,1)";
 
         internal static readonly Dictionary<string, string[]> TierFallbacks = new()
         {
-            ["4k_hdr"]   = new[] { "4k_hdr", "4k_sdr", "hd_broad", "sd_broad" },
-            ["4k_sdr"]   = new[] { "4k_sdr", "hd_broad", "sd_broad" },
-            ["hd_broad"] = new[] { "hd_broad", "sd_broad" },
-            ["sd_broad"] = new[] { "sd_broad" },
+            // 4K tiers fall back to lower resolutions
+            ["4k_remux_hdr"] = new[] { "4k_remux_hdr", "4k_51", "4k_any", "1080p_atmos", "1080p_51", "1080p_any", "720p", "sd" },
+            ["4k_51"]        = new[] { "4k_51", "4k_any", "1080p_51", "1080p_any", "720p", "sd" },
+            ["4k_any"]       = new[] { "4k_any", "1080p_any", "720p", "sd" },
+            // 1080p tiers
+            ["1080p_atmos"]  = new[] { "1080p_atmos", "1080p_51", "1080p_any", "720p", "sd" },
+            ["1080p_51"]     = new[] { "1080p_51", "1080p_any", "720p", "sd" },
+            ["1080p_any"]    = new[] { "1080p_any", "720p", "sd" },
+            // Lower tiers
+            ["720p"]         = new[] { "720p", "sd" },
+            ["sd"]           = new[] { "sd" },
+            // Legacy keys — map to equivalent fallback chains
+            ["4k_hdr"]       = new[] { "4k_remux_hdr", "4k_51", "4k_any", "1080p_any", "720p", "sd" },
+            ["4k_sdr"]       = new[] { "4k_any", "1080p_any", "720p", "sd" },
+            ["hd_broad"]     = new[] { "1080p_any", "720p", "sd" },
+            ["sd_broad"]     = new[] { "720p", "sd" },
+            ["best_available"] = new[] { "4k_remux_hdr", "4k_51", "4k_any", "1080p_atmos", "1080p_51", "1080p_any", "720p", "sd" },
+            ["4k_dv"]        = new[] { "4k_remux_hdr", "4k_51", "4k_any", "1080p_any", "720p", "sd" },
+            ["hd_efficient"] = new[] { "1080p_any", "720p", "sd" },
+            ["compact"]      = new[] { "720p", "sd" },
         };
 
         // ── Constructor ──────────────────────────────────────────────────────
@@ -74,8 +119,12 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrEmpty(req.Id) || string.IsNullOrEmpty(req.Quality))
                 return Error(ResolverError.InvalidToken);
 
+            // Normalize unknown quality keys to a sensible default
             if (!TierToSel.ContainsKey(req.Quality))
-                return Error(ResolverError.InvalidToken);
+            {
+                _logger.LogDebug("[InfiniteDrive][Resolve] Unknown quality '{Quality}', defaulting to 4k_any", req.Quality);
+                req.Quality = "4k_any";
+            }
 
             if (string.IsNullOrEmpty(Config.PluginSecret))
                 return Error(ResolverError.AllResolversDown);

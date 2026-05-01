@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using Emby.Web.GenericEdit;
+using Emby.Web.GenericEdit.Common;
 using Emby.Web.GenericEdit.Elements;
 using Emby.Web.GenericEdit.Elements.List;
 using MediaBrowser.Model.Attributes;
@@ -15,8 +16,7 @@ namespace InfiniteDrive.UI.Settings
 
         public override string EditorTitle => "Content Controls";
         public override string EditorDescription =>
-            "Quality preferences, parental controls, and blocked content management. " +
-            "*Don't Panic* — Marvin is on the case.";
+            "Quality preferences, parental controls, and blocked content management.";
 
         // ═══════════════════════════════════════════════════════════════
         // Section 1: Quality & Resolution Preferences
@@ -28,8 +28,23 @@ namespace InfiniteDrive.UI.Settings
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
+        // Options for the Default Quality Tier dropdown
+        [Browsable(false)]
+        public List<EditorSelectOption> DefaultQualityTierOptions { get; set; } = new List<EditorSelectOption>
+        {
+            new() { Value = "4K REMUX / HDR / Atmos", Name = "4K REMUX / HDR / Atmos" },
+            new() { Value = "4K 5.1 / DTS",          Name = "4K 5.1 / DTS" },
+            new() { Value = "4K (any)",              Name = "4K (any)" },
+            new() { Value = "1080p Atmos / TrueHD",  Name = "1080p Atmos / TrueHD" },
+            new() { Value = "1080p 5.1",             Name = "1080p 5.1" },
+            new() { Value = "1080p (any)",           Name = "1080p (any)" },
+            new() { Value = "720p",                  Name = "720p" },
+            new() { Value = "SD / Unknown / Low-bandwidth", Name = "SD / Unknown / Low-bandwidth" },
+        };
+
         [DisplayName("Default Quality Tier")]
         [Description("Quality tier that plays automatically when multiple streams are available.")]
+        [SelectItemsSource(nameof(DefaultQualityTierOptions))]
         public string DefaultQualityTier { get; set; } = "1080p (any)";
 
         // ═══════════════════════════════════════════════════════════════
@@ -52,7 +67,9 @@ namespace InfiniteDrive.UI.Settings
         public SpacerItem Spacer3 { get; set; } = new SpacerItem();
         public CaptionItem CaptionBlocked { get; set; } = new CaptionItem("Blocked Content Management");
 
-        public GenericItemList BlockedItemList { get; set; } = new GenericItemList();
+        [DisplayName("Block by Title or ID")]
+        [Description("Enter a movie/show title, IMDB ID (tt1234567), or TMDB ID to block. Then click 'Add to Block List'.")]
+        public string BlockListInput { get; set; } = string.Empty;
 
         public ButtonItem AddToBlockListButton { get; set; } = new ButtonItem("Add to Block List")
         {
@@ -62,9 +79,7 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem BlockListStatus { get; set; } = new StatusItem("Block List", "Idle", ItemStatus.None);
 
-        // ── Footer ────────────────────────────────────────────────────────────
+        public GenericItemList BlockedItemList { get; set; } = new GenericItemList();
 
-        public SpacerItem FooterSpacer { get; set; } = new SpacerItem();
-        public LabelItem Footer { get; set; } = new LabelItem("*Don't Panic* — Marvin is on the case.");
     }
 }
