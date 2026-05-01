@@ -180,6 +180,13 @@ namespace InfiniteDrive.Models
         public bool? EpisodesExpanded { get; set; }
 
         /// <summary>
+        /// Unix timestamp when episode expansion last ran for this series/anime.
+        /// Used to throttle re-expansion to ~6 hours with random jitter.
+        /// Null for movies or when never expanded.
+        /// </summary>
+        public long? LastExpandedAt { get; set; }
+
+        /// <summary>
         /// Unix timestamp when this item was last verified in a catalog sync.
         /// Used for safe removal: items are only pruned if they've been missing
         /// for >7 days (not verified in 7+ days).

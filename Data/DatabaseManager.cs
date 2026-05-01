@@ -108,7 +108,7 @@ namespace InfiniteDrive.Data
                  local_path, local_source, item_state, pin_source, pinned_at,
                  nfo_status, retry_count, next_retry_at,
                  blocked_at, blocked_by, first_added_by_user_id,
-                 tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_verified_at,
+                 tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_expanded_at, last_verified_at,
                  source_manifest_url)
             VALUES
                 (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
@@ -117,7 +117,7 @@ namespace InfiniteDrive.Data
                  @local_path, @local_source, @item_state, @pin_source, @pinned_at,
                  @nfo_status, @retry_count, @next_retry_at,
                  @blocked_at, @blocked_by, @first_added_by_user_id,
-                 @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_verified_at,
+                 @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_expanded_at, @last_verified_at,
                  @source_manifest_url)
             ON CONFLICT(imdb_id, source) DO UPDATE SET
                 tmdb_id       = excluded.tmdb_id,
@@ -144,6 +144,7 @@ namespace InfiniteDrive.Data
                 raw_meta_json  = excluded.raw_meta_json,
                 videos_json    = COALESCE(excluded.videos_json, catalog_items.videos_json),
                 episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded),
+                last_expanded_at = COALESCE(excluded.last_expanded_at, catalog_items.last_expanded_at),
                 last_verified_at = excluded.last_verified_at,
                 source_manifest_url = COALESCE(excluded.source_manifest_url, catalog_items.source_manifest_url);";
 
@@ -186,6 +187,10 @@ namespace InfiniteDrive.Data
             BindNullableText(cmd, "@catalog_type", item.CatalogType);
             BindNullableText(cmd, "@videos_json", item.VideosJson);
             BindNullableInt(cmd, "@episodes_expanded", item.EpisodesExpanded.HasValue ? (item.EpisodesExpanded.Value ? 1 : 0) : null);
+            if (item.LastExpandedAt.HasValue)
+                cmd.BindParameters["@last_expanded_at"].Bind(item.LastExpandedAt.Value);
+            else
+                cmd.BindParameters["@last_expanded_at"].BindNull();
             if (item.LastVerifiedAt.HasValue)
                 cmd.BindParameters["@last_verified_at"].Bind(item.LastVerifiedAt.Value);
             else
@@ -2907,6 +2912,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     catalog_type            TEXT,
     videos_json             TEXT,
     episodes_expanded       INTEGER,
+    last_expanded_at        INTEGER,
     last_verified_at        INTEGER,
     source_manifest_url     TEXT,
     UNIQUE(imdb_id, source)
@@ -4133,6 +4139,7 @@ LIMIT 1";
                 CatalogType       = GetStr(m, r, "catalog_type"),
                 VideosJson        = GetStr(m, r, "videos_json"),
                 EpisodesExpanded  = GetBool(m, r, "episodes_expanded"),
+                LastExpandedAt    = GetLong(m, r, "last_expanded_at"),
                 LastVerifiedAt    = GetLong(m, r, "last_verified_at"),
                 SourceManifestUrl = GetStr(m, r, "source_manifest_url"),
             };
