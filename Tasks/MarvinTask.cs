@@ -39,7 +39,6 @@ namespace InfiniteDrive.Tasks
         private readonly ILogManager           _logManager;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
-        private static bool _isColdStart = true;
 
         // ── Constructor ──────────────────────────────────────────────────────────
 
@@ -90,13 +89,6 @@ namespace InfiniteDrive.Tasks
 
             try
             {
-                // Cold-start jitter: only the first invocation (Emby startup trigger) waits
-                if (_isColdStart)
-                {
-                    _isColdStart = false;
-                    await Task.Delay(Random.Shared.Next(0, 120_000), cancellationToken);
-                }
-
                 // Acquire global sync lock to prevent conflicts with other sync operations
                 await Plugin.SyncLock.WaitAsync(cancellationToken);
                 try
@@ -119,6 +111,7 @@ namespace InfiniteDrive.Tasks
         private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
             _logger.LogInformation("[InfiniteDrive] MarvinTask started (4-phase pipeline)");
+            var pipelineSw = System.Diagnostics.Stopwatch.StartNew();
 
             // Sprint 311: Restore primary provider if it's back up
             _ = TryRestorePrimaryAsync();
@@ -130,11 +123,13 @@ namespace InfiniteDrive.Tasks
                 progress?.Report(0.0);
 
                 _logger.LogInformation("[InfiniteDrive] Marvin Phase 1: Sync");
+                var phaseSw = System.Diagnostics.Stopwatch.StartNew();
 #pragma warning disable CS0618 // CatalogSyncTask is obsolete but still functional
                 var syncProgress = new Progress<double>(p => progress?.Report(p * 0.25));
                 await new CatalogSyncTask(_libraryManager, _logManager)
                     .RunSyncAsync(cancellationToken, syncProgress);
 #pragma warning restore CS0618
+                _logger.LogDebug("[Marvin] Phase 1 (Sync) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 
                 progress?.Report(0.25);
 
@@ -142,11 +137,13 @@ namespace InfiniteDrive.Tasks
                 Plugin.Pipeline.SetPhase("Marvin", "Populate");
                 _logger.LogInformation("[InfiniteDrive] Marvin Phase 2: Populate");
 
+                phaseSw.Restart();
                 var populateProgress = new Progress<double>(p => progress?.Report(0.25 + p * 0.30));
 #pragma warning disable CS0618 // RefreshTask is obsolete but still functional
                 var refreshWorker = new RefreshTask(_logManager, _libraryManager);
                 var writtenItems = await refreshWorker.RunPopulateAsync(cancellationToken, populateProgress);
 #pragma warning restore CS0618
+                _logger.LogDebug("[Marvin] Phase 2 (Populate) completed in {Ms}ms — {Count} items", phaseSw.ElapsedMilliseconds, writtenItems.Count);
 
                 progress?.Report(0.55);
 
@@ -154,10 +151,12 @@ namespace InfiniteDrive.Tasks
                 Plugin.Pipeline.SetPhase("Marvin", "Resolve");
                 _logger.LogInformation("[InfiniteDrive] Marvin Phase 3: Resolve");
 
+                phaseSw.Restart();
                 var resolveProgress = new Progress<double>(p => progress?.Report(0.55 + p * 0.25));
 #pragma warning disable CS0618
                 await refreshWorker.RunResolveAsync(cancellationToken, resolveProgress, writtenItems);
 #pragma warning restore CS0618
+                _logger.LogDebug("[Marvin] Phase 3 (Resolve) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 
                 progress?.Report(0.80);
 
@@ -173,7 +172,17 @@ namespace InfiniteDrive.Tasks
                     _logger.LogInformation("[State] Marvin proceeding — state={State}, desc={Desc}", state.State, state.Description);
                 }
 
+                phaseSw.Restart();
                 await ValidationPassAsync(cancellationToken);
+                _logger.LogDebug("[Marvin] Phase 4a (Validation) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+
+                phaseSw.Restart();
+                await EnrichmentTrickleAsync(cancellationToken);
+                _logger.LogDebug("[Marvin] Phase 4b (Enrichment) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+
+                phaseSw.Restart();
+                await TokenRenewalAsync(cancellationToken);
+                _logger.LogDebug("[Marvin] Phase 4c (TokenRenewal) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
                 progress?.Report(0.85);
 
                 await EnrichmentTrickleAsync(cancellationToken);
@@ -194,7 +203,8 @@ namespace InfiniteDrive.Tasks
                 await PersistEnrichmentCountsAsync(cancellationToken);
 
                 progress?.Report(1.0);
-                _logger.LogInformation("[InfiniteDrive] MarvinTask completed successfully (4-phase pipeline)");
+                pipelineSw.Stop();
+                _logger.LogInformation("[InfiniteDrive] MarvinTask completed successfully in {Ms}ms (4-phase pipeline)", pipelineSw.ElapsedMilliseconds);
 
             }
             catch (Exception ex)

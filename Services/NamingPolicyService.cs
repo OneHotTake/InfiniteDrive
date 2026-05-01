@@ -122,11 +122,7 @@ namespace InfiniteDrive.Services
             foreach (var ch in input)
                 sb.Append(Array.IndexOf(invalid, ch) >= 0 ? '_' : ch);
 
-            var result = sb.ToString().Trim();
-            if (result.Contains(".."))
-                throw new InvalidOperationException($"Path traversal detected in input: '{input}'");
-
-            return result;
+            return sb.ToString().Trim();
         }
     }
 }

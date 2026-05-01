@@ -100,104 +100,131 @@ namespace InfiniteDrive.Data
         /// Inserts or updates a catalog item.  The UNIQUE constraint on
         /// (imdb_id, source) drives upsert behaviour.
         /// </summary>
+        private const string UpsertCatalogItemSql = @"
+            INSERT INTO catalog_items
+                (id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
+                 source, source_list_id, seasons_json, strm_path,
+                 added_at, updated_at, removed_at,
+                 local_path, local_source, item_state, pin_source, pinned_at,
+                 nfo_status, retry_count, next_retry_at,
+                 blocked_at, blocked_by, first_added_by_user_id,
+                 tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_verified_at,
+                 source_manifest_url)
+            VALUES
+                (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
+                 @source, @source_list_id, @seasons_json, @strm_path,
+                 @added_at, @updated_at, @removed_at,
+                 @local_path, @local_source, @item_state, @pin_source, @pinned_at,
+                 @nfo_status, @retry_count, @next_retry_at,
+                 @blocked_at, @blocked_by, @first_added_by_user_id,
+                 @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_verified_at,
+                 @source_manifest_url)
+            ON CONFLICT(imdb_id, source) DO UPDATE SET
+                tmdb_id       = excluded.tmdb_id,
+                unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
+                title         = excluded.title,
+                year          = excluded.year,
+                media_type    = excluded.media_type,
+                seasons_json  = COALESCE(excluded.seasons_json, catalog_items.seasons_json),
+                strm_path     = COALESCE(excluded.strm_path,    catalog_items.strm_path),
+                local_path    = COALESCE(catalog_items.local_path,   excluded.local_path),
+                local_source  = COALESCE(catalog_items.local_source, excluded.local_source),
+                item_state    = COALESCE(excluded.item_state,    catalog_items.item_state),
+                pin_source    = COALESCE(excluded.pin_source,    catalog_items.pin_source),
+                pinned_at     = COALESCE(excluded.pinned_at,     catalog_items.pinned_at),
+                nfo_status    = COALESCE(excluded.nfo_status, catalog_items.nfo_status),
+                retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
+                next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
+                blocked_at    = COALESCE(catalog_items.blocked_at, excluded.blocked_at),
+                blocked_by    = COALESCE(catalog_items.blocked_by, excluded.blocked_by),
+                updated_at    = excluded.updated_at,
+                removed_at    = NULL,
+                tvdb_id        = COALESCE(catalog_items.tvdb_id,       excluded.tvdb_id),
+                catalog_type   = COALESCE(catalog_items.catalog_type,  excluded.catalog_type),
+                raw_meta_json  = excluded.raw_meta_json,
+                videos_json    = COALESCE(excluded.videos_json, catalog_items.videos_json),
+                episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded),
+                last_verified_at = excluded.last_verified_at,
+                source_manifest_url = COALESCE(excluded.source_manifest_url, catalog_items.source_manifest_url);";
+
+        private void BindCatalogItemParams(IStatement cmd, CatalogItem item)
+        {
+            BindText(cmd, "@id",             item.Id);
+            BindText(cmd, "@imdb_id",        item.ImdbId);
+            BindNullableText(cmd, "@tmdb_id",        item.TmdbId);
+            BindNullableText(cmd, "@unique_ids_json", item.UniqueIdsJson);
+            BindText(cmd, "@title",          item.Title);
+            BindNullableInt(cmd,  "@year",           item.Year);
+            var rawMediaType = item.MediaType;
+            var validMediaType = string.IsNullOrEmpty(rawMediaType) ? "movie" : rawMediaType;
+            if (validMediaType != "movie" && validMediaType != "series" && validMediaType != "anime" && validMediaType != "episode" && validMediaType != "other")
+                validMediaType = "movie";
+            BindText(cmd, "@media_type",     validMediaType);
+            BindText(cmd, "@source",         item.Source);
+            BindNullableText(cmd, "@source_list_id", item.SourceListId);
+            BindNullableText(cmd, "@seasons_json",   item.SeasonsJson);
+            BindNullableText(cmd, "@strm_path",      item.StrmPath);
+            BindText(cmd, "@added_at",       string.IsNullOrEmpty(item.AddedAt) ? DateTime.UtcNow.ToString("o") : item.AddedAt);
+            BindText(cmd, "@updated_at",     string.IsNullOrEmpty(item.UpdatedAt) ? DateTime.UtcNow.ToString("o") : item.UpdatedAt);
+            BindNullableText(cmd, "@removed_at",     item.RemovedAt);
+            BindNullableText(cmd, "@local_path",     item.LocalPath);
+            BindNullableText(cmd, "@local_source",   item.LocalSource);
+            cmd.BindParameters["@item_state"].Bind((int)item.ItemState);
+            BindNullableText(cmd, "@pin_source",     item.PinSource);
+            BindNullableText(cmd, "@pinned_at",      item.PinnedAt);
+            BindNullableText(cmd, "@nfo_status",     item.NfoStatus);
+            BindInt(cmd,         "@retry_count",    item.RetryCount);
+            if (item.NextRetryAt.HasValue)
+                cmd.BindParameters["@next_retry_at"].Bind(item.NextRetryAt.Value);
+            else
+                cmd.BindParameters["@next_retry_at"].BindNull();
+            BindNullableText(cmd, "@blocked_at", item.BlockedAt);
+            BindNullableText(cmd, "@blocked_by", item.BlockedBy);
+            BindNullableText(cmd, "@first_added_by_user_id", item.FirstAddedByUserId);
+            BindNullableText(cmd, "@tvdb_id", item.TvdbId);
+            BindNullableText(cmd, "@raw_meta_json", item.RawMetaJson);
+            BindNullableText(cmd, "@catalog_type", item.CatalogType);
+            BindNullableText(cmd, "@videos_json", item.VideosJson);
+            BindNullableInt(cmd, "@episodes_expanded", item.EpisodesExpanded.HasValue ? (item.EpisodesExpanded.Value ? 1 : 0) : null);
+            if (item.LastVerifiedAt.HasValue)
+                cmd.BindParameters["@last_verified_at"].Bind(item.LastVerifiedAt.Value);
+            else
+                cmd.BindParameters["@last_verified_at"].BindNull();
+            BindNullableText(cmd, "@source_manifest_url", item.SourceManifestUrl);
+        }
+
         public async Task UpsertCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken = default)
         {
-            const string sql = @"
-                INSERT INTO catalog_items
-                    (id, imdb_id, tmdb_id, unique_ids_json, title, year, media_type,
-                     source, source_list_id, seasons_json, strm_path,
-                     added_at, updated_at, removed_at,
-                     local_path, local_source, item_state, pin_source, pinned_at,
-                     nfo_status, retry_count, next_retry_at,
-                     blocked_at, blocked_by, first_added_by_user_id,
-                     tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_verified_at,
-                     source_manifest_url)
-                VALUES
-                    (@id, @imdb_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
-                     @source, @source_list_id, @seasons_json, @strm_path,
-                     @added_at, @updated_at, @removed_at,
-                     @local_path, @local_source, @item_state, @pin_source, @pinned_at,
-                     @nfo_status, @retry_count, @next_retry_at,
-                     @blocked_at, @blocked_by, @first_added_by_user_id,
-                     @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_verified_at,
-                     @source_manifest_url)
-                ON CONFLICT(imdb_id, source) DO UPDATE SET
-                    tmdb_id       = excluded.tmdb_id,
-                    unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
-                    title         = excluded.title,
-                    year          = excluded.year,
-                    media_type    = excluded.media_type,
-                    seasons_json  = COALESCE(excluded.seasons_json, catalog_items.seasons_json),
-                    strm_path     = COALESCE(excluded.strm_path,    catalog_items.strm_path),
-                    local_path    = COALESCE(catalog_items.local_path,   excluded.local_path),
-                    local_source  = COALESCE(catalog_items.local_source, excluded.local_source),
-                    item_state    = COALESCE(excluded.item_state,    catalog_items.item_state),
-                    pin_source    = COALESCE(excluded.pin_source,    catalog_items.pin_source),
-                    pinned_at     = COALESCE(excluded.pinned_at,     catalog_items.pinned_at),
-                    nfo_status    = COALESCE(excluded.nfo_status, catalog_items.nfo_status),
-                    retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
-                    next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
-                    blocked_at    = COALESCE(catalog_items.blocked_at, excluded.blocked_at),
-                    blocked_by    = COALESCE(catalog_items.blocked_by, excluded.blocked_by),
-                    updated_at    = excluded.updated_at,
-                    removed_at    = NULL,
-                    tvdb_id        = COALESCE(catalog_items.tvdb_id,       excluded.tvdb_id),
-                    catalog_type   = COALESCE(catalog_items.catalog_type,  excluded.catalog_type),
-                    raw_meta_json  = excluded.raw_meta_json,
-                    videos_json    = COALESCE(excluded.videos_json, catalog_items.videos_json),
-                    episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded),
-                    last_verified_at = excluded.last_verified_at,
-                    source_manifest_url = COALESCE(excluded.source_manifest_url, catalog_items.source_manifest_url);";
+            await ExecuteWriteAsync(UpsertCatalogItemSql, cmd => BindCatalogItemParams(cmd, item));
+        }
 
-            await ExecuteWriteAsync(sql, cmd =>
+        /// <summary>
+        /// Batch upsert: wraps all items in a single SQLite transaction.
+        /// Orders of magnitude faster than calling UpsertCatalogItemAsync in a loop.
+        /// </summary>
+        public async Task BulkUpsertCatalogItemsAsync(IEnumerable<CatalogItem> items, CancellationToken cancellationToken = default)
+        {
+            var itemList = items as IList<CatalogItem> ?? items.ToList();
+            if (itemList.Count == 0) return;
+
+            await _dbWriteGate.WaitAsync(cancellationToken);
+            try
             {
-                BindText(cmd, "@id",             item.Id);
-                BindText(cmd, "@imdb_id",        item.ImdbId);
-                BindNullableText(cmd, "@tmdb_id",        item.TmdbId);
-                BindNullableText(cmd, "@unique_ids_json", item.UniqueIdsJson);
-                BindText(cmd, "@title",          item.Title);
-                BindNullableInt(cmd,  "@year",           item.Year);
-                // Validate media_type - must be one of: movie, series, anime, episode, other
-                var rawMediaType = item.MediaType;
-                var validMediaType = string.IsNullOrEmpty(rawMediaType) ? "movie" : rawMediaType;
-                if (validMediaType != "movie" && validMediaType != "series" && validMediaType != "anime" && validMediaType != "episode" && validMediaType != "other")
+                using var conn = OpenConnection();
+                conn.RunInTransaction(c =>
                 {
-                    _logger.LogWarning("[InfiniteDrive] Invalid MediaType '{RawMediaType}' for item {ImdbId}, defaulting to 'movie'", rawMediaType, item.ImdbId);
-                    validMediaType = "movie";
-                }
-                BindText(cmd, "@media_type",     validMediaType);
-                BindText(cmd, "@source",         item.Source);
-                BindNullableText(cmd, "@source_list_id", item.SourceListId);
-                BindNullableText(cmd, "@seasons_json",   item.SeasonsJson);
-                BindNullableText(cmd, "@strm_path",      item.StrmPath);
-                BindText(cmd, "@added_at",       string.IsNullOrEmpty(item.AddedAt) ? DateTime.UtcNow.ToString("o") : item.AddedAt);
-                BindText(cmd, "@updated_at",     string.IsNullOrEmpty(item.UpdatedAt) ? DateTime.UtcNow.ToString("o") : item.UpdatedAt);
-                BindNullableText(cmd, "@removed_at",     item.RemovedAt);
-                BindNullableText(cmd, "@local_path",     item.LocalPath);
-                BindNullableText(cmd, "@local_source",   item.LocalSource);
-                cmd.BindParameters["@item_state"].Bind((int)item.ItemState);
-                BindNullableText(cmd, "@pin_source",     item.PinSource);
-                BindNullableText(cmd, "@pinned_at",      item.PinnedAt);
-                BindNullableText(cmd, "@nfo_status",     item.NfoStatus);
-                BindInt(cmd,         "@retry_count",    item.RetryCount);
-                if (item.NextRetryAt.HasValue)
-                    cmd.BindParameters["@next_retry_at"].Bind(item.NextRetryAt.Value);
-                else
-                    cmd.BindParameters["@next_retry_at"].BindNull();
-                BindNullableText(cmd, "@blocked_at", item.BlockedAt);
-                BindNullableText(cmd, "@blocked_by", item.BlockedBy);
-                BindNullableText(cmd, "@first_added_by_user_id", item.FirstAddedByUserId);
-                BindNullableText(cmd, "@tvdb_id", item.TvdbId);
-                BindNullableText(cmd, "@raw_meta_json", item.RawMetaJson);
-                BindNullableText(cmd, "@catalog_type", item.CatalogType);
-                BindNullableText(cmd, "@videos_json", item.VideosJson);
-                BindNullableInt(cmd, "@episodes_expanded", item.EpisodesExpanded.HasValue ? (item.EpisodesExpanded.Value ? 1 : 0) : null);
-                if (item.LastVerifiedAt.HasValue)
-                    cmd.BindParameters["@last_verified_at"].Bind(item.LastVerifiedAt.Value);
-                else
-                    cmd.BindParameters["@last_verified_at"].BindNull();
-                BindNullableText(cmd, "@source_manifest_url", item.SourceManifestUrl);
-            });
+                    foreach (var item in itemList)
+                    {
+                        using var stmt = c.PrepareStatement(UpsertCatalogItemSql);
+                        BindCatalogItemParams(stmt, item);
+                        while (stmt.MoveNext()) { }
+                    }
+                });
+            }
+            finally
+            {
+                _dbWriteGate.Release();
+            }
         }
 
         /// <summary>
