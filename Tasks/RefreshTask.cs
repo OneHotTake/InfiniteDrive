@@ -245,11 +245,17 @@ namespace InfiniteDrive.Tasks
                 }
             }
 
-            // Also re-collect series items that have .strm files but episodes never expanded
+            // Also re-collect series items that need episode expansion (never expanded or eligible for re-expansion)
+            const int ReExpansionIntervalSec = 6 * 3600; // 6 hours
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
             var seriesNeedingExpansion = existingItems
                 .Where(i => (i.MediaType == "series" || i.MediaType == "anime")
-                         && i.EpisodesExpanded != true
-                         && !string.IsNullOrEmpty(i.ImdbId))
+                         && !string.IsNullOrEmpty(i.ImdbId)
+                         && !string.IsNullOrEmpty(i.StrmPath)
+                         && (i.EpisodesExpanded != true
+                             || i.LastExpandedAt == null
+                             || now - i.LastExpandedAt >= ReExpansionIntervalSec))
                 .ToList();
 
             if (seriesNeedingExpansion.Count > 0)
@@ -556,7 +562,32 @@ namespace InfiniteDrive.Tasks
                     return;
                 }
 
+                // Diff-before-write: if already expanded, check for new episodes before doing I/O
+                const int ReExpansionIntervalSec = 6 * 3600;
+                var previousVideosJson = item.VideosJson;
                 item.VideosJson = EpisodeDiffService.SerializeForStorage(aioVideos);
+
+                if (item.EpisodesExpanded == true)
+                {
+                    var diff = EpisodeDiffService.DiffEpisodes(previousVideosJson, aioVideos);
+                    if (diff.AddedEpisodes.Count == 0)
+                    {
+                        // No new episodes — just update timestamp with fresh jitter and skip file I/O
+                        var jitterSec = Random.Shared.Next(0, ReExpansionIntervalSec);
+                        item.LastExpandedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - jitterSec;
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                        _logger.LogDebug(
+                            "[InfiniteDrive] Series {ImdbId} ({Title}) — re-expansion: no new episodes, timestamp updated",
+                            item.ImdbId, item.Title);
+                        results.Add((true, item));
+                        return;
+                    }
+
+                    _logger.LogInformation(
+                        "[InfiniteDrive] Series {ImdbId} ({Title}) — re-expansion: {Count} new episodes found",
+                        item.ImdbId, item.Title, diff.AddedEpisodes.Count);
+                }
 
                 var strm = Plugin.Instance?.StrmWriterService;
                 if (strm == null)
@@ -569,6 +600,10 @@ namespace InfiniteDrive.Tasks
                 if (episodesWritten > 0)
                 {
                     item.EpisodesExpanded = true;
+                    // Stagger re-expansion: set timestamp randomly in the past (0 to 6h)
+                    // so titles don't all re-expand at the same 6-hour mark
+                    var jitterSec = Random.Shared.Next(0, ReExpansionIntervalSec);
+                    item.LastExpandedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - jitterSec;
                     item.ItemState = ItemState.Written;
                     item.StrmPath = Path.Combine(basePath, folderName);
                     item.LocalPath = item.StrmPath;

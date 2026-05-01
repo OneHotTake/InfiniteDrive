@@ -7,6 +7,7 @@ using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Collections.Concurrent;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using InfiniteDrive.Services;
@@ -963,14 +964,23 @@ namespace InfiniteDrive.Tasks
                     var userCatalogSync = new Services.UserCatalogSyncService(
                         _logManager, db, Plugin.Instance!.StrmWriterService, Plugin.Instance.CooldownGate,
                         Plugin.Instance.IdResolverService);
-                    foreach (var uc in userCatalogs)
+                    using var catalogGate = new SemaphoreSlim(4);
+                    var catalogTasks = userCatalogs.Select(uc => Task.Run(async () =>
                     {
-                        if (cancellationToken.IsCancellationRequested) break;
-                        var result = await userCatalogSync.SyncOneAsync(uc.Id, cancellationToken);
-                        _logger.LogInformation(
-                            "[InfiniteDrive] UserCatalog {Id} ({Name}): ok={Ok} fetched={F} added={A} elapsed={Ms}ms",
-                            uc.Id, uc.DisplayName, result.Ok, result.Fetched, result.Added, result.ElapsedMs);
-                    }
+                        await catalogGate.WaitAsync(cancellationToken);
+                        try
+                        {
+                            var result = await userCatalogSync.SyncOneAsync(uc.Id, cancellationToken);
+                            _logger.LogInformation(
+                                "[InfiniteDrive] UserCatalog {Id} ({Name}): ok={Ok} fetched={F} added={A} elapsed={Ms}ms",
+                                uc.Id, uc.DisplayName, result.Ok, result.Fetched, result.Added, result.ElapsedMs);
+                        }
+                        finally
+                        {
+                            catalogGate.Release();
+                        }
+                    }, cancellationToken));
+                    await Task.WhenAll(catalogTasks);
                 }
             }
             catch (OperationCanceledException) { /* swallow — task was cancelled */ }
@@ -1090,107 +1100,109 @@ namespace InfiniteDrive.Tasks
             Data.DatabaseManager    db,
             CancellationToken       cancellationToken)
         {
-            var results          = new List<CatalogItem>();
-            var fetchedSourceIds = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+            var results          = new ConcurrentBag<CatalogItem>();
+            var fetchedSourceIds = new ConcurrentDictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
             var attemptedProviders = 0;
 
-            foreach (var provider in providers)
+            using var providerGate = new SemaphoreSlim(4);
+            var providerTasks = providers.Select(provider => Task.Run(async () =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                // ── Interval guard ────────────────────────────────────────────
-                // Skip providers that synced successfully within the configured
-                // interval.  Providers in error state always run.
+                await providerGate.WaitAsync(cancellationToken);
                 try
                 {
-                    var state = await db.GetSyncStateAsync(provider.SourceKey);
-                    if (ShouldSkipProvider(state, config))
-                    {
-                        _logger.LogInformation(
-                            "[InfiniteDrive] Skipping {Provider} — within sync interval ({Hours}h)",
-                            provider.ProviderName, config.CatalogSyncIntervalHours);
-                        continue;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "[InfiniteDrive] Could not read sync state for {Key}", provider.SourceKey);
-                }
-
-                // Sprint 302-06: Track attempted providers for safety check
-                attemptedProviders++;
-
-                _logger.LogInformation("[InfiniteDrive] Fetching catalog from {Provider}", provider.ProviderName);
-
-                CatalogFetchResult fetchResult;
-                try
-                {
-                    fetchResult = await provider.FetchItemsAsync(config, _logger, db, cancellationToken);
-                }
-                catch (OperationCanceledException)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[InfiniteDrive] Provider {Provider} threw unexpectedly", provider.ProviderName);
-                    fetchResult = new CatalogFetchResult
-                    {
-                        ProviderReachable = false,
-                        ErrorMessage      = ex.Message,
-                    };
-                }
-
-                results.AddRange(fetchResult.Items);
-
-                // Track fetched IDs per source so the prune step knows what to keep.
-                // Only record when provider was reachable — avoids pruning on transient errors.
-                if (fetchResult.ProviderReachable && fetchResult.Items.Count > 0)
-                {
-                    if (!fetchedSourceIds.TryGetValue(provider.SourceKey, out var idSet))
-                    {
-                        idSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                        fetchedSourceIds[provider.SourceKey] = idSet;
-                    }
-                    foreach (var item in fetchResult.Items)
-                        idSet.Add(item.ImdbId);
-                }
-
-                // ── Record provider-level health ──────────────────────────────
-                try
-                {
-                    if (fetchResult.ProviderReachable)
-                        await db.RecordSyncSuccessAsync(provider.SourceKey, fetchResult.Items.Count);
-                    else
-                        await db.RecordSyncFailureAsync(provider.SourceKey, fetchResult.ErrorMessage ?? "Unknown error");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "[InfiniteDrive] Failed to record health for {Key}", provider.SourceKey);
-                }
-
-                // ── Record per-catalog health (AIOStreams per-catalog outcomes) ─
-                foreach (var kvp in fetchResult.CatalogOutcomes)
-                {
+                    // ── Interval guard ────────────────────────────────────────────
                     try
                     {
-                        if (kvp.Value.Succeeded)
-                            await db.RecordSyncSuccessAsync(kvp.Key, kvp.Value.ItemCount);
-                        else
-                            await db.RecordSyncFailureAsync(kvp.Key, kvp.Value.Error ?? "Unknown error");
+                        var state = await db.GetSyncStateAsync(provider.SourceKey);
+                        if (ShouldSkipProvider(state, config))
+                        {
+                            _logger.LogInformation(
+                                "[InfiniteDrive] Skipping {Provider} — within sync interval ({Hours}h)",
+                                provider.ProviderName, config.CatalogSyncIntervalHours);
+                            return;
+                        }
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "[InfiniteDrive] Failed to record health for catalog {Key}", kvp.Key);
+                        _logger.LogDebug(ex, "[InfiniteDrive] Could not read sync state for {Key}", provider.SourceKey);
                     }
+
+                    Interlocked.Increment(ref attemptedProviders);
+
+                    _logger.LogInformation("[InfiniteDrive] Fetching catalog from {Provider}", provider.ProviderName);
+
+                    CatalogFetchResult fetchResult;
+                    try
+                    {
+                        fetchResult = await provider.FetchItemsAsync(config, _logger, db, cancellationToken);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[InfiniteDrive] Provider {Provider} threw unexpectedly", provider.ProviderName);
+                        fetchResult = new CatalogFetchResult
+                        {
+                            ProviderReachable = false,
+                            ErrorMessage      = ex.Message,
+                        };
+                    }
+
+                    foreach (var fi in fetchResult.Items)
+                        results.Add(fi);
+
+                    if (fetchResult.ProviderReachable && fetchResult.Items.Count > 0)
+                    {
+                        var idSet = fetchedSourceIds.GetOrAdd(provider.SourceKey,
+                            _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                        lock (idSet)
+                        {
+                            foreach (var item in fetchResult.Items)
+                                idSet.Add(item.ImdbId);
+                        }
+                    }
+
+                    // ── Record provider-level health ──────────────────────────────
+                    try
+                    {
+                        if (fetchResult.ProviderReachable)
+                            await db.RecordSyncSuccessAsync(provider.SourceKey, fetchResult.Items.Count);
+                        else
+                            await db.RecordSyncFailureAsync(provider.SourceKey, fetchResult.ErrorMessage ?? "Unknown error");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[InfiniteDrive] Failed to record health for {Key}", provider.SourceKey);
+                    }
+
+                    // ── Record per-catalog health (AIOStreams per-catalog outcomes) ─
+                    foreach (var kvp in fetchResult.CatalogOutcomes)
+                    {
+                        try
+                        {
+                            if (kvp.Value.Succeeded)
+                                await db.RecordSyncSuccessAsync(kvp.Key, kvp.Value.ItemCount);
+                            else
+                                await db.RecordSyncFailureAsync(kvp.Key, kvp.Value.Error ?? "Unknown error");
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogDebug(ex, "[InfiniteDrive] Failed to record health for catalog {Key}", kvp.Key);
+                        }
+                    }
+
+                    _logger.LogInformation(
+                        "[InfiniteDrive] {Provider} returned {Count} items (reachable={Reachable})",
+                        provider.ProviderName, fetchResult.Items.Count, fetchResult.ProviderReachable);
                 }
+                finally
+                {
+                    providerGate.Release();
+                }
+            }, cancellationToken));
 
-                _logger.LogInformation(
-                    "[InfiniteDrive] {Provider} returned {Count} items (reachable={Reachable})",
-                    provider.ProviderName, fetchResult.Items.Count, fetchResult.ProviderReachable);
-            }
+            await Task.WhenAll(providerTasks);
 
-            return (results, fetchedSourceIds, attemptedProviders);
+            return (results.ToList(), new Dictionary<string, HashSet<string>>(fetchedSourceIds), attemptedProviders);
         }
 
         /// <summary>
