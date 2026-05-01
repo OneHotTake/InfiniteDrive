@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -57,6 +58,7 @@ namespace InfiniteDrive.Tasks
         internal async Task<List<CatalogItem>> RunPopulateAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
             _logger.LogInformation("[InfiniteDrive] RefreshTask Populate started");
+            var populateSw = System.Diagnostics.Stopwatch.StartNew();
 
             var runStartedAt = DateTime.UtcNow;
 
@@ -72,7 +74,9 @@ namespace InfiniteDrive.Tasks
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "collect", cancellationToken);
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", "0", cancellationToken);
                 progress?.Report(0.16);
+                var stepSw = System.Diagnostics.Stopwatch.StartNew();
                 var collected = await CollectStepAsync(cancellationToken);
+                _logger.LogDebug("[Refresh] Collect step completed in {Ms}ms — {Count} items", stepSw.ElapsedMilliseconds, collected.Count);
                 if (!collected.Any())
                 {
                     _logger.LogDebug("[InfiniteDrive] RefreshTask: No new/changed items found in Collect step");
@@ -91,7 +95,9 @@ namespace InfiniteDrive.Tasks
                     Plugin.Pipeline.SetPhase("Refresh", "Write");
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "write", cancellationToken);
                     progress?.Report(0.33);
+                    stepSw.Restart();
                     var written = await WriteStepAsync(collected, cancellationToken);
+                    _logger.LogDebug("[Refresh] Write step completed in {Ms}ms — {Count} files written", stepSw.ElapsedMilliseconds, written);
                     _logger.LogInformation("[InfiniteDrive] RefreshTask: Wrote {Count} .strm files", written);
                     writtenItems.AddRange(collected);
                     totalItemsAffected += written;
@@ -104,7 +110,9 @@ namespace InfiniteDrive.Tasks
                     Plugin.Pipeline.SetPhase("Refresh", "Hint");
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "hint", cancellationToken);
                     progress?.Report(0.50);
+                    stepSw.Restart();
                     var hinted = await HintStepAsync(writtenItems, cancellationToken);
+                    _logger.LogDebug("[Refresh] Hint step completed in {Ms}ms — {Count} items", stepSw.ElapsedMilliseconds, hinted);
                     _logger.LogInformation("[InfiniteDrive] RefreshTask: Created {Count} Identity Hint NFOs", hinted);
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
@@ -128,6 +136,7 @@ namespace InfiniteDrive.Tasks
         internal async Task RunResolveAsync(CancellationToken cancellationToken, IProgress<double> progress, List<CatalogItem>? writtenItems = null)
         {
             _logger.LogInformation("[InfiniteDrive] RefreshTask Resolve started");
+            var resolveSw = System.Diagnostics.Stopwatch.StartNew();
 
             var runStartedAt = DateTime.UtcNow;
             var totalItemsAffected = 0;
@@ -138,7 +147,9 @@ namespace InfiniteDrive.Tasks
                 Plugin.Pipeline.SetPhase("Refresh", "Enrich");
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "enrich", cancellationToken);
                 progress?.Report(0.67);
+                var stepSw = System.Diagnostics.Stopwatch.StartNew();
                 var enriched = await EnrichStepAsync(runStartedAt, cancellationToken);
+                _logger.LogDebug("[Refresh] Enrich step completed in {Ms}ms — {Count} items", stepSw.ElapsedMilliseconds, enriched);
                 if (enriched > 0)
                 {
                     _logger.LogInformation("[InfiniteDrive] RefreshTask: Enriched {Count} no-ID items", enriched);
@@ -151,7 +162,9 @@ namespace InfiniteDrive.Tasks
             Plugin.Pipeline.SetPhase("Refresh", "Notify");
             await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "notify", cancellationToken);
             progress?.Report(0.83);
+            var notifySw = System.Diagnostics.Stopwatch.StartNew();
             var notified = await NotifyStepAsync(cancellationToken);
+            _logger.LogDebug("[Refresh] Notify step completed in {Ms}ms — {Count} items", notifySw.ElapsedMilliseconds, notified);
             if (notified > 0)
             {
                 _logger.LogInformation("[InfiniteDrive] RefreshTask: Notified {Count} items to Emby", notified);
@@ -163,7 +176,9 @@ namespace InfiniteDrive.Tasks
             Plugin.Pipeline.SetPhase("Refresh", "Verify");
             await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_active_step", "verify", cancellationToken);
             progress?.Report(1.0);
+            var verifySw = System.Diagnostics.Stopwatch.StartNew();
             var verified = await VerifyStepAsync(cancellationToken);
+            _logger.LogDebug("[Refresh] Verify step completed in {Ms}ms — {Count} items", verifySw.ElapsedMilliseconds, verified);
             if (verified > 0)
             {
                 _logger.LogInformation("[InfiniteDrive] RefreshTask: Verified {Count} items", verified);
@@ -171,7 +186,7 @@ namespace InfiniteDrive.Tasks
                 await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
             }
 
-            _logger.LogInformation("[InfiniteDrive] RefreshTask Resolve completed. Total affected: {Count}", totalItemsAffected);
+            _logger.LogInformation("[InfiniteDrive] RefreshTask Resolve completed in {Ms}ms. Total affected: {Count}", resolveSw.ElapsedMilliseconds, totalItemsAffected);
 
             Plugin.Pipeline.Clear();
         }
@@ -295,75 +310,26 @@ namespace InfiniteDrive.Tasks
             AioStreamsClient client,
             CancellationToken cancellationToken)
         {
-            var items = new List<CatalogItem>();
+            var items = new ConcurrentBag<CatalogItem>();
 
             try
             {
                 // Fetch manifest
                 var manifest = await client.GetManifestAsync(cancellationToken);
                 if (manifest == null || manifest.Catalogs == null || manifest.Catalogs.Count == 0)
-                    return items;
+                    return items.ToList();
 
-                // Fetch each catalog (simplified — in full implementation, this would
-                // respect catalog limits and use ICatalogProvider pattern)
-                foreach (var catalog in manifest.Catalogs)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+                // Filter to movie/series catalogs only
+                var catalogs = manifest.Catalogs
+                    .Where(c => c.Type == "movie" || c.Type == "series")
+                    .ToList();
 
-                    // Only process movie and series catalogs for now
-                    if (catalog.Type != "movie" && catalog.Type != "series")
-                        continue;
+                _logger.LogInformation("[InfiniteDrive] Fetching {Count} catalogs in parallel (max 4 concurrent)", catalogs.Count);
 
-                    var catalogId = catalog.Id ?? "unknown";
-                    var catalogType = catalog.Type ?? "movie";
-                    _logger.LogDebug("[InfiniteDrive] Processing catalog: {CatalogId}, Type: {CatalogType}", catalogId, catalogType);
-
-                    try
-                    {
-                        var catalogData = await client.GetCatalogAsync(catalogType, catalogId, cancellationToken);
-                        if (catalogData == null || catalogData.Metas == null)
-                            continue;
-
-                        foreach (var meta in catalogData.Metas)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-
-                            var imdbId = meta.ImdbId ?? meta.Id;
-                            if (string.IsNullOrEmpty(imdbId))
-                                continue;
-
-                            var now = DateTime.UtcNow.ToString("o");
-                            var year = ParseYear(meta.ReleaseInfo);
-                            var item = new CatalogItem
-                            {
-                                Id = GenerateDeterministicId(imdbId, "aiostreams"),
-                                ImdbId = imdbId,
-                                Title = meta.Name ?? string.Empty,
-                                Year = year,
-                                MediaType = catalogType,
-                                Source = "aiostreams",
-                                SourceListId = catalogId,
-                                UniqueIdsJson = BuildUniqueIdsJson(meta),
-                                TmdbId = meta.TmdbId ?? meta.TmdbIdAlt,
-                                AddedAt = now,
-                                UpdatedAt = now
-                            };
-                            _logger.LogDebug("[InfiniteDrive] Created item: {ImdbId}, Title: {Title}, MediaType: {MediaType}, Year: {Year}, CatalogType: {CatalogType}",
-                                item.ImdbId, item.Title, item.MediaType, item.Year, catalogType);
-                            items.Add(item);
-                        }
-
-                        // Cap at configured limit
-                        var config = Plugin.Instance!.Configuration;
-                        if (items.Count >= config.CatalogItemCap)
-                            break;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to fetch catalog {CatalogId}", catalogId);
-                        // Continue with other catalogs
-                    }
-                }
+                // Fetch all catalogs concurrently, capped at 4
+                using var catalogGate = new SemaphoreSlim(4);
+                var fetchTasks = catalogs.Select(catalog => FetchSingleCatalogAsync(client, catalog, items, catalogGate, cancellationToken));
+                await Task.WhenAll(fetchTasks);
             }
             catch (Exception ex)
             {
@@ -375,12 +341,63 @@ namespace InfiniteDrive.Tasks
             return deduplicated;
         }
 
+        private async Task FetchSingleCatalogAsync(
+            AioStreamsClient client,
+            AioStreamsCatalogDef catalog,
+            ConcurrentBag<CatalogItem> results,
+            SemaphoreSlim gate,
+            CancellationToken cancellationToken)
+        {
+            var catalogId = catalog.Id ?? "unknown";
+            var catalogType = catalog.Type ?? "movie";
+
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                _logger.LogDebug("[InfiniteDrive] Fetching catalog: {CatalogId}, Type: {CatalogType}", catalogId, catalogType);
+                var catalogData = await client.GetCatalogAsync(catalogType, catalogId, cancellationToken);
+                if (catalogData?.Metas == null) return;
+
+                foreach (var meta in catalogData.Metas)
+                {
+                    var imdbId = meta.ImdbId ?? meta.Id;
+                    if (string.IsNullOrEmpty(imdbId))
+                        continue;
+
+                    var now = DateTime.UtcNow.ToString("o");
+                    var year = ParseYear(meta.ReleaseInfo);
+                    results.Add(new CatalogItem
+                    {
+                        Id = GenerateDeterministicId(imdbId, "aiostreams"),
+                        ImdbId = imdbId,
+                        Title = meta.Name ?? string.Empty,
+                        Year = year,
+                        MediaType = catalogType,
+                        Source = "aiostreams",
+                        SourceListId = catalogId,
+                        UniqueIdsJson = BuildUniqueIdsJson(meta),
+                        TmdbId = meta.TmdbId ?? meta.TmdbIdAlt,
+                        AddedAt = now,
+                        UpdatedAt = now
+                    });
+                }
+
+                _logger.LogDebug("[InfiniteDrive] Catalog {CatalogId} returned {Count} items", catalogId, catalogData.Metas.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] Failed to fetch catalog {CatalogId}", catalogId);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
         // ── Step 2: Write ────────────────────────────────────────────────────────
 
         private async Task<int> WriteStepAsync(List<CatalogItem> items, CancellationToken cancellationToken)
         {
-            var written = 0;
-
             // Get enabled version slots
             var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
             if (!slots.Any())
@@ -393,80 +410,87 @@ namespace InfiniteDrive.Tasks
             var config = Plugin.Instance!.Configuration;
             var embyBaseUrl = GetEmbyBaseUrl(config);
 
-            foreach (var item in items)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
+            // Split into movies and series
+            var series = items.Where(i =>
+                (string.Equals(i.MediaType, "series", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(i.MediaType, "anime", StringComparison.OrdinalIgnoreCase)) &&
+                !string.IsNullOrEmpty(i.ImdbId)).ToList();
+            var movies = items.Except(series).ToList();
 
-                // Build folder name and base path (shared by series expansion and movie write)
+            _logger.LogInformation("[Write] Processing {Movies} movies (parallel) + {Series} series (bounded)",
+                movies.Count, series.Count);
+
+            var written = 0;
+            var errors = 0;
+
+            // ── Movies: parallel (cheap local I/O, max 6 concurrent) ──────────
+            if (movies.Count > 0)
+            {
+                using var movieGate = new SemaphoreSlim(6);
+                var movieResults = new ConcurrentBag<(bool success, CatalogItem item)>();
+
+                var movieTasks = movies.Select(item => ProcessMovieItemAsync(
+                    item, slots, defaultSlot, config, embyBaseUrl, movieGate, movieResults, cancellationToken));
+                await Task.WhenAll(movieTasks);
+
+                foreach (var (success, item) in movieResults)
+                {
+                    if (success) written++;
+                    else errors++;
+                }
+            }
+
+            // ── Series: bounded parallel (network-bound episode fetches, max 2 concurrent) ──
+            if (series.Count > 0)
+            {
+                using var seriesGate = new SemaphoreSlim(2);
+                var seriesResults = new ConcurrentBag<(bool success, CatalogItem item)>();
+
+                var seriesTasks = series.Select(item => ProcessSeriesItemAsync(
+                    item, config, seriesGate, seriesResults, cancellationToken));
+                await Task.WhenAll(seriesTasks);
+
+                foreach (var (success, item) in seriesResults)
+                {
+                    if (success) written++;
+                    else errors++;
+                }
+            }
+
+            if (errors > 0)
+                _logger.LogWarning("[InfiniteDrive] WriteStep: {Errors} items skipped due to errors out of {Total}",
+                    errors, items.Count);
+
+            return written;
+        }
+
+        private async Task ProcessMovieItemAsync(
+            CatalogItem item,
+            List<Models.VersionSlot> slots,
+            Models.VersionSlot defaultSlot,
+            PluginConfiguration config,
+            string embyBaseUrl,
+            SemaphoreSlim gate,
+            ConcurrentBag<(bool, CatalogItem)> results,
+            CancellationToken cancellationToken)
+        {
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                var itemSw = System.Diagnostics.Stopwatch.StartNew();
                 var folderName = NamingPolicyService.BuildFolderName(item);
                 var basePath = GetLibraryPath(config, item.MediaType);
-
-                // ── Series/anime: expand to per-episode .strm files ────────────
-                var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
-
-                if (isSeries && !string.IsNullOrEmpty(item.ImdbId))
-                {
-                    // Fetch real episode list from metadata providers using originating manifest
-                    var aioVideos = await FetchAioVideosAsync(item, cancellationToken);
-                    if (aioVideos != null && aioVideos.Count > 0)
-                    {
-                        // Store Videos[] for future re-sync
-                        item.VideosJson = EpisodeDiffService.SerializeForStorage(aioVideos);
-
-                        _logger.LogInformation(
-                            "[InfiniteDrive] Writing episodes from metadata: {ImdbId} ({Title})",
-                            item.ImdbId, item.Title);
-
-                        var strm = Plugin.Instance?.StrmWriterService;
-                        if (strm != null)
-                        {
-                            var episodesWritten = await strm.WriteEpisodesFromVideosJsonAsync(item, config, cancellationToken);
-                            if (episodesWritten > 0)
-                            {
-                                item.EpisodesExpanded = true;
-                                item.ItemState = ItemState.Written;
-                                item.StrmPath = Path.Combine(basePath, folderName);
-                                item.LocalPath = item.StrmPath;
-                                item.LocalSource = "strm";
-                                item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                                await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-                                _logger.LogInformation(
-                                    "[InfiniteDrive] Episode expansion complete for {ImdbId} ({Title}) - {Count} episodes",
-                                    item.ImdbId, item.Title, episodesWritten);
-                                written++;
-                                continue;
-                            }
-                        }
-                    }
-                    // NO fallback — if no episode data, log and skip (don't write fake episodes)
-                    _logger.LogDebug(
-                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no episode metadata from any source, skipping",
-                        item.ImdbId, item.Title);
-                    continue;
-                }
-
-                // ── Movies (or series fallback): write single .strm per slot ─────
-
                 var folderPath = Path.Combine(basePath, folderName);
 
                 Directory.CreateDirectory(folderPath);
 
-                // Write .strm file for each slot
                 foreach (var slot in slots)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    // Build strm URL with token
-                    var (strmUrl, expiresAtUnix) = (_materializer ?? throw new InvalidOperationException("Materializer not initialized")).BuildStrmUrlWithExpiry(
-                        embyBaseUrl,
-                        item.ImdbId,
-                        slot.SlotKey,
-                        "imdb",
-                        null, // season
-                        null); // episode
+                    var (strmUrl, _) = (_materializer ?? throw new InvalidOperationException("Materializer not initialized")).BuildStrmUrlWithExpiry(
+                        embyBaseUrl, item.ImdbId, slot.SlotKey, "imdb", null, null);
 
-                    // Write .strm file
                     var baseName = Path.GetFileNameWithoutExtension(folderName);
                     var fileName = _materializer.GetFileName(baseName, slot, defaultSlot, ".strm");
                     var fullPath = Path.Combine(folderPath, fileName);
@@ -476,31 +500,100 @@ namespace InfiniteDrive.Tasks
                     {
                         await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
                         File.Move(tmpPath, fullPath, overwrite: true);
-                        _logger.LogDebug("[InfiniteDrive] Wrote .strm: {Path}", fullPath);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .strm: {Path}", fullPath);
-                        // Clean up tmp file if it exists
-                        if (File.Exists(tmpPath))
-                            File.Delete(tmpPath);
-                        continue;
+                        if (File.Exists(tmpPath)) File.Delete(tmpPath);
                     }
                 }
 
-                // Update item state
                 item.ItemState = ItemState.Written;
                 item.StrmPath = folderPath;
                 item.LocalPath = folderPath;
                 item.LocalSource = "strm";
-                item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(Plugin.Instance!.Configuration.SignatureValidityDays).ToUnixTimeSeconds();
+                item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(config.SignatureValidityDays).ToUnixTimeSeconds();
                 item.UpdatedAt = DateTime.UtcNow.ToString("o");
-
                 await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-                written++;
-            }
 
-            return written;
+                _logger.LogDebug("[Write] Movie {ImdbId} ({Title}) written in {Ms}ms", item.ImdbId, item.Title, itemSw.ElapsedMilliseconds);
+                results.Add((true, item));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] WriteStep: skipping movie {ImdbId} ({Title})", item.ImdbId, item.Title);
+                results.Add((false, item));
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        private async Task ProcessSeriesItemAsync(
+            CatalogItem item,
+            PluginConfiguration config,
+            SemaphoreSlim gate,
+            ConcurrentBag<(bool, CatalogItem)> results,
+            CancellationToken cancellationToken)
+        {
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                var itemSw = System.Diagnostics.Stopwatch.StartNew();
+                var folderName = NamingPolicyService.BuildFolderName(item);
+                var basePath = GetLibraryPath(config, item.MediaType);
+
+                _logger.LogDebug("[Write] Fetching episodes for {ImdbId} ({Title})", item.ImdbId, item.Title);
+                var aioVideos = await FetchAioVideosAsync(item, cancellationToken);
+
+                if (aioVideos == null || aioVideos.Count == 0)
+                {
+                    _logger.LogDebug(
+                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no episode metadata, skipping",
+                        item.ImdbId, item.Title);
+                    results.Add((false, item));
+                    return;
+                }
+
+                item.VideosJson = EpisodeDiffService.SerializeForStorage(aioVideos);
+
+                var strm = Plugin.Instance?.StrmWriterService;
+                if (strm == null)
+                {
+                    results.Add((false, item));
+                    return;
+                }
+
+                var episodesWritten = await strm.WriteEpisodesFromVideosJsonAsync(item, config, cancellationToken);
+                if (episodesWritten > 0)
+                {
+                    item.EpisodesExpanded = true;
+                    item.ItemState = ItemState.Written;
+                    item.StrmPath = Path.Combine(basePath, folderName);
+                    item.LocalPath = item.StrmPath;
+                    item.LocalSource = "strm";
+                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                    _logger.LogInformation(
+                        "[InfiniteDrive] Episode expansion for {ImdbId} ({Title}) - {Count} episodes in {Ms}ms",
+                        item.ImdbId, item.Title, episodesWritten, itemSw.ElapsedMilliseconds);
+                    results.Add((true, item));
+                }
+                else
+                {
+                    results.Add((false, item));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] WriteStep: skipping series {ImdbId} ({Title})", item.ImdbId, item.Title);
+                results.Add((false, item));
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
 
         // ── Step 3: Hint ────────────────────────────────────────────────────────
@@ -518,25 +611,34 @@ namespace InfiniteDrive.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Skip hint for series/anime items — handled during WriteStepAsync
-                var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
-                if (isSeries && !string.IsNullOrEmpty(item.StrmPath))
+                try
                 {
-                    item.NfoStatus = "Expanded";
+                    // Skip hint for series/anime items — handled during WriteStepAsync
+                    var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
+                                || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+                    if (isSeries && !string.IsNullOrEmpty(item.StrmPath))
+                    {
+                        item.NfoStatus = "Expanded";
+                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                        hinted++;
+                        continue;
+                    }
+
+                    // NFO no longer needed — folder name provides ID hints to Emby
+                    foreach (var slot in slots)
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                    // Update NFO status
+                    item.NfoStatus = "Hinted";
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                     hinted++;
-                    continue;
                 }
-
-                // NFO no longer needed — folder name provides ID hints to Emby
-                foreach (var slot in slots)
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                // Update NFO status
-                item.NfoStatus = "Hinted";
-                await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-                hinted++;
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "[InfiniteDrive] HintStep: skipping item {ImdbId} ({Title}) due to error",
+                        item.ImdbId, item.Title);
+                }
             }
 
             return hinted;
@@ -653,20 +755,29 @@ namespace InfiniteDrive.Tasks
                     {
                         cancellationToken.ThrowIfCancellationRequested();
 
-                        // Skip series/anime items that haven't completed episode expansion
-                        bool isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase) ||
-                                       string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
-                        if (isSeries && item.EpisodesExpanded != true)
+                        try
                         {
-                            _logger.LogDebug("[InfiniteDrive] Notify: Skipping {ImdbId} ({Title}) - episodes not fully expanded yet",
-                                item.ImdbId, item.Title);
-                            continue;
-                        }
+                            // Skip series/anime items that haven't completed episode expansion
+                            bool isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase) ||
+                                           string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
+                            if (isSeries && item.EpisodesExpanded != true)
+                            {
+                                _logger.LogDebug("[InfiniteDrive] Notify: Skipping {ImdbId} ({Title}) - episodes not fully expanded yet",
+                                    item.ImdbId, item.Title);
+                                continue;
+                            }
 
-                        item.ItemState = ItemState.Notified;
-                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-                        notified++;
+                            item.ItemState = ItemState.Notified;
+                            item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                            await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                            notified++;
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex,
+                                "[InfiniteDrive] NotifyStep: skipping item {ImdbId} ({Title}) due to error",
+                                item.ImdbId, item.Title);
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -848,19 +959,28 @@ namespace InfiniteDrive.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Check if item has been Notified for >24 hours
-                if (DateTime.TryParse(item.UpdatedAt, out var updatedAt) && updatedAt < stalledThreshold)
+                try
                 {
-                    // Promote to NeedsEnrich
-                    item.ItemState = ItemState.NeedsEnrich;
-                    item.NfoStatus = "NeedsEnrich";
-                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                    // Check if item has been Notified for >24 hours
+                    if (DateTime.TryParse(item.UpdatedAt, out var updatedAt) && updatedAt < stalledThreshold)
+                    {
+                        // Promote to NeedsEnrich
+                        item.ItemState = ItemState.NeedsEnrich;
+                        item.NfoStatus = "NeedsEnrich";
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 
-                    promoted++;
-                    _logger.LogInformation(
-                        "[InfiniteDrive] Stalled: Promoted {Imdb} to NeedsEnrich (Notified >24h)",
-                        item.ImdbId);
+                        promoted++;
+                        _logger.LogInformation(
+                            "[InfiniteDrive] Stalled: Promoted {Imdb} to NeedsEnrich (Notified >24h)",
+                            item.ImdbId);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex,
+                        "[InfiniteDrive] PromoteStalled: skipping item {ImdbId} ({Title}) due to error",
+                        item.ImdbId, item.Title);
                 }
             }
 
@@ -923,6 +1043,7 @@ namespace InfiniteDrive.Tasks
             {
                 try
                 {
+                    client.ActiveCooldownKind = CooldownKind.SeriesMeta;
                     var metaResponse = await client.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
                     if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                     {
@@ -952,6 +1073,7 @@ namespace InfiniteDrive.Tasks
                 {
                     try
                     {
+                        fallbackClient.ActiveCooldownKind = CooldownKind.SeriesMeta;
                         var metaResponse = await fallbackClient.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
                         if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                         {

@@ -15,16 +15,18 @@ namespace InfiniteDrive.Services
     /// <summary>
     /// Category of HTTP operation. Each kind maps to a different base delay in the profile.
     /// </summary>
-    public enum CooldownKind { CatalogFetch, StreamResolve, Enrichment }
+    public enum CooldownKind { CatalogFetch, StreamResolve, Enrichment, SeriesMeta }
 
     /// <summary>
     /// Throttle constants per instance type.
-    /// Delays are zeroed — no artificial throttling on first-time loads.
+    /// Per-kind delays: SeriesMeta gets a small proactive delay on shared instances
+    /// to avoid hammering the API during episode expansion; all other kinds are zero.
     /// 429 backoff (Tripped) is still active for rate-limit protection.
     /// </summary>
     public sealed class CooldownProfile
     {
         public int HttpBaseDelayMs { get; init; }
+        public int SeriesMetaDelayMs { get; init; }
         public int JitterMs { get; init; }
         public int HttpTimeoutSeconds { get; init; }
         public int GlobalCooldownSeconds { get; init; }
@@ -32,7 +34,8 @@ namespace InfiniteDrive.Services
         public static readonly CooldownProfile Shared = new()
         {
             HttpBaseDelayMs       = 0,
-            JitterMs              = 0,
+            SeriesMetaDelayMs    = 200,
+            JitterMs              = 50,
             HttpTimeoutSeconds    = 10,
             GlobalCooldownSeconds = 60,
         };
@@ -40,6 +43,7 @@ namespace InfiniteDrive.Services
         public static readonly CooldownProfile Private = new()
         {
             HttpBaseDelayMs       = 0,
+            SeriesMetaDelayMs    = 0,
             JitterMs              = 0,
             HttpTimeoutSeconds    = 15,
             GlobalCooldownSeconds = 30,
@@ -48,7 +52,11 @@ namespace InfiniteDrive.Services
         public static CooldownProfile For(InstanceType type) =>
             type == InstanceType.Private ? Private : Shared;
 
-        public int DelayFor(CooldownKind kind) => HttpBaseDelayMs;
+        public int DelayFor(CooldownKind kind) => kind switch
+        {
+            CooldownKind.SeriesMeta => SeriesMetaDelayMs,
+            _ => HttpBaseDelayMs
+        };
     }
 
     /// <summary>

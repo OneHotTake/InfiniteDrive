@@ -83,7 +83,7 @@ namespace InfiniteDrive.Tasks
         /// <summary>
         /// Fetches catalog items from the upstream source and reports health outcomes.
         /// Implementations must honour <paramref name="cancellationToken"/>
-        /// and cap output at <see cref="PluginConfiguration.CatalogItemCap"/>.
+        /// and cap output at per-catalog limits if configured.
         /// Must never throw — all errors must be captured in <see cref="CatalogFetchResult"/>.
         /// </summary>
         Task<CatalogFetchResult> FetchItemsAsync(
@@ -115,11 +115,31 @@ namespace InfiniteDrive.Tasks
     /// </summary>
     public class AioStreamsCatalogProvider : ICatalogProvider
     {
-        /// <inheritdoc/>
-        public string ProviderName => "AIOStreams";
+        private readonly string? _manifestUrl;
+        private readonly string _keyPrefix;
+        private readonly string _sourceLabel;
+
+        /// <summary>
+        /// Creates a provider for the primary manifest.
+        /// </summary>
+        public AioStreamsCatalogProvider() : this(null) { }
+
+        /// <summary>
+        /// Creates a provider for a specific manifest URL.
+        /// Pass null for the primary manifest (reads from config).
+        /// </summary>
+        public AioStreamsCatalogProvider(string? manifestUrl)
+        {
+            _manifestUrl = manifestUrl;
+            _keyPrefix   = manifestUrl == null ? "aio" : "aio2";
+            _sourceLabel = manifestUrl == null ? "Primary Manifest" : "Secondary Manifest";
+        }
 
         /// <inheritdoc/>
-        public string SourceKey => "aiostreams";
+        public string ProviderName => _manifestUrl == null ? "AIOStreams" : "AIOStreams (Secondary)";
+
+        /// <inheritdoc/>
+        public string SourceKey => _manifestUrl == null ? "aiostreams" : "aiostreams_secondary";
 
         /// <inheritdoc/>
         public async Task<CatalogFetchResult> FetchItemsAsync(
@@ -130,7 +150,8 @@ namespace InfiniteDrive.Tasks
         {
             var result = new CatalogFetchResult();
 
-            if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
+            var manifestUrl = _manifestUrl ?? config.PrimaryManifestUrl;
+            if (string.IsNullOrWhiteSpace(manifestUrl))
             {
                 result.ProviderReachable = false;
                 result.ErrorMessage = "AIOStreams URL is not configured";
@@ -138,7 +159,17 @@ namespace InfiniteDrive.Tasks
                 return result;
             }
 
-            using var client = new AioStreamsClient(config, logger);
+            // Build client from the specific manifest URL
+            var (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(manifestUrl);
+            if (string.IsNullOrWhiteSpace(baseUrl))
+            {
+                result.ProviderReachable = false;
+                result.ErrorMessage = "AIOStreams URL could not be parsed";
+                logger.LogWarning("[InfiniteDrive] {Err}", result.ErrorMessage);
+                return result;
+            }
+
+            using var client = new AioStreamsClient(baseUrl, uuid, token, logger);
             client.Cooldown = Plugin.Instance?.CooldownGate;
             client.ActiveCooldownKind = CooldownKind.CatalogFetch;
             if (!client.IsConfigured)
@@ -153,7 +184,7 @@ namespace InfiniteDrive.Tasks
             List<AioStreamsCatalogDef> catalogs;
             try
             {
-                catalogs = await DiscoverCatalogsAsync(client, config, logger, cancellationToken);
+                catalogs = await DiscoverCatalogsAsync(client, config, logger, cancellationToken, isSecondary: _manifestUrl != null);
             }
             catch (OperationCanceledException)
             {
@@ -177,15 +208,12 @@ namespace InfiniteDrive.Tasks
                 return result;
             }
 
-            logger.LogInformation("[InfiniteDrive] Discovered {Count} AIOStreams catalog(s) to sync", catalogs.Count);
+            logger.LogInformation("[InfiniteDrive] Discovered {Count} AIOStreams catalog(s) to sync ({Source})", catalogs.Count, _sourceLabel);
 
-            // 2. Fetch each catalog — failures are per-catalog, not provider-level.
+            // 2. Record ALL discovered catalogs in the UI before the fetch loop
             foreach (var catalog in catalogs)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (result.Items.Count >= config.CatalogItemCap) break;
-
-                var key          = $"aio:{catalog.Type}:{catalog.Id}";
+                var key          = $"{_keyPrefix}:{catalog.Type}:{catalog.Id}";
                 var catalogLimit = GetCatalogLimit(config, key);
                 if (db != null)
                     await db.RecordCatalogRunningAsync(
@@ -193,6 +221,15 @@ namespace InfiniteDrive.Tasks
                         catalog.Name ?? catalog.Id!,
                         catalog.Type!,
                         catalogLimit);
+            }
+
+            // 3. Fetch each catalog — failures are per-catalog, not provider-level.
+            foreach (var catalog in catalogs)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var key          = $"{_keyPrefix}:{catalog.Type}:{catalog.Id}";
+                var catalogLimit = GetCatalogLimit(config, key);
 
                 var (items, outcome) = await FetchOneCatalogAsync(
                     client, catalog, logger, catalogLimit, cancellationToken,
@@ -201,7 +238,6 @@ namespace InfiniteDrive.Tasks
 
                 result.Items.AddRange(items);
                 // Stamp originating manifest URL for episode expansion routing
-                var manifestUrl = config.PrimaryManifestUrl;
                 foreach (var catItem in items)
                     catItem.SourceManifestUrl = manifestUrl;
                 result.CatalogOutcomes[key] = outcome;
@@ -213,8 +249,6 @@ namespace InfiniteDrive.Tasks
             }
 
             result.ProviderReachable = true;
-            if (result.Items.Count > config.CatalogItemCap)
-                result.Items = result.Items.GetRange(0, config.CatalogItemCap);
 
             return result;
         }
@@ -225,7 +259,8 @@ namespace InfiniteDrive.Tasks
             AioStreamsClient client,
             PluginConfiguration config,
             ILogger logger,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            bool isSecondary = false)
         {
             var manifest = await client.GetManifestAsync(cancellationToken);
             if (manifest == null)
@@ -234,8 +269,10 @@ namespace InfiniteDrive.Tasks
                 return new List<AioStreamsCatalogDef>();
             }
 
-            // ── Persist discovered manifest metadata ──────────────────────────────
+            // ── Persist discovered manifest metadata (primary only) ───────────────
             var needsSave = false;
+            if (!isSecondary)
+            {
             if (!string.IsNullOrEmpty(manifest.Name)
                 && manifest.Name != config.AioStreamsDiscoveredName)
             {
@@ -308,6 +345,7 @@ namespace InfiniteDrive.Tasks
             }
 
             if (needsSave) Plugin.Instance?.SaveConfiguration();
+            } // end primary-only config mutation
 
             if (manifest.Catalogs == null || manifest.Catalogs.Count == 0)
                 return new List<AioStreamsCatalogDef>();
@@ -340,7 +378,6 @@ namespace InfiniteDrive.Tasks
             var all = manifest.Catalogs
                 .Where(c => !string.IsNullOrEmpty(c.Id) && !string.IsNullOrEmpty(c.Type))
                 .Where(c => acceptedTypes.Contains(c.Type!))
-                .Where(c => !RequiresSearchOnly(c))   // skip search-query-only catalogs
                 .ToList();
 
             // Apply the optional catalog ID allowlist
@@ -655,7 +692,7 @@ namespace InfiniteDrive.Tasks
                 }
                 catch { /* fall through to global cap */ }
             }
-            return config.CatalogItemCap;
+            return int.MaxValue;
         }
 
         private static string? GetMetaString(JsonElement? meta, string propertyName)
@@ -763,7 +800,6 @@ namespace InfiniteDrive.Tasks
             foreach (var catalog in catalogs)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if (result.Items.Count >= config.CatalogItemCap) break;
 
                 var key   = $"cinemeta_default:{catalog.Type}:{catalog.Id}";
                 var limit = AioStreamsCatalogProvider.GetCatalogLimit(config, key);
@@ -793,8 +829,6 @@ namespace InfiniteDrive.Tasks
             }
 
             result.ProviderReachable = true;
-            if (result.Items.Count > config.CatalogItemCap)
-                result.Items = result.Items.GetRange(0, config.CatalogItemCap);
 
             return result;
         }
@@ -1012,7 +1046,12 @@ namespace InfiniteDrive.Tasks
         private static List<ICatalogProvider> BuildProviders(PluginConfiguration config)
         {
             var list = new List<ICatalogProvider>();
-            if (config.EnableAioStreamsCatalog)  list.Add(new AioStreamsCatalogProvider());
+            if (config.EnableAioStreamsCatalog)
+            {
+                list.Add(new AioStreamsCatalogProvider());
+                if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+                    list.Add(new AioStreamsCatalogProvider(config.SecondaryManifestUrl));
+            }
 
             // DEFAULT-CATALOG: auto-inject Cinemeta when no catalog source is available.
             //
@@ -1216,23 +1255,37 @@ namespace InfiniteDrive.Tasks
             List<CatalogItem>    items,
             CancellationToken    cancellationToken)
         {
-            var upserted = 0;
-            foreach (var item in items)
+            if (items.Count == 0) return;
+
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
-                {
-                    await db.UpsertCatalogItemAsync(item);
-                    upserted++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex,
-                        "[InfiniteDrive] Failed to upsert catalog item {ImdbId}", item.ImdbId);
-                }
+                await db.BulkUpsertCatalogItemsAsync(items, cancellationToken);
+                _logger.LogInformation(
+                    "[InfiniteDrive] Bulk upserted {Count} catalog items", items.Count);
             }
-            _logger.LogInformation(
-                "[InfiniteDrive] Upserted {Count}/{Total} catalog items", upserted, items.Count);
+            catch (Exception ex)
+            {
+                // Fallback: if bulk fails, try one-by-one so partial progress is saved
+                _logger.LogWarning(ex,
+                    "[InfiniteDrive] Bulk upsert failed, falling back to one-by-one for {Count} items", items.Count);
+                var upserted = 0;
+                foreach (var item in items)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        await db.UpsertCatalogItemAsync(item, cancellationToken);
+                        upserted++;
+                    }
+                    catch (Exception itemEx)
+                    {
+                        _logger.LogDebug(itemEx,
+                            "[InfiniteDrive] Failed to upsert catalog item {ImdbId}", item.ImdbId);
+                    }
+                }
+                _logger.LogInformation(
+                    "[InfiniteDrive] Upserted {Count}/{Total} catalog items (fallback)", upserted, items.Count);
+            }
         }
 
         // ── Private: source diff / prune ────────────────────────────────────────

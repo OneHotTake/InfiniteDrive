@@ -24,7 +24,27 @@ namespace InfiniteDrive.Logging
         // ── ILogger<T> ──────────────────────────────────────────────────────────
 
         /// <inheritdoc/>
-        public bool IsEnabled(MelLogLevel logLevel) => logLevel != MelLogLevel.None;
+        public bool IsEnabled(MelLogLevel logLevel)
+        {
+            if (logLevel == MelLogLevel.None) return false;
+            var minLevel = GetMinLogLevel();
+            return logLevel >= minLevel;
+        }
+
+        private static MelLogLevel GetMinLogLevel()
+        {
+            var cfg = Plugin.Instance?.Configuration;
+            if (cfg == null) return MelLogLevel.Information;
+            return cfg.PluginLogLevel switch
+            {
+                "Trace" => MelLogLevel.Trace,
+                "Debug" => MelLogLevel.Debug,
+                "Information" => MelLogLevel.Information,
+                "Warning" => MelLogLevel.Warning,
+                "Error" => MelLogLevel.Error,
+                _ => MelLogLevel.Information
+            };
+        }
 
         /// <inheritdoc/>
         public IDisposable BeginScope<TState>(TState state) => NullScope.Instance;
