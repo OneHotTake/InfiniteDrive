@@ -298,19 +298,31 @@ namespace InfiniteDrive.Services
         {
             if (item == null) return new List<MediaSourceInfo>();
 
+            _logger.LogInformation("[AioMediaSourceProvider] GetMediaSources called for {Name} (Type={Type}, Path={Path})",
+                item.Name, item.GetType().Name, item.Path);
+
             var config = Plugin.Instance?.Configuration;
             if (config == null || string.IsNullOrEmpty(config.PluginSecret))
+            {
+                _logger.LogWarning("[AioMediaSourceProvider] Skipping {Name} — config={Cfg} secret={Secret}",
+                    item.Name, config != null ? "ok" : "null", !string.IsNullOrEmpty(config?.PluginSecret) ? "set" : "empty");
                 return new List<MediaSourceInfo>();
+            }
 
             // Only handle items in configured media paths
             if (!IsInConfiguredPath(item, config))
+            {
+                _logger.LogDebug("[AioMediaSourceProvider] Skipping {Name} — not in configured path (Path={Path})", item.Name, item.Path);
                 return new List<MediaSourceInfo>();
+            }
 
             // Identify item
             var (imdbId, mediaType, season, episode) = IdentifyItem(item);
             if (string.IsNullOrEmpty(imdbId))
             {
-                _logger.LogDebug("[AioMediaSourceProvider] No IMDB ID for {Name}", item.Name);
+                _logger.LogWarning("[AioMediaSourceProvider] No IMDB ID for {Name} (Path={Path}, Providers={Providers})",
+                    item.Name, item.Path,
+                    item.ProviderIds != null ? string.Join(",", item.ProviderIds.Keys) : "none");
                 return new List<MediaSourceInfo>();
             }
 
@@ -403,8 +415,14 @@ namespace InfiniteDrive.Services
             }
 
             // Live resolve: fetch from AIOStreams, rank, dedup, cap
+            _logger.LogInformation("[AioMediaSourceProvider] Live resolve for {ImdbId} ({MediaType}) S{Season}E{Episode}",
+                imdbId, mediaType, season, episode);
             var candidates = await ResolveFromAioStreams(imdbId, mediaType, season, episode, config).ConfigureAwait(false);
-            if (candidates.Count == 0) return new List<MediaSourceInfo>();
+            if (candidates.Count == 0)
+            {
+                _logger.LogWarning("[AioMediaSourceProvider] Live resolve returned 0 candidates for {ImdbId}", imdbId);
+                return new List<MediaSourceInfo>();
+            }
 
             var liveSources = BuildSourcesFromCandidates(candidates, imdbId);
 

@@ -100,18 +100,21 @@ namespace InfiniteDrive.Services.Scoring
                 fn.Contains("remux", StringComparison.OrdinalIgnoreCase)) return 0;
             if (r.Contains("2160", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("2160", StringComparison.OrdinalIgnoreCase) ||
+                fn.Contains("4320", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("4k", StringComparison.OrdinalIgnoreCase)) return 0;
             if (r.Contains("1080", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("1080", StringComparison.OrdinalIgnoreCase)) return 1;
             if (r.Contains("720", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("720", StringComparison.OrdinalIgnoreCase)) return 2;
             if (r.Contains("480", StringComparison.OrdinalIgnoreCase) ||
-                fn.Contains("480", StringComparison.OrdinalIgnoreCase)) return 3;
+                fn.Contains("480", StringComparison.OrdinalIgnoreCase) ||
+                r.Contains("360", StringComparison.OrdinalIgnoreCase) ||
+                fn.Contains("360", StringComparison.OrdinalIgnoreCase)) return 3;
             return 9;
         }
 
         /// <summary>
-        /// Maps source type to tier: 0=Remux 1=BluRay 2=WEB-DL 3=WEB 9=unknown.
+        /// Maps source type to tier: 0=Remux 1=BluRay 2=WEB-DL 3=WEB/WEBRip 4=HDRip/SCR 5=TS/CAM 9=unknown.
         /// </summary>
         public static int SrcTier(StreamCandidate c)
         {
@@ -120,9 +123,18 @@ namespace InfiniteDrive.Services.Scoring
 
             if (fnUpper.Contains("REMUX")) return 0;
             if (fnUpper.Contains("BLURAY") || fnUpper.Contains("BDRIP") ||
-                fnUpper.Contains("BLU-RAY")) return 1;
+                fnUpper.Contains("BD-RIP") || fnUpper.Contains("BLU-RAY") ||
+                fnUpper.Contains("DVDRIP") || fnUpper.Contains("DVD-RIP")) return 1;
+            // WEB-DLRip is a re-encode, not a true WEB-DL — must check before WEB-DL
+            if (fnUpper.Contains("WEB-DLRIP") || fnUpper.Contains("WEBDLRIP")) return 3;
             if (fnUpper.Contains("WEBDL") || fnUpper.Contains("WEB-DL")) return 2;
-            if (fnUpper.Contains("WEB") || fnUpper.Contains("WEBRIP")) return 3;
+            if (fnUpper.Contains("WEBRIP") || fnUpper.Contains("WEB")) return 3;
+            if (fnUpper.Contains("HDRIP") || fnUpper.Contains("HD-RIP") ||
+                fnUpper.Contains("PRE-HD") || fnUpper.Contains("PREHD")) return 4;
+            if (fnUpper.Contains("SCREENER") || fnUpper.Contains("SCR")) return 4;
+            if (fnUpper.Contains("HDTS") || fnUpper.Contains("TELESYNC") ||
+                fnUpper.Contains("TS")) return 5;
+            if (fnUpper.Contains("CAM") || fnUpper.Contains("HDCAM")) return 5;
             return 9;
         }
 
@@ -143,11 +155,13 @@ namespace InfiniteDrive.Services.Scoring
             if (fnUpper.Contains("TRUEHD")) return 1;
             if (fnUpper.Contains("DTS-HD") || fnUpper.Contains("DTSHD") ||
                 fnUpper.Contains("DTS-X") || fnUpper.Contains("DTSX")) return 2;
-            if (fnUpper.Contains("EAC3") || fnUpper.Contains("DDP") ||
-                fnUpper.Contains("DD+") || fnUpper.Contains("DOLBY DIGITAL PLUS")) return 3;
+            if (fnUpper.Contains("EAC3") || fnUpper.Contains("E-AC3") || fnUpper.Contains("E-AC-3") ||
+                fnUpper.Contains("DDP") || fnUpper.Contains("DD+") ||
+                fnUpper.Contains("DOLBY DIGITAL PLUS")) return 3;
             if (fnUpper.Contains("DTS")) return 4;
-            if (fnUpper.Contains("AC3") || fnUpper.Contains("DD ") ||
-                fnUpper.Contains("DOLBY DIGITAL")) return 5;
+            if (fnUpper.Contains("AC3") || fnUpper.Contains("AC-3") ||
+                fnUpper.Contains("DD ") || fnUpper.Contains("DOLBY DIGITAL") ||
+                fnUpper.Contains("DD5") || fnUpper.Contains("DD2") || fnUpper.Contains("DD7")) return 5;
             if (fnUpper.Contains("AAC") || fnUpper.Contains("FLAC") ||
                 fnUpper.Contains("OPUS")) return 6;
             return 9;
@@ -163,12 +177,11 @@ namespace InfiniteDrive.Services.Scoring
         {
             var defaults = new List<(int, int, int)>
             {
-                (0, 0, 2), // 4K Remux: up to 2 streams (Atmos vs TrueHD variety)
-                (0, 1, 1), // 4K BluRay: up to 1 stream
-                (0, 2, 1), // 4K WEB-DL: up to 1 stream
-                (1, 0, 1), // 1080p Remux: up to 1 stream
-                (1, 1, 2), // 1080p BluRay: up to 2 streams (Atmos vs TrueHD)
-                (2, 1, 1), // 720p (any src): up to 1 stream
+                (0, 9, 2), // 4K (any source): up to 2 streams
+                (1, 9, 2), // 1080p (any source): up to 2 streams
+                (2, 9, 1), // 720p (any source): up to 1 stream
+                (3, 9, 1), // 480p (any source): up to 1 stream
+                (9, 9, 3), // Unknown/fallback: up to 3 streams
             };
 
             if (string.IsNullOrWhiteSpace(json)) return defaults;
