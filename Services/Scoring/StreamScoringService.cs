@@ -96,12 +96,9 @@ namespace InfiniteDrive.Services.Scoring
             var r = c.QualityTier ?? "";
             var fn = c.FileName ?? "";
 
-            if (r.Contains("remux", StringComparison.OrdinalIgnoreCase) ||
-                fn.Contains("remux", StringComparison.OrdinalIgnoreCase)) return 0;
+            // Check explicit numeric resolutions first (more reliable than "4k" keyword)
             if (r.Contains("2160", StringComparison.OrdinalIgnoreCase) ||
-                fn.Contains("2160", StringComparison.OrdinalIgnoreCase) ||
-                fn.Contains("4320", StringComparison.OrdinalIgnoreCase) ||
-                fn.Contains("4k", StringComparison.OrdinalIgnoreCase)) return 0;
+                fn.Contains("2160", StringComparison.OrdinalIgnoreCase)) return 0;
             if (r.Contains("1080", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("1080", StringComparison.OrdinalIgnoreCase)) return 1;
             if (r.Contains("720", StringComparison.OrdinalIgnoreCase) ||
@@ -110,6 +107,14 @@ namespace InfiniteDrive.Services.Scoring
                 fn.Contains("480", StringComparison.OrdinalIgnoreCase) ||
                 r.Contains("360", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("360", StringComparison.OrdinalIgnoreCase)) return 3;
+
+            // "remux" or "4k" / "4320" only if no explicit resolution was found
+            if (r.Contains("remux", StringComparison.OrdinalIgnoreCase) ||
+                fn.Contains("remux", StringComparison.OrdinalIgnoreCase)) return 0;
+            if (fn.Contains("4320", StringComparison.OrdinalIgnoreCase) ||
+                r.Contains("4k", StringComparison.OrdinalIgnoreCase) ||
+                fn.Contains("4k", StringComparison.OrdinalIgnoreCase)) return 0;
+
             return 9;
         }
 
@@ -130,6 +135,7 @@ namespace InfiniteDrive.Services.Scoring
             if (fnUpper.Contains("WEBDL") || fnUpper.Contains("WEB-DL")) return 2;
             if (fnUpper.Contains("WEBRIP") || fnUpper.Contains("WEB")) return 3;
             if (fnUpper.Contains("HDRIP") || fnUpper.Contains("HD-RIP") ||
+                fnUpper.Contains("UHDRIP") || fnUpper.Contains("UHD-RIP") ||
                 fnUpper.Contains("PRE-HD") || fnUpper.Contains("PREHD")) return 4;
             if (fnUpper.Contains("SCREENER") || fnUpper.Contains("SCR")) return 4;
             if (fnUpper.Contains("HDTS") || fnUpper.Contains("TELESYNC") ||
