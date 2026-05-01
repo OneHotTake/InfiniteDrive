@@ -200,6 +200,10 @@ namespace InfiniteDrive.Tasks
                         : async count => await db.UpdateCatalogProgressAsync(key, count));
 
                 result.Items.AddRange(items);
+                // Stamp originating manifest URL for episode expansion routing
+                var manifestUrl = config.PrimaryManifestUrl;
+                foreach (var catItem in items)
+                    catItem.SourceManifestUrl = manifestUrl;
                 result.CatalogOutcomes[key] = outcome;
 
                 if (outcome.Succeeded)

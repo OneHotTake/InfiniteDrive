@@ -156,8 +156,6 @@ namespace InfiniteDrive.UI.Settings
                 cfg.SubtitleDownloadLanguages = "en";
                 cfg.SkipFutureEpisodes = true;
                 cfg.FutureEpisodeBufferDays = 2;
-                cfg.DefaultSeriesSeasons = 1;
-                cfg.DefaultSeriesEpisodesPerSeason = 10;
                 cfg.CacheLifetimeMinutes = 360;
                 cfg.ApiDailyBudget = 2000;
                 cfg.MaxConcurrentResolutions = 3;

@@ -476,55 +476,5 @@ namespace InfiniteDrive.Services
 
             return Task.FromResult(written);
         }
-
-        /// <summary>
-        /// Writes episode .strm files using config defaults (DefaultSeriesSeasons × DefaultSeriesEpisodesPerSeason).
-        /// Used as fallback when AIOStreams meta doesn't provide a Videos[] list.
-        /// Returns the number of episodes written.
-        /// </summary>
-        public Task<int> WriteDefaultEpisodesAsync(
-            CatalogItem item,
-            string basePath,
-            string folderName,
-            PluginConfiguration config,
-            CancellationToken cancellationToken)
-        {
-            if (string.IsNullOrEmpty(basePath))
-                return Task.FromResult(0);
-
-            var seriesPath = Path.Combine(basePath, NamingPolicyService.SanitisePath(folderName));
-            Directory.CreateDirectory(seriesPath);
-
-            var seasons = Math.Max(1, config.DefaultSeriesSeasons);
-            var episodesPerSeason = Math.Max(1, config.DefaultSeriesEpisodesPerSeason);
-            var written = 0;
-
-            for (int s = 1; s <= seasons; s++)
-            {
-                var seasonPath = Path.Combine(seriesPath, $"Season {s:D2}");
-                Directory.CreateDirectory(seasonPath);
-
-                for (int e = 1; e <= episodesPerSeason; e++)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var fileName = NamingPolicyService.BuildStrmFileName(item, s, e);
-                    var filePath = Path.Combine(seasonPath, fileName);
-
-                    if (!File.Exists(filePath))
-                    {
-                        var strmUrl = BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", s, e);
-                        WriteStrmFile(filePath, strmUrl);
-                        written++;
-                    }
-                }
-            }
-
-            _logger.LogInformation(
-                "[InfiniteDrive] WriteDefaultEpisodes: Wrote {Count} episodes for {Title} ({Seasons}×{Episodes})",
-                written, item.Title, seasons, episodesPerSeason);
-
-            return Task.FromResult(written);
-        }
     }
 }

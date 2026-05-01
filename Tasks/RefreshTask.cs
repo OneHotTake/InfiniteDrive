@@ -393,18 +393,6 @@ namespace InfiniteDrive.Tasks
             var config = Plugin.Instance!.Configuration;
             var embyBaseUrl = GetEmbyBaseUrl(config);
 
-            // Sprint 370: Create AIOStreams client for fetching Videos[] from meta endpoint
-            if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
-            {
-                _logger.LogWarning("[InfiniteDrive] AIOStreams URL is not configured for Videos[] fetch");
-            }
-
-            using var client = new AioStreamsClient(config, _logger);
-            if (!client.IsConfigured)
-            {
-                _logger.LogWarning("[InfiniteDrive] AIOStreams client could not be configured for Videos[] fetch");
-            }
-
             foreach (var item in items)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -417,10 +405,10 @@ namespace InfiniteDrive.Tasks
                 var isSeries = string.Equals(item.MediaType, "series", StringComparison.OrdinalIgnoreCase)
                             || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
 
-                if (isSeries && client.IsConfigured && !string.IsNullOrEmpty(item.ImdbId))
+                if (isSeries && !string.IsNullOrEmpty(item.ImdbId))
                 {
-                    // Fetch real episode list from metadata providers
-                    var aioVideos = await FetchAioVideosAsync(item.ImdbId, item.MediaType, client, cancellationToken);
+                    // Fetch real episode list from metadata providers using originating manifest
+                    var aioVideos = await FetchAioVideosAsync(item, cancellationToken);
                     if (aioVideos != null && aioVideos.Count > 0)
                     {
                         // Store Videos[] for future re-sync
@@ -451,13 +439,11 @@ namespace InfiniteDrive.Tasks
                             }
                         }
                     }
-                }
-
-                if (isSeries)
-                {
+                    // NO fallback — if no episode data, log and skip (don't write fake episodes)
                     _logger.LogDebug(
-                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no episode metadata, writing S01E01 seed",
+                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no episode metadata from any source, skipping",
                         item.ImdbId, item.Title);
+                    continue;
                 }
 
                 // ── Movies (or series fallback): write single .strm per slot ─────
@@ -926,28 +912,65 @@ namespace InfiniteDrive.Tasks
         /// Only returns episodes that actually exist — no guessing.
         /// </summary>
         private async Task<List<Services.StremioVideo>?> FetchAioVideosAsync(
-            string imdbId, string mediaType, AioStreamsClient client, CancellationToken cancellationToken)
+            CatalogItem item, CancellationToken cancellationToken)
         {
-            // Try AIOStreams meta first
-            try
+            var imdbId = item.ImdbId;
+            var mediaType = item.MediaType;
+
+            // Try originating manifest first
+            var client = BuildClientForManifest(item.SourceManifestUrl);
+            if (client != null && client.IsConfigured)
             {
-                var metaResponse = await client.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
-                if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
+                try
                 {
-                    var videos = ConvertAioVideos(metaResponse.Meta.Videos);
-                    if (videos.Count > 0)
+                    var metaResponse = await client.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
+                    if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                     {
-                        _logger.LogInformation(
-                            "[InfiniteDrive] Fetched {Count} episodes from AIOStreams meta for {Id}",
-                            videos.Count, imdbId);
-                        return videos;
+                        var videos = ConvertAioVideos(metaResponse.Meta.Videos);
+                        if (videos.Count > 0)
+                        {
+                            _logger.LogInformation(
+                                "[InfiniteDrive] Fetched {Count} episodes from originating manifest for {Id}",
+                                videos.Count, imdbId);
+                            return videos;
+                        }
                     }
                 }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex,
+                        "[InfiniteDrive] Originating manifest meta failed for {Id}, trying fallbacks", imdbId);
+                }
             }
-            catch (Exception ex)
+
+            // Fallback: config-based client (primary → secondary)
+            var config = Plugin.Instance?.Configuration;
+            if (config != null)
             {
-                _logger.LogDebug(ex,
-                    "[InfiniteDrive] AIOStreams meta failed for {Id}, trying fallback", imdbId);
+                var fallbackClient = new AioStreamsClient(config, _logger);
+                if (fallbackClient.IsConfigured)
+                {
+                    try
+                    {
+                        var metaResponse = await fallbackClient.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
+                        if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
+                        {
+                            var videos = ConvertAioVideos(metaResponse.Meta.Videos);
+                            if (videos.Count > 0)
+                            {
+                                _logger.LogInformation(
+                                    "[InfiniteDrive] Fetched {Count} episodes from config-fallback manifest for {Id}",
+                                    videos.Count, imdbId);
+                                return videos;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex,
+                            "[InfiniteDrive] Config-fallback manifest meta failed for {Id}", imdbId);
+                    }
+                }
             }
 
             // Fallback: Cinemeta for IMDB IDs
@@ -964,12 +987,18 @@ namespace InfiniteDrive.Tasks
                 }
             }
 
-            // TODO: Kitsu/AniList fallback for anime IDs (kitsu:XXXXX, anilist:XXXXX)
-
             _logger.LogInformation(
                 "[InfiniteDrive] No episode metadata available for {Id} ({MediaType})",
                 imdbId, mediaType);
             return null;
+        }
+
+        private AioStreamsClient? BuildClientForManifest(string? manifestUrl)
+        {
+            if (string.IsNullOrEmpty(manifestUrl)) return null;
+            var (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(manifestUrl);
+            if (string.IsNullOrEmpty(baseUrl)) return null;
+            return new AioStreamsClient(baseUrl, uuid, token, _logger);
         }
 
         /// <summary>
@@ -980,7 +1009,8 @@ namespace InfiniteDrive.Tasks
             string imdbId, CancellationToken cancellationToken)
         {
             var url = $"https://v3-cinemeta.strem.io/meta/series/{Uri.EscapeDataString(imdbId)}.json";
-            var json = await Services.AioStreamsClient.GetRawJsonStaticAsync(url, cancellationToken);
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            var json = await http.GetStringAsync(url, cancellationToken);
 
             if (string.IsNullOrEmpty(json))
                 return null;
