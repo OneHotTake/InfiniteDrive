@@ -28,11 +28,9 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Connect → Libraries → Catalogs & Lists → Content Controls → Sync & Marvin → Advanced
+            // Tab order: Libraries → Catalogs & Lists → Content Controls → Sync & Marvin → Advanced
+            // The main page (InfiniteDrive) IS the Connect tab — no separate Connect tab to avoid duplicate content.
             // Names prefixed with zero-padded index to enforce ordering (Emby sorts tabs alphabetically by Name)
-            _tabs.Add(new TabPageController(pid, "01Connect", "Connect", () =>
-                new ConnectTabView(pid, LoadConnect())));
-
             _tabs.Add(new TabPageController(pid, "02Libraries", "Libraries", () =>
                 new SetupTabView(pid, LoadSetup())));
 

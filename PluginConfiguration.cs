@@ -935,8 +935,9 @@ namespace InfiniteDrive
             if (CacheRefreshIntervalDays < 1) CacheRefreshIntervalDays = 30;
             if (MaxListsPerUser < 0) MaxListsPerUser = 10;
 
-            // Derive UseRequiresOpening from DirectPlayEnabled
-            UseRequiresOpening = !DirectPlayEnabled;
+            // Always use RequiresOpening so playback goes through OpenMediaSource
+            // (the .strm → /resolve → /Stream chain has URL encoding issues)
+            UseRequiresOpening = true;
 
             // Recompute instance type from manifest URL
             ResolvedInstanceType = DetectInstanceType(PrimaryManifestUrl);
