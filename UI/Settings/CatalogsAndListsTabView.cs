@@ -98,7 +98,7 @@ namespace InfiniteDrive.UI.Settings
                     var isEnabled = !disabledKeys.Contains(state.SourceKey);
                     var typeName = state.CatalogType ?? "unknown";
                     var name = state.CatalogName ?? state.SourceKey;
-                    var source = state.SourceKey.StartsWith("Secondary")
+                    var source = state.SourceKey.StartsWith("aio2:")
                         ? "Secondary Manifest"
                         : "Primary Manifest";
 
@@ -247,7 +247,6 @@ namespace InfiniteDrive.UI.Settings
 
             _ = Task.Run(async () =>
             {
-                await Task.Delay(10000).ConfigureAwait(false);
                 await LoadCatalogsAsync().ConfigureAwait(false);
             });
 

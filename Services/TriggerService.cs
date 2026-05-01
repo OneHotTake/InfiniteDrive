@@ -230,8 +230,6 @@ namespace InfiniteDrive.Services
                                 }
                             }
                             catch { /* network error — leave as valid, playback will handle it */ }
-
-                            await Task.Delay(200, ct); // gentle pacing
                         }
                         _logger.LogInformation(
                             "[InfiniteDrive] DeadLinkScan: checked {Total} entries, marked {Staled} stale",

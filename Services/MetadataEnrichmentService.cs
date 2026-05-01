@@ -125,8 +125,6 @@ namespace InfiniteDrive.Services
                         logger.LogDebug("[InfiniteDrive] Enrichment failed for {Id}, retry {Count}", item.ImdbId ?? item.Title, item.RetryCount);
                     }
 
-                    // 2-second rate limit between API calls
-                    await Task.Delay(2000, cancellationToken);
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (HttpRequestException ex) when (ex.Message.Contains("429") || ex.Message.Contains("Too Many Requests"))

@@ -35,9 +35,6 @@ namespace InfiniteDrive.Tasks
 
         public async Task Execute(CancellationToken cancellationToken, IProgress<double> progress)
         {
-            // Startup jitter 0-60s
-            await Task.Delay(Random.Shared.Next(0, 60_000), cancellationToken).ConfigureAwait(false);
-
             var config = Plugin.Instance?.Configuration;
             if (config == null || !config.EnablePreCache)
             {

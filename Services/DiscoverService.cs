@@ -947,9 +947,6 @@ namespace InfiniteDrive.Services
                 {
                     try
                     {
-                        // Give Emby a brief moment to process the file write
-                        await Task.Delay(100);
-
                         _logger.LogInformation("Triggering library refresh for {Path}", folderPath);
 
                         // Request Emby to rescan the library

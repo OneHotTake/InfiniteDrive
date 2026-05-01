@@ -23,7 +23,6 @@ namespace InfiniteDrive.Services
 
         private const string TmdbBaseUrl = "https://api.themoviedb.org/3";
         private const int CacheTtlHours = 24;
-        private const int RateLimitDelayMs = 25;
 
         /// <summary>
         /// Creates a new CertificationResolver.
@@ -75,8 +74,7 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrWhiteSpace(apiKey) || items.Count == 0)
                 return result;
 
-            // Limit batch size
-            var batch = items.Take(50).ToList();
+            var batch = items;
 
             foreach (var (imdbId, tmdbId) in batch)
             {
@@ -107,8 +105,8 @@ namespace InfiniteDrive.Services
                     if (cert != null)
                         result[imdbId] = cert;
 
-                    // Rate limit delay
-                    await Task.Delay(RateLimitDelayMs, ct);
+                    // TMDB free tier rate limit — minimal pacing
+                    await Task.Delay(25, ct);
                 }
                 catch (OperationCanceledException) when (ct.IsCancellationRequested)
                 {

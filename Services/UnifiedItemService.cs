@@ -115,27 +115,11 @@ namespace InfiniteDrive.Services
             var playlistService = Plugin.Instance?.PlaylistService;
             if (playlistService != null && !string.IsNullOrEmpty(userId))
             {
-                _ = Task.Run(async () =>
+                var embyItem = FindInLibrary(imdbId, type);
+                if (embyItem != null)
                 {
-                    try
-                    {
-                        // Wait for Emby to index the new .strm file
-                        await Task.Delay(2000, CancellationToken.None);
-                        var embyItem = FindInLibrary(imdbId, type);
-                        if (embyItem != null)
-                        {
-                            // Resolve user object for PlaylistService
-                            var userManager = Plugin.Instance as IUserManager;
-                            // Use the auth context from a running request
-                            // For now, playlist add happens in discover context where user is available
-                            _logger.LogDebug("[UnifiedItem] Playlist add deferred to caller for {ImdbId}", imdbId);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex, "[UnifiedItem] Playlist add deferred for {ImdbId}", imdbId);
-                    }
-                }, CancellationToken.None);
+                    _logger.LogDebug("[UnifiedItem] Playlist add deferred to caller for {ImdbId}", imdbId);
+                }
             }
 
             // Step 5: Fire-and-forget pre-cache trigger
@@ -146,7 +130,6 @@ namespace InfiniteDrive.Services
                 {
                     try
                     {
-                        await Task.Delay(1000, CancellationToken.None);
                         await cacheService.PreCacheSingleAsync(imdbId, type, null, null);
                     }
                     catch (Exception ex)
