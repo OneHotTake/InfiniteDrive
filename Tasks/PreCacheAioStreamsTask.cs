@@ -175,7 +175,7 @@ namespace InfiniteDrive.Tasks
             var ranked = StreamHelpers.RankAndFilterStreams(
                 response, item.ImdbId, item.Season, item.Episode,
                 config.ProviderPriorityOrder ?? "",
-                config.CandidatesPerProvider > 0 ? config.CandidatesPerProvider : 5,
+                0, // unlimited — let SelectBest's bucket algorithm curate per tier
                 config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
 
             var scoringService = new StreamScoringService(

@@ -1343,14 +1343,16 @@ namespace InfiniteDrive.Data
                  quality_tier, file_name, file_size, bitrate_kbps,
                  is_cached, resolved_at, expires_at, status,
                  info_hash, file_idx, stream_key, binge_group,
-                 languages, subtitles_json, description)
+                 languages, subtitles_json, description,
+                 raw_stream_json)
             VALUES
                 (@id, @imdb_id, @season, @episode, @rank,
                  @provider_key, @stream_type, @url, @headers_json,
                  @quality_tier, @file_name, @file_size, @bitrate_kbps,
                  @is_cached, @resolved_at, @expires_at, @status,
                  @info_hash, @file_idx, @stream_key, @binge_group,
-                 @languages, @subtitles_json, @description);";
+                 @languages, @subtitles_json, @description,
+                 @raw_stream_json);";
 
         /// <summary>
         /// Replaces all stream_candidates rows for the item identified by the first
@@ -1396,6 +1398,7 @@ namespace InfiniteDrive.Data
                 BindNullableText(insStmt, "@languages",      cand.Languages);
                 BindNullableText(insStmt, "@subtitles_json", cand.SubtitlesJson);
                 BindNullableText(insStmt, "@description",    cand.Description);
+                BindNullableText(insStmt, "@raw_stream_json", cand.RawStreamJson);
                 while (insStmt.MoveNext()) { }
             }
         }
@@ -1465,7 +1468,8 @@ namespace InfiniteDrive.Data
                        quality_tier, file_name, file_size, bitrate_kbps,
                        is_cached, resolved_at, expires_at, status,
                        info_hash, file_idx, stream_key, binge_group,
-                       languages, subtitles_json, probe_json, description
+                       languages, subtitles_json, probe_json, description,
+                       raw_stream_json
                 FROM stream_candidates
                 WHERE imdb_id = @imdb_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
@@ -3040,7 +3044,8 @@ CREATE TABLE IF NOT EXISTS stream_candidates (
     probe_json              TEXT,
     url_resolved_at         TEXT,
     url_expires_at          TEXT,
-    description             TEXT
+    description             TEXT,
+    raw_stream_json         TEXT
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_key ON stream_candidates(imdb_id, COALESCE(season,-1), COALESCE(episode,-1), rank);
 CREATE INDEX IF NOT EXISTS idx_candidates_item ON stream_candidates(imdb_id, season, episode, rank);
@@ -4201,6 +4206,7 @@ LIMIT 1";
             SubtitlesJson = r.IsDBNull(22) ? null : r.GetString(22),
             ProbeJson     = r.IsDBNull(23) ? null : r.GetString(23),
             Description   = r.IsDBNull(24) ? null : r.GetString(24),
+            RawStreamJson = r.IsDBNull(25) ? null : r.GetString(25),
         };
 
         private static PlaybackEntry ReadPlaybackEntry(IResultSet r) => new PlaybackEntry

@@ -118,32 +118,51 @@ namespace InfiniteDrive.Tasks
 
             try
             {
-                // ── Phase 1: Sync (0-25%) ─────────────────────────────────────
-                Plugin.Pipeline.SetPhase("Marvin", "Sync");
+                // ── Phase 1+2: Sync + Populate concurrently (0-55%) ──────────
+                Plugin.Pipeline.SetPhase("Marvin", "Sync+Populate");
                 progress?.Report(0.0);
-
-                _logger.LogInformation("[InfiniteDrive] Marvin Phase 1: Sync");
-                var phaseSw = System.Diagnostics.Stopwatch.StartNew();
-#pragma warning disable CS0618 // CatalogSyncTask is obsolete but still functional
-                var syncProgress = new Progress<double>(p => progress?.Report(p * 0.25));
-                await new CatalogSyncTask(_libraryManager, _logManager)
-                    .RunSyncAsync(cancellationToken, syncProgress);
-#pragma warning restore CS0618
-                _logger.LogDebug("[Marvin] Phase 1 (Sync) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
-
-                progress?.Report(0.25);
-
-                // ── Phase 2: Populate (25-55%) ───────────────────────────────
-                Plugin.Pipeline.SetPhase("Marvin", "Populate");
-                _logger.LogInformation("[InfiniteDrive] Marvin Phase 2: Populate");
-
-                phaseSw.Restart();
-                var populateProgress = new Progress<double>(p => progress?.Report(0.25 + p * 0.30));
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 1+2: Concurrent Sync & Populate");
 #pragma warning disable CS0618 // RefreshTask is obsolete but still functional
                 var refreshWorker = new RefreshTask(_logManager, _libraryManager);
-                var writtenItems = await refreshWorker.RunPopulateAsync(cancellationToken, populateProgress);
 #pragma warning restore CS0618
-                _logger.LogDebug("[Marvin] Phase 2 (Populate) completed in {Ms}ms — {Count} items", phaseSw.ElapsedMilliseconds, writtenItems.Count);
+
+                var allWrittenItems = new List<CatalogItem>();
+                var syncSw = System.Diagnostics.Stopwatch.StartNew();
+
+#pragma warning disable CS0618 // CatalogSyncTask is obsolete but still functional
+                var syncProgress = new Progress<double>(p => progress?.Report(p * 0.35));
+                var syncTask = new CatalogSyncTask(_libraryManager, _logManager)
+                    .RunSyncAsync(cancellationToken, syncProgress);
+#pragma warning restore CS0618
+
+                // While sync runs, poll DB every 5s for newly Queued items
+                while (!syncTask.IsCompleted)
+                {
+                    await Task.WhenAny(syncTask, Task.Delay(TimeSpan.FromSeconds(5), cancellationToken));
+
+                    var batch = await refreshWorker.RunPopulateAsync(cancellationToken, new Progress<double>());
+                    if (batch.Count > 0)
+                    {
+                        allWrittenItems.AddRange(batch);
+                        _logger.LogInformation("[Marvin] Inline populate wrote {Count} items while syncing", batch.Count);
+                    }
+                }
+
+                // Re-await to propagate any sync exceptions
+                await syncTask;
+                _logger.LogDebug("[Marvin] Phase 1 (Sync) completed in {Ms}ms", syncSw.ElapsedMilliseconds);
+
+                progress?.Report(0.35);
+
+                // Final populate pass after sync completes
+                var finalBatch = await refreshWorker.RunPopulateAsync(
+                    cancellationToken, new Progress<double>(p => progress?.Report(0.35 + p * 0.20)));
+                if (finalBatch.Count > 0)
+                    allWrittenItems.AddRange(finalBatch);
+
+                _logger.LogInformation(
+                    "[Marvin] Phase 1+2 completed in {Ms}ms — {Count} total items populated",
+                    syncSw.ElapsedMilliseconds, allWrittenItems.Count);
 
                 progress?.Report(0.55);
 
@@ -151,10 +170,10 @@ namespace InfiniteDrive.Tasks
                 Plugin.Pipeline.SetPhase("Marvin", "Resolve");
                 _logger.LogInformation("[InfiniteDrive] Marvin Phase 3: Resolve");
 
-                phaseSw.Restart();
+                var phaseSw = System.Diagnostics.Stopwatch.StartNew();
                 var resolveProgress = new Progress<double>(p => progress?.Report(0.55 + p * 0.25));
 #pragma warning disable CS0618
-                await refreshWorker.RunResolveAsync(cancellationToken, resolveProgress, writtenItems);
+                await refreshWorker.RunResolveAsync(cancellationToken, resolveProgress, allWrittenItems);
 #pragma warning restore CS0618
                 _logger.LogDebug("[Marvin] Phase 3 (Resolve) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 

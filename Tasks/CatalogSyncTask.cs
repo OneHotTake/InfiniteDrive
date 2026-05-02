@@ -224,27 +224,49 @@ namespace InfiniteDrive.Tasks
                         catalogLimit);
             }
 
-            // 3. Fetch each catalog — failures are per-catalog, not provider-level.
-            foreach (var catalog in catalogs)
+            // 3. Fetch catalogs in parallel (up to 4 concurrent) for speed.
+            using var catalogGate = new SemaphoreSlim(4);
+            var catalogResults = new ConcurrentBag<(int Idx, string Key, List<CatalogItem> Items, CatalogOutcome Outcome, string? ManifestUrl)>();
+
+            var catalogTasks = catalogs.Select((catalog, idx) => Task.Run(async () =>
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                await catalogGate.WaitAsync(cancellationToken);
+                try
+                {
+                    var key          = $"{_keyPrefix}:{catalog.Type}:{catalog.Id}";
+                    var catalogLimit = GetCatalogLimit(config, key);
 
-                var key          = $"{_keyPrefix}:{catalog.Type}:{catalog.Id}";
-                var catalogLimit = GetCatalogLimit(config, key);
+                    logger.LogInformation("[InfiniteDrive] Fetching catalog {Idx}/{Total}: {Key}", idx + 1, catalogs.Count, key);
 
-                var (items, outcome) = await FetchOneCatalogAsync(
-                    client, catalog, logger, catalogLimit, cancellationToken,
-                    onProgress: db == null ? null
-                        : async count => await db.UpdateCatalogProgressAsync(key, count));
+                    var (items, outcome) = await FetchOneCatalogAsync(
+                        client, catalog, logger, catalogLimit, cancellationToken,
+                        onProgress: db == null ? null
+                            : async count => await db.UpdateCatalogProgressAsync(key, count));
 
+                    logger.LogInformation("[InfiniteDrive] Catalog {Idx}/{Total}: {Key} → {Count} items, ok={Ok}",
+                        idx + 1, catalogs.Count, key, items.Count, outcome.Succeeded);
+
+                    // Stamp originating manifest URL for episode expansion routing
+                    foreach (var catItem in items)
+                        catItem.SourceManifestUrl = manifestUrl;
+
+                    catalogResults.Add((idx, key, items, outcome, manifestUrl));
+                }
+                finally
+                {
+                    catalogGate.Release();
+                }
+            }, cancellationToken));
+
+            await Task.WhenAll(catalogTasks);
+
+            // Reassemble in original order
+            foreach (var (_, key, items, outcome, _) in catalogResults.OrderBy(x => x.Idx))
+            {
                 result.Items.AddRange(items);
-                // Stamp originating manifest URL for episode expansion routing
-                foreach (var catItem in items)
-                    catItem.SourceManifestUrl = manifestUrl;
                 result.CatalogOutcomes[key] = outcome;
-
                 if (outcome.Succeeded)
-                    logger.LogDebug("[InfiniteDrive] Catalog {Key} → {Count} items", key, outcome.ItemCount);
+                    logger.LogInformation("[InfiniteDrive] Catalog {Key} → {Count} items", key, outcome.ItemCount);
                 else
                     logger.LogWarning("[InfiniteDrive] Catalog {Key} failed: {Err}", key, outcome.Error);
             }
@@ -911,6 +933,7 @@ namespace InfiniteDrive.Tasks
             // 2. Fetch from all providers (with interval guard + health recording)
             Plugin.Pipeline.SetPhase("CatalogSync", "Fetch");
             progress?.Report(5);
+            _logger.LogDebug("[InfiniteDrive] Starting FetchFromAllProvidersAsync with {Count} providers", providers.Count);
             var (allItems, fetchedSourceIds, attemptedProviders) = await FetchFromAllProvidersAsync(providers, config, db, cancellationToken);
             _logger.LogInformation(
                 "[InfiniteDrive] Fetched {Count} raw catalog items from all sources (attempted {Attempted} providers)",

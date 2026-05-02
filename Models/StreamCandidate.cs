@@ -136,6 +136,13 @@ namespace InfiniteDrive.Models
         /// <summary>Cached ffprobe JSON output for this stream's CDN URL.</summary>
         public string? ProbeJson { get; set; }
 
+        /// <summary>
+        /// JSON-serialised raw <see cref="AioStreamsStream"/> from AIOStreams.
+        /// Preserved so MediaStreams can be rebuilt using CandidateNormalizer's
+        /// three-tier parser (parsedFile → filename → description).
+        /// </summary>
+        public string? RawStreamJson { get; set; }
+
         // ── Lifecycle ───────────────────────────────────────────────────────────
 
         /// <summary>UTC timestamp when this candidate was resolved.</summary>

@@ -253,7 +253,7 @@ namespace InfiniteDrive.Services
                     SupportsDirectStream = true,
                     SupportsTranscoding = true,
                     IsInfiniteStream = false,
-                    RequiresOpening = true, // Always true for pre-cached: need fresh CDN URL
+                    RequiresOpening = false, // Direct URL — Emby plays it directly
                 };
 
                 if (v.Bitrate.HasValue && v.Bitrate.Value > 0)
@@ -335,21 +335,6 @@ namespace InfiniteDrive.Services
 
                 source.MediaStreams = streams;
 
-                // Open token: encode infoHash+fileIdx+imdbId for OpenMediaSource CDN resolution
-                var tokenData = new CachedStreamOpenToken
-                {
-                    InfoHash = v.InfoHash,
-                    FileIdx = v.FileIdx,
-                    ImdbId = entry.ImdbId,
-                    Season = entry.Season,
-                    Episode = entry.Episode,
-                    MediaType = entry.MediaType,
-                    Url = v.Url,
-                    HeadersJson = v.HeadersJson,
-                    ProviderName = v.ProviderName,
-                };
-                source.OpenToken = JsonSerializer.Serialize(tokenData);
-
                 sources.Add(source);
             }
 
@@ -393,6 +378,7 @@ namespace InfiniteDrive.Services
     /// </summary>
     public class CachedStreamOpenToken
     {
+        public string TokenType { get; set; } = "cached";
         public string? InfoHash { get; set; }
         public int? FileIdx { get; set; }
         public string ImdbId { get; set; } = string.Empty;
@@ -402,5 +388,6 @@ namespace InfiniteDrive.Services
         public string? Url { get; set; }
         public string? HeadersJson { get; set; }
         public string? ProviderName { get; set; }
+        public string? FileName { get; set; }
     }
 }
