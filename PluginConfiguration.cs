@@ -444,7 +444,7 @@ namespace InfiniteDrive
         /// Max total curated streams returned per item (default 7, max 12).
         /// </summary>
         [DataMember]
-        public int MaxCuratedStreams { get; set; } = 7;
+        public int MaxCuratedStreams { get; set; } = 10;
 
         /// <summary>
         /// JSON-serialized bucket definitions for stream selection.
@@ -454,14 +454,7 @@ namespace InfiniteDrive
         /// maxCount: max streams from this bucket
         /// </summary>
         [DataMember]
-        public string StreamBucketsJson { get; set; } = @"[
-  {""resTier"":0,""srcMax"":0,""maxCount"":2},
-  {""resTier"":0,""srcMax"":1,""maxCount"":1},
-  {""resTier"":0,""srcMax"":2,""maxCount"":1},
-  {""resTier"":1,""srcMax"":0,""maxCount"":1},
-  {""resTier"":1,""srcMax"":1,""maxCount"":2},
-  {""resTier"":2,""srcMax"":1,""maxCount"":1}
-]";
+        public string StreamBucketsJson { get; set; } = "";
 
         /// <summary>
         /// When <c>true</c> (default), InfiniteDrive skips the Emby transcoding

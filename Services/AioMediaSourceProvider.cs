@@ -81,7 +81,7 @@ namespace InfiniteDrive.Services
         public async Task<ILiveStream> OpenMediaSource(
             string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {
-            // ── Try new CachedStreamOpenToken format first ────────────────────────
+            // ── Try CachedStreamOpenToken format (has TokenType marker) ──────────
             CachedStreamOpenToken? cachedToken = null;
             try
             {
@@ -89,7 +89,7 @@ namespace InfiniteDrive.Services
             }
             catch { /* not a cached-stream token — try legacy format */ }
 
-            if (cachedToken != null && !string.IsNullOrEmpty(cachedToken.ImdbId))
+            if (cachedToken != null && cachedToken.TokenType == "cached")
             {
                 return await OpenFromCachedTokenAsync(cachedToken, cancellationToken).ConfigureAwait(false);
             }
@@ -248,10 +248,7 @@ namespace InfiniteDrive.Services
                 catch { /* URL expired — fall through to fresh resolve */ }
             }
 
-            // Fresh resolve via AIOStreams using infoHash+fileIdx
-            if (string.IsNullOrEmpty(token.InfoHash))
-                throw new InvalidOperationException("No infoHash and cached URL expired");
-
+            // Fresh resolve via AIOStreams using infoHash+fileIdx or filename match
             var providers = ProviderHelper.GetProviders(config);
             var response = await AioStreamsClient.FetchAioStreamsAsync(
                 providers, token.ImdbId, token.MediaType ?? "movie",
@@ -262,10 +259,19 @@ namespace InfiniteDrive.Services
             if (response?.Streams == null)
                 throw new InvalidOperationException($"Could not resolve stream for {token.ImdbId}");
 
-            // Find the stream matching our infoHash+fileIdx
-            var match = response.Streams.FirstOrDefault(s =>
-                string.Equals(s.InfoHash, token.InfoHash, StringComparison.OrdinalIgnoreCase)
-                && s.FileIdx == token.FileIdx);
+            // Find the stream matching our infoHash+fileIdx, or by filename
+            var match = !string.IsNullOrEmpty(token.InfoHash)
+                ? response.Streams.FirstOrDefault(s =>
+                    string.Equals(s.InfoHash, token.InfoHash, StringComparison.OrdinalIgnoreCase)
+                    && s.FileIdx == token.FileIdx)
+                : null;
+
+            // Fallback: match by filename
+            if (match == null || string.IsNullOrEmpty(match.Url))
+                match = response.Streams.FirstOrDefault(s =>
+                    !string.IsNullOrEmpty(s.Url) &&
+                    !string.IsNullOrEmpty(s.BehaviorHints?.Filename) &&
+                    string.Equals(s.BehaviorHints.Filename, token.FileName, StringComparison.OrdinalIgnoreCase));
 
             // Fallback: first stream with a direct URL
             if (match == null || string.IsNullOrEmpty(match.Url))
@@ -402,7 +408,6 @@ namespace InfiniteDrive.Services
                             var sources = BuildSourcesFromCandidates(scored, imdbId);
 
                             SortByLanguagePreference(sources, config, null);
-                            SetOpenTokens(sources, imdbId, scored);
                             _cache[cacheKey] = (sources, DateTime.UtcNow.Add(cacheTtl));
                             return sources;
                         }
@@ -429,7 +434,6 @@ namespace InfiniteDrive.Services
             if (liveSources.Count > 0)
             {
                 SortByLanguagePreference(liveSources, config, null);
-                SetOpenTokens(liveSources, imdbId, candidates);
                 _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(cacheTtl));
 
                 // Cache candidates to DB (async, non-blocking)
@@ -469,10 +473,13 @@ namespace InfiniteDrive.Services
 
             if (response == null) return new List<StreamCandidate>();
 
+            // Pass 0 for candidatesPerProvider to disable the per-provider cap.
+            // The bucket algorithm in SelectBest handles curation; capping here
+            // means all streams from a single-provider setup get cut to 3.
             var ranked = StreamHelpers.RankAndFilterStreams(
                 response, imdbId, season, episode,
                 config.ProviderPriorityOrder ?? "",
-                config.CandidatesPerProvider > 0 ? config.CandidatesPerProvider : 5,
+                0, // unlimited — let SelectBest's bucket algorithm curate
                 config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
 
             return new StreamScoringService(_logger, config).SelectBest(ranked);
@@ -497,8 +504,7 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrEmpty(candidate.Url)) return null;
 
             var config = Plugin.Instance?.Configuration;
-            var prefix = config?.VersionLabelPrefix ?? "";
-            var name = prefix + FormatCandidateName(candidate);
+            var name = FormatCandidateName(candidate);
             var source = new MediaSourceInfo
             {
                 Id = candidate.Id ?? Guid.NewGuid().ToString("N"),
@@ -509,7 +515,7 @@ namespace InfiniteDrive.Services
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
                 IsInfiniteStream = false,
-                RequiresOpening = config?.UseRequiresOpening ?? false,
+                RequiresOpening = false,
             };
 
             if (candidate.BitrateKbps.HasValue && candidate.BitrateKbps.Value > 0)
@@ -537,10 +543,8 @@ namespace InfiniteDrive.Services
                 catch { /* non-fatal */ }
             }
 
-            // Build MediaStreams from stored languages + subtitles
-            var streams = BuildMediaStreamsFromLanguages(
-                candidate.Languages, candidate.QualityTier, candidate.BitrateKbps);
-            AppendSubtitlesFromJson(streams, candidate.SubtitlesJson);
+            // Build MediaStreams from filename parsing — resolution, codec, audio, subs
+            var streams = BuildRichMediaStreams(candidate);
 
             // Use cached probe data if available (replaces synthetic streams)
             if (!string.IsNullOrEmpty(candidate.ProbeJson))
@@ -571,7 +575,9 @@ namespace InfiniteDrive.Services
                 sizeLabel = gb >= 1 ? $"{gb:F0} GiB" : $"{c.FileSize.Value / (1024.0 * 1024.0):F0} MiB";
             }
 
-            return StreamHelpers.BuildDisplayName(c.Description, "Stream", res, src, audioLabel, sizeLabel);
+            var parts = new[] { res, src, audioLabel, sizeLabel }
+                .Where(p => !string.IsNullOrEmpty(p));
+            return parts.Any() ? string.Join(" · ", parts) : "Stream";
         }
 
         private static string GetSourceTypeFromQualityTier(string? qualityTier, string? filename)
@@ -587,7 +593,8 @@ namespace InfiniteDrive.Services
             if (fn.Contains("REMUX"))                          return "Remux";
             if (fn.Contains("BLURAY") || fn.Contains("BDRIP") || fn.Contains("BLU-RAY"))
                                                         return "BluRay";
-            if (fn.Contains("WEBDL") || fn.Contains("WEB-DL"))return "WEB-DL";
+            if (fn.Contains("WEBDL") || fn.Contains("WEB-DL") ||
+                fn.Contains("WEB.DL") || fn.Contains("WEB DL"))return "WEB-DL";
             if (fn.Contains("WEB"))                           return "WEB";
 
             // Fallback to qualityTier
@@ -661,6 +668,7 @@ namespace InfiniteDrive.Services
                     StreamKey = orig?.StreamKey,
                     InfoHash = orig?.InfoHash,
                     FileIdx = orig?.FileIdx,
+                    FileName = orig?.FileName,
                 };
             }).ToList();
 
@@ -687,7 +695,7 @@ namespace InfiniteDrive.Services
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
-                RequiresOpening = config?.UseRequiresOpening ?? false,
+                RequiresOpening = false,
                 IsInfiniteStream = false,
             };
 
@@ -819,9 +827,20 @@ namespace InfiniteDrive.Services
 
                     if (response?.Streams == null || response.Streams.Count == 0) continue;
 
-                    // Find matching stream by infoHash
-                    var match = response.Streams.FirstOrDefault(s =>
-                        string.Equals(s.InfoHash, cand.InfoHash, StringComparison.OrdinalIgnoreCase));
+                    // Find matching stream by infoHash, then filename, then first URL
+                    var match = !string.IsNullOrEmpty(cand.InfoHash)
+                        ? response.Streams.FirstOrDefault(s =>
+                            string.Equals(s.InfoHash, cand.InfoHash, StringComparison.OrdinalIgnoreCase))
+                        : null;
+
+                    if (match == null || string.IsNullOrEmpty(match.Url))
+                        match = response.Streams.FirstOrDefault(s =>
+                            !string.IsNullOrEmpty(s.Url) &&
+                            !string.IsNullOrEmpty(s.BehaviorHints?.Filename) &&
+                            string.Equals(s.BehaviorHints.Filename, cand.FileName, StringComparison.OrdinalIgnoreCase));
+
+                    if (match == null || string.IsNullOrEmpty(match.Url))
+                        match = response.Streams.FirstOrDefault(s => !string.IsNullOrEmpty(s.Url));
 
                     if (match == null || string.IsNullOrEmpty(match.Url))
                     {
@@ -1125,6 +1144,216 @@ namespace InfiniteDrive.Services
             return "srt";
         }
 
+        /// <summary>
+        /// Builds MediaStreams using CandidateNormalizer's three-tier parser
+        /// (parsedFile → filename → description) from the preserved raw AioStreamsStream.
+        /// Falls back to filename-only parsing when raw JSON is unavailable.
+        /// </summary>
+        private static List<MediaStream> BuildRichMediaStreams(StreamCandidate candidate)
+        {
+            var streams = new List<MediaStream>();
+
+            // Try to deserialize the preserved raw AioStreamsStream
+            AioStreamsStream? raw = null;
+            if (!string.IsNullOrEmpty(candidate.RawStreamJson))
+            {
+                try { raw = JsonSerializer.Deserialize<AioStreamsStream>(candidate.RawStreamJson); }
+                catch { /* fallback below */ }
+            }
+
+            string videoCodec;
+            string audioCodec;
+            int channels;
+            string? audioTitle;
+            int width, height;
+
+            if (raw != null)
+            {
+                // Three-tier parsing via CandidateNormalizer
+                var tech = CandidateNormalizer.ParseTechnicalMetadata(raw);
+                var langs = CandidateNormalizer.ResolveLanguages(raw);
+
+                videoCodec = tech.VideoCodec ?? "h264";
+                audioCodec = MapAudioCodecForEmby(tech.AudioCodec);
+                channels = MapChannelCount(tech.AudioChannels);
+                audioTitle = BuildAudioTitle(audioCodec, channels);
+
+                // Resolution from tech (more reliable than QualityTier)
+                var (w, h) = StreamHelpers.ResolutionToPixels(tech.Resolution ?? candidate.QualityTier);
+                width = w;
+                height = h;
+
+                var primaryLang = langs.Count > 0 ? langs[0] : "und";
+
+                // ── Video stream ──────────────────────────────────────────────
+                streams.Add(new MediaStream
+                {
+                    Type      = MediaStreamType.Video,
+                    Index     = 0,
+                    Codec     = videoCodec,
+                    Width     = width,
+                    Height    = height,
+                    Language  = "und",
+                    IsDefault = true,
+                    BitRate   = candidate.BitrateKbps ?? 0,
+                });
+
+                // ── Audio streams (one per detected language) ─────────────────
+                var audioLangs = langs.Count > 0 ? langs : new List<string> { "und" };
+                for (int i = 0; i < audioLangs.Count; i++)
+                {
+                    streams.Add(new MediaStream
+                    {
+                        Type           = MediaStreamType.Audio,
+                        Index          = streams.Count,
+                        Codec          = audioCodec,
+                        Channels       = channels,
+                        Language       = audioLangs[i],
+                        Title          = audioTitle,
+                        DisplayTitle   = audioTitle,
+                        IsDefault      = i == 0,
+                    });
+                }
+            }
+            else
+            {
+                // Fallback: filename-only parsing
+                var fnUpper = (candidate.FileName ?? "").ToUpperInvariant();
+                videoCodec = DetectVideoCodec(fnUpper);
+                audioCodec = DetectAudioCodec(fnUpper);
+                channels = DetectChannels(fnUpper);
+                audioTitle = BuildAudioTitle(audioCodec, channels);
+                var (w, h) = StreamHelpers.ResolutionToPixels(candidate.QualityTier);
+                width = w;
+                height = h;
+
+                var lang = candidate.Languages?.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                    .FirstOrDefault()?.Trim() ?? "und";
+
+                streams.Add(new MediaStream
+                {
+                    Type      = MediaStreamType.Video,
+                    Index     = 0,
+                    Codec     = videoCodec,
+                    Width     = width,
+                    Height    = height,
+                    Language  = "und",
+                    IsDefault = true,
+                    BitRate   = candidate.BitrateKbps ?? 0,
+                });
+
+                streams.Add(new MediaStream
+                {
+                    Type           = MediaStreamType.Audio,
+                    Index          = 1,
+                    Codec          = audioCodec,
+                    Channels       = channels,
+                    Language       = lang,
+                    Title          = audioTitle,
+                    DisplayTitle   = audioTitle,
+                    IsDefault      = true,
+                });
+            }
+
+            // ── Subtitles ────────────────────────────────────────────────────
+            AppendSubtitlesFromJson(streams, candidate.SubtitlesJson);
+
+            // ── Probe override (if available) ────────────────────────────────
+            if (!string.IsNullOrEmpty(candidate.ProbeJson))
+            {
+                try
+                {
+                    var probed = DeserializeProbeStreams(candidate.ProbeJson);
+                    if (probed != null && probed.Count > 1)
+                        return probed;
+                }
+                catch { /* fallback to parsed */ }
+            }
+
+            return streams;
+        }
+
+        /// <summary>
+        /// Maps CandidateNormalizer audio codec names to Emby-compatible codec strings.
+        /// </summary>
+        private static string MapAudioCodecForEmby(string? audioCodec) => audioCodec switch
+        {
+            "atmos"   => "eac3",
+            "dts_x"   => "dtshd",
+            "dts_hd"  => "dtshd",
+            "dts"     => "dts",
+            "dd_plus" => "eac3",
+            "dd"      => "ac3",
+            "flac"    => "flac",
+            "aac"     => "aac",
+            "opus"    => "opus",
+            "mp3"     => "mp3",
+            _         => "",
+        };
+
+        /// <summary>
+        /// Maps CandidateNormalizer channel layout strings to integer channel counts.
+        /// </summary>
+        private static int MapChannelCount(string? channelLayout) => channelLayout switch
+        {
+            "7.1"    => 8,
+            "6.1"    => 7,
+            "5.1"    => 6,
+            "stereo" => 2,
+            "mono"   => 1,
+            _        => 0,
+        };
+
+        private static string DetectVideoCodec(string fnUpper)
+        {
+            if (fnUpper.Contains("X265") || fnUpper.Contains("HEVC") || fnUpper.Contains("H265") || fnUpper.Contains("H.265"))
+                return "hevc";
+            if (fnUpper.Contains("AV1")) return "av1";
+            if (fnUpper.Contains("X264") || fnUpper.Contains("H264") || fnUpper.Contains("H.264") || fnUpper.Contains("AVC"))
+                return "h264";
+            // Remux is typically AVC (H.264) for 1080p, HEVC for 4K
+            if (fnUpper.Contains("REMUX")) return "h264";
+            return "h264";
+        }
+
+        private static string DetectAudioCodec(string fnUpper)
+        {
+            if (fnUpper.Contains("ATMOS")) return "eac3";
+            if (fnUpper.Contains("TRUEHD")) return "truehd";
+            if (fnUpper.Contains("DTS-HD") || fnUpper.Contains("DTSHD") || fnUpper.Contains("DTS-X") || fnUpper.Contains("DTSX"))
+                return "dtshd";
+            if (fnUpper.Contains("EAC3") || fnUpper.Contains("E-AC3") || fnUpper.Contains("DDP") || fnUpper.Contains("DD+"))
+                return "eac3";
+            if (fnUpper.Contains("DTS")) return "dts";
+            if (fnUpper.Contains("AC3") || fnUpper.Contains("AC-3") || fnUpper.Contains("DD5") || fnUpper.Contains("DOLBY DIGITAL"))
+                return "ac3";
+            if (fnUpper.Contains("FLAC")) return "flac";
+            if (fnUpper.Contains("OPUS")) return "opus";
+            if (fnUpper.Contains("AAC")) return "aac";
+            return "";
+        }
+
+        private static int DetectChannels(string fnUpper)
+        {
+            if (fnUpper.Contains("7.1") || fnUpper.Contains("8 CH")) return 8;
+            if (fnUpper.Contains("5.1") || fnUpper.Contains("6 CH")) return 6;
+            if (fnUpper.Contains("2.0") || fnUpper.Contains("STEREO")) return 2;
+            return 0; // unknown
+        }
+
+        private static string BuildAudioTitle(string codec, int channels)
+        {
+            var ch = channels switch
+            {
+                8 => "7.1",
+                6 => "5.1",
+                2 => "Stereo",
+                _ => ""
+            };
+            var parts = new[] { codec.ToUpperInvariant(), ch }.Where(p => !string.IsNullOrEmpty(p));
+            return parts.Any() ? string.Join(" ", parts) : "";
+        }
+
         // ═══════════════════════════════════════════════════════════════════════════
         //  Config helpers
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1234,5 +1463,6 @@ namespace InfiniteDrive.Services
         public string? StreamKey { get; set; }
         public string? InfoHash { get; set; }
         public int? FileIdx { get; set; }
+        public string? FileName { get; set; }
     }
 }

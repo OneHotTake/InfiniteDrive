@@ -97,8 +97,11 @@ namespace InfiniteDrive.Services.Scoring
             var fn = c.FileName ?? "";
 
             // Check explicit numeric resolutions first (more reliable than "4k" keyword)
-            if (r.Contains("2160", StringComparison.OrdinalIgnoreCase) ||
-                fn.Contains("2160", StringComparison.OrdinalIgnoreCase)) return 0;
+            // UpScaled is fake 4K — downgrade to 1080p
+            var isUpscaled = fn.Contains("UPSCALED", StringComparison.OrdinalIgnoreCase) ||
+                             fn.Contains("UP-SCALED", StringComparison.OrdinalIgnoreCase);
+            if ((r.Contains("2160", StringComparison.OrdinalIgnoreCase) ||
+                 fn.Contains("2160", StringComparison.OrdinalIgnoreCase)) && !isUpscaled) return 0;
             if (r.Contains("1080", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("1080", StringComparison.OrdinalIgnoreCase)) return 1;
             if (r.Contains("720", StringComparison.OrdinalIgnoreCase) ||
@@ -108,9 +111,9 @@ namespace InfiniteDrive.Services.Scoring
                 r.Contains("360", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("360", StringComparison.OrdinalIgnoreCase)) return 3;
 
-            // "remux" or "4k" / "4320" only if no explicit resolution was found
+            // "remux" without explicit resolution → assume 1080p (most common Remux resolution)
             if (r.Contains("remux", StringComparison.OrdinalIgnoreCase) ||
-                fn.Contains("remux", StringComparison.OrdinalIgnoreCase)) return 0;
+                fn.Contains("remux", StringComparison.OrdinalIgnoreCase)) return 1;
             if (fn.Contains("4320", StringComparison.OrdinalIgnoreCase) ||
                 r.Contains("4k", StringComparison.OrdinalIgnoreCase) ||
                 fn.Contains("4k", StringComparison.OrdinalIgnoreCase)) return 0;
@@ -132,7 +135,8 @@ namespace InfiniteDrive.Services.Scoring
                 fnUpper.Contains("DVDRIP") || fnUpper.Contains("DVD-RIP")) return 1;
             // WEB-DLRip is a re-encode, not a true WEB-DL — must check before WEB-DL
             if (fnUpper.Contains("WEB-DLRIP") || fnUpper.Contains("WEBDLRIP")) return 3;
-            if (fnUpper.Contains("WEBDL") || fnUpper.Contains("WEB-DL")) return 2;
+            if (fnUpper.Contains("WEBDL") || fnUpper.Contains("WEB-DL") ||
+                fnUpper.Contains("WEB.DL") || fnUpper.Contains("WEB DL")) return 2;
             if (fnUpper.Contains("WEBRIP") || fnUpper.Contains("WEB")) return 3;
             if (fnUpper.Contains("HDRIP") || fnUpper.Contains("HD-RIP") ||
                 fnUpper.Contains("UHDRIP") || fnUpper.Contains("UHD-RIP") ||
@@ -141,6 +145,8 @@ namespace InfiniteDrive.Services.Scoring
             if (fnUpper.Contains("HDTS") || fnUpper.Contains("TELESYNC") ||
                 fnUpper.Contains("TS")) return 5;
             if (fnUpper.Contains("CAM") || fnUpper.Contains("HDCAM")) return 5;
+            // UpScaled is fake quality — lowest priority source
+            if (fnUpper.Contains("UPSCALED") || fnUpper.Contains("UP-SCALED")) return 7;
             return 9;
         }
 
@@ -183,18 +189,19 @@ namespace InfiniteDrive.Services.Scoring
         {
             var defaults = new List<(int, int, int)>
             {
-                (0, 9, 2), // 4K (any source): up to 2 streams
-                (1, 9, 2), // 1080p (any source): up to 2 streams
-                (2, 9, 1), // 720p (any source): up to 1 stream
-                (3, 9, 1), // 480p (any source): up to 1 stream
-                (9, 9, 3), // Unknown/fallback: up to 3 streams
+                (0, 9, 3), // 4K: up to 3 (Remux, HDR/DD+, basic)
+                (1, 9, 3), // 1080p: up to 3 (Remux, HDR/DD+, basic)
+                (2, 9, 1), // 720p: up to 1 (fallback)
+                (3, 9, 1), // 480p: up to 1 (fallback)
+                (9, 9, 1), // Unknown: up to 1 (fallback)
             };
 
             if (string.IsNullOrWhiteSpace(json)) return defaults;
 
             try
             {
-                var parsed = JsonSerializer.Deserialize<List<BucketDef>>(json);
+                var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var parsed = JsonSerializer.Deserialize<List<BucketDef>>(json, opts);
                 if (parsed != null && parsed.Count > 0)
                     return parsed.Select(b => (b.ResTier, b.SrcMax, b.MaxCount)).ToList();
             }

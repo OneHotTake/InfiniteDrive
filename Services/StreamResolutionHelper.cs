@@ -83,7 +83,7 @@ namespace InfiniteDrive.Services
                     var candidates = StreamHelpers.RankAndFilterStreams(
                         response, req.Imdb, req.Season, req.Episode,
                         config.ProviderPriorityOrder,
-                        config.CandidatesPerProvider,
+                        0, // unlimited — let SelectBest's bucket algorithm curate per tier
                         config.CacheLifetimeMinutes);
 
                     if (candidates.Count == 0) continue;

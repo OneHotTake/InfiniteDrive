@@ -109,15 +109,18 @@ namespace InfiniteDrive.Services
                 return "unknown";
 
             var f = filename;
-            if (ContainsI(f, "remux"))                                            return "remux";
-            if (ContainsI(f, "2160p") || ContainsI(f, "4K")
-                                      || ContainsI(f, "UHD"))                     return "2160p";
-            // 1440p is between 1080p and 4K; map to 1080p tier (no native tier exists)
+            // UpScaled is fake 4K — downgrade by one tier (2160→1080, etc.)
+            var isUpscaled = ContainsI(f, "upscaled") || ContainsI(f, "up-scaled");
+            // Resolution first — remux is a source type, not a resolution
+            if (ContainsI(f, "2160p") || ContainsI(f, "2160") || ContainsI(f, "4K")
+                                      || ContainsI(f, "UHD"))
+                return isUpscaled ? "1080p" : "2160p";
             if (ContainsI(f, "1440p"))                                            return "1080p";
-            if (ContainsI(f, "1080p"))                                            return "1080p";
-            if (ContainsI(f, "720p"))                                             return "720p";
-            // 480p and lower map to a dedicated tier ranked below 720p
+            if (ContainsI(f, "1080p") || ContainsI(f, "1080"))                    return "1080p";
+            if (ContainsI(f, "720p")  || ContainsI(f, "720"))                     return "720p";
             if (ContainsI(f, "480p") || ContainsI(f, "360p") || ContainsI(f, "240p")) return "480p";
+            // Remux without explicit resolution → assume 1080p (most common Remux resolution)
+            if (ContainsI(f, "remux"))                                            return "1080p";
             return "unknown";
         }
 
@@ -302,7 +305,6 @@ namespace InfiniteDrive.Services
                         if (fn.Contains("720"))  return "720p";
                         if (fn.Contains("480"))  return "480p";
                     }
-                    if (string.Equals(tier, "remux", StringComparison.OrdinalIgnoreCase)) return "4K";
                     return tier ?? "";
             }
         }
@@ -442,6 +444,18 @@ namespace InfiniteDrive.Services
                     ? $"{s.InfoHash}:{s.FileIdx}"
                     : s.Url;
 
+                // Languages from parsedFile → filename fallback
+                var langs = CandidateNormalizer.ResolveLanguages(s);
+                var languages = langs.Count > 0 ? string.Join(",", langs) : null;
+
+                // Subtitles
+                string? subtitlesJson = (s.Subtitles != null && s.Subtitles.Count > 0)
+                    ? JsonSerializer.Serialize(s.Subtitles)
+                    : null;
+
+                // Preserve raw stream for MediaStreams rebuild via CandidateNormalizer
+                string? rawStreamJson = JsonSerializer.Serialize(s);
+
                 results.Add(new StreamCandidate
                 {
                     ImdbId      = imdbId,
@@ -457,12 +471,14 @@ namespace InfiniteDrive.Services
                     FileSize    = s.BehaviorHints?.VideoSize ?? s.Size,
                     BitrateKbps = s.Bitrate.HasValue ? (int)(s.Bitrate.Value / 1000) : null,
                     IsCached    = s.Service?.Cached ?? true,
-                    // Store torrent identity for debrid streams; null for usenet/HTTP.
                     InfoHash    = string.IsNullOrEmpty(s.InfoHash) ? null : s.InfoHash,
                     FileIdx     = s.FileIdx,
                     StreamKey   = streamKey,
                     BingeGroup  = s.BingeGroup ?? s.BehaviorHints?.BingeGroup,
                     Description = StreamHelpers.CollapseDescription(s.Description ?? s.Title),
+                    Languages     = languages,
+                    SubtitlesJson = subtitlesJson,
+                    RawStreamJson = rawStreamJson,
                     ResolvedAt  = DateTime.UtcNow.ToString("o"),
                     ExpiresAt   = DateTime.UtcNow.AddMinutes(cacheMinutes).ToString("o"),
                     Status      = "valid",
@@ -495,7 +511,6 @@ namespace InfiniteDrive.Services
         private static int QualityRank(string? tier) =>
             tier switch
             {
-                "remux"   => 6,
                 "2160p"   => 5,
                 "1080p"   => 4,
                 "720p"    => 3,
