@@ -253,7 +253,8 @@ namespace InfiniteDrive.Services
                     SupportsDirectStream = true,
                     SupportsTranscoding = true,
                     IsInfiniteStream = false,
-                    RequiresOpening = false, // Direct URL — Emby plays it directly
+                    RequiresOpening = false,
+                    SupportsProbing = false,
                 };
 
                 if (v.Bitrate.HasValue && v.Bitrate.Value > 0)
@@ -279,66 +280,37 @@ namespace InfiniteDrive.Services
                     catch { /* non-fatal */ }
                 }
 
-                // Build MediaStreams from variant metadata
-                var streams = new List<MediaStream>();
-
-                // Video stream
-                var (width, height) = StreamHelpers.ResolutionToPixels(v.Resolution ?? v.QualityTier);
-                if (width > 0 || !string.IsNullOrEmpty(v.VideoCodec))
+                // Minimal MediaStreams — Emby probes the CDN URL via SupportsProbing.
+                // For pre-cache sources, we don't have background probe support (no logger).
+                // The AioMediaSourceProvider live/DB paths use ApplyProbes for caching.
+                source.MediaStreams = new List<MediaStream>
                 {
-                    streams.Add(new MediaStream
-                    {
-                        Type = MediaStreamType.Video,
-                        Codec = v.VideoCodec ?? "",
-                        Width = width,
-                        Height = height,
-                        BitRate = v.Bitrate.HasValue ? v.Bitrate.Value * 1000 : 0,
-                        Index = streams.Count,
-                    });
-                }
-
-                // Audio streams
-                if (v.AudioStreams != null)
-                {
-                    foreach (var audio in v.AudioStreams)
-                    {
-                        streams.Add(new MediaStream
-                        {
-                            Type = MediaStreamType.Audio,
-                            Language = audio.Language ?? "",
-                            Title = audio.Language ?? "",
-                            DisplayTitle = audio.Language ?? "",
-                            Codec = audio.Codec ?? "",
-                            Channels = audio.Channels ?? 2,
-                            IsDefault = audio.IsDefault,
-                            Index = streams.Count,
-                        });
-                    }
-                }
-
-                // Subtitle streams
-                if (v.SubtitleStreams != null)
-                {
-                    foreach (var sub in v.SubtitleStreams)
-                    {
-                        streams.Add(new MediaStream
-                        {
-                            Type = MediaStreamType.Subtitle,
-                            Language = sub.Language ?? "",
-                            Title = sub.Language ?? "",
-                            DisplayTitle = sub.Language ?? "",
-                            IsDefault = sub.IsDefault,
-                            Index = streams.Count,
-                        });
-                    }
-                }
-
-                source.MediaStreams = streams;
+                    new MediaStream { Type = MediaStreamType.Video, Index = -1 },
+                    new MediaStream { Type = MediaStreamType.Audio, Index = -1 },
+                };
 
                 sources.Add(source);
             }
 
             return sources;
+        }
+
+        private static string BuildCachedOpenToken(StreamVariant v, CachedStreamEntry entry)
+        {
+            var token = new CachedStreamOpenToken
+            {
+                InfoHash = v.InfoHash,
+                FileIdx = v.FileIdx,
+                ImdbId = entry.ImdbId,
+                Season = entry.Season,
+                Episode = entry.Episode,
+                MediaType = entry.MediaType,
+                Url = v.Url,
+                HeadersJson = v.HeadersJson,
+                ProviderName = v.ProviderName,
+                FileName = v.FileName,
+            };
+            return JsonSerializer.Serialize(token);
         }
 
         /// <summary>

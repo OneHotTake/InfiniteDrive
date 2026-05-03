@@ -303,7 +303,12 @@ namespace InfiniteDrive.Services
                 if (validCandidates == null || validCandidates.Count == 0)
                     return null;
 
-                var top = PreferLanguageMatch(validCandidates);
+                // Filter by quality tier fallback chain
+                var matched = FilterByQualityTier(validCandidates, req.Quality);
+                if (matched == null || matched.Count == 0)
+                    return null; // No cached candidates match requested quality — fall through to live resolve
+
+                var top = PreferLanguageMatch(matched);
 
                 if (top == null)
                     return null;
@@ -324,6 +329,34 @@ namespace InfiniteDrive.Services
                 _logger.LogDebug(ex, "[Resolve] Cache lookup failed for {Id}, falling through to live", req.Id);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Filters cached candidates by matching their QualityTier against the
+        /// requested tier's fallback chain. Returns candidates ordered by tier preference.
+        /// </summary>
+        private List<StreamCandidate>? FilterByQualityTier(List<StreamCandidate> candidates, string? requestedQuality)
+        {
+            if (string.IsNullOrEmpty(requestedQuality) || !TierFallbacks.TryGetValue(requestedQuality, out var tiers))
+                return candidates; // No quality filter — return all
+
+            // Build a resolution set from the fallback chain tiers
+            var resolutionSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var tier in tiers)
+            {
+                resolutionSet.Add(tier);
+                // Also add the resolution label (e.g. "1080p_any" → "1080p")
+                var res = tier.Split('_')[0];
+                if (!string.IsNullOrEmpty(res))
+                    resolutionSet.Add(res);
+            }
+
+            var matched = candidates
+                .Where(c => !string.IsNullOrEmpty(c.QualityTier) &&
+                            resolutionSet.Contains(c.QualityTier))
+                .ToList();
+
+            return matched.Count > 0 ? matched : null;
         }
 
         private StreamCandidate PreferLanguageMatch(List<StreamCandidate> candidates)
@@ -425,14 +458,9 @@ namespace InfiniteDrive.Services
         /// </summary>
         private object RedirectToStream(string upstreamUrl)
         {
-            var signed = PlaybackTokenService.Sign(upstreamUrl, Config.PluginSecret, 1);
-            var proxyUrl = $"{Config.EmbyBaseUrl.TrimEnd('/')}/InfiniteDrive/Stream?url={Uri.EscapeDataString(signed)}";
-
             Request.Response.StatusCode = 302;
-            Request.Response.AddHeader("Location", proxyUrl);
+            Request.Response.AddHeader("Location", upstreamUrl);
 
-            // Return empty byte array — Emby's pipeline serializes this as the
-            // response body while respecting the StatusCode and Location headers.
             return Array.Empty<byte>();
         }
 

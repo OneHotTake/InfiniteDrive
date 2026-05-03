@@ -146,7 +146,7 @@ namespace InfiniteDrive.Services
                                         "[AioMediaSourceProvider] Refreshed CDN URL for rank {Rank}", cand.Rank);
                                     cand.Url = freshUrl;
 
-                                    var refreshedSource = BuildSourceFromCandidate(cand, tokenData.ImdbId);
+                                    var refreshedSource = await BuildSourceFromCandidateAsync(cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
                                     var refreshedStream = new InfiniteDriveLiveStream(refreshedSource, _logger);
                                     await refreshedStream.Open(cancellationToken).ConfigureAwait(false);
                                     return refreshedStream;
@@ -171,7 +171,7 @@ namespace InfiniteDrive.Services
                     }
 
                     // Build the MediaSourceInfo for this candidate
-                    var source = BuildSourceFromCandidate(cand, tokenData.ImdbId);
+                    var source = await BuildSourceFromCandidateAsync(cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
 
                     var liveStream = new InfiniteDriveLiveStream(source, _logger);
                     await liveStream.Open(cancellationToken).ConfigureAwait(false);
@@ -228,7 +228,7 @@ namespace InfiniteDrive.Services
                             SupportsDirectPlay = true,
                             SupportsDirectStream = true,
                             RequiresOpening = false,
-                        };
+                                    };
                         if (!string.IsNullOrEmpty(token.HeadersJson))
                         {
                             try
@@ -238,6 +238,12 @@ namespace InfiniteDrive.Services
                             }
                             catch { }
                         }
+
+                        // Probe: cached → live → filename fallback
+                        var cachedStreamKey = !string.IsNullOrEmpty(token.InfoHash)
+                            ? $"{token.InfoHash}:{token.FileIdx}"
+                            : null;
+                        await ProbeAndSetStreamsAsync(source, cachedStreamKey, token.Url, token.FileName, cancellationToken).ConfigureAwait(false);
 
                         var liveStream = new InfiniteDriveLiveStream(source, _logger);
                         await liveStream.Open(cancellationToken).ConfigureAwait(false);
@@ -293,6 +299,13 @@ namespace InfiniteDrive.Services
 
             if (match.Headers != null)
                 freshSource.RequiredHttpHeaders = match.Headers;
+
+            // Probe: cached → live → filename fallback
+            var freshStreamKey = !string.IsNullOrEmpty(token.InfoHash)
+                ? $"{token.InfoHash}:{token.FileIdx}"
+                : null;
+            var freshFileName = token.FileName ?? match.BehaviorHints?.Filename;
+            await ProbeAndSetStreamsAsync(freshSource, freshStreamKey, match.Url, freshFileName, cancellationToken).ConfigureAwait(false);
 
             var freshLiveStream = new InfiniteDriveLiveStream(freshSource, _logger);
             await freshLiveStream.Open(cancellationToken).ConfigureAwait(false);
@@ -406,6 +419,8 @@ namespace InfiniteDrive.Services
                         if (scored.Count > 0)
                         {
                             var sources = BuildSourcesFromCandidates(scored, imdbId);
+                            SetOpenTokens(sources, imdbId, scored);
+                            ApplyProbes(sources, scored);
 
                             SortByLanguagePreference(sources, config, null);
                             _cache[cacheKey] = (sources, DateTime.UtcNow.Add(cacheTtl));
@@ -433,6 +448,8 @@ namespace InfiniteDrive.Services
 
             if (liveSources.Count > 0)
             {
+                SetOpenTokens(liveSources, imdbId, candidates);
+                ApplyProbes(liveSources, candidates);
                 SortByLanguagePreference(liveSources, config, null);
                 _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(cacheTtl));
 
@@ -441,9 +458,6 @@ namespace InfiniteDrive.Services
 
                 // Also write to cached_streams for pre-cache (fire-and-forget)
                 _ = WriteToStreamCacheAsync(imdbId, mediaType, season, episode, candidates);
-
-                // Fire-and-forget background probe for top candidates
-                _ = BackgroundProbeAsync(candidates.Take(3).ToList());
 
                 // Binge prefetch for series
                 if (season.HasValue && episode.HasValue)
@@ -499,6 +513,90 @@ namespace InfiniteDrive.Services
                 .ToList();
         }
 
+        /// <summary>
+        /// Checks DB for cached probe data and sets MediaStreams on each source.
+        /// Fires background probes for any source without cached data.
+        /// </summary>
+        private void ApplyProbes(List<MediaSourceInfo> sources, List<StreamCandidate> candidates)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+            var uncached = new List<(int idx, string url, string? streamKey, string? fileName)>();
+
+            for (var i = 0; i < sources.Count && i < candidates.Count; i++)
+            {
+                var cand = candidates[i];
+                var source = sources[i];
+
+                // Try cached probe data first
+                if (db != null && !string.IsNullOrEmpty(cand.StreamKey))
+                {
+                    try
+                    {
+                        var probeJson = db.GetProbeJsonAsync(cand.StreamKey).GetAwaiter().GetResult();
+                        if (!string.IsNullOrEmpty(probeJson))
+                        {
+                            var probed = DeserializeProbeStreams(probeJson);
+                            if (probed != null && probed.Count > 1)
+                            {
+                                source.MediaStreams = probed;
+                                continue;
+                            }
+                        }
+                    }
+                    catch { /* cache miss — fall through */ }
+                }
+
+                // Also check candidate.ProbeJson (from cached stream_candidates row)
+                if (!string.IsNullOrEmpty(cand.ProbeJson))
+                {
+                    try
+                    {
+                        var probed = DeserializeProbeStreams(cand.ProbeJson);
+                        if (probed != null && probed.Count > 1)
+                        {
+                            source.MediaStreams = probed;
+                            continue;
+                        }
+                    }
+                    catch { /* non-fatal */ }
+                }
+
+                // No cached data — add to background probe list
+                if (!string.IsNullOrEmpty(cand.Url))
+                {
+                    uncached.Add((i, cand.Url, cand.StreamKey, cand.FileName));
+                }
+
+                // Safety net — always set something
+                source.MediaStreams ??= BuildFallbackStreamsFromFilename(cand.FileName);
+            }
+
+            // Fire background probes for uncached sources
+            if (uncached.Count > 0)
+                _ = BackgroundProbeSourcesAsync(uncached);
+        }
+
+        private async Task BackgroundProbeSourcesAsync(
+            List<(int idx, string url, string? streamKey, string? fileName)> items)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+
+            foreach (var item in items)
+            {
+                try
+                {
+                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                    var probed = await CdnProber.ProbeAsync(item.url, _logger, cts.Token).ConfigureAwait(false);
+                    if (probed != null && probed.Count > 1 && db != null && !string.IsNullOrEmpty(item.streamKey))
+                    {
+                        var json = SerializeProbeStreams(probed);
+                        await db.SaveProbeJsonAsync(item.streamKey, json).ConfigureAwait(false);
+                    }
+                }
+                catch { /* non-blocking — will retry on next call */ }
+            }
+        }
+
         private MediaSourceInfo? MapCandidateToSource(StreamCandidate candidate)
         {
             if (string.IsNullOrEmpty(candidate.Url)) return null;
@@ -509,13 +607,14 @@ namespace InfiniteDrive.Services
             {
                 Id = candidate.Id ?? Guid.NewGuid().ToString("N"),
                 Name = name,
-                Path = candidate.Url,
+                Path = "", // No URL — prevents Emby ffprobe storm. OpenMediaSource provides URL on play.
                 Protocol = MediaProtocol.Http,
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
                 IsInfiniteStream = false,
-                RequiresOpening = false,
+                RequiresOpening = true,
+                SupportsProbing = false,
             };
 
             if (candidate.BitrateKbps.HasValue && candidate.BitrateKbps.Value > 0)
@@ -543,22 +642,7 @@ namespace InfiniteDrive.Services
                 catch { /* non-fatal */ }
             }
 
-            // Build MediaStreams from filename parsing — resolution, codec, audio, subs
-            var streams = BuildRichMediaStreams(candidate);
-
-            // Use cached probe data if available (replaces synthetic streams)
-            if (!string.IsNullOrEmpty(candidate.ProbeJson))
-            {
-                try
-                {
-                    var probed = DeserializeProbeStreams(candidate.ProbeJson);
-                    if (probed != null && probed.Count > 1)
-                        streams = probed;
-                }
-                catch { /* fallback to synthetic */ }
-            }
-
-            source.MediaStreams = streams;
+            // MediaStreams set by ApplyCachedProbesAsync + fire-and-forget background probing
             return source;
         }
 
@@ -661,7 +745,7 @@ namespace InfiniteDrive.Services
                 return new OpenTokenCandidate
                 {
                     Rank = i,
-                    Url = s.Path,
+                    Url = orig?.Url ?? s.Path,
                     Headers = s.RequiredHttpHeaders,
                     ProviderKey = ExtractProviderFromName(s.Name),
                     Size = s.Size,
@@ -682,9 +766,9 @@ namespace InfiniteDrive.Services
                 source.OpenToken = tokenJson;
         }
 
-        private MediaSourceInfo BuildSourceFromCandidate(OpenTokenCandidate cand, string imdbId)
+        private async Task<MediaSourceInfo> BuildSourceFromCandidateAsync(
+            OpenTokenCandidate cand, string imdbId, CancellationToken ct)
         {
-            var config = Plugin.Instance?.Configuration;
             var name = $"Stream #{cand.Rank + 1}";
             var source = new MediaSourceInfo
             {
@@ -702,6 +786,9 @@ namespace InfiniteDrive.Services
             if (cand.Size.HasValue) source.Size = cand.Size.Value;
             if (cand.Headers != null) source.RequiredHttpHeaders = cand.Headers;
 
+            // Probe: cached → live → filename fallback
+            await ProbeAndSetStreamsAsync(source, cand.StreamKey, cand.Url, cand.FileName, ct);
+
             return source;
         }
 
@@ -718,49 +805,116 @@ namespace InfiniteDrive.Services
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
-        //  Background probing (fire-and-forget after PlaybackInfo)
+        //  Probing (cache → live probe, never overwrites with worse data)
         // ═══════════════════════════════════════════════════════════════════════════
 
-        private async Task BackgroundProbeAsync(List<StreamCandidate> candidates)
+        /// <summary>
+        /// Probes the top source in a list for accurate MediaStreams.
+        /// Only updates if probe succeeds — never replaces with fallback data.
+        /// </summary>
+        private async Task ProbeTopSourceAsync(
+            List<MediaSourceInfo> sources, int index,
+            string? streamKey, string? fileName, CancellationToken ct)
         {
-            var db = Plugin.Instance?.DatabaseManager;
-            if (db == null) return;
+            if (sources.Count <= index) return;
+            var source = sources[index];
+            var url = source.Path;
+            if (string.IsNullOrEmpty(url)) return;
 
-            foreach (var cand in candidates)
+            var db = Plugin.Instance?.DatabaseManager;
+
+            // 1. Cached probe data
+            if (!string.IsNullOrEmpty(streamKey) && db != null)
             {
                 try
                 {
-                    if (string.IsNullOrEmpty(cand.Url) || string.IsNullOrEmpty(cand.StreamKey)) continue;
-
-                    var probeStreams = await CdnProber.ProbeAsync(cand.Url, _logger, CancellationToken.None)
-                        .ConfigureAwait(false);
-
-                    if (probeStreams != null && probeStreams.Count > 1)
+                    var probeJson = await db.GetProbeJsonAsync(streamKey).ConfigureAwait(false);
+                    if (!string.IsNullOrEmpty(probeJson))
                     {
-                        var probeJson = JsonSerializer.Serialize(
-                            probeStreams.Select(ms => new
-                            {
-                                type = ms.Type.ToString(),
-                                codec = ms.Codec,
-                                language = ms.Language,
-                                title = ms.Title,
-                                channels = ms.Channels,
-                                channelLayout = ms.ChannelLayout,
-                                width = ms.Width,
-                                height = ms.Height,
-                                bitRate = ms.BitRate,
-                                isDefault = ms.IsDefault,
-                            }));
+                        var probed = DeserializeProbeStreams(probeJson);
+                        if (probed != null && probed.Count > 1)
+                        {
+                            source.MediaStreams = probed;
+                            _logger.LogDebug("[InfiniteDrive] Probe cache hit for {StreamKey}", streamKey);
+                            return;
+                        }
+                    }
+                }
+                catch { /* non-fatal */ }
+            }
 
-                        await db.SaveProbeJsonAsync(cand.StreamKey, probeJson).ConfigureAwait(false);
+            // 2. Live probe with 5s timeout
+            using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            probeCts.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                var probed = await CdnProber.ProbeAsync(url, _logger, probeCts.Token).ConfigureAwait(false);
+                if (probed != null && probed.Count > 1)
+                {
+                    source.MediaStreams = probed;
+                    _logger.LogInformation(
+                        "[InfiniteDrive] Probed top source, got {Count} streams for {StreamKey}",
+                        probed.Count, streamKey);
+                    if (!string.IsNullOrEmpty(streamKey) && db != null)
+                    {
+                        var json = SerializeProbeStreams(probed);
+                        await db.SaveProbeJsonAsync(streamKey, json).ConfigureAwait(false);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[InfiniteDrive] Probe failed for top source – keeping metadata");
+            }
+        }
+
+        /// <summary>
+        /// Probes a CDN URL for real MediaStreams: cache → live probe → filename fallback.
+        /// Used by OpenMediaSource paths where no prior MediaStreams exist.
+        /// </summary>
+        private async Task ProbeAndSetStreamsAsync(
+            MediaSourceInfo source, string? streamKey, string? url, string? fileName, CancellationToken ct)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+
+            // 1. Cached probe data
+            if (!string.IsNullOrEmpty(streamKey) && db != null)
+            {
+                var probeJson = await db.GetProbeJsonAsync(streamKey).ConfigureAwait(false);
+                if (!string.IsNullOrEmpty(probeJson))
+                {
+                    source.MediaStreams = DeserializeProbeStreams(probeJson);
+                    return;
+                }
+            }
+
+            // 2. Live probe with 5s timeout
+            if (!string.IsNullOrEmpty(url))
+            {
+                using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                probeCts.CancelAfter(TimeSpan.FromSeconds(5));
+                try
+                {
+                    var probed = await CdnProber.ProbeAsync(url, _logger, probeCts.Token).ConfigureAwait(false);
+                    if (probed != null && probed.Count > 1)
+                    {
+                        source.MediaStreams = probed;
+                        var json = SerializeProbeStreams(probed);
+                        if (!string.IsNullOrEmpty(streamKey) && db != null)
+                            await db.SaveProbeJsonAsync(streamKey, json).ConfigureAwait(false);
+                        return;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[AioMediaSourceProvider] Background probe failed for {Url} (non-fatal)",
-                        cand.Url?[..Math.Min(cand.Url.Length, 60)]);
+                    _logger.LogWarning(ex,
+                        "[InfiniteDrive] Probe failed for {StreamKey} – falling back to filename data",
+                        streamKey);
                 }
             }
+
+            // 3. Safety net — never return zero MediaStreams
+            source.MediaStreams = BuildFallbackStreamsFromFilename(fileName);
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -995,6 +1149,35 @@ namespace InfiniteDrive.Services
             }
         }
 
+        /// <summary>
+        /// Builds a probe cache key (infoHash:fileIdx) from a CachedStreamEntry's first variant.
+        /// </summary>
+        private static string? BuildStreamKeyFromEntry(CachedStreamEntry entry, int variantIndex)
+        {
+            try
+            {
+                var variants = JsonSerializer.Deserialize<List<StreamVariant>>(entry.VariantsJson);
+                if (variants == null || variantIndex >= variants.Count) return null;
+                var v = variants[variantIndex];
+                if (!string.IsNullOrEmpty(v.StreamKey)) return v.StreamKey;
+                if (!string.IsNullOrEmpty(v.InfoHash))
+                    return $"{v.InfoHash}:{v.FileIdx}";
+            }
+            catch { /* non-fatal */ }
+            return null;
+        }
+
+        private static string? GetFileNameFromEntry(CachedStreamEntry entry, int variantIndex)
+        {
+            try
+            {
+                var variants = JsonSerializer.Deserialize<List<StreamVariant>>(entry.VariantsJson);
+                if (variants == null || variantIndex >= variants.Count) return null;
+                return variants[variantIndex].FileName;
+            }
+            catch { return null; }
+        }
+
         private string? GetLibraryLanguage(string? itemPath)
         {
             if (string.IsNullOrEmpty(itemPath)) return null;
@@ -1104,6 +1287,64 @@ namespace InfiniteDrive.Services
                 result.Add(ms);
             }
             return result.Count > 0 ? result : null;
+        }
+
+        private static string SerializeProbeStreams(List<MediaStream> streams)
+        {
+            return JsonSerializer.Serialize(
+                streams.Select(ms => new
+                {
+                    type = ms.Type.ToString(),
+                    codec = ms.Codec,
+                    language = ms.Language,
+                    title = ms.Title,
+                    channels = ms.Channels,
+                    channelLayout = ms.ChannelLayout,
+                    width = ms.Width,
+                    height = ms.Height,
+                    bitRate = ms.BitRate,
+                    isDefault = ms.IsDefault,
+                }));
+        }
+
+        private static List<MediaStream> BuildFallbackStreamsFromFilename(string? fileName)
+        {
+            var streams = new List<MediaStream>();
+            var fnUpper = (fileName ?? "").ToUpperInvariant();
+
+            streams.Add(new MediaStream
+            {
+                Type = MediaStreamType.Video,
+                Index = 0,
+                Codec = DetectVideoCodec(fnUpper),
+                Language = "und",
+                IsDefault = true,
+            });
+
+            var lang = ParseLanguageFromFilename(fnUpper);
+            streams.Add(new MediaStream
+            {
+                Type = MediaStreamType.Audio,
+                Index = 1,
+                Codec = DetectAudioCodec(fnUpper),
+                Channels = DetectChannels(fnUpper),
+                Language = lang,
+                Title = lang,
+                DisplayTitle = lang,
+                IsDefault = true,
+            });
+
+            return streams;
+        }
+
+        private static string ParseLanguageFromFilename(string fnUpper)
+        {
+            var langs = new[] { "ENG", "JPN", "ITA", "FRE", "GER", "SPA", "POR", "KOR", "CHI", "RUS", "ARA", "HIN", "THA", "DUAL" };
+            foreach (var lang in langs)
+            {
+                if (fnUpper.Contains(lang)) return lang.ToLowerInvariant();
+            }
+            return "und";
         }
 
         private static void AppendSubtitlesFromJson(List<MediaStream> streams, string? subtitlesJson)

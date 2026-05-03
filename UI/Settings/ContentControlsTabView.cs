@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
 using Emby.Web.GenericEdit.Elements.List;
+using InfiniteDrive.Services;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
 using Microsoft.Extensions.Logging;
@@ -279,6 +280,10 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             cfg.DefaultQualityTier = UI.DefaultQualityTier ?? "1080p (any)";
             cfg.HideUnratedContent = UI.HideUnratedContent;
+
+            // Sync DefaultSlotKey from UI tier selection so .strm files use the chosen quality
+            if (ResolverService.UiTierNameToKey.TryGetValue(cfg.DefaultQualityTier, out var tierKey))
+                cfg.DefaultSlotKey = tierKey;
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
             return base.OnSaveCommand(itemId, commandId, data);

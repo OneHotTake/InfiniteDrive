@@ -159,7 +159,7 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Generates a short-lived resolve token for /InfiniteDrive/Resolve endpoint.
+        /// Generates a short-lived resolve token for /InfiniteDrive/resolve endpoint.
         /// Format: {exp}:{signature}
         /// Token is opaque - IMDB ID and quality are passed as query parameters.
         /// </summary>
