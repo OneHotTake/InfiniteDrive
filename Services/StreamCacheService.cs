@@ -247,14 +247,15 @@ namespace InfiniteDrive.Services
                 {
                     Id = stableId,
                     Name = name,
-                    Path = v.Url ?? "",
+                    Path = "",                              // prevents Emby ffprobe storm
                     Protocol = MediaProtocol.Http,
                     SupportsDirectPlay = true,
                     SupportsDirectStream = true,
                     SupportsTranscoding = true,
                     IsInfiniteStream = false,
-                    RequiresOpening = false,
+                    RequiresOpening = true,                 // routes through OpenMediaSource
                     SupportsProbing = false,
+                    OpenToken = BuildCachedOpenToken(v, entry),  // infoHash+fileIdx for fresh resolve
                 };
 
                 if (v.Bitrate.HasValue && v.Bitrate.Value > 0)

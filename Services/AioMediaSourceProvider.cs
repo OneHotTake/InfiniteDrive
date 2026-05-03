@@ -81,33 +81,30 @@ namespace InfiniteDrive.Services
         public async Task<ILiveStream> OpenMediaSource(
             string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {
-            // ── Try CachedStreamOpenToken format (has TokenType marker) ──────────
-            CachedStreamOpenToken? cachedToken = null;
-            try
-            {
-                cachedToken = JsonSerializer.Deserialize<CachedStreamOpenToken>(openToken);
-            }
-            catch { /* not a cached-stream token — try legacy format */ }
-
-            if (cachedToken != null && cachedToken.TokenType == "cached")
-            {
-                return await OpenFromCachedTokenAsync(cachedToken, cancellationToken).ConfigureAwait(false);
-            }
-
-            // ── Legacy OpenTokenData format ────────────────────────────────────────
-            OpenTokenData? tokenData;
+            // ── Try OpenTokenData first (has Candidates array) ───────────────────
+            OpenTokenData? tokenData = null;
             try
             {
                 tokenData = JsonSerializer.Deserialize<OpenTokenData>(openToken);
             }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[AioMediaSourceProvider] Invalid open token");
-                throw new InvalidOperationException("Invalid open token");
-            }
+            catch { /* not an OpenTokenData — try cached format */ }
 
+            // No Candidates → must be a CachedStreamOpenToken
             if (tokenData?.Candidates == null || tokenData.Candidates.Count == 0)
-                throw new InvalidOperationException("No candidates in open token");
+            {
+                CachedStreamOpenToken? cachedToken = null;
+                try
+                {
+                    cachedToken = JsonSerializer.Deserialize<CachedStreamOpenToken>(openToken);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "[AioMediaSourceProvider] Invalid open token");
+                    throw new InvalidOperationException("Invalid open token");
+                }
+
+                return await OpenFromCachedTokenAsync(cachedToken!, cancellationToken).ConfigureAwait(false);
+            }
 
             // Try candidates in rank order until one works
             for (var i = 0; i < tokenData.Candidates.Count; i++)
@@ -115,9 +112,10 @@ namespace InfiniteDrive.Services
                 var cand = tokenData.Candidates[i];
                 if (string.IsNullOrEmpty(cand.Url)) continue;
 
-                try
+                // Rank 0: skip HEAD, let Open() be the health check (saves 0-5s on happy path)
+                // Rank ≥ 1: quick HEAD to avoid opening dead connections
+                if (i > 0)
                 {
-                    // Quick HEAD check to verify CDN URL is reachable
                     using var req = new HttpRequestMessage(HttpMethod.Head, cand.Url);
                     if (cand.Headers != null)
                     {
@@ -142,13 +140,13 @@ namespace InfiniteDrive.Services
                                     cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
                                 if (!string.IsNullOrEmpty(freshUrl))
                                 {
-                                    _logger.LogInformation(
-                                        "[AioMediaSourceProvider] Refreshed CDN URL for rank {Rank}", cand.Rank);
                                     cand.Url = freshUrl;
-
-                                    var refreshedSource = await BuildSourceFromCandidateAsync(cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
+                                    var refreshedSource = await BuildSourceFromCandidateAsync(
+                                        cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
                                     var refreshedStream = new InfiniteDriveLiveStream(refreshedSource, _logger);
                                     await refreshedStream.Open(cancellationToken).ConfigureAwait(false);
+                                    _logger.LogInformation(
+                                        "[AioMediaSourceProvider] Refreshed rank {Rank} after HEAD fail", cand.Rank);
                                     return refreshedStream;
                                 }
                             }
@@ -162,34 +160,69 @@ namespace InfiniteDrive.Services
                         // Mark failed candidate in stream_candidates for deprioritization
                         var failedDb = Plugin.Instance?.DatabaseManager;
                         if (failedDb != null)
-                        {
                             _ = failedDb.UpdateCandidateStatusAsync(
                                 tokenData.ImdbId, null, null, cand.Rank, "failed");
-                        }
 
                         continue;
                     }
+                }
 
-                    // Build the MediaSourceInfo for this candidate
+                try
+                {
                     var source = await BuildSourceFromCandidateAsync(cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
-
                     var liveStream = new InfiniteDriveLiveStream(source, _logger);
                     await liveStream.Open(cancellationToken).ConfigureAwait(false);
-
                     _logger.LogInformation(
                         "[AioMediaSourceProvider] Opened rank {Rank} for {ImdbId} via {Provider}",
                         cand.Rank, tokenData.ImdbId, cand.ProviderKey);
-
                     return liveStream;
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex,
-                        "[AioMediaSourceProvider] Candidate rank {Rank} failed, trying next", cand.Rank);
+                    _logger.LogWarning(ex, "[AioMediaSourceProvider] Rank {Rank} failed", cand.Rank);
+
+                    // Attempt refresh via infoHash+fileIdx for any rank (especially rank 0)
+                    if (!string.IsNullOrEmpty(cand.StreamKey) && !string.IsNullOrEmpty(cand.InfoHash))
+                    {
+                        try
+                        {
+                            var freshUrl = await TryRefreshCandidateUrlAsync(
+                                cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
+                            if (!string.IsNullOrEmpty(freshUrl))
+                            {
+                                cand.Url = freshUrl;
+                                var refreshedSource = await BuildSourceFromCandidateAsync(
+                                    cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
+                                var refreshedStream = new InfiniteDriveLiveStream(refreshedSource, _logger);
+                                await refreshedStream.Open(cancellationToken).ConfigureAwait(false);
+                                _logger.LogInformation("[AioMediaSourceProvider] Refreshed rank {Rank}", cand.Rank);
+                                return refreshedStream;
+                            }
+                        }
+                        catch (Exception refreshEx)
+                        {
+                            _logger.LogDebug(refreshEx, "[AioMediaSourceProvider] Refresh failed for rank {Rank}", cand.Rank);
+                        }
+                    }
+
+                    // Mark failed in DB
+                    var failedDb = Plugin.Instance?.DatabaseManager;
+                    if (failedDb != null)
+                        _ = failedDb.UpdateCandidateStatusAsync(tokenData.ImdbId, null, null, cand.Rank, "failed");
+
+                    continue;
                 }
             }
 
-            throw new InvalidOperationException("All candidates failed HEAD check");
+            // All candidates exhausted — attempt fresh resolve before giving up
+            _logger.LogWarning("[AioMediaSourceProvider] All {Count} candidates failed for {Imdb}, attempting fresh resolve",
+                tokenData.Candidates.Count, tokenData.ImdbId);
+
+            var freshStreamResult = await TryFreshResolveAsync(
+                tokenData.ImdbId, tokenData.MediaType ?? "movie", null, null, cancellationToken).ConfigureAwait(false);
+            if (freshStreamResult != null) return freshStreamResult;
+
+            throw new InvalidOperationException("All candidates failed and fresh resolve returned no results");
         }
 
         /// <summary>
@@ -239,11 +272,13 @@ namespace InfiniteDrive.Services
                             catch { }
                         }
 
-                        // Probe: cached → live → filename fallback
+                        // Filename fallback; fire-and-forget probe for future cache
                         var cachedStreamKey = !string.IsNullOrEmpty(token.InfoHash)
                             ? $"{token.InfoHash}:{token.FileIdx}"
                             : null;
-                        await ProbeAndSetStreamsAsync(source, cachedStreamKey, token.Url, token.FileName, cancellationToken).ConfigureAwait(false);
+                        source.MediaStreams = BuildFallbackStreamsFromFilename(token.FileName);
+                        if (!string.IsNullOrEmpty(cachedStreamKey) && !string.IsNullOrEmpty(token.Url))
+                            _ = ProbeAndCacheAsync(cachedStreamKey, token.Url, token.FileName);
 
                         var liveStream = new InfiniteDriveLiveStream(source, _logger);
                         await liveStream.Open(cancellationToken).ConfigureAwait(false);
@@ -300,12 +335,14 @@ namespace InfiniteDrive.Services
             if (match.Headers != null)
                 freshSource.RequiredHttpHeaders = match.Headers;
 
-            // Probe: cached → live → filename fallback
+            // Filename fallback; fire-and-forget probe for future cache
             var freshStreamKey = !string.IsNullOrEmpty(token.InfoHash)
                 ? $"{token.InfoHash}:{token.FileIdx}"
                 : null;
             var freshFileName = token.FileName ?? match.BehaviorHints?.Filename;
-            await ProbeAndSetStreamsAsync(freshSource, freshStreamKey, match.Url, freshFileName, cancellationToken).ConfigureAwait(false);
+            freshSource.MediaStreams = BuildFallbackStreamsFromFilename(freshFileName);
+            if (!string.IsNullOrEmpty(freshStreamKey) && !string.IsNullOrEmpty(match.Url))
+                _ = ProbeAndCacheAsync(freshStreamKey, match.Url, freshFileName);
 
             var freshLiveStream = new InfiniteDriveLiveStream(freshSource, _logger);
             await freshLiveStream.Open(cancellationToken).ConfigureAwait(false);
@@ -419,8 +456,8 @@ namespace InfiniteDrive.Services
                         if (scored.Count > 0)
                         {
                             var sources = BuildSourcesFromCandidates(scored, imdbId);
-                            SetOpenTokens(sources, imdbId, scored);
-                            ApplyProbes(sources, scored);
+                            SetOpenTokens(sources, imdbId, scored, mediaType);
+                            await ApplyProbesAsync(sources, scored).ConfigureAwait(false);
 
                             SortByLanguagePreference(sources, config, null);
                             _cache[cacheKey] = (sources, DateTime.UtcNow.Add(cacheTtl));
@@ -448,8 +485,8 @@ namespace InfiniteDrive.Services
 
             if (liveSources.Count > 0)
             {
-                SetOpenTokens(liveSources, imdbId, candidates);
-                ApplyProbes(liveSources, candidates);
+                SetOpenTokens(liveSources, imdbId, candidates, mediaType);
+                await ApplyProbesAsync(liveSources, candidates).ConfigureAwait(false);
                 SortByLanguagePreference(liveSources, config, null);
                 _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(cacheTtl));
 
@@ -517,7 +554,7 @@ namespace InfiniteDrive.Services
         /// Checks DB for cached probe data and sets MediaStreams on each source.
         /// Fires background probes for any source without cached data.
         /// </summary>
-        private void ApplyProbes(List<MediaSourceInfo> sources, List<StreamCandidate> candidates)
+        private async Task ApplyProbesAsync(List<MediaSourceInfo> sources, List<StreamCandidate> candidates)
         {
             var db = Plugin.Instance?.DatabaseManager;
             var uncached = new List<(int idx, string url, string? streamKey, string? fileName)>();
@@ -532,7 +569,7 @@ namespace InfiniteDrive.Services
                 {
                     try
                     {
-                        var probeJson = db.GetProbeJsonAsync(cand.StreamKey).GetAwaiter().GetResult();
+                        var probeJson = await db.GetProbeJsonAsync(cand.StreamKey).ConfigureAwait(false);
                         if (!string.IsNullOrEmpty(probeJson))
                         {
                             var probed = DeserializeProbeStreams(probeJson);
@@ -735,10 +772,10 @@ namespace InfiniteDrive.Services
         /// Serializes all candidates into the OpenToken so OpenMediaSource can failover.
         /// </summary>
         private void SetOpenTokens(List<MediaSourceInfo> sources, string imdbId,
-            List<StreamCandidate>? originalCandidates = null)
+            List<StreamCandidate>? originalCandidates = null, string? mediaType = null)
         {
-            // Build a shared token with ALL candidates, attach to each source
-            var candidates = sources.Select((s, i) =>
+            // Build all candidate entries
+            var allCandidates = sources.Select((s, i) =>
             {
                 var orig = originalCandidates != null && i < originalCandidates.Count
                     ? originalCandidates[i] : null;
@@ -756,17 +793,25 @@ namespace InfiniteDrive.Services
                 };
             }).ToList();
 
-            var tokenJson = JsonSerializer.Serialize(new OpenTokenData
+            // Each source gets its OWN token with its candidate FIRST (for failover)
+            for (var idx = 0; idx < sources.Count; idx++)
             {
-                ImdbId = imdbId,
-                Candidates = candidates,
-            });
+                var ordered = new List<OpenTokenCandidate> { allCandidates[idx] };
+                for (var j = 0; j < allCandidates.Count; j++)
+                {
+                    if (j != idx) ordered.Add(allCandidates[j]);
+                }
 
-            foreach (var source in sources)
-                source.OpenToken = tokenJson;
+                sources[idx].OpenToken = JsonSerializer.Serialize(new OpenTokenData
+                {
+                    ImdbId = imdbId,
+                    MediaType = mediaType,
+                    Candidates = ordered,
+                });
+            }
         }
 
-        private async Task<MediaSourceInfo> BuildSourceFromCandidateAsync(
+        private Task<MediaSourceInfo> BuildSourceFromCandidateAsync(
             OpenTokenCandidate cand, string imdbId, CancellationToken ct)
         {
             var name = $"Stream #{cand.Rank + 1}";
@@ -786,10 +831,12 @@ namespace InfiniteDrive.Services
             if (cand.Size.HasValue) source.Size = cand.Size.Value;
             if (cand.Headers != null) source.RequiredHttpHeaders = cand.Headers;
 
-            // Probe: cached → live → filename fallback
-            await ProbeAndSetStreamsAsync(source, cand.StreamKey, cand.Url, cand.FileName, ct);
+            // Filename fallback for immediate playback; fire-and-forget probe for future cache
+            source.MediaStreams = BuildFallbackStreamsFromFilename(cand.FileName);
+            if (!string.IsNullOrEmpty(cand.StreamKey) && !string.IsNullOrEmpty(cand.Url))
+                _ = ProbeAndCacheAsync(cand.StreamKey, cand.Url, cand.FileName);
 
-            return source;
+            return Task.FromResult(source);
         }
 
         private static string ExtractProviderFromName(string? name)
@@ -917,6 +964,27 @@ namespace InfiniteDrive.Services
             source.MediaStreams = BuildFallbackStreamsFromFilename(fileName);
         }
 
+        /// <summary>
+        /// Fire-and-forget probe: probes CDN URL and caches results for future lookups.
+        /// Never blocks playback — used instead of ProbeAndSetStreamsAsync in OpenMediaSource paths.
+        /// </summary>
+        private async Task ProbeAndCacheAsync(string streamKey, string url, string? fileName)
+        {
+            try
+            {
+                var db = Plugin.Instance?.DatabaseManager;
+                if (db == null) return;
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                var probed = await CdnProber.ProbeAsync(url, _logger, cts.Token).ConfigureAwait(false);
+                if (probed != null && probed.Count > 1)
+                {
+                    var json = SerializeProbeStreams(probed);
+                    await db.SaveProbeJsonAsync(streamKey, json).ConfigureAwait(false);
+                }
+            }
+            catch { /* non-blocking */ }
+        }
+
         // ═══════════════════════════════════════════════════════════════════════════
         //  DB caching
         // ═══════════════════════════════════════════════════════════════════════════
@@ -981,10 +1049,11 @@ namespace InfiniteDrive.Services
 
                     if (response?.Streams == null || response.Streams.Count == 0) continue;
 
-                    // Find matching stream by infoHash, then filename, then first URL
+                    // Find matching stream by infoHash+fileIdx, then filename, then first URL
                     var match = !string.IsNullOrEmpty(cand.InfoHash)
                         ? response.Streams.FirstOrDefault(s =>
-                            string.Equals(s.InfoHash, cand.InfoHash, StringComparison.OrdinalIgnoreCase))
+                            string.Equals(s.InfoHash, cand.InfoHash, StringComparison.OrdinalIgnoreCase)
+                            && (cand.FileIdx == null || s.FileIdx == cand.FileIdx))
                         : null;
 
                     if (match == null || string.IsNullOrEmpty(match.Url))
@@ -1023,6 +1092,47 @@ namespace InfiniteDrive.Services
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Fresh-resolve fallback when all cached candidates fail.
+        /// Reuses the live scoring pipeline (AIOStreams → RankAndFilter → SelectBest).
+        /// </summary>
+        private async Task<ILiveStream?> TryFreshResolveAsync(
+            string imdbId, string mediaType, int? season, int? episode, CancellationToken ct)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return null;
+
+            try
+            {
+                var candidates = await ResolveFromAioStreams(imdbId, mediaType, season, episode, config).ConfigureAwait(false);
+                var best = candidates.FirstOrDefault(c => !string.IsNullOrEmpty(c.Url));
+                if (best == null) return null;
+
+                var source = new MediaSourceInfo
+                {
+                    Id = best.Id ?? Guid.NewGuid().ToString("N"),
+                    Name = FormatCandidateName(best),
+                    Path = best.Url!,
+                    Protocol = MediaProtocol.Http,
+                    SupportsDirectPlay = true,
+                    SupportsDirectStream = true,
+                };
+                if (!string.IsNullOrEmpty(best.HeadersJson))
+                {
+                    try { source.RequiredHttpHeaders = JsonSerializer.Deserialize<Dictionary<string, string>>(best.HeadersJson); }
+                    catch { }
+                }
+
+                source.MediaStreams = BuildFallbackStreamsFromFilename(best.FileName);
+
+                var liveStream = new InfiniteDriveLiveStream(source, _logger);
+                await liveStream.Open(ct).ConfigureAwait(false);
+                _logger.LogInformation("[AioMediaSourceProvider] Fresh resolve succeeded for {Imdb}", imdbId);
+                return liveStream;
+            }
+            catch { return null; }
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1691,6 +1801,7 @@ namespace InfiniteDrive.Services
     internal class OpenTokenData
     {
         public string ImdbId { get; set; } = string.Empty;
+        public string? MediaType { get; set; }
         public List<OpenTokenCandidate> Candidates { get; set; } = new();
     }
 
