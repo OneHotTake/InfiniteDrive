@@ -4,9 +4,9 @@ using MediaBrowser.Model.Services;
 namespace InfiniteDrive.Models
 {
     /// <summary>
-    /// Request model for /InfiniteDrive/Resolve endpoint.
+    /// Request model for /InfiniteDrive/resolve endpoint.
     /// </summary>
-    [Route("/InfiniteDrive/Resolve", "GET", Summary = "Resolve AIOStreams stream and redirect to proxy")]
+    [Route("/InfiniteDrive/resolve", "GET", Summary = "Resolve AIOStreams stream and redirect to proxy")]
     [Unauthenticated]
     public class ResolverRequest : IReturn<object>
     {

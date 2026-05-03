@@ -41,6 +41,12 @@ namespace InfiniteDrive.Models
         public bool EnableStreamSharing => false;
         public int ConsumerCount { get; set; }
         public string OriginalStreamId { get; set; } = string.Empty;
+        private string _liveStreamId = string.Empty;
+        public string LiveStreamId
+        {
+            get => !string.IsNullOrEmpty(_liveStreamId) ? _liveStreamId : UniqueId;
+            set => _liveStreamId = value ?? string.Empty;
+        }
         public DateTimeOffset DateOpened { get; set; }
         public bool SupportsCopyTo => true;
 
@@ -50,6 +56,16 @@ namespace InfiniteDrive.Models
             _logger = logger;
             _cdnUrl = source.Path;
             _fileSize = source.Size > 0 ? source.Size : null;
+            OriginalStreamId = !string.IsNullOrEmpty(source.Id) ? source.Id : UniqueId;
+            LiveStreamId = !string.IsNullOrEmpty(source.Id) ? source.Id : UniqueId;
+
+            // Ensure MediaSourceInfo.LiveStreamId is set — Emby's AddOrUpdateStream
+            // may use this as the dictionary key. Null = ArgumentNullException crash.
+            source.LiveStreamId = LiveStreamId;
+
+            _logger.LogInformation(
+                "[InfiniteDriveLiveStream] Created: SourceId={SourceId}, LiveStreamId={LiveStreamId}, UniqueId={UniqueId}, OriginalStreamId={OriginalStreamId}",
+                source.Id, LiveStreamId, UniqueId, OriginalStreamId);
 
             if (source.RequiredHttpHeaders?.Count > 0)
                 _headers = new Dictionary<string, string>(source.RequiredHttpHeaders);
