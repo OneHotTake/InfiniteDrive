@@ -1,4 +1,4 @@
-EmbyStreams
+InfiniteDrive
 Design Specification
 Version 3.3
 Status: Ship Candidate
@@ -30,12 +30,12 @@ SDK Smoke Test — Emby 10.0.8-beta
 Biggest architectural change from 3.2: Moved from TMDB-centric to a true provider-agnostic identity system. This is the difference between a plugin and a platform.
 
 1. What This Document Is
-The authoritative design specification for EmbyStreams. It supersedes all prior documents. In any conflict, this document wins.
+The authoritative design specification for InfiniteDrive. It supersedes all prior documents. In any conflict, this document wins.
 Read it end to end before writing a line of code.
  
 2. The Mental Model
 Three sentences:
-EmbyStreams manages one library. Sources bring items into it. Collections — and native Dynamic Media sections — are how users browse them.
+InfiniteDrive manages one library. Sources bring items into it. Collections — and native Dynamic Media sections — are how users browse them.
  
 Everything else is detail on top of that.
  
@@ -58,18 +58,18 @@ Supporting concepts (invisible to viewers):
 Term
 Definition
 Your Files
-Items that exist in Emby libraries EmbyStreams does not manage. Always deferred to.
+Items that exist in Emby libraries InfiniteDrive does not manage. Always deferred to.
 Lifecycle Status
 Where in the pipeline an item currently sits.
 Grace Period
 A countdown before an unclaimed, unsaved item is removed.
  
 Canonical Identity Rule
-EmbyStreams never assumes a single global ID system. Each item is identified by a primary (id_type, id_value) pair. Additional provider IDs are stored for cross-resolution and matching. All deduplication, storage, file naming, and pipeline logic operates on this typed identity.
+InfiniteDrive never assumes a single global ID system. Each item is identified by a primary (id_type, id_value) pair. Additional provider IDs are stored for cross-resolution and matching. All deduplication, storage, file naming, and pipeline logic operates on this typed identity.
  
 4. Physical Architecture
 4.1  One Library
-/embystreams/
+/infinitedrive/
 ├── library/
 │   ├── movies/
 │   │   └── {Title} ({Year}) [id-{type}-{value}]/
@@ -79,21 +79,21 @@ EmbyStreams never assumes a single global ID system. Each item is identified by 
 │       └── {Title} ({Year}) [id-{type}-{value}]/
 │           └── ...
 └── db/
-    └── embystreams.db
+    └── infinitedrive.db
  
-/embystreams/ maps to the /fastmedia NFS mount. .strm files are metadata pointers. Actual media never lives here.
+/infinitedrive/ maps to the /fastmedia NFS mount. .strm files are metadata pointers. Actual media never lives here.
 Folder naming is advisory only. Emby reliably parses TMDB and IMDB hints. Non-TMDB IDs (AniList, AniDB, etc.) are not guaranteed to be recognized from folder names.
 The .nfo file is the authoritative source of identity. Folder names are for human debugging only.
  
 4.2  The Emby Library
-EmbyStreams creates and manages exactly one Emby library on install:
+InfiniteDrive creates and manages exactly one Emby library on install:
  
 Setting
 Value
 Display Name
-EmbyStreams
+InfiniteDrive
 Root Path
-/embystreams/library/
+/infinitedrive/library/
 Show on Home
 YES
 Search
@@ -104,18 +104,18 @@ Movies + Series
 Items are discoverable through Collections and search. Users are not expected to browse the raw library — but if they do, that is their right.
  
 4.3  The Visibility Problem — Stated Honestly
-Emby's library visibility is a per-user setting, not a library-level setting. EmbyStreams cannot enforce hidden-by-default without crossing a boundary.
+Emby's library visibility is a per-user setting, not a library-level setting. InfiniteDrive cannot enforce hidden-by-default without crossing a boundary.
  
-What EmbyStreams does on install: Sets the EmbyStreams library to hidden in the navigation panel for every user that exists at install time. The administrator sees this notice:
-"We've added the EmbyStreams library and hidden it from all current users. Viewers will discover content through Collections and search. You can change this per user in Emby's user settings at any time."
+What InfiniteDrive does on install: Sets the InfiniteDrive library to hidden in the navigation panel for every user that exists at install time. The administrator sees this notice:
+"We've added the InfiniteDrive library and hidden it from all current users. Viewers will discover content through Collections and search. You can change this per user in Emby's user settings at any time."
  
-What EmbyStreams does NOT do:
+What InfiniteDrive does NOT do:
 	•	Apply this to users created after install. That is the administrator's job.
 	•	Override a user who explicitly shows the library in their nav panel.
 	•	Enforce this setting permanently.
  
 This is an opinionated default, not a lock.
-Implementation: On install, iterate GetUsers() and call UpdateUserPolicy() setting the visibility flag for the EmbyStreams library ID. Log each user affected. Do not re-apply on subsequent plugin restarts.
+Implementation: On install, iterate GetUsers() and call UpdateUserPolicy() setting the visibility flag for the InfiniteDrive library ID. Log each user affected. Do not re-apply on subsequent plugin restarts.
  
 5. Sources
 5.1  What a Source Does
@@ -132,10 +132,10 @@ Toggle
 Enabled: items processed through pipeline. Disabled: items exclusive to this source enter a grace period. Saved items are never touched.
 2. Show as Collection
 Checkbox
-Checked: EmbyStreams creates an Emby Collection for this Source. Unchecked: items still indexed and searchable — no named shelf.
+Checked: InfiniteDrive creates an Emby Collection for this Source. Unchecked: items still indexed and searchable — no named shelf.
  
 5.3  Built-in Sources
-Ship with EmbyStreams. URLs maintained by the plugin. Users never see or configure the URL.
+Ship with InfiniteDrive. URLs maintained by the plugin. Users never see or configure the URL.
  
 Source
 Default
@@ -158,10 +158,10 @@ Enabled
 ✓ New & Returning
 150
  
-Digital Release Gate (built-in sources only): Before any item proceeds past Known status, EmbyStreams verifies via TMDB: status == Released AND release_type IN (4=Digital, 5=Physical). Theatrical-only titles are dropped here.
+Digital Release Gate (built-in sources only): Before any item proceeds past Known status, InfiniteDrive verifies via TMDB: status == Released AND release_type IN (4=Digital, 5=Physical). Theatrical-only titles are dropped here.
  
 5.4  My Lists — User-Added Sources
-Users may add any public Trakt or MDblist URL. Public only. No authentication. No OAuth. No API keys. If it requires a login, it does not exist to EmbyStreams.
+Users may add any public Trakt or MDblist URL. Public only. No authentication. No OAuth. No API keys. If it requires a login, it does not exist to InfiniteDrive.
 Error on 401/403: "This list isn't publicly accessible. Make sure it's set to public in its settings."
  
 5.5  AIOStreams Sources
@@ -205,7 +205,7 @@ User has explicitly kept this item. Never auto-removed.
 Blocked
 Permanently rejected by user. Files deleted. Never re-added.
 Superseded
-Exists in a non-EmbyStreams library. Files deleted. Logged.
+Exists in a non-InfiniteDrive library. Files deleted. Logged.
 Failed
 Pipeline stalled. See failure_reason. Retried on next sync.
  
@@ -310,18 +310,18 @@ Implementation: Subscribe to Emby's ItemRemoved event (primary). Poll ItemsServi
  
 7. Collections
 7.1  What a Collection Is
-An Emby Collection (BoxSet) created and maintained by EmbyStreams. It is the shelf users see and browse. It is fed by a Source.
+An Emby Collection (BoxSet) created and maintained by InfiniteDrive. It is the shelf users see and browse. It is fed by a Source.
  
 Emby 10.x provides stable APIs for BoxSet membership updates without requiring library rescans. Membership changes are deterministic and immediate.
  
 When a Source has "Show as Collection" checked:
-	•	EmbyStreams creates the Collection via Emby API on first sync if it doesn't exist.
-	•	On every sync, EmbyStreams adds new members and removes dropped members via API.
+	•	InfiniteDrive creates the Collection via Emby API on first sync if it doesn't exist.
+	•	On every sync, InfiniteDrive adds new members and removes dropped members via API.
 	•	Removing a member from a Collection never deletes the underlying .strm file.
 	•	If the Source is disabled, the Collection is emptied but not deleted.
  
 7.2  Home Screen Rails
-EmbyStreams will prefer native Dynamic Media home screen sections (Emby 4.10+). Collections remain for backward compatibility.
+InfiniteDrive will prefer native Dynamic Media home screen sections (Emby 4.10+). Collections remain for backward compatibility.
 Up to 6 home screen rails. Fixed order:
  
 1. Continue Watching    — Emby native. Always first if non-empty.
@@ -357,7 +357,7 @@ Sync filter: The very first operation in every sync pipeline run is: filter Bloc
 Unblock: Admin-only action via the Library tab. On unblock, the item re-enters the pipeline at Known on the next sync if any Source still includes it.
  
 Block confirmation copy:
-"Hide this forever? This title won't appear anywhere in EmbyStreams. You can unblock it in Settings." [ Block ] [ Cancel ]
+"Hide this forever? This title won't appear anywhere in InfiniteDrive. You can unblock it in Settings." [ Block ] [ Cancel ]
  
 8.3  Series: The Season Rule
 When a user watches any episode of a series — any duration — the entire season is Saved. Not the episode. Not the series. The season.
@@ -412,7 +412,7 @@ Two deliberate taps from Saved to gone.
  
 Block (one step, from any state):
 Hide this forever?
-This title won't appear anywhere in EmbyStreams. You can unblock it in Settings.
+This title won't appear anywhere in InfiniteDrive. You can unblock it in Settings.
 [ Block ]   [ Cancel ]
  
 10. Playback
@@ -436,24 +436,24 @@ Stream URLs are never cached for playback. Resolution is live on every play. All
  
 11. Your Files
 11.1  The Rule
-If a title exists in any Emby library that EmbyStreams does not manage, EmbyStreams removes its own copy and never touches that title again. The user's own library always wins.
+If a title exists in any Emby library that InfiniteDrive does not manage, InfiniteDrive removes its own copy and never touches that title again. The user's own library always wins.
  
 11.2  Detection
 Matching is performed using all known provider IDs, not title or year matching. ProviderIds matching across libraries is first-class and reliable in the 10.x SDK.
  
 Runs:
-	•	At plugin install (full scan of all non-EmbyStreams Emby libraries).
+	•	At plugin install (full scan of all non-InfiniteDrive Emby libraries).
 	•	Weekly, on schedule.
 	•	On-demand: admin taps "Scan My Files Now."
  
-Implementation: For each item in non-EmbyStreams libraries, read all ProviderIds. Match against media_item_ids table. Any hit on any ID type = Your Files match. This catches the case where Sonarr has a TVDB ID, an anime has an AniList ID, and they are the same show.
+Implementation: For each item in non-InfiniteDrive libraries, read all ProviderIds. Match against media_item_ids table. Any hit on any ID type = Your Files match. This catches the case where Sonarr has a TVDB ID, an anime has an AniList ID, and they are the same show.
  
 11.3  Conflict: Your Files + Saved
 If a Your Files match is found for a Saved item:
 	•	Do not silently delete.
 	•	Set superseded_conflict = true.
 	•	Surface in the admin Library tab under "Needs Review."
-	•	Admin chooses: Confirm (delete EmbyStreams copy) or Keep Both (mark reviewed, EmbyStreams copy stays).
+	•	Admin chooses: Confirm (delete InfiniteDrive copy) or Keep Both (mark reviewed, InfiniteDrive copy stays).
  
 This is the one scenario where automatic behavior would be wrong. The user saved it deliberately. We ask.
  
@@ -486,7 +486,7 @@ Access: Admin → Library tab → any item row → "Inspect"
 │  · AIOStreams/provider-3   HLS      4K   ✓                      │
 ├─────────────────────────────────────────────────────────────────┤
 │  FILES                                                          │
-│  /embystreams/library/series/Severance (2022) [id-tmdb-95396]/  │
+│  /infinitedrive/library/series/Severance (2022) [id-tmdb-95396]/  │
 │  ├── Severance (2022).strm        ✓ exists                      │
 │  └── Severance (2022).nfo         ✓ exists                      │
 ├─────────────────────────────────────────────────────────────────┤
@@ -523,7 +523,7 @@ Retry — re-enter the pipeline from Known. Dismiss — remove from the failed l
  
 13. Admin UI
 13.1  Entry Point
-Emby Dashboard → Plugins → EmbyStreams → Settings
+Emby Dashboard → Plugins → InfiniteDrive → Settings
 Four tabs: Sources  ·  Library  ·  System  ·  About
  
 13.2  Sources Tab
@@ -602,16 +602,16 @@ Your Files
   [ Scan My Files Now ]
 
 Storage
-  /embystreams/library/   1.2 MB   (843 items)
+  /infinitedrive/library/   1.2 MB   (843 items)
 
 Danger Zone
-  [ Reset EmbyStreams ]
-  Removes all EmbyStreams files, database records, and the
-  EmbyStreams Emby library. Your personal media is untouched.
+  [ Reset InfiniteDrive ]
+  Removes all InfiniteDrive files, database records, and the
+  InfiniteDrive Emby library. Your personal media is untouched.
   Type RESET to confirm.
  
 13.5  About Tab
-EmbyStreams v3.3
+InfiniteDrive v3.3
 
 Improbability Drive is running.
 
@@ -722,7 +722,7 @@ CREATE TABLE source_memberships (
   UNIQUE (primary_id, primary_id_type, media_type, source_id)
 );
 
--- Emby Collections managed by EmbyStreams
+-- Emby Collections managed by InfiniteDrive
 CREATE TABLE collections (
   id                 TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   name               TEXT NOT NULL,
@@ -768,7 +768,7 @@ CREATE TABLE schema_version (
   applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
   description TEXT
 );
-INSERT INTO schema_version (version, description) VALUES (1, 'EmbyStreams v3.3 initial schema');
+INSERT INTO schema_version (version, description) VALUES (1, 'InfiniteDrive v3.3 initial schema');
 
 -- Indexes
 CREATE INDEX idx_status          ON media_items (status);
@@ -801,7 +801,7 @@ public enum MediaIdType
 { Tmdb, Imdb, Tvdb, AniList, AniDB, Kitsu }
 
 /// <summary>
-/// Typed external identifier — the universal key throughout EmbyStreams.
+/// Typed external identifier — the universal key throughout InfiniteDrive.
 /// </summary>
 public record MediaId(MediaIdType Type, string Value)
 {
@@ -939,7 +939,7 @@ Multi-ID collision detection: if multiple IDs resolve to the same Emby item, mer
 Write unit tests for every valid and invalid transition BEFORE writing any other service.
  
 3.  Your Files reconciliation job
-Scan all non-EmbyStreams Emby libraries. Read ALL ProviderIds per item (not just TMDB).
+Scan all non-InfiniteDrive Emby libraries. Read ALL ProviderIds per item (not just TMDB).
 Match against media_item_ids table — any hit on any ID type = match.
 This must exist before any sync runs.
  
@@ -1019,7 +1019,7 @@ If Source disabled: empty the Collection, do not delete it.
  
 16.  Your Files conflict resolution
 If superseded_conflict = true: surface in Library tab.
-Admin: Confirm → delete EmbyStreams copy.
+Admin: Confirm → delete InfiniteDrive copy.
 Admin: Keep Both → mark reviewed, copy stays.
 Log both outcomes to item_pipeline_log.
  
@@ -1037,10 +1037,10 @@ Bulk actions. Run Removal Check Now.
 19.  Admin UI — System tab
 Improbability Drive status card. Your Files scan card.
 Storage path + size. AIOStreams prefix configuration display.
-Reset EmbyStreams (type RESET to confirm).
+Reset InfiniteDrive (type RESET to confirm).
  
 20.  Emby library visibility on install
-Set EmbyStreams library hidden for all current users on install.
+Set InfiniteDrive library hidden for all current users on install.
 Log each user affected. Display install notice to administrator.
 Do not re-apply on plugin restart.
 Do not override users who later show the library manually.
@@ -1060,12 +1060,12 @@ Before wiping, save these breadcrumbs:
 	•	Note any custom list URLs you added (Sources tab → My Lists).
  
 Wipe procedure:
-1. Emby Dashboard → Plugins → EmbyStreams → Settings → System
+1. Emby Dashboard → Plugins → InfiniteDrive → Settings → System
 2. Type RESET in the Danger Zone field and confirm.
-   (Removes all EmbyStreams files, database, and the EmbyStreams
+   (Removes all InfiniteDrive files, database, and the InfiniteDrive
     Emby library. Your personal media is untouched.)
 3. Restart the Emby Server service.
-4. EmbyStreams re-initializes on restart:
+4. InfiniteDrive re-initializes on restart:
    new schema, new library, new sync from scratch.
 5. Re-add your custom list URLs.
 6. Re-save any items you want preserved — they will
@@ -1109,7 +1109,7 @@ media_item_ids table + merge logic in ItemPipelineService. If two different Sour
 AIOStreams prefix ambiguity
 Prefix mapping is configurable at runtime via AioStreamsPrefixDefaults + admin override. Never hardcoded in the resolver. If AIOStreams changes anilist: to al:, the admin updates one config value.
 Metadata fallback gaps
-When the primary ID is AniList/AniDB and the user has no anime metadata plugin, EmbyStreams generates minimal fallback metadata from TMDB (if available) or the source payload. The .nfo is always written — even if sparse.
+When the primary ID is AniList/AniDB and the user has no anime metadata plugin, InfiniteDrive generates minimal fallback metadata from TMDB (if available) or the source payload. The .nfo is always written — even if sparse.
 Folder naming ignored by Emby
 The .nfo <uniqueid> tag is the authoritative identity injection. Folder hints like [id-anilist-154587] are advisory — useful for human debugging, ignored by Emby for non-TMDB/IMDB types.
 Your Files false negatives
@@ -1123,7 +1123,7 @@ Use WAL mode (PRAGMA journal_mode=WAL) and a single writer connection with queue
 This is what happens from install to watching a show. Read it before you build anything. Refer back when something feels wrong.
  
 Install
-Admin installs EmbyStreams. The plugin creates /embystreams/library/. One Emby library is provisioned — EmbyStreams. The library is set to hidden for all existing users. The admin sees the visibility notice. Your Files scan runs: 2,341 physical items indexed across all non-EmbyStreams libraries, matched by full ProviderIds — TMDB, IMDB, TVDB, AniList, all of them.
+Admin installs InfiniteDrive. The plugin creates /infinitedrive/library/. One Emby library is provisioned — InfiniteDrive. The library is set to hidden for all existing users. The admin sees the visibility notice. Your Files scan runs: 2,341 physical items indexed across all non-InfiniteDrive libraries, matched by full ProviderIds — TMDB, IMDB, TVDB, AniList, all of them.
  
 First Sync
 All enabled Sources are fetched simultaneously. Trakt trending, Netflix via AIOStreams, two custom MDblist URLs. The unified set is built — 600 unique Media IDs after deduplication.
@@ -1132,13 +1132,13 @@ For each item: AIOStreams is queried using the configured prefix map. tmdb:69313
 Sources with "Show as Collection" checked get Emby BoxSets created. Members added via API. Home screen shows Trending Movies, Trending Series, New This Week, Netflix.
  
 A User Searches
-A user searches for Frieren. Emby searches the EmbyStreams library. Frieren appears. No "Available" badge — it's just there. The user taps it.
+A user searches for Frieren. Emby searches the InfiniteDrive library. Frieren appears. No "Available" badge — it's just there. The user taps it.
  
 Play
 The user presses Play. The .strm file hits the resolver: GET /resolve?id=154587&idType=anilist&mediaType=series. The resolver constructs anilist:154587, queries AIOStreams, gets 2 streams. Best one returned. User is watching.
  
 Watch
-The user watches Episode 3 of Season 1. Any amount. The Emby playback event fires. EmbyStreams identifies: series, season 1. The entire season is Saved. saved = true, saved_by = 'system:watch', saved_season = 1. The removal pipeline will never evaluate this item again.
+The user watches Episode 3 of Season 1. Any amount. The Emby playback event fires. InfiniteDrive identifies: series, season 1. The entire season is Saved. saved = true, saved_by = 'system:watch', saved_season = 1. The removal pipeline will never evaluate this item again.
  
 A Source Drops the Item
 Next week, Frieren drops off the Trending Series feed. But Netflix still claims it. Source membership updated. No file operation. No status change. Coalition rule holds.

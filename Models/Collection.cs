@@ -3,7 +3,7 @@ using System;
 namespace InfiniteDrive.Models
 {
     /// <summary>
-    /// Represents a collection in EmbyStreams.
+    /// Represents a collection in InfiniteDrive.
     /// </summary>
     public class Collection
     {

@@ -1,19 +1,19 @@
-# EmbyStreams Development Server Runbook
+# InfiniteDrive Development Server Runbook
 
 ## Overview
 
-This runbook documents how to run an isolated Emby development server on port 8096 for testing the EmbyStreams plugin, using the beta version 4.10.0.8.
+This runbook documents how to run an isolated Emby development server on port 8096 for testing the InfiniteDrive plugin, using the beta version 4.10.0.8.
 
 ## Directory Structure
 
 ```
-~/Projects/emby/embyStreams/     # Main project directory
+~/Projects/emby/InfiniteDrive/     # Main project directory
 ├── emby-start.sh               # Main startup script (run this!)
 ├── emby-reset.sh               # Full reset + start script
 ├── emby-stop.sh                # Stop script
-├── EmbyStreams.csproj          # Project file
+├── InfiniteDrive.csproj          # Project file
 ├── bin/Release/net8.0/         # Build output
-│   └── EmbyStreams.dll         # Compiled plugin
+│   └── InfiniteDrive.dll         # Compiled plugin
 
 ~/Projects/emby/emby-beta/      # Emby beta installation (version 4.10.0.8)
 ├── opt/emby-server/            # Emby Server installation
@@ -24,7 +24,7 @@ This runbook documents how to run an isolated Emby development server on port 80
 ~/emby-dev-data/                # Isolated data directory for dev server
 ├── config/system.xml           # Server configuration
 ├── plugins/                    # Plugin directory
-│   └── EmbyStreams.dll        # Copied from build output
+│   └── InfiniteDrive.dll        # Copied from build output
 ├── data/                       # Database files
 ├── logs/                       # Server logs
 └── cache/                      # Cache directory
@@ -40,13 +40,13 @@ This runbook documents how to run an isolated Emby development server on port 80
 Run the dev server with a single command:
 
 ```bash
-cd /home/onehottake/Projects/emby/embyStreams
+cd /home/onehottake/Projects/emby/InfiniteDrive
 ./emby-reset.sh
 ```
 
 The script will:
 1. Build the plugin in Release mode
-2. Copy `EmbyStreams.dll` to `~/emby-dev-data/plugins/`
+2. Copy `InfiniteDrive.dll` to `~/emby-dev-data/plugins/`
 3. Kill any existing emby processes
 4. Start Emby Server on port 8096 with isolated data directory
 
@@ -55,7 +55,7 @@ The script will:
 ## Access the Dev Server
 
 - **Web UI:** http://localhost:8096
-- **Plugin Config:** http://localhost:8096/web/configurationpage?name=EmbyStreams
+- **Plugin Config:** http://localhost:8096/web/configurationpage?name=InfiniteDrive
 - **Logs:** `~/emby-dev.log` or `~/emby-dev-data/logs/embyserver.txt`
 
 ## Initial Setup (One-Time)
@@ -117,9 +117,9 @@ cd /home/onehottake/Projects/emby/emby-beta/opt/emby-server
 
 **Cause:** Plugin DLL not in the correct location.
 
-**Fix:** Ensure `EmbyStreams.dll` is copied to `~/emby-dev-data/plugins/`. The script does this automatically, but verify:
+**Fix:** Ensure `InfiniteDrive.dll` is copied to `~/emby-dev-data/plugins/`. The script does this automatically, but verify:
 ```bash
-ls -la ~/emby-dev-data/plugins/EmbyStreams.dll
+ls -la ~/emby-dev-data/plugins/InfiniteDrive.dll
 ```
 
 ### Using wrong Emby installation
@@ -138,7 +138,7 @@ ss -tlnp | grep 8096
 tail -f ~/emby-dev-data/logs/embyserver.txt
 
 # Check if plugin is loaded
-curl -s http://localhost:8096/web/configurationpage?name=EmbyStreams | head -5
+curl -s http://localhost:8096/web/configurationpage?name=InfiniteDrive | head -5
 
 # Kill the dev server
 ./emby-stop.sh

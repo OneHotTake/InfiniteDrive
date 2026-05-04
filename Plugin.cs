@@ -34,7 +34,7 @@ namespace InfiniteDrive
     /// <summary>
     /// InfiniteDrive plugin entry point.
     /// Inherits <see cref="BasePlugin{TConfiguration}"/> which handles XML config
-    /// persistence at {DataPath}/plugins/configurations/EmbyStreams.xml.
+    /// persistence at {DataPath}/plugins/configurations/InfiniteDrive.xml.
     /// </summary>
     public class Plugin : BasePlugin<PluginConfiguration>, IHasUIPages, IHasThumbImage
     {

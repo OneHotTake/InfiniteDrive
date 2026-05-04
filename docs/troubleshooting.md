@@ -1,4 +1,4 @@
-# EmbyStreams — Troubleshooting Guide
+# InfiniteDrive — Troubleshooting Guide
 
 This guide covers every operational issue you might encounter — from installation through day-to-day maintenance, including complete clean-slate procedures and database management.
 
@@ -12,44 +12,44 @@ Understanding where files live is the first step in diagnosing problems.
 
 | File | Default location | Purpose |
 |------|-----------------|---------|
-| `EmbyStreams.dll` | `{PluginsDir}/EmbyStreams/EmbyStreams.dll` | Plugin binary |
-| `plugin.json` | `{PluginsDir}/EmbyStreams/plugin.json` | Plugin metadata (required by Emby 4.8+) |
-| Support DLLs | `{PluginsDir}/EmbyStreams/` | `Microsoft.Data.Sqlite.dll`, `SQLitePCLRaw.*.dll`, `Newtonsoft.Json.dll`, `System.*.dll` |
+| `InfiniteDrive.dll` | `{PluginsDir}/InfiniteDrive/InfiniteDrive.dll` | Plugin binary |
+| `plugin.json` | `{PluginsDir}/InfiniteDrive/plugin.json` | Plugin metadata (required by Emby 4.8+) |
+| Support DLLs | `{PluginsDir}/InfiniteDrive/` | `Microsoft.Data.Sqlite.dll`, `SQLitePCLRaw.*.dll`, `Newtonsoft.Json.dll`, `System.*.dll` |
 
-**Linux default:** `/var/lib/emby/plugins/EmbyStreams/`
-**Windows default:** `C:\ProgramData\Emby-Server\plugins\EmbyStreams\`
+**Linux default:** `/var/lib/emby/plugins/InfiniteDrive/`
+**Windows default:** `C:\ProgramData\Emby-Server\plugins\InfiniteDrive\`
 
 ### Configuration
 
 | File | Default location |
 |------|-----------------|
-| `EmbyStreams.xml` | `{DataPath}/plugins/configurations/EmbyStreams.xml` |
+| `InfiniteDrive.xml` | `{DataPath}/plugins/configurations/InfiniteDrive.xml` |
 
-**Linux default:** `/var/lib/emby/data/plugins/configurations/EmbyStreams.xml`
-**Windows default:** `C:\ProgramData\Emby-Server\data\plugins\configurations\EmbyStreams.xml`
+**Linux default:** `/var/lib/emby/data/plugins/configurations/InfiniteDrive.xml`
+**Windows default:** `C:\ProgramData\Emby-Server\data\plugins\configurations\InfiniteDrive.xml`
 
 ### Database
 
 | File | Default location |
 |------|-----------------|
-| `embystreams.db` | `{DataPath}/EmbyStreams/embystreams.db` |
-| `embystreams.db-shm` | same folder (SQLite WAL shared memory — temporary) |
-| `embystreams.db-wal` | same folder (SQLite WAL log — temporary) |
+| `infinitedrive.db` | `{DataPath}/InfiniteDrive/infinitedrive.db` |
+| `infinitedrive.db-shm` | same folder (SQLite WAL shared memory — temporary) |
+| `infinitedrive.db-wal` | same folder (SQLite WAL log — temporary) |
 
-**Linux default:** `/var/lib/emby/data/EmbyStreams/embystreams.db`
-**Windows default:** `C:\ProgramData\Emby-Server\data\EmbyStreams\embystreams.db`
+**Linux default:** `/var/lib/emby/data/InfiniteDrive/infinitedrive.db`
+**Windows default:** `C:\ProgramData\Emby-Server\data\InfiniteDrive\infinitedrive.db`
 
 ### .strm and .nfo files
 
 Written to the paths you configure in `SyncPathMovies` and `SyncPathShows`.
 
 **Defaults:**
-- Movies: `/media/embystreams/movies`
-- Shows: `/media/embystreams/shows`
+- Movies: `/media/infinitedrive/movies`
+- Shows: `/media/infinitedrive/shows`
 
 **Movies structure:**
 ```
-/media/embystreams/movies/
+/media/infinitedrive/movies/
 └── Dune (2021)/
     ├── Dune (2021).strm
     └── Dune (2021).nfo
@@ -57,7 +57,7 @@ Written to the paths you configure in `SyncPathMovies` and `SyncPathShows`.
 
 **Shows structure:**
 ```
-/media/embystreams/shows/
+/media/infinitedrive/shows/
 └── The Bear (2022)/
     ├── tvshow.nfo
     ├── Season 1/
@@ -74,14 +74,14 @@ Written to the paths you configure in `SyncPathMovies` and `SyncPathShows`.
 **Linux:** `/var/log/emby/` (look for `embyserver.txt` or `embyserver-YYYYMMDD.txt`)
 **Windows:** `C:\ProgramData\Emby-Server\logs\`
 
-EmbyStreams log lines are prefixed with `[EmbyStreams]`.
+InfiniteDrive log lines are prefixed with `[InfiniteDrive]`.
 
 ```bash
-# Tail EmbyStreams log lines in real time
-journalctl -u emby-server -f | grep EmbyStreams
+# Tail InfiniteDrive log lines in real time
+journalctl -u emby-server -f | grep InfiniteDrive
 
 # Or from log file
-tail -f /var/log/emby/embyserver.txt | grep EmbyStreams
+tail -f /var/log/emby/embyserver.txt | grep InfiniteDrive
 ```
 
 ---
@@ -92,12 +92,12 @@ tail -f /var/log/emby/embyserver.txt | grep EmbyStreams
 
 **Check 1: Is `plugin.json` present?**
 ```bash
-ls /var/lib/emby/plugins/EmbyStreams/plugin.json
+ls /var/lib/emby/plugins/InfiniteDrive/plugin.json
 ```
 Emby 4.8+ requires `plugin.json` to recognise a plugin. If it's missing, the plugin folder is ignored entirely.
 
 **Check 2: Is the DLL in a subfolder?**
-The entire `EmbyStreams/` folder must be inside the plugins directory. Placing `EmbyStreams.dll` directly in the plugins root will not work.
+The entire `InfiniteDrive/` folder must be inside the plugins directory. Placing `InfiniteDrive.dll` directly in the plugins root will not work.
 
 **Check 3: Emby was restarted?**
 ```bash
@@ -109,7 +109,7 @@ On Windows, downloaded DLLs may be blocked by the OS. Right-click each DLL → P
 
 **Check 5: Check Emby startup logs**
 ```bash
-journalctl -u emby-server | grep -i "embystreams\|plugin\|error"
+journalctl -u emby-server | grep -i "infinitedrive\|plugin\|error"
 ```
 
 ---
@@ -124,7 +124,7 @@ apt-get install -y libsqlite3-0   # Debian/Ubuntu
 ```
 
 **Check: All support DLLs present?**
-The publish directory must contain not just `EmbyStreams.dll` but also:
+The publish directory must contain not just `InfiniteDrive.dll` but also:
 - `Microsoft.Data.Sqlite.dll`
 - `SQLitePCLRaw.core.dll`
 - `SQLitePCLRaw.nativelibrary.dll`
@@ -140,7 +140,7 @@ Check logs for `DllNotFoundException` or `FileNotFoundException`.
 ### No items appear after first sync
 
 **Step 1: Open Health Dashboard**
-Dashboard → Plugins → EmbyStreams → Health Dashboard tab. Check:
+Dashboard → Plugins → InfiniteDrive → Health Dashboard tab. Check:
 - AIOStreams connection status (green = connected)
 - Last sync time and item count
 - Any error messages
@@ -157,15 +157,15 @@ The `SyncPathMovies` and `SyncPathShows` directories must exist **and** be confi
 **Step 4: Force a sync**
 In the Health Dashboard, click **Force Sync**, or:
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=force_sync" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=force_sync" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=catalog_sync" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=catalog_sync" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
 **Step 5: Check for .strm files on disk**
 ```bash
-find /media/embystreams/movies -name "*.strm" | head -5
+find /media/infinitedrive/movies -name "*.strm" | head -5
 ```
 If .strm files exist but Emby doesn't show them, trigger a library scan in Emby Dashboard → Libraries.
 
@@ -177,13 +177,13 @@ If .strm files exist but Emby doesn't show them, trigger a library scan in Emby 
 
 **Fix 1: Verify .nfo files exist**
 ```bash
-ls /media/embystreams/movies/Dune\ \(2021\)/
+ls /media/infinitedrive/movies/Dune\ \(2021\)/
 # Should show both Dune (2021).strm and Dune (2021).nfo
 ```
 
 **Fix 2: Inspect the .nfo content**
 ```bash
-cat "/media/embystreams/movies/Dune (2021)/Dune (2021).nfo"
+cat "/media/infinitedrive/movies/Dune (2021)/Dune (2021).nfo"
 ```
 Should contain `<uniqueid type="imdb">tt1160419</uniqueid>`. If the file is empty or missing the IMDB tag, enable `EnableNfoHints = true` in settings and re-sync.
 
@@ -214,14 +214,14 @@ Log into your debrid service directly and verify the subscription is active and 
 
 **Step 4: Inspect a specific item**
 ```bash
-curl -s "http://localhost:8096/EmbyStreams/Inspect?imdb=tt1160419" \
+curl -s "http://localhost:8096/InfiniteDrive/Inspect?imdb=tt1160419" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 Shows cached URL, expiry, quality, all ranked candidates, and last resolution time.
 
 **Step 5: Force re-resolve**
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Invalidate" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Invalidate" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""  \
      -H "Content-Type: application/json" \
      -d '{"imdb":"tt1160419"}'
@@ -263,7 +263,7 @@ The debrid CDN URL expired while the stream was playing (typically > 4h after ge
 
 ### What are .nfo files?
 
-`.nfo` files are Kodi-format metadata hints written by EmbyStreams. They contain XML with IMDB/TMDB IDs that tell Emby's built-in scraper exactly which database entry to use.
+`.nfo` files are Kodi-format metadata hints written by InfiniteDrive. They contain XML with IMDB/TMDB IDs that tell Emby's built-in scraper exactly which database entry to use.
 
 There are two types:
 
@@ -304,7 +304,7 @@ If `.nfo` files are missing or corrupted:
 
 **Check:** Does the Emby process have write permission to `SyncPathMovies` and `SyncPathShows`?
 ```bash
-sudo -u emby touch /media/embystreams/movies/test_write
+sudo -u emby touch /media/infinitedrive/movies/test_write
 ```
 
 ### Emby ignores .nfo files
@@ -320,7 +320,7 @@ Emby must have "Kodi nfo" readers enabled for the library type.
 
 ### Viewing database statistics
 
-Open the Health Dashboard in the EmbyStreams plugin page. The **DB Stats** card shows:
+Open the Health Dashboard in the InfiniteDrive plugin page. The **DB Stats** card shows:
 - Total catalog items
 - Active items (not soft-deleted)
 - Resolution cache entries
@@ -330,7 +330,7 @@ Open the Health Dashboard in the EmbyStreams plugin page. The **DB Stats** card 
 
 Via API:
 ```bash
-curl -s "http://localhost:8096/EmbyStreams/Status" \
+curl -s "http://localhost:8096/InfiniteDrive/Status" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
@@ -342,7 +342,7 @@ Clears all cached stream URLs and their ranked candidates. Items will still appe
 
 **Via API:**
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=clear_cache" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=clear_cache" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
@@ -361,7 +361,7 @@ Removes all learned per-device proxy/redirect preferences. Each device will re-l
 
 **Via API:**
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=clear_client_profiles" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=clear_client_profiles" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
@@ -375,13 +375,13 @@ Removes all catalog items and sync state from the database, then deletes all `.s
 
 **Via API:**
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=purge_catalog" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=purge_catalog" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
 After completion, run a catalog sync to repopulate:
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=catalog_sync" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=catalog_sync" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
@@ -399,7 +399,7 @@ Removes **everything**: catalog items, resolution cache, stream candidates, play
 
 **Via API:**
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=reset_all" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=reset_all" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
@@ -407,13 +407,13 @@ This automatically runs SQLite VACUUM at the end.
 
 Then re-run the wizard if needed:
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=reset_wizard" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=reset_wizard" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
 Then re-sync:
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=catalog_sync" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=catalog_sync" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
@@ -433,9 +433,9 @@ If the plugin won't start due to database corruption and the auto-recovery didn'
 systemctl stop emby-server
 
 # Delete the database (plugin will recreate on next startup)
-rm /var/lib/emby/data/EmbyStreams/embystreams.db
-rm -f /var/lib/emby/data/EmbyStreams/embystreams.db-shm
-rm -f /var/lib/emby/data/EmbyStreams/embystreams.db-wal
+rm /var/lib/emby/data/InfiniteDrive/infinitedrive.db
+rm -f /var/lib/emby/data/InfiniteDrive/infinitedrive.db-shm
+rm -f /var/lib/emby/data/InfiniteDrive/infinitedrive.db-wal
 
 # Start Emby — plugin will initialise a fresh database automatically
 systemctl start emby-server
@@ -450,11 +450,11 @@ systemctl start emby-server
 To show the wizard again (e.g. after changing the AIOStreams instance):
 
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=reset_wizard" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=reset_wizard" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
-Or manually: open `EmbyStreams.xml` and set `<IsFirstRunComplete>false</IsFirstRunComplete>`, then restart Emby (or reload the plugin config page).
+Or manually: open `InfiniteDrive.xml` and set `<IsFirstRunComplete>false</IsFirstRunComplete>`, then restart Emby (or reload the plugin config page).
 
 ---
 
@@ -489,7 +489,7 @@ The results table shows which layers would succeed and why.
 
 Via API:
 ```bash
-curl -s "http://localhost:8096/EmbyStreams/TestFailover?imdb=tt0111161" \
+curl -s "http://localhost:8096/InfiniteDrive/TestFailover?imdb=tt0111161" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
 ```
 
@@ -520,7 +520,7 @@ The fastest option: use DuckKota to create a second manifest (takes 2 minutes) a
 
 **Check 1:** Is the webhook URL correct?
 ```
-POST http://your-emby-host:8096/EmbyStreams/Webhook/Sync
+POST http://your-emby-host:8096/InfiniteDrive/Webhook/Sync
 ```
 
 **Check 2:** Is `WebhookSecret` configured?
@@ -528,7 +528,7 @@ If a secret is set, Jellyseerr/Overseerr must send it as `Authorization: Bearer 
 
 **Check 3:** Test the webhook manually:
 ```bash
-curl -X POST "http://localhost:8096/EmbyStreams/Webhook/Sync" \
+curl -X POST "http://localhost:8096/InfiniteDrive/Webhook/Sync" \
      -H "Content-Type: application/json" \
      -d '{"notification_type":"MEDIA_APPROVED","media":{"imdbId":"tt15299712"}}'
 ```
@@ -541,19 +541,19 @@ All require admin authentication (`X-Emby-Authorization: MediaBrowser Token="YOU
 
 | Endpoint | What it shows |
 |----------|--------------|
-| `GET /EmbyStreams/Status` | Full health snapshot: AIOStreams status, DB stats, recent errors, version |
-| `GET /EmbyStreams/Inspect?imdb=tt1160419` | Cached URL, expiry, all candidates, last play, play count for one item |
-| `GET /EmbyStreams/RawStreams?imdb=tt1160419` | Raw AIOStreams JSON response for an item — useful to check what streams AIOStreams is returning |
-| `GET /EmbyStreams/Search?q=dune` | Search catalog items by title |
-| `GET /EmbyStreams/Catalogs` | All AIOStreams catalogs found in the manifest |
-| `GET /EmbyStreams/UnhealthyItems` | Items in permanent failed-resolution state |
-| `GET /EmbyStreams/TestFailover?imdb=tt1160419` | Dry-run all three failover layers |
+| `GET /InfiniteDrive/Status` | Full health snapshot: AIOStreams status, DB stats, recent errors, version |
+| `GET /InfiniteDrive/Inspect?imdb=tt1160419` | Cached URL, expiry, all candidates, last play, play count for one item |
+| `GET /InfiniteDrive/RawStreams?imdb=tt1160419` | Raw AIOStreams JSON response for an item — useful to check what streams AIOStreams is returning |
+| `GET /InfiniteDrive/Search?q=dune` | Search catalog items by title |
+| `GET /InfiniteDrive/Catalogs` | All AIOStreams catalogs found in the manifest |
+| `GET /InfiniteDrive/UnhealthyItems` | Items in permanent failed-resolution state |
+| `GET /InfiniteDrive/TestFailover?imdb=tt1160419` | Dry-run all three failover layers |
 
 ---
 
 ## Complete Task Reference
 
-All available trigger keys for `POST /EmbyStreams/Trigger?task={key}`:
+All available trigger keys for `POST /InfiniteDrive/Trigger?task={key}`:
 
 | Task key | What it does |
 |----------|-------------|
@@ -591,20 +591,20 @@ curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=precache" \
 
 **Fix 3:** Check if pre-cache is enabled:
 ```bash
-grep EnablePreCache /var/lib/emby/data/plugins/configurations/EmbyStreams.xml
+grep EnablePreCache /var/lib/emby/data/plugins/configurations/InfiniteDrive.xml
 ```
 
 ### Pre-cache task completes with 0 items resolved
 
 **Step 1:** Check if there are uncached items:
 ```bash
-sqlite3 /var/lib/emby/data/EmbyStreams/embystreams.db \
+sqlite3 /var/lib/emby/data/InfiniteDrive/infinitedrive.db \
   "SELECT COUNT(*) FROM media_items WHERE imdb_id NOT IN (SELECT imdb_id FROM cached_streams)"
 ```
 
 **Step 2:** Check if API budget is exhausted:
 ```bash
-sqlite3 /var/lib/emby/data/EmbyStreams/embystreams.db \
+sqlite3 /var/lib/emby/data/InfiniteDrive/infinitedrive.db \
   "SELECT * FROM api_budget WHERE date = date('now')"
 ```
 
@@ -630,11 +630,11 @@ To use the diagnostic/trigger endpoints from the command line, you need an Emby 
 **Option 1:** Use the Emby Dashboard
 Dashboard → Advanced → API Keys → New API Key → copy the token.
 
-**Option 2:** From `EmbyStreams.xml`
+**Option 2:** From `InfiniteDrive.xml`
 The config page uses the Emby session token when you're logged in. The API key from Dashboard → API Keys is easier for scripting.
 
 **Using the token:**
 ```bash
-curl -s "http://localhost:8096/EmbyStreams/Status" \
+curl -s "http://localhost:8096/InfiniteDrive/Status" \
      -H "X-Emby-Authorization: MediaBrowser Token=\"abc123yourtokenhere\""
 ```

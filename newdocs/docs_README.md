@@ -7,13 +7,13 @@
 **Start here:**
 
 → **[Getting Started](./getting-started.md)**
-- Installation steps (plugin folder: `InfiniteDrive/`, not `EmbyStreams/`)
+- Installation steps (plugin folder: `InfiniteDrive/`, not `InfiniteDrive/`)
 - Initial setup with AIOStreams manifest URL
 - Verifying playback
 
 → **[Configuration Reference](./configuration.md)**
 - All settings documented with correct field names
-- Config file: `InfiniteDrive.xml` (not `EmbyStreams.xml`)
+- Config file: `InfiniteDrive.xml` (not `InfiniteDrive.xml`)
 - Auto-discovered fields and bounds validation
 
 ---

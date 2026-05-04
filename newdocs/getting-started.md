@@ -29,7 +29,7 @@
 
 ## Step 2: Install the Plugin
 
-**Plugin folder:** `InfiniteDrive/` (NOT `EmbyStreams/`)
+**Plugin folder:** `InfiniteDrive/` (NOT `InfiniteDrive/`)
 
 1. Build: `dotnet publish -c Release`
 2. Create the plugin directory:

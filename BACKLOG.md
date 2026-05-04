@@ -50,7 +50,7 @@
 | DEBT-37 | LOW | — | AioMetaResponse 8 types in 1 file (388 lines) |
 | DEBT-38 | LOW | — | ResolutionCoverageStats integer division precision loss |
 | DEBT-39 | LOW | — | 24 sprint references in code comments |
-| DEBT-40 | LOW | — | Old .embystreams_probe naming convention |
+| DEBT-40 | LOW | — | Old .infinitedrive_probe naming convention |
 
 ## Sprint 511 — DRY Quick Wins + Bug Fixes
 **Status:** Draft | **Risk:** LOW | **Scope:** DEBT-01, 08, 09, 26-31

@@ -1,6 +1,6 @@
-# Getting Started with EmbyStreams
+# Getting Started with InfiniteDrive
 
-EmbyStreams syncs your AIOStreams catalog into Emby, enabling Netflix-style discovery and one-click playback from debrid services.
+InfiniteDrive syncs your AIOStreams catalog into Emby, enabling Netflix-style discovery and one-click playback from debrid services.
 
 ---
 
@@ -34,14 +34,14 @@ EmbyStreams syncs your AIOStreams catalog into Emby, enabling Netflix-style disc
 1. Create the plugin folder:
    ```bash
    # Linux
-   mkdir -p /var/lib/emby/plugins/EmbyStreams
+   mkdir -p /var/lib/emby/plugins/InfiniteDrive
 
    # Windows
-   mkdir "C:\ProgramData\Emby-Server\plugins\EmbyStreams"
+   mkdir "C:\ProgramData\Emby-Server\plugins\InfiniteDrive"
    ```
 
 2. Copy all files from `bin/Release/net8.0/publish/`:
-   - `EmbyStreams.dll`
+   - `InfiniteDrive.dll`
    - `plugin.json`
    - All `.dll` dependencies (Microsoft.Data.Sqlite, SQLitePCLRaw, Newtonsoft.Json, System.* shims)
 
@@ -55,20 +55,20 @@ EmbyStreams syncs your AIOStreams catalog into Emby, enabling Netflix-style disc
    systemctl restart emby-server
    ```
 
-5. Verify: Open **Emby Dashboard → Plugins** and confirm EmbyStreams appears.
+5. Verify: Open **Emby Dashboard → Plugins** and confirm InfiniteDrive appears.
 
 ---
 
 ## Step 3: Initial Setup via Wizard
 
-1. Open **Emby Dashboard → Plugins → EmbyStreams** → **Settings**
+1. Open **Emby Dashboard → Plugins → InfiniteDrive** → **Settings**
 
 2. Run the **Setup Wizard** (first tab):
    - **Step 1:** Paste your manifest URL from Step 1
      - The plugin auto-extracts base URL, UUID, and token
    - **Step 2:** Set your media folders (create them on disk first; add as Emby libraries)
-     - Movies: `/media/embystreams/movies` (or your preference)
-     - TV Shows: `/media/embystreams/shows` (or your preference)
+     - Movies: `/media/infinitedrive/movies` (or your preference)
+     - TV Shows: `/media/infinitedrive/shows` (or your preference)
    - **Step 3:** Review settings
    - **Step 4:** Click **Save & Start Sync**
 

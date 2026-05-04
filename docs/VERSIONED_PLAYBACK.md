@@ -1,13 +1,13 @@
 ---
 
-# EmbyStreams · Versioned Playback Design Spec
+# InfiniteDrive · Versioned Playback Design Spec
 **Revision 2 — Default-First Architecture**
 
 ---
 
 ## 1. Purpose
 
-EmbyStreams presents AIOStreams results in Emby as versioned `.strm` files for each movie or episode.
+InfiniteDrive presents AIOStreams results in Emby as versioned `.strm` files for each movie or episode.
 
 The design goal is:
 
@@ -60,12 +60,12 @@ Step 4 of 4 · Ready
 
 ```
 ─────────────────────────────────────────────────────
-EmbyStreams · Stream Quality
+InfiniteDrive · Stream Quality
 
-How should EmbyStreams present streams to your users?
+How should InfiniteDrive present streams to your users?
 
   ● Simple · One version per title            ← DEFAULT SELECTED
-    EmbyStreams picks the best reliable stream
+    InfiniteDrive picks the best reliable stream
     automatically. Users just press Play.
 
   ○ Advanced · Multiple versions per title
@@ -98,7 +98,7 @@ Advanced · Choose which versions users can see
 
   Default auto-play version:  [ HD · Broad ▼ ]
 
-  ⚠ Each version you enable means EmbyStreams must
+  ⚠ Each version you enable means InfiniteDrive must
     hydrate your entire catalog once per version.
     A large catalog with 4 versions takes roughly
     4× longer to become playable.
@@ -128,7 +128,7 @@ The settings page mirrors the wizard's Advanced panel, but adds explicit change-
 
 ```
 ─────────────────────────────────────────────────────
-EmbyStreams · Stream Versions
+InfiniteDrive · Stream Versions
 
   [✓] HD · Broad          1080p H.264 DD+        (default) [locked]
   [ ] Best Available      Highest quality found
@@ -157,7 +157,7 @@ These fire **before** Save is confirmed, not after.
 ┌─────────────────────────────────────────────────────┐
 │  Add 4K · HDR to all titles?                        │
 │                                                     │
-│  EmbyStreams will rehydrate your entire catalog     │
+│  InfiniteDrive will rehydrate your entire catalog     │
 │  to add this version. Your library stays playable  │
 │  during this process — existing versions are not   │
 │  removed until new ones are confirmed.              │
@@ -175,7 +175,7 @@ These fire **before** Save is confirmed, not after.
 ┌─────────────────────────────────────────────────────┐
 │  Remove 4K · HDR from all titles?                   │
 │                                                     │
-│  EmbyStreams will remove all 4K · HDR files from   │
+│  InfiniteDrive will remove all 4K · HDR files from   │
 │  your library immediately. This cannot be undone   │
 │  without re-enabling and rehydrating.               │
 │                                                     │
@@ -304,7 +304,7 @@ Unchanged from Revision 1. Repeated here for completeness.
 Each `.strm` contains the plugin's stream resolution endpoint URL, written at materialization time using the Emby server's accessible LAN address:
 
 ```
-http://[emby-server-lan-ip]:[port]/EmbyStreams/play?titleId=tt123456&slot=hd_broad&token=[api-token]
+http://[emby-server-lan-ip]:[port]/InfiniteDrive/play?titleId=tt123456&slot=hd_broad&token=[api-token]
 ```
 
 - URL is written at materialization time

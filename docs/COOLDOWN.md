@@ -1,6 +1,6 @@
 # COOLDOWN — AIOStreams Throttling & Good-Citizen Design
 
-**Status:** Design Spec | **Owner:** embyStreams | **Target Sprint:** 155
+**Status:** Design Spec | **Owner:** InfiniteDrive | **Target Sprint:** 155
 
 ---
 
@@ -11,7 +11,7 @@ hammer it, three things happen, in this order:
 
 1. Public/shared instances return `429 Too Many Requests` and users see empty catalogs.
 2. Instance operators (ElfHosted, self-hosters who shared their URL) quietly block us.
-3. The AIOStreams project notices and the community starts treating embyStreams as
+3. The AIOStreams project notices and the community starts treating InfiniteDrive as
    the plugin that ruined the free tier for everyone.
 
 We can avoid all of that without any new user-facing complexity. The rules are
@@ -25,7 +25,7 @@ simple, the implementation is a thin helper class, and the user sees one checkbo
 
 ## The Two Realities
 
-Every operation embyStreams performs falls into exactly one of two buckets:
+Every operation InfiniteDrive performs falls into exactly one of two buckets:
 
 ```
 LOCAL  -> disk I/O, SQLite, Emby ILibraryManager, .strm/.nfo writes, cache hits
@@ -66,7 +66,7 @@ The detection happens once at config save and is stored as
 ## The Cooldown Profiles
 
 These are constants compiled into the plugin. They are **not** user-editable from
-the UI. Advanced users who really need to tune can edit `EmbyStreams.xml` directly.
+the UI. Advanced users who really need to tune can edit `InfiniteDrive.xml` directly.
 
 ```
                               SHARED     PRIVATE

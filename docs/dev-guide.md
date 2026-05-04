@@ -1,4 +1,4 @@
-# EmbyStreams — Developer Guide
+# InfiniteDrive — Developer Guide
 
 Full reference for developers. Read on demand — do not load at session start.
 
@@ -6,7 +6,7 @@ Full reference for developers. Read on demand — do not load at session start.
 
 ## What Is This?
 
-**EmbyStreams** integrates [AIOStreams](https://github.com/Viren070/AIOStreams) into Emby Server as a `.dll` plugin:
+**InfiniteDrive** integrates [AIOStreams](https://github.com/Viren070/AIOStreams) into Emby Server as a `.dll` plugin:
 
 1. Syncs a catalog from AIOStreams (movies, TV, season packs) into Emby as `.strm` files
 2. Pre-resolves stream URLs to a local SQLite cache for sub-100ms playback startup
@@ -88,7 +88,7 @@ Configuration/
 
 Plain text file containing a single HMAC-signed URL:
 ```
-https://emby.example.com/EmbyStreams/Stream?id=tt0111161&sig=<hmac>&exp=<unix_ts>
+https://emby.example.com/InfiniteDrive/Stream?id=tt0111161&sig=<hmac>&exp=<unix_ts>
 ```
 `sig` = HMAC-SHA256 signature. `exp` = Unix expiry timestamp. Together they prove the request originated from Emby and has not expired.
 
@@ -102,7 +102,7 @@ https://emby.example.com/EmbyStreams/Stream?id=tt0111161&sig=<hmac>&exp=<unix_ts
 | `stream_cache` | Pre-resolved debrid URLs (TTL 6h) |
 | `config` | Plugin settings |
 
-To reset: `rm ~/emby-dev-data/EmbyStreams/embystreams.db` and restart (runs all migrations).
+To reset: `rm ~/emby-dev-data/InfiniteDrive/infinitedrive.db` and restart (runs all migrations).
 
 ### Configuration Sources
 
@@ -119,7 +119,7 @@ To reset: `rm ~/emby-dev-data/EmbyStreams/embystreams.db` and restart (runs all 
 1. Add method to `Services/DiscoverService.cs` (or relevant service)
 2. Mark with `[HttpGet]`/`[HttpPost]` and route attribute
 3. Register in `PluginServiceRegistration.cs` if needed
-4. Test: `curl http://localhost:9100/EmbyStreams/MyEndpoint`
+4. Test: `curl http://localhost:9100/InfiniteDrive/MyEndpoint`
 
 ### Add a Database Migration
 
@@ -131,9 +131,9 @@ To reset: `rm ~/emby-dev-data/EmbyStreams/embystreams.db` and restart (runs all 
 ### Debug a Playback Issue
 
 ```bash
-ls -la /media/embystreams/movies/                          # strm file exists?
-cat /media/embystreams/movies/SomeMovie.strm               # correct URL?
-curl -v "http://localhost:9100/EmbyStreams/Stream?..."     # endpoint responds?
+ls -la /media/infinitedrive/movies/                          # strm file exists?
+cat /media/infinitedrive/movies/SomeMovie.strm               # correct URL?
+curl -v "http://localhost:9100/InfiniteDrive/Stream?..."     # endpoint responds?
 grep -i "hmac\|expired\|unauthorized" ~/emby-dev-data/logs/embyserver.txt
 ```
 
@@ -141,21 +141,21 @@ grep -i "hmac\|expired\|unauthorized" ~/emby-dev-data/logs/embyserver.txt
 
 ```bash
 # Force catalog sync
-curl -s -X POST http://localhost:9100/EmbyStreams/Trigger?task=catalog_discover
+curl -s -X POST http://localhost:9100/InfiniteDrive/Trigger?task=catalog_discover
 
 # Verify DB has entries
-sqlite3 ~/emby-dev-data/EmbyStreams/embystreams.db \
+sqlite3 ~/emby-dev-data/InfiniteDrive/infinitedrive.db \
   "SELECT COUNT(*) FROM discover_catalog;"
 
 # Test search
-curl -s "http://localhost:9100/EmbyStreams/Discover/Search?q=shawshank" | jq .
+curl -s "http://localhost:9100/InfiniteDrive/Discover/Search?q=shawshank" | jq .
 ```
 
 ### Watchdog Orchestrator
 
 ```bash
-systemctl --user status embystreams-watchdog.service
-systemctl --user start embystreams-watchdog.service
+systemctl --user status infinitedrive-watchdog.service
+systemctl --user start infinitedrive-watchdog.service
 ```
 
 Reads tasks from `.ai/TASK_QUEUE.json` every 30s. Routes: free cloud → local Ollama → Claude.
@@ -167,7 +167,7 @@ Full docs: *(documentation pending)*
 
 - [ ] `dotnet build -c Release` — 0 errors, 0 warnings
 - [ ] `./start-dev-server.sh` — server reachable at http://localhost:9100
-- [ ] Config page loads: `/web/configurationpage?name=EmbyStreams`
+- [ ] Config page loads: `/web/configurationpage?name=InfiniteDrive`
 - [ ] No errors: `tail -100 ~/emby-dev-data/logs/embyserver.txt | grep -i error`
 - [ ] Feature smoke test:
   - Catalog sync change → verify `.strm` file created

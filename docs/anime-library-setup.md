@@ -1,6 +1,6 @@
 # Anime Library Setup
 
-EmbyStreams can route anime content from AIOStreams into a dedicated Emby library. For the best experience, install the Emby Anime Plugin to enhance metadata with artwork from AniDB/AniList.
+InfiniteDrive can route anime content from AIOStreams into a dedicated Emby library. For the best experience, install the Emby Anime Plugin to enhance metadata with artwork from AniDB/AniList.
 
 ## Prerequisites
 
@@ -14,9 +14,9 @@ EmbyStreams can route anime content from AIOStreams into a dedicated Emby librar
    - Restart Emby if prompted
 
 2. **Enable the Anime Library**
-   - Go to EmbyStreams settings → Catalog Sync tab
-   - Check "Enable Anime Library" and set the anime library path (default: `/media/embystreams/anime`)
-   - Save settings — EmbyStreams creates the directory and a Series library automatically
+   - Go to InfiniteDrive settings → Catalog Sync tab
+   - Check "Enable Anime Library" and set the anime library path (default: `/media/infinitedrive/anime`)
+   - Save settings — InfiniteDrive creates the directory and a Series library automatically
 
 3. **Configure metadata providers**
    - Go to Emby Dashboard → Libraries → "Streamed Anime"

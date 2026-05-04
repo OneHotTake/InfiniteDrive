@@ -6,11 +6,11 @@
 
 ## Architecture Decision
 
-EmbyStreams does NOT implement its own anime metadata resolver. It does NOT call AniList, Kitsu, AniDB, or any external anime API directly. AIOStreams, Cinemeta, and AIOMetadata already return normalized metadata for all content including anime. EmbyStreams consumes whatever metadata those upstream providers return and writes it to NFO files.
+InfiniteDrive does NOT implement its own anime metadata resolver. It does NOT call AniList, Kitsu, AniDB, or any external anime API directly. AIOStreams, Cinemeta, and AIOMetadata already return normalized metadata for all content including anime. InfiniteDrive consumes whatever metadata those upstream providers return and writes it to NFO files.
 
 If the upstream providers cannot resolve an item, it is logged and skipped — no NFO, no STRM.
 
-This keeps EmbyStreams a sync/formatting tool, not a metadata resolver.
+This keeps InfiniteDrive a sync/formatting tool, not a metadata resolver.
 
 ---
 
@@ -105,7 +105,7 @@ Enhance the existing `WriteNfoHintFile` to write complete NFO files:
 - Add `animeSynced` and `animeSkipped` to existing counter block
 - Output format:
   ```
-  [EmbyStreams] .strm write complete — 150 written, 12 in library (skipped), 3 other skipped
+  [InfiniteDrive] .strm write complete — 150 written, 12 in library (skipped), 3 other skipped
   Anime items: 44 synced, 3 skipped (see log)
   ```
 

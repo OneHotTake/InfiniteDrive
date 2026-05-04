@@ -88,7 +88,7 @@ Emby Sidebar / REST Response
 ### Adding to Library
 
 1. User clicks **"Add to Library"** on an item
-2. Request sent to `POST /EmbyStreams/Discover/AddToLibrary`
+2. Request sent to `POST /InfiniteDrive/Discover/AddToLibrary`
 3. `DiscoverService.Post()` executes:
    - Validates request (ImdbId, Type, Title required)
    - Creates .strm file in `SyncPathMovies` or `SyncPathShows`
@@ -103,7 +103,7 @@ Emby Sidebar / REST Response
 
 When user clicks Play on an added item:
 1. Emby loads the .strm file
-2. Opens URL: `/EmbyStreams/Play?imdb={imdbId}`
+2. Opens URL: `/InfiniteDrive/Play?imdb={imdbId}`
 3. PlaybackService resolves the stream
 4. User watches via Real-Debrid
 
@@ -114,7 +114,7 @@ All endpoints return JSON responses.
 ### Browse Available Catalog
 
 ```
-GET /EmbyStreams/Discover/Browse?limit=20&offset=0
+GET /InfiniteDrive/Discover/Browse?limit=20&offset=0
 ```
 
 **Response:**
@@ -144,7 +144,7 @@ The `audioLanguages` field is populated from `stream_candidates.languages` for i
 ### Search Catalog
 
 ```
-GET /EmbyStreams/Discover/Search?q=batman&type=movie
+GET /InfiniteDrive/Discover/Search?q=batman&type=movie
 ```
 
 Returns same `DiscoverItem` format, up to 50 results.
@@ -152,7 +152,7 @@ Returns same `DiscoverItem` format, up to 50 results.
 ### Get Item Details
 
 ```
-GET /EmbyStreams/Discover/Detail?imdbId=tt0371746
+GET /InfiniteDrive/Discover/Detail?imdbId=tt0371746
 ```
 
 **Response:**
@@ -176,14 +176,14 @@ GET /EmbyStreams/Discover/Detail?imdbId=tt0371746
 ### Add to Library
 
 ```
-POST /EmbyStreams/Discover/AddToLibrary?imdbId=tt0371746&type=movie&title=Iron%20Man&year=2008
+POST /InfiniteDrive/Discover/AddToLibrary?imdbId=tt0371746&type=movie&title=Iron%20Man&year=2008
 ```
 
 **Response:**
 ```json
 {
   "ok": true,
-  "strmPath": "/media/embystreams/movies/Iron Man (2008).strm",
+  "strmPath": "/media/infinitedrive/movies/Iron Man (2008).strm",
   "error": null
 }
 ```
@@ -202,7 +202,7 @@ Or on error:
 User can manually trigger sync via dashboard:
 
 ```
-POST /EmbyStreams/Trigger?task=catalog_discover
+POST /InfiniteDrive/Trigger?task=catalog_discover
 ```
 
 Response:
@@ -280,7 +280,7 @@ Everything else is automatic:
 ### Prerequisites
 
 ```bash
-cd /home/geoff/embyStreams
+cd /home/geoff/InfiniteDrive
 ./start-dev-server.sh
 ```
 
@@ -310,7 +310,7 @@ Server runs on http://localhost:9100
 ### Test 2: Browse Endpoint
 
 ```bash
-curl "http://localhost:9100/EmbyStreams/Discover/Browse?limit=10"
+curl "http://localhost:9100/InfiniteDrive/Discover/Browse?limit=10"
 ```
 
 **Expected**: JSON with 10 items, total count, and offset.
@@ -318,7 +318,7 @@ curl "http://localhost:9100/EmbyStreams/Discover/Browse?limit=10"
 ### Test 3: Search Endpoint
 
 ```bash
-curl "http://localhost:9100/EmbyStreams/Discover/Search?q=batman"
+curl "http://localhost:9100/InfiniteDrive/Discover/Search?q=batman"
 ```
 
 **Expected**: JSON with matching items (title contains "batman").
@@ -330,13 +330,13 @@ curl "http://localhost:9100/EmbyStreams/Discover/Search?q=batman"
 IMDB_ID="tt0371746"
 
 curl -X POST \
-  "http://localhost:9100/EmbyStreams/Discover/AddToLibrary?imdbId=${IMDB_ID}&type=movie&title=Iron%20Man&year=2008"
+  "http://localhost:9100/InfiniteDrive/Discover/AddToLibrary?imdbId=${IMDB_ID}&type=movie&title=Iron%20Man&year=2008"
 ```
 
 **Expected**:
 - Response: `{"ok":true,"strmPath":"..."}`
-- File created: `/media/embystreams/movies/Iron Man (2008).strm`
-- Content: `/EmbyStreams/Play?imdb=tt0371746`
+- File created: `/media/infinitedrive/movies/Iron Man (2008).strm`
+- Content: `/InfiniteDrive/Play?imdb=tt0371746`
 
 ### Test 5: Auto-Library-Refresh
 
@@ -349,7 +349,7 @@ curl -X POST \
 ### Test 6: Manual Sync Trigger
 
 ```bash
-curl -X POST "http://localhost:9100/EmbyStreams/Trigger?task=catalog_discover"
+curl -X POST "http://localhost:9100/InfiniteDrive/Trigger?task=catalog_discover"
 ```
 
 **Expected**:
@@ -376,7 +376,7 @@ curl -X POST "http://localhost:9100/EmbyStreams/Trigger?task=catalog_discover"
 **Debug**:
 ```bash
 # Check if AIOStreams URL configured
-grep -A 5 "AioStreamsUrl" ~/emby-dev-data/config/plugins/configurations/EmbyStreams.xml
+grep -A 5 "AioStreamsUrl" ~/emby-dev-data/config/plugins/configurations/InfiniteDrive.xml
 
 # Check logs for errors
 grep "Discover" ~/emby-dev-data/logs/embyserver.txt | grep -i error
@@ -391,7 +391,7 @@ grep "Discover" ~/emby-dev-data/logs/embyserver.txt | grep -i error
 **Debug**:
 ```bash
 # Check if file was created
-ls -la /media/embystreams/movies/
+ls -la /media/infinitedrive/movies/
 
 # Check logs for library refresh errors
 grep "library refresh" ~/emby-dev-data/logs/embyserver.txt
@@ -430,7 +430,7 @@ grep "DiscoverChannel" ~/emby-dev-data/logs/embyserver.txt
 | `Tasks/CatalogDiscoverTask.cs` | NEW - Scheduled task runner |
 | `Data/DatabaseManager.cs` | MODIFIED - Schema V13, discover_catalog methods |
 | `Services/TriggerService.cs` | MODIFIED - Added catalog_discover trigger |
-| `EmbyStreams.csproj` | MODIFIED - Version 0.19.0.0 |
+| `InfiniteDrive.csproj` | MODIFIED - Version 0.19.0.0 |
 | `plugin.json` | MODIFIED - Version 0.19.0.0 |
 
 ## Next Steps (Optional Enhancements)

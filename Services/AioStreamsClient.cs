@@ -82,7 +82,7 @@ namespace InfiniteDrive.Services
     {
         // ── Constants ───────────────────────────────────────────────────────────
 
-        private const string UserAgent     = "InfiniteDrive (+https://github.com/OneHotTake/embyStreams)";
+        private const string UserAgent     = "InfiniteDrive (+https://github.com/OneHotTake/InfiniteDrive)";
         private const int    TimeoutSeconds = 60;  // Increased from 30s to handle slow AIOStreams responses (10+ seconds)
 
         // ── Fields ──────────────────────────────────────────────────────────────

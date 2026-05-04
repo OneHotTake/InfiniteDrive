@@ -46,7 +46,7 @@ Major settings UI overhaul: Migrated 7 configuration tabs to the modern IHasUIPa
 - 📺 **Native Emby IChannel Integration** — Full sidebar integration for Discover feature
   - Hierarchical browsing: "Movies", "TV Series", "Recently Added", "Popular" categories
   - Native search integration with Emby's global search bar
-  - Playback through `/EmbyStreams/Play` endpoint with API key validation
+  - Playback through `/InfiniteDrive/Play` endpoint with API key validation
   - Support for both Movie and Series content types
 - 🔍 **Enhanced Database Queries** — Media type filtering and sorting
   - `GetDiscoverCatalogAsync()` now supports `mediaType` and `sortBy` parameters
@@ -69,11 +69,11 @@ Major settings UI overhaul: Migrated 7 configuration tabs to the modern IHasUIPa
   - Validates on every playback request; returns `401 Unauthorized` on failure
   - Security model: local-only, scoped to playback only
 - 🔄 **API Key Rotation** endpoint and UI
-  - `POST /EmbyStreams/Setup/RotateApiKey` — generates new key, rewrites all `.strm` files
+  - `POST /InfiniteDrive/Setup/RotateApiKey` — generates new key, rewrites all `.strm` files
   - Rotation completes in < 5 seconds even for 1000+ files
 - ⚡ **Health Check Optimization** — Eliminated excessive AIOStreams polling
   - Manifest validation runs once on server startup
-  - `POST /EmbyStreams/Status/Refresh` for manual refresh
+  - `POST /InfiniteDrive/Status/Refresh` for manual refresh
 - 📖 **Comprehensive Security Documentation** (SECURITY.md)
 
 #### Changed
@@ -83,8 +83,8 @@ Major settings UI overhaul: Migrated 7 configuration tabs to the modern IHasUIPa
 
 #### Technical Details
 - **New Endpoints:**
-  - `POST /EmbyStreams/Setup/RotateApiKey`
-  - `POST /EmbyStreams/Status/Refresh`
+  - `POST /InfiniteDrive/Setup/RotateApiKey`
+  - `POST /InfiniteDrive/Status/Refresh`
 - **Modified Components:**
   - `Plugin.cs` — Auto-generates API key on startup
   - `PluginConfiguration.cs` — Stores PlaybackApiKey field
@@ -104,11 +104,11 @@ Major settings UI overhaul: Migrated 7 configuration tabs to the modern IHasUIPa
 - ✨ **Zero-config Auto-initialization** — Discover syncs on server startup
 - ✨ **Auto-library-refresh** — Adding items triggers automatic scan
 - ✨ **REST API for Discover:**
-  - `GET /EmbyStreams/Discover/Browse`
-  - `GET /EmbyStreams/Discover/Search`
-  - `GET /EmbyStreams/Discover/Detail`
-  - `POST /EmbyStreams/Discover/AddToLibrary`
-- ✨ **Manual Discover sync trigger** via `/EmbyStreams/Trigger?task=catalog_discover`
+  - `GET /InfiniteDrive/Discover/Browse`
+  - `GET /InfiniteDrive/Discover/Search`
+  - `GET /InfiniteDrive/Discover/Detail`
+  - `POST /InfiniteDrive/Discover/AddToLibrary`
+- ✨ **Manual Discover sync trigger** via `/InfiniteDrive/Trigger?task=catalog_discover`
 - ✨ **Scheduled daily Discover sync** (4 AM, configurable)
 - 📊 **Database schema V13** — `discover_catalog` table
 - 📋 **Comprehensive Discover documentation** (DISCOVER_FEATURE.md)
@@ -329,7 +329,7 @@ Major settings UI overhaul: Migrated 7 configuration tabs to the modern IHasUIPa
 ### Code Organization
 
 ```
-/EmbyStreams/
+/InfiniteDrive/
 ├── Models/              # Data models
 ├── Services/            # REST services + channels
 ├── Tasks/               # Scheduled tasks
@@ -373,4 +373,4 @@ Files changed:
 ---
 
 **Last Updated:** 2026-03-29
-**Maintainer:** EmbyStreams Contributors
+**Maintainer:** InfiniteDrive Contributors

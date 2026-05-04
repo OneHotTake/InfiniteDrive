@@ -60,7 +60,7 @@ namespace InfiniteDrive.Data
         /// Creates a DatabaseManager targeting the given directory.
         /// The database file itself is created by <see cref="Initialise"/>.
         /// </summary>
-        /// <param name="dbDirectory">Folder that will contain embystreams.db.</param>
+        /// <param name="dbDirectory">Folder that will contain infinitedrive.db.</param>
         /// <param name="logger">ILogger instance from the plugin.</param>
         public DatabaseManager(string dbDirectory, ILogger logger)
         {
