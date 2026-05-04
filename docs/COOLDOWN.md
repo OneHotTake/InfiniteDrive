@@ -1,6 +1,6 @@
 # COOLDOWN — AIOStreams Throttling & Good-Citizen Design
 
-**Status:** Design Spec | **Owner:** InfiniteDrive | **Target Sprint:** 155
+**Status:** Active · **Owner:** InfiniteDrive
 
 ---
 
@@ -43,7 +43,7 @@ Everything else — batch caps, jitter, backoff — is a consequence of that rul
 
 ```
 SHARED   Public AIOStreams (ElfHosted free tier, random user's URL).
-         Default assumption. Respects all published rate limits + 30% safety margin.
+         Default assumption. Respects all published rate limits + safety margin.
 
 PRIVATE  Self-hosted or paid AIOStreams the user controls.
          Aggressive but still civilised (we don't want to DDoS our own VPS either).
@@ -70,27 +70,40 @@ the UI. Advanced users who really need to tune can edit `InfiniteDrive.xml` dire
 
 ```
                               SHARED     PRIVATE
-HTTP base delay (ms)             1000         200
-HTTP jitter (+/- ms)              300          80
-HTTP timeout (s)                    8          12
-Catalog sources per run             2           6
-Enrichment items per run           42         150
-Rehydration items per run         500        2000
-Cinemeta base delay (ms)          700         200
-Global 429 cooldown (s)           900         120
+HTTP base delay (ms)                0           0
+SeriesMeta delay (ms)             200           0
+Jitter (+/- ms)                    50           0
+HTTP timeout (s)                    10          15
+Global 429 cooldown (s)             60          30
 ```
 
 Why these numbers:
 
-- **1000 ms + 300 ms jitter** gives ~2.5 req/s, well under the published
-  `STREAM_API_RATE_LIMIT` of 10/5s, with headroom for burst retries.
-- **Jitter** prevents thundering-herd when multiple tasks wake on the same hour.
-- **2 catalog sources per run** respects `CATALOG_API_RATE_LIMIT` (5/5s) even when
-  sources have multiple pages. Private can do 6 because the user owns the pipe.
-- **Enrichment 42** is already what we do today. Keep it for SHARED. PRIVATE gets
-  more because 150 items × 1s delay × 0 = instant when there's no delay.
-- **Global 429 cooldown** — if we see a 429 we go dark for 15 minutes on SHARED.
-  That single rule keeps us off every operator's "block this plugin" list.
+- **0ms base delay + 50ms jitter** on Shared gives minimal overhead while
+  still breaking synchronization across parallel tasks. The real throttling
+  comes from the 429 global cooldown, not per-request delays.
+- **200ms SeriesMeta delay** on Shared prevents hammering the API during
+  series episode expansion — the most burst-heavy operation. Private instances
+  skip this entirely.
+- **60s global 429 cooldown** on Shared keeps us off every operator's "block
+  this plugin" list. Private gets 30s — the operator is only hurting themselves.
+
+---
+
+## CooldownKind — Two Profiles
+
+The `CooldownKind` enum has exactly two values:
+
+```csharp
+public enum CooldownKind { Default, SeriesMeta }
+```
+
+| Kind | Purpose | Delay (Shared) | Delay (Private) |
+|------|---------|----------------|-----------------|
+| `Default` | General API calls: catalog fetch, stream resolve, enrichment | 0ms | 0ms |
+| `SeriesMeta` | Series metadata expansion, episode lookups | 200ms + jitter | 0ms |
+
+The 4-value enum from earlier designs (`CatalogFetch`, `StreamResolve`, `Enrichment`, `Cinemeta`) was collapsed to two because per-operation delays proved unnecessary — the global 429 cooldown is sufficient for rate-limit protection, and only series metadata expansion needed proactive throttling on shared instances.
 
 ---
 
@@ -102,53 +115,79 @@ One file. One class. No ceremony.
 // Services/CooldownGate.cs
 public sealed class CooldownGate
 {
-    private readonly PluginConfiguration _cfg;
+    private readonly Func<PluginConfiguration> _configAccessor;
     private readonly ILogger _logger;
     private DateTimeOffset _globalCooldownUntil = DateTimeOffset.MinValue;
 
-    public InstanceType Instance => _cfg.ResolvedInstanceType;
+    public InstanceType Instance => _configAccessor().ResolvedInstanceType;
     public CooldownProfile Profile => CooldownProfile.For(Instance);
 
     // Call before every HTTP request to AIOStreams / Cinemeta.
     public async Task WaitAsync(CooldownKind kind, CancellationToken ct)
     {
-        if (DateTimeOffset.UtcNow < _globalCooldownUntil)
+        // If we're in a global 429 cooldown, sleep until it expires
+        lock (_lock)
         {
-            var remaining = _globalCooldownUntil - DateTimeOffset.UtcNow;
-            await Task.Delay(remaining, ct);
+            if (DateTimeOffset.UtcNow < _globalCooldownUntil)
+            {
+                var remaining = _globalCooldownUntil - DateTimeOffset.UtcNow;
+                _logger.LogDebug("[cooldown] Global cooldown active — waiting {Remaining:F1}s",
+                    remaining.TotalSeconds);
+                await Task.Delay(remaining, ct);
+                return;
+            }
         }
 
-        var delay = Profile.DelayFor(kind);
-        var jitter = Random.Shared.Next(-Profile.JitterMs, Profile.JitterMs);
-        await Task.Delay(delay + jitter, ct);
+        var baseDelay = Profile.DelayFor(kind);
+        var jitter = _jitterSource(-Profile.JitterMs, Profile.JitterMs);
+        var totalDelay = Math.Max(0, baseDelay + jitter);
+
+        if (totalDelay > 0)
+            await Task.Delay(totalDelay, ct);
     }
 
     // Call on any 429 response.
     public void Tripped(TimeSpan? retryAfter = null)
     {
-        var wait = retryAfter ?? TimeSpan.FromSeconds(Profile.GlobalCooldownSeconds);
-        _globalCooldownUntil = DateTimeOffset.UtcNow + wait;
-        _logger.Warn($"[cooldown] AIOStreams 429 — pausing all HTTP for {wait.TotalSeconds:F0}s");
+        lock (_lock)
+        {
+            var wait = retryAfter ?? TimeSpan.FromSeconds(Profile.GlobalCooldownSeconds);
+            _globalCooldownUntil = DateTimeOffset.UtcNow + wait;
+
+            // Three-strikes tracking: if 3+ 429s in 1h on Shared, suggest private instance
+            _tripHistory.Enqueue(DateTimeOffset.UtcNow);
+            while (_tripHistory.Count > 0 && _tripHistory.Peek() < DateTimeOffset.UtcNow.AddHours(-1))
+                _tripHistory.Dequeue();
+
+            if (_tripHistory.Count >= 3 && Instance == InstanceType.Shared)
+            {
+                _suggestPrivateInstance = true;
+                _logger.LogInformation("[cooldown] 3+ rate limits in 1h — suggesting private instance");
+            }
+
+            _logger.LogWarning("[cooldown] AIOStreams 429 — pausing all HTTP for {Seconds:F0}s", wait.TotalSeconds);
+        }
     }
+
+    public static TimeSpan? ParseRetryAfter(string? retryAfterValue) { ... }
 }
 
 public enum InstanceType { Shared, Private }
-public enum CooldownKind { CatalogFetch, StreamResolve, Enrichment, Cinemeta }
+public enum CooldownKind { Default, SeriesMeta }
 ```
 
-That's the whole abstraction. Every HTTP call site changes from:
+Every HTTP call site follows this pattern:
 
 ```csharp
-await Task.Delay(config.ApiCallDelayMs, ct);
+await _cooldown.WaitAsync(CooldownKind.Default, ct);
 var result = await _client.GetAsync(url, ct);
+if (result.StatusCode == 429) _cooldown.Tripped(CooldownGate.ParseRetryAfter(result));
 ```
 
-to:
+Series metadata expansion uses:
 
 ```csharp
-await _cooldown.WaitAsync(CooldownKind.StreamResolve, ct);
-var result = await _client.GetAsync(url, ct);
-if (result.StatusCode == 429) _cooldown.Tripped(ParseRetryAfter(result));
+await _cooldown.WaitAsync(CooldownKind.SeriesMeta, ct);
 ```
 
 Local disk / DB / Emby calls do not get a `CooldownGate`. They go as fast as they
@@ -158,29 +197,10 @@ can. That's the point.
 
 ## Where the Gate Is Wired
 
-| Call site | Kind | Notes |
-|---|---|---|
-| `AioStreamsClient.GetCatalogAsync` | `CatalogFetch` | One gate per source page |
-| `AioStreamsClient.GetStreamsAsync` | `StreamResolve` | Used by LinkResolverTask, RehydrationService, ResolverService |
-| `AioMetadataClient.FetchAsync` | `Enrichment` | DeepCleanTask enrichment trickle |
-| `CinemetaClient.GetAsync` | `Cinemeta` | MetadataFallbackTask |
+The gate wraps every HTTP call to AIOStreams and Cinemeta, and nothing else.
 
 **Nowhere else.** No gate on `.strm` writes, no gate on DB upserts, no gate on
 `ILibraryManager.CreateItem`. The file I/O and Emby calls stay aggressive.
-
----
-
-## Batch Caps (enforced by callers, read from profile)
-
-Each task reads its cap from `CooldownProfile`:
-
-```csharp
-var cap = _cooldown.Profile.EnrichmentPerRun; // 42 or 150
-foreach (var item in candidates.Take(cap)) { ... }
-```
-
-The tasks themselves stay dumb. The profile is the single source of truth for
-"how much is too much for this instance type."
 
 ---
 
@@ -188,9 +208,9 @@ The tasks themselves stay dumb. The profile is the single source of truth for
 
 On any `429` we:
 
-1. Log `[cooldown] AIOStreams rate limit hit (status 429). Backing off 900s.`
+1. Log `[cooldown] AIOStreams rate limit hit (status 429). Backing off {N}s.`
 2. Set `_globalCooldownUntil` for the profile's cooldown.
-3. Emit a single structured event to the existing progress streamer so the admin
+3. Emit a single structured event to the progress streamer so the admin
    dashboard shows a quiet badge:
    > *"Upstream busy — pausing briefly to stay a good neighbour."*
 
@@ -210,31 +230,16 @@ That's the only time the user ever sees the word "rate limit."
 
 These were on the table and got cut in service of elegance:
 
-- ❌ "Instance Type" dropdown in the wizard. (Auto-detected.)
-- ❌ Individual sliders for each cooldown kind. (Profile constants.)
-- ❌ Per-source throttle overrides. (Profile applies to the instance, not sources.)
-- ❌ User-visible "Advanced Throttling" tab. (Doesn't exist. XML only.)
-- ❌ Separate `ApiCallDelayMs` / `JitterMs` / `MaxCatalogSourcesPerRun` config fields.
-  (All collapse into `ResolvedInstanceType`.)
-- ❌ Retry-with-exponential-backoff on individual failed items during a 429.
+- No "Instance Type" dropdown in the wizard. (Auto-detected.)
+- No individual sliders for each cooldown kind. (Profile constants.)
+- No per-source throttle overrides. (Profile applies to the instance, not sources.)
+- No user-visible "Advanced Throttling" tab. (Doesn't exist. XML only.)
+- No separate `ApiCallDelayMs` / `JitterMs` config fields. (All collapsed into `CooldownKind.Default`.)
+- No retry-with-exponential-backoff on individual failed items during a 429.
   (We go dark globally — simpler, safer, and closer to what operators want.)
 
-The existing `ApiCallDelayMs` field is **retired** — any value in user XML is
-ignored after migration, and the field is removed from the configuration page.
-This is the one piece of config we're actively reducing.
-
----
-
-## Success Criteria
-
-1. Zero new fields on the configuration UI.
-2. `CooldownGate` wraps every HTTP call to AIOStreams/Cinemeta and nothing else.
-3. A synthetic 429 (injectable in debug build) causes all HTTP to pause for
-   900s on SHARED, 120s on PRIVATE, and then resume.
-4. Local disk/DB/Emby operations measurably do **not** slow down after the gate
-   is introduced (benchmark: 10k `.strm` writes before/after within ±5%).
-5. Full catalog sync against a public AIOStreams instance completes without
-   a single 429 over a 24-hour soak test.
+The old `ApiCallDelayMs` field has been **removed** — any value in user XML is
+ignored. This is the one piece of config we actively reduced.
 
 ---
 
@@ -250,5 +255,6 @@ USER_API_RATE_LIMIT           5  / 5s
 DEFAULT_TIMEOUT               7s
 ```
 
-SHARED profile stays at ≤ 70% of the lowest applicable limit with jitter.
-PRIVATE profile is tuned for the operator, not the published limits.
+The global 429 cooldown (60s shared, 30s private) is the primary throttle mechanism.
+Per-request delays are minimal — the system relies on detecting 429s and backing
+off globally rather than preemptively throttling every request.

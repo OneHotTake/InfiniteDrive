@@ -13,14 +13,31 @@ Typical paths: `/var/lib/emby/data/plugins/configurations/InfiniteDrive.xml` (Li
 
 These settings control how the plugin reaches your AIOStreams instance.
 
-### `AioStreamsManifestUrl`
+### `PrimaryManifestUrl`
 **Type:** string · **Default:** empty · **UI label:** "Manifest URL (paste to auto-fill)"
 
-Paste your full AIOStreams manifest URL here. The plugin parses it automatically to extract `AioStreamsUrl`, `AioStreamsUuid`, and `AioStreamsToken`. This field is a convenience input — it is not persisted after parsing.
+Full AIOStreams manifest URL for the primary instance. The plugin parses it automatically to extract the base URL, UUID, and token.
 
 Format: `https://your-host/stremio/{uuid}/{token}/manifest.json`
 
 > Get yours from the DuckKota wizard at [duckkota.gitlab.io/stremio-tools/quickstart/](https://duckkota.gitlab.io/stremio-tools/quickstart/) or from AIOStreams web UI → Settings → Manifest.
+
+### `SecondaryManifestUrl`
+**Type:** string · **Default:** empty
+
+Optional secondary AIOStreams manifest URL used as a failover. When the primary instance returns `ProviderDown` or `ContentMissing`, the plugin attempts the same resolution against this secondary manifest.
+
+Only used for stream resolution — catalog sync always uses the primary instance.
+
+### `EnableBackupAioStreams`
+**Type:** bool · **Default:** `false`
+
+When true, `SecondaryManifestUrl` is used as a fallback if the primary manifest URL cannot be parsed. When false, `SecondaryManifestUrl` is ignored.
+
+### `AioStreamsManifestUrl`
+**Type:** string · **Default:** empty
+
+Paste your full AIOStreams manifest URL here. The plugin parses it automatically to extract `AioStreamsUrl`, `AioStreamsUuid`, and `AioStreamsToken`. This field is a convenience input — it is not persisted after parsing.
 
 ### `AioStreamsUrl`
 **Type:** string · **Default:** empty
@@ -48,12 +65,6 @@ Optional additional AIOStreams manifest URLs used as Layer 2 failover. Comma or 
 
 When the primary `AioStreamsUrl` is unreachable (TCP refused, timeout, or 5xx), the plugin tries each fallback URL in order. Fallbacks are used for **stream resolution only** — catalog sync always uses the primary instance.
 
-Example: two manifests from DuckKota (one on your NAS, one on an ElfHosted VPS):
-```
-http://nas:7860/stremio/uuid-a/token-a/manifest.json
-https://backup.elfhosted.com/stremio/uuid-b/token-b/manifest.json
-```
-
 ### `AioStreamsAcceptedStreamTypes`
 **Type:** string · **Default:** `debrid`
 
@@ -80,7 +91,7 @@ InfiniteDrive can populate your library from several sources. All active sources
 #### `EnableAioStreamsCatalog`
 **Type:** bool · **Default:** `true`
 
-Enables syncing catalogs discovered from the AIOStreams manifest. The manifest's `catalogs[]` array lists every catalog provided by your configured addons (Torrentio, MediaFusion, Comet, GDrive, etc.).
+Enables syncing catalogs discovered from the AIOStreams manifest. The manifest's `catalogs[]` array lists every catalog provided by your configured addons (Torrentio, MediaFusion, Comet, Gdrive, etc.).
 
 Disable only if your AIOStreams instance is stream-only and you rely on the Cinemeta default catalog for content discovery.
 
@@ -141,19 +152,27 @@ File structure: `{SyncPathShows}/{ShowTitle} ({Year})/Season {N}/{ShowTitle} - S
 
 Emby must have a **TV Shows** library pointed at this folder.
 
-### `EnableNfoHints`
-**Type:** bool · **Default:** `true`
+### `SyncPathAnime`
+**Type:** string · **Default:** `/media/infinitedrive/anime`
 
-When enabled, a minimal `.nfo` file is written alongside every `.strm` file.
+Absolute path where anime `.strm` and `.nfo` files are written.
 
-The `.nfo` contains only `<uniqueid>` tags for IMDB and TMDB IDs — no plot, poster, or cast. Emby reads these IDs to find the exact right metadata entry instead of relying on filename matching alone.
+Emby must have an **Anime** library pointed at this folder.
 
-This improves reliability for:
-- Movies whose titles differ between AIOStreams and Emby's TMDB scraper
-- Foreign films and anime with transliteration differences
-- Any title where Emby would otherwise pick the wrong metadata entry
+### `LibraryNameMovies`
+**Type:** string · **Default:** `Streamed Movies`
 
-Disable only if another tool (e.g. a Kodi database manager) manages your `.nfo` files and you do not want InfiniteDrive to overwrite them.
+Display name for the Movies library created by the plugin.
+
+### `LibraryNameSeries`
+**Type:** string · **Default:** `Streamed Series`
+
+Display name for the Series library created by the plugin.
+
+### `LibraryNameAnime`
+**Type:** string · **Default:** `Streamed Anime`
+
+Display name for the Anime library created by the plugin.
 
 ### `EmbyBaseUrl`
 **Type:** string · **Default:** `http://127.0.0.1:8096`
@@ -173,9 +192,14 @@ This value is also written into `.strm` files as the playback target, so it must
 
 How long a resolved stream URL is considered fresh. After this time, the entry is marked stale and re-resolved on the next play or background resolver run.
 
-Real-Debrid CDN URLs typically expire server-side at 4–6 hours. The plugin adds a proactive range-probe at **70% of this TTL** (≈ 252 minutes for the 360-minute default) to detect silent URL expiry before the cache expires.
+Real-Debrid CDN URLs typically expire server-side at 4–6 hours. The plugin adds a proactive range-probe at **70% of this TTL** (approximately 252 minutes for the 360-minute default) to detect silent URL expiry before the cache expires.
 
 > Setting this lower than 60 minutes will cause very frequent re-resolution and high API usage.
+
+### `CacheRefreshIntervalDays`
+**Type:** int · **Range:** 1–365 · **Default:** `30`
+
+Number of days after which cached stream entries are considered stale and eligible for re-resolution during background maintenance cycles.
 
 ### `ApiDailyBudget`
 **Type:** int · **Range:** 1–100,000 · **Default:** `2000`
@@ -187,24 +211,14 @@ Each call to AIOStreams may trigger multiple upstream addon requests internally;
 ### `MaxConcurrentResolutions`
 **Type:** int · **Range:** 1–20 · **Default:** `3`
 
-Number of parallel AIOStreams calls during background pre-resolution (LinkResolverTask). Higher values speed up cache warming but increase API load.
-
-### `ApiCallDelayMs`
-**Type:** int · **Range:** 0–5000 · **Default:** `500`
-
-Minimum milliseconds between successive AIOStreams API calls in the background resolver. Provides a natural rate-limiting floor. 0 is valid — use with caution on hosted instances.
+Number of parallel AIOStreams calls during background pre-resolution. Higher values speed up cache warming but increase API load.
 
 ### `SyncResolveTimeoutSeconds`
 **Type:** int · **Range:** 5–300 · **Default:** `30`
 
-Timeout for on-demand (synchronous) AIOStreams resolution at play time. If AIOStreams doesn't respond within this many seconds, the play request falls through to Layer 2/3 fallback.
+Timeout for on-demand (synchronous) AIOStreams resolution at play time. If AIOStreams doesn't respond within this many seconds, the play request falls through to fallback.
 
 The plugin also reads `behaviorHints.requestTimeout` from the AIOStreams manifest and uses whichever is larger (`max(configured, discovered)`). This means the timeout automatically grows when you add slow addons to AIOStreams.
-
-### `CatalogItemCap`
-**Type:** int · **Range:** 1–50,000 · **Default:** `500`
-
-Maximum items fetched per catalog source per sync run. Prevents unlimited catalog growth and protects API quota.
 
 ### `CatalogItemLimitsJson`
 **Type:** string · **Default:** empty
@@ -214,18 +228,11 @@ Per-catalog item limit overrides as a JSON object. The plugin config page builds
 Example: `{"aio:movie:gdrive":200,"aio:series:nfx":50}`
 
 ### `CatalogSyncIntervalHours`
-**Type:** int · **Range:** 1–168 · **Default:** `24`
+**Type:** int · **Range:** 1–168 · **Default:** `1`
 
 How many hours must pass since a catalog source's last successful sync before it can be re-fetched. Sources in an error state bypass this interval and are always retried.
 
-This is an internal throttle — the Emby scheduled task still runs on its own schedule; this prevents hammering catalog endpoints on every task invocation.
-
-### `CandidatesPerProvider`
-**Type:** int · **Range:** 1–10 · **Default:** `3`
-
-Number of stream candidates stored per debrid provider per item. With 3 candidates × 3 providers = 9 stored URLs. PlaybackService tries them in quality order before falling back to a fresh AIOStreams call.
-
-Higher values (5) improve resilience against CDN URL expiry; lower values (1) save database space.
+This is an internal throttle — the MarvinTask scheduled task still runs on its own schedule; this prevents hammering catalog endpoints on every task invocation.
 
 ### `ProviderPriorityOrder`
 **Type:** string · **Default:** `realdebrid,torbox,alldebrid,debridlink,premiumize,stremthru,usenet,http`
@@ -233,6 +240,16 @@ Higher values (5) improve resilience against CDN URL expiry; lower values (1) sa
 Comma-separated provider priority order. Within the same quality tier, InfiniteDrive picks the provider that appears earliest in this list.
 
 Quality tier **always** overrides provider priority: a 4K TorBox stream beats a 1080p Real-Debrid stream regardless of this setting.
+
+### `PreferredQualityTiers`
+**Type:** List\<string\> · **Default:** empty (all tiers accepted)
+
+Ordered list of preferred quality tiers. Streams matching higher-listed tiers are ranked above lower ones. Leave empty to accept all tiers and rely on natural ordering.
+
+### `DefaultQualityTier`
+**Type:** string · **Default:** `1080p (any)`
+
+Fallback quality tier used when no preferred tiers are configured or when no stream matches any preferred tier. Determines which quality level is selected as rank-0.
 
 ---
 
@@ -243,7 +260,7 @@ The pre-cache system proactively resolves stream metadata for library items befo
 ### `EnablePreCache`
 **Type:** bool · **Default:** `true`
 
-Enables the background `PreCacheAioStreamsTask` that resolves AIO streams for uncached library items and stores them in the `cached_streams` table.
+Enables the background `PreCacheAioStreamsTask` (runs inside MarvinTask) that resolves AIO streams for uncached library items and stores them in `stream_resolution_cache`.
 
 When disabled, all items require live resolution when browsed (20-40s delay for first browse). Existing cached entries remain usable but are not refreshed.
 
@@ -257,7 +274,7 @@ Lower values reduce API consumption; higher values warm the cache faster. 42 is 
 ### `PreCacheIntervalHours`
 **Type:** int · **Range:** 1–48 · **Default:** `6`
 
-Hours between automatic pre-cache task runs. The task runs as an Emby scheduled task.
+Hours between automatic pre-cache task runs. The task runs as part of the MarvinTask scheduled task.
 
 For large catalogs (>5000 items), consider 4-6 hours to keep the cache warm. For small catalogs, 12-24 hours is sufficient.
 
@@ -288,7 +305,7 @@ Controls how resolved stream URLs are delivered to Emby clients.
 ### `MaxConcurrentProxyStreams`
 **Type:** int · **Range:** 1–20 · **Default:** `5`
 
-How many streams can be simultaneously proxied before new requests fall back to redirect. Each proxy stream holds ~256 KB of RAM buffer.
+How many streams can be simultaneously proxied before new requests fall back to redirect. Each proxy stream holds approximately 256 KB of RAM buffer.
 
 ---
 
@@ -314,7 +331,59 @@ Enables a daily background task (`MetadataFallbackTask`) that checks for items w
 
 For each qualifying item, it writes a full Kodi-format `.nfo` (title, plot, poster URL, genres, cast, director) from the Cinemeta v3 API. This runs after Emby's own scraper has had a chance to process items.
 
-Disable if you never want InfiniteDrive to write `.nfo` files beyond the minimal ID hints written by `EnableNfoHints`.
+Disable if you never want InfiniteDrive to write `.nfo` files beyond the minimal ID hints.
+
+---
+
+## Content Filtering
+
+### `HideUnratedContent`
+**Type:** bool · **Default:** `false`
+
+When enabled, items without a certification rating are hidden from the library. Useful for family setups where unrated content should not appear.
+
+### `MaxListsPerUser`
+**Type:** int · **Default:** `10`
+
+Maximum number of user-created lists (watchlists, custom catalogs) that are synced per user. Prevents runaway list growth.
+
+### `CertificationCountry`
+**Type:** string · **Default:** `US`
+
+Two-letter country code used for certification rating lookups. Determines which rating system is used when filtering content (e.g. `US` for MPAA, `GB` for BBFC, `DE` for FSK).
+
+### `DefaultSubtitleLanguage`
+**Type:** string · **Default:** `en`
+
+Default subtitle language code used when building media sources. Subtitles matching this language are prioritized in the stream selection.
+
+---
+
+## Task Scheduling
+
+### `MarvinProcessIntervalMinutes`
+**Type:** int · **Default:** `10`
+
+How frequently the MarvinTask scheduled task runs (in minutes). MarvinTask orchestrates catalog sync, refresh, and pre-cache operations internally.
+
+### `StreamResolutionBatchSize`
+**Type:** int · **Default:** `42`
+
+Number of items to process per stream resolution batch during background maintenance. Controls throughput vs. API budget consumption.
+
+### `MarvinActionsPerHour`
+**Type:** int · **Default:** `360`
+
+Maximum number of discrete actions (resolutions, refreshes, etc.) that MarvinTask performs per hour. Acts as a global rate limiter on background work.
+
+---
+
+## Logging
+
+### `PluginLogLevel`
+**Type:** string · **Default:** `Info` · **Values:** `Trace`, `Debug`, `Info`, `Warn`, `Error`
+
+Minimum log level for InfiniteDrive plugin messages in the Emby server log. Set to `Debug` or `Trace` for troubleshooting; leave at `Info` for normal operation.
 
 ---
 
@@ -351,6 +420,16 @@ Leave empty only on fully trusted private networks. For Jellyseerr/Overseerr int
 
 ---
 
+## Playback Pipeline
+
+### `UseRequiresOpening`
+**Type:** bool · **Default:** `true`
+
+Controls whether `MediaSourceInfo.RequiresOpening` is set to `true` for all sources. When `true`, Emby always calls `OpenMediaSource()` before playback, which is gated by Emby's auth layer. When `false`, CDN URLs appear directly in the source path (legacy behavior, not recommended).
+
+In practice, this is always `true`. The setting exists for emergency rollback only.
+
+---
 
 ## Miscellaneous
 
@@ -379,6 +458,7 @@ These fields are populated automatically by the plugin and should not be edited 
 | `AioStreamsDiscoveredVersion` | manifest `version` | Display version in Health Dashboard |
 | `AioStreamsIsStreamOnly` | manifest catalog count | Triggers Cinemeta default catalog |
 | `AioStreamsStreamIdPrefixes` | manifest stream resources | IMDB ID format validation |
+| `ResolvedInstanceType` | auto-detected from manifest URL | Shared vs. Private instance type for cooldown profiles |
 
 ---
 
@@ -387,16 +467,18 @@ These fields are populated automatically by the plugin and should not be edited 
 | Field | Min | Max |
 |-------|-----|-----|
 | `CacheLifetimeMinutes` | 30 | 1440 |
+| `CacheRefreshIntervalDays` | 1 | 365 |
 | `ApiDailyBudget` | 1 | 100000 |
 | `MaxConcurrentResolutions` | 1 | 20 |
-| `ApiCallDelayMs` | 0 | 5000 |
-| `CatalogItemCap` | 1 | 50000 |
 | `CatalogSyncIntervalHours` | 1 | 168 |
 | `MaxConcurrentProxyStreams` | 1 | 20 |
 | `SyncResolveTimeoutSeconds` | 5 | 300 |
 | `NextUpLookaheadEpisodes` | 0 | 10 |
 | `SyncScheduleHour` | -1 or 0 | 23 |
-| `CandidatesPerProvider` | 1 | 10 |
 | `PreCacheBatchSize` | 1 | 500 |
 | `PreCacheIntervalHours` | 1 | 48 |
 | `PreCacheTTLDays` | 1 | 90 |
+| `MarvinProcessIntervalMinutes` | 1 | 1440 |
+| `StreamResolutionBatchSize` | 1 | 500 |
+| `MarvinActionsPerHour` | 1 | 3600 |
+| `MaxListsPerUser` | 1 | 100 |

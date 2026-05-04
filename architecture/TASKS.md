@@ -1,27 +1,61 @@
 # InfiniteDrive — Background Tasks Reference
 
-> Last reconciled: 2026-04-18 (post Language & Localization sprint)
+> Last reconciled: 2026-05-04 (post-Sprint 516)
 
-All tasks implement `IScheduledTask` and are instantiated by Emby's MEF framework via parameterless constructors. Services are accessed through `Plugin.Instance`.
+## Task Architecture
 
-## Primary Tasks
+MarvinTask is the **sole Emby-visible scheduled task** (implements `IScheduledTask`). All other tasks are internal helpers with no `IScheduledTask` interface — they are invoked by MarvinTask or triggered internally.
+
+Emby creates tasks via parameterless constructors using MEF. Services are accessed through `Plugin.Instance`.
+
+## MarvinTask — Primary Orchestrator
+
+**File:** `Tasks/MarvinTask.cs`
+**Purpose:** Background maintenance orchestrator. Validates, enriches, renews tokens, and cleans up saved items. Delegates all business logic to services. Also orchestrates internal helper tasks.
+
+**Sync Lock:** NOT acquired (runs concurrently with CatalogSync).
+**Default Interval:** Every 30 minutes.
+
+**Orchestration Responsibilities:**
+- Invokes CatalogSyncTask, RefreshTask, PreCacheAioStreamsTask as internal helpers
+- Runs its own maintenance phases (validation, enrichment, token renewal, save maintenance)
+
+**4-Phase Maintenance Pipeline:**
+
+| Phase | Pipeline Phase | Service | Description |
+|-------|---------------|---------|-------------|
+| Pre-flight | -- | `TryRestorePrimaryAsync()` | If on Secondary, probe primary and restore if healthy |
+| 1. Validation | `"Validation"` | -- | Validates .strm files, removes orphans |
+| 2. Enrichment | `"Enrichment"` | `MetadataEnrichmentService` | Trickle-enrichs items past retry cooldown |
+| 3. Token Renewal | `"TokenRenewal"` | -- | Refreshes expired stream tokens in cache |
+| 4. Save Maintenance | `"SaveMaintenance"` | -- | Cleans expired user saves |
+
+**Enrichment delegate:** MarvinTask maps items needing enrichment to `EnrichmentRequest` DTOs, then calls `MetadataEnrichmentService.EnrichBatchAsync()` with a fetch function that queries AIOStreams metadata.
+
+**Pipeline tracking:** `Plugin.Pipeline.SetPhase("Marvin", ...)` at each phase, `Plugin.Pipeline.Clear()` in finally.
+
+---
+
+## Internal Helper Tasks
+
+These tasks do NOT implement `IScheduledTask`. They are plain classes invoked by MarvinTask or other internal triggers.
 
 ### CatalogSyncTask
 
+**File:** `Tasks/CatalogSyncTask.cs` (738 lines)
 **Purpose:** Syncs content from all configured sources (AIOStreams, Cinemeta, RSS feeds) into the catalog database.
 
 **Sync Lock:** Acquired (`Plugin.SyncLock`)
-**Default Interval:** 1 hour (configurable via `CatalogSyncIntervalHours`)
-**Startup Delay:** 0–120 seconds random jitter to prevent thundering herd.
+**Delegates to:** `Tasks/CatalogProviders.cs` (859 lines) — `ICatalogProvider` implementations extracted from CatalogSyncTask.
 
 **Phases:**
 
 | Phase | Service | Description |
 |-------|---------|-------------|
-| BuildProviders | — | Creates ICatalogProvider[] from config |
-| Fetch | `ManifestFetcher` | Parallel fetch from all providers → CatalogFetchResult |
+| BuildProviders | -- | Creates ICatalogProvider[] from config |
+| Fetch | `ManifestFetcher` | Parallel fetch from all providers |
 | Filter | `ManifestFilter` | Remove blocked/Your Files/digital release gate |
-| Diff | `ManifestDiff` | Compare fetched vs DB → new/removed/unchanged |
+| Diff | `ManifestDiff` | Compare fetched vs DB |
 | Process | `ItemPipelineService` | Lifecycle transitions for new items |
 | User Catalogs | `UserCatalogSyncService` | Sync Trakt/MDBList RSS catalogs |
 | Persist | `DatabaseManager` | Save last_sync_time in finally block |
@@ -35,127 +69,64 @@ All tasks implement `IScheduledTask` and are instantiated by Emby's MEF framewor
 **Purpose:** Processes queued catalog items through the .strm writing and metadata enrichment pipeline.
 
 **Sync Lock:** Acquired (`Plugin.SyncLock`)
-**Running Gate:** `SemaphoreSlim(1,1)` — prevents concurrent Refresh executions.
 **Default Trigger:** After CatalogSyncTask completes.
 
 **6-Step Pipeline:**
 
 | Step | Pipeline Phase | Service | Description |
 |------|---------------|---------|-------------|
-| 1. Collect | `"Collect"` | — | Queries `catalog_items` with ItemState=Queued |
+| 1. Collect | `"Collect"` | -- | Queries `catalog_items` with ItemState=Queued |
 | 2. Write | `"Write"` | `StrmWriterService`, `NamingPolicyService` | Creates .strm files with signed resolve URLs |
 | 3. Hint | `"Hint"` | `NfoWriterService.WriteSeedNfo()` | Writes minimal NFO for Emby matching |
 | 4. Enrich | `"Enrich"` | `MetadataEnrichmentService.EnrichBatchAsync()` | Fetches full metadata, writes enriched NFOs |
-| 5. Notify | `"Notify"` | — | Notifies Emby (42-item batch bound), triggers scan |
+| 5. Notify | `"Notify"` | -- | Notifies Emby (42-item batch bound), triggers scan |
 | 6. Verify | `"Verify"` | `StreamProbeService` | Verifies stream URLs, renews tokens |
 
-**Conditional steps:** Write/Hint/Enrich only run if Collect returned items. Notify/Verify always run.
-
-**Pipeline tracking:** `Plugin.Pipeline.SetPhase("Refresh", ...)` at each step boundary, `Plugin.Pipeline.Clear()` in finally.
-
-**Progress reporting:**
-- Step 1 → 16%, Step 2 → 33%, Step 3 → 50%, Step 4 → 67%, Step 5 → 83%, Step 6 → 100%
-- Also persists `refresh_active_step` and `refresh_items_processed` to plugin_metadata table.
+**Pipeline tracking:** `Plugin.Pipeline.SetPhase("Refresh", ...)` at each step, `Plugin.Pipeline.Clear()` in finally.
 
 ---
 
-### MarvinTask
+### PreCacheAioStreamsTask
 
-**Purpose:** Background maintenance orchestrator. Validates, enriches, renews tokens, and cleans up saved items. Delegates all business logic to services.
+**Purpose:** Pre-caches AIOStreams stream data for items in the catalog. Runs as an internal helper triggered by MarvinTask.
 
-**Sync Lock:** NOT acquired (runs concurrently with CatalogSync).
-**Default Interval:** Every 30 minutes.
-
-**4-Phase Pipeline:**
-
-| Phase | Pipeline Phase | Service | Description |
-|-------|---------------|---------|-------------|
-| Pre-flight | — | `TryRestorePrimaryAsync()` | If on Secondary, probe primary and restore if healthy |
-| 1. Validation | `"Validation"` | — | Validates .strm files, removes orphans |
-| 2. Enrichment | `"Enrichment"` | `MetadataEnrichmentService` | Trickle-enrichs items past retry cooldown |
-| 3. Token Renewal | `"TokenRenewal"` | — | Refreshes expired stream tokens in cache |
-| 4. Save Maintenance | `"SaveMaintenance"` | — | Cleans expired user saves |
-
-**Enrichment delegate:** MarvinTask maps items needing enrichment to `EnrichmentRequest` DTOs, then calls `MetadataEnrichmentService.EnrichBatchAsync()` with a fetch function that queries AIOStreams metadata.
-
-**Pipeline tracking:** `Plugin.Pipeline.SetPhase("Marvin", ...)` at each phase, `Plugin.Pipeline.Clear()` in finally.
+**Config defaults:**
+- EnablePreCache = true
+- PreCacheBatchSize = 42
+- PreCacheIntervalHours = 6
+- PreCacheTTLDays = 14
 
 ---
 
-### RemovalTask
+### CatalogProviders
 
-**Purpose:** Handles item removal with grace periods.
+**File:** `Tasks/CatalogProviders.cs` (859 lines)
+**Purpose:** Extracted from CatalogSyncTask. Defines `ICatalogProvider` interface and implementations (AioStreamsCatalogProvider, CinemetaDefaultProvider, RssFeedProvider, UserCatalogProvider).
 
-**Sync Lock:** Acquired (`Plugin.SyncLock`)
-**Delegates to:** `RemovalPipeline`
-
-### CollectionSyncTask
-
-**Purpose:** Syncs user collections to Emby.
-
-**Delegates to:** `CollectionSyncService`
-
-### EpisodeExpandTask
-
-**Purpose:** Expands series catalog items to individual episodes.
-
-**Delegates to:** `SeriesPreExpansionService`
-
-### RehydrationTask
-
-**Purpose:** Re-processes items that failed during initial pipeline.
-
-**Delegates to:** `RehydrationService`
-
-### YourFilesTask
-
-**Purpose:** Scans and processes user's "Your Files" content.
-
-**Sync Lock:** Acquired (`Plugin.SyncLock`)
-
-### LibraryReadoptionTask
-
-**Purpose:** Post-library-scan reconciliation.
-
-**Delegates to:** `LibraryPostScanReadoptionService`
-
-### CatalogDiscoverTask
-
-**Purpose:** Syncs Discover catalog for user browsing.
-
-**Delegates to:** `CatalogDiscoverService`
-
-### SeriesGapScanTask / SeriesGapRepairTask
-
-**Status:** `[Obsolete]` — superseded by EpisodeDiffService.
-
-### LinkResolverTask
-
-**Purpose:** Emby link resolution (legacy).
-
-**Note:** Does NOT use `Plugin.SyncLock`.
+---
 
 ## Task Interaction Map
 
 ```
-Scheduled Triggers
-  │
-  ├── Startup → CatalogSyncTask
-  │               │
-  │               └── On completion → RefreshTask
-  │                                  │
-  │                                  └── Steps 1-6 (serial)
-  │
-  ├── Every 30min → MarvinTask
-  │                   │
-  │                   └── Phases 1-4 (serial, no SyncLock)
-  │
-  ├── Every 1h → CatalogSyncTask (interval-gated)
-  │
-  └── On-demand → Any task via Emby task scheduler
+Scheduled Triggers (Emby Task Scheduler)
+  |
+  +-- Every 30min --> MarvinTask (sole IScheduledTask)
+                        |
+                        +-- Internal helpers (no IScheduledTask):
+                        |     |
+                        |     +-- CatalogSyncTask
+                        |     |     |
+                        |     |     +-- On completion --> RefreshTask
+                        |     |                           |
+                        |     |                           +-- Steps 1-6 (serial)
+                        |     |
+                        |     +-- PreCacheAioStreamsTask
+                        |
+                        +-- Own maintenance phases:
+                              Validation -> Enrichment -> TokenRenewal -> SaveMaintenance
 ```
 
 **Concurrency model:**
-- Tasks using `Plugin.SyncLock` cannot run concurrently (CatalogSync, Refresh, Removal, Collection, YourFiles).
-- MarvinTask does NOT hold SyncLock — runs concurrently with sync tasks.
-- `Plugin.Pipeline` provides visibility into which task/phase is active, regardless of lock state.
+- CatalogSyncTask and RefreshTask use `Plugin.SyncLock` — cannot run concurrently.
+- MarvinTask's own phases do NOT hold SyncLock — runs concurrently with sync tasks.
+- `Plugin.Pipeline` provides visibility into which task/phase is active.
