@@ -33,7 +33,7 @@ namespace InfiniteDrive.UI.Discover
                 var logger = Plugin.Instance.Logger;
 
                 // Load popular rails from Cinemeta
-                using var client = new AioStreamsClient(cfg, logger);
+                using var client = AioStreamsClientFactory.Create(logger);
 
                 var movieTop = await client.GetCinemetaTopAsync("movie", 20, ct).ConfigureAwait(false);
                 foreach (var m in movieTop)
@@ -158,7 +158,7 @@ namespace InfiniteDrive.UI.Discover
                 var cfg = Plugin.Instance.Configuration;
                 var logger = Plugin.Instance.Logger;
 
-                using var client = new AioStreamsClient(cfg, logger);
+                using var client = AioStreamsClientFactory.Create(logger);
 
                 // Search both types in parallel
                 var movieTask = client.SearchLiveAsync(query, "movie", 0, 10, cts.Token);

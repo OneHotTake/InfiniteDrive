@@ -59,7 +59,7 @@ namespace InfiniteDrive
         private readonly ILogger<Plugin> _logger;
         private readonly ILogManager _logManager;
         private readonly IApplicationPaths _appPaths;
-        private bool _secretEnsured;
+        private volatile bool _secretEnsured;
 
         /// <summary>
         /// Shared logger for use by auto-discovered providers (e.g. AioMetadataProvider).
@@ -105,10 +105,6 @@ namespace InfiniteDrive
 
         /// <summary>
         /// Catalog repository for catalog item operations (Sprint 104D-02).
-        /// Delegates to DatabaseManager - temporary adapter during split.
-        /// </summary>
-        public ICatalogRepository CatalogRepository { get; private set; } = null!;
-
         /// <summary>
         /// StrmWriterService — unified .strm file writer.
         /// All .strm writes go through this singleton (Sprint 156).
@@ -374,8 +370,6 @@ namespace InfiniteDrive
                 SystemStateService = new Services.SystemStateService(DatabaseManager);
                 _logger.LogInformation("[InfiniteDrive] SystemStateService initialised");
 
-                // Initialise repository layer (Sprint 104D-02)
-                CatalogRepository = new CatalogRepository(DatabaseManager, _logManager);
                 _logger.LogInformation("[InfiniteDrive] Repository layer initialised");
 
                 // Initialise candidate normalizer (Sprint 122)

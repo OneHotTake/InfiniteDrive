@@ -337,7 +337,7 @@ namespace InfiniteDrive.Services
             => Task.FromResult(Enumerable.Empty<RemoteSearchResult>());
 
         public Task<HttpResponseInfo> GetImageResponse(string url, CancellationToken cancellationToken)
-            => throw new NotImplementedException();
+            => Task.FromResult<HttpResponseInfo>(null!);
     }
 
     /// <summary>Movie metadata provider — auto-discovered by Emby.</summary>
@@ -376,6 +376,6 @@ namespace InfiniteDrive.Services
             => Task.FromResult(Enumerable.Empty<RemoteSearchResult>());
 
         public Task<HttpResponseInfo> GetImageResponse(string url, CancellationToken cancellationToken)
-            => throw new NotImplementedException();
+            => Task.FromResult<HttpResponseInfo>(null!);
     }
 }

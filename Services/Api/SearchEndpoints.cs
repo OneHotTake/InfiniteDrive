@@ -215,7 +215,7 @@ namespace InfiniteDrive.Services
 
             try
             {
-                var client = new AioStreamsClient(config, _logger);
+                var client = AioStreamsClientFactory.Create(_logger);
                 client.Cooldown = Plugin.Instance?.CooldownGate;
                 var manifest = await client.GetManifestAsync(System.Threading.CancellationToken.None);
 

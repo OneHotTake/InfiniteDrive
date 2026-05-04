@@ -129,33 +129,11 @@ namespace InfiniteDrive.Services
             var config = Plugin.Instance?.Configuration;
             if (config == null) return Task.FromResult((string?)null);
 
-            // Derive show root: walk up from .../Show Name/Season XX/file.strm
-            var existingDir = Path.GetDirectoryName(seriesItem.StrmPath);
-            if (existingDir == null) return Task.FromResult((string?)null);
-            var showDir = Path.GetDirectoryName(existingDir);
-            if (showDir == null) return Task.FromResult((string?)null);
-
-            var seasonName = Path.GetFileName(existingDir);
-            string seasonDir;
-            if (!seasonName.StartsWith("Season ", StringComparison.OrdinalIgnoreCase))
-            {
-                showDir = existingDir;
-                seasonDir = Path.Combine(showDir, $"Season {season:D2}");
-            }
-            else
-            {
-                seasonDir = Path.Combine(showDir, $"Season {season:D2}");
-            }
-
-            Directory.CreateDirectory(seasonDir);
-
-            var fileName = NamingPolicyService.BuildStrmFileName(seriesItem, season, episode);
-            var filePath = Path.Combine(seasonDir, fileName);
+            var filePath = BuildEpisodePath(seriesItem.StrmPath, seriesItem, season, episode);
+            if (filePath == null) return Task.FromResult((string?)null);
 
             if (File.Exists(filePath))
-            {
                 return Task.FromResult((string?)filePath);
-            }
 
             var url = BuildSignedStrmUrl(config, seriesItem.ImdbId, "series", season, episode);
             WriteStrmFile(filePath, url);
@@ -182,62 +160,31 @@ namespace InfiniteDrive.Services
             return Task.CompletedTask;
         }
 
+        // ── Private: .strm file I/O ──────────────────────────────────────────────
+
         /// <summary>
-        /// Writes a single episode .strm + .nfo for a series repair (sync).
-        /// Prefer <see cref="WriteEpisodeAsync"/> which also writes version slots.
-        /// Kept for backward compatibility.
+        /// Derives the full file path for an episode .strm from an existing StrmPath.
+        /// Walks up from .../Show Name/Season XX/file.strm to find the show root,
+        /// then builds the target season/episode path.
         /// </summary>
-        public string? WriteEpisodeStrm(
-            CatalogItem seriesItem,
-            int seasonNumber,
-            int episodeNumber,
-            string? episodeTitle)
+        private static string? BuildEpisodePath(
+            string existingStrmPath, CatalogItem item, int season, int episode)
         {
-            if (string.IsNullOrEmpty(seriesItem.StrmPath))
-            {
-                _logger.LogWarning("[InfiniteDrive] StrmWriterService: cannot repair episode — strm_path is null for {ImdbId}", seriesItem.ImdbId);
-                return null;
-            }
-
-            var config = Plugin.Instance?.Configuration;
-            if (config == null) return null;
-
-            // Derive show root: walk up from .../Show Name/Season XX/file.strm
-            var seasonDir = Path.GetDirectoryName(seriesItem.StrmPath);
-            if (seasonDir == null) return null;
-            var showDir = Path.GetDirectoryName(seasonDir);
+            var existingDir = Path.GetDirectoryName(existingStrmPath);
+            if (existingDir == null) return null;
+            var showDir = Path.GetDirectoryName(existingDir);
             if (showDir == null) return null;
 
-            // If the existing path isn't in a Season XX folder (edge case), use its parent
-            var seasonName = Path.GetFileName(seasonDir);
+            var seasonName = Path.GetFileName(existingDir);
             if (!seasonName.StartsWith("Season ", StringComparison.OrdinalIgnoreCase))
-            {
-                // StrmPath is directly in show dir — use showDir as base
-                showDir = seasonDir;
-                seasonDir = Path.Combine(showDir, $"Season {seasonNumber:D2}");
-            }
-            else
-            {
-                // Ensure we target the correct season folder
-                seasonDir = Path.Combine(showDir, $"Season {seasonNumber:D2}");
-            }
+                showDir = existingDir;
 
+            var seasonDir = Path.Combine(showDir, $"Season {season:D2}");
             Directory.CreateDirectory(seasonDir);
 
-            var fileName = NamingPolicyService.BuildStrmFileName(seriesItem, seasonNumber, episodeNumber);
-            var filePath = Path.Combine(seasonDir, fileName);
-
-            if (File.Exists(filePath))
-                return filePath; // idempotent
-
-            var url = BuildSignedStrmUrl(config, seriesItem.ImdbId, "series", seasonNumber, episodeNumber);
-            WriteStrmFile(filePath, url);
-
-            _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode {FilePath}", filePath);
-            return filePath;
+            var fileName = NamingPolicyService.BuildStrmFileName(item, season, episode);
+            return Path.Combine(seasonDir, fileName);
         }
-
-        // ── Private: .strm file I/O ──────────────────────────────────────────────
 
         private void WriteStrmFile(string path, string url)
         {

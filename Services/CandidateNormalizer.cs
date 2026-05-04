@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Security.Cryptography;
-using System.Text;
 using System.Text.RegularExpressions;
 using InfiniteDrive.Models;
 using Microsoft.Extensions.Logging;
@@ -10,13 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace InfiniteDrive.Services
 {
     /// <summary>
-    /// Parses raw <see cref="AioStreamsStream"/> payloads into normalized
-    /// <see cref="Candidate"/> objects with canonical technical metadata.
-    ///
-    /// Slot-agnostic by design: produces flat normalized candidates without
-    /// slot assignment. <see cref="SlotMatcher"/> handles slot filtering downstream.
-    ///
-    /// Parsing priority for technical metadata:
+    /// Three-tier technical metadata parser for raw <see cref="AioStreamsStream"/> payloads.
+    /// Parsing priority:
     ///   1. parsedFile fields (most reliable — AIOStreams parser output)
     ///   2. behaviorHints.filename (parse filename for quality markers)
     ///   3. title / description (parse quality string from stream title)
@@ -28,104 +21,6 @@ namespace InfiniteDrive.Services
         public CandidateNormalizer(ILogger logger)
         {
             _logger = logger;
-        }
-
-        // ── Public API ──────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Normalize a list of raw AIOStreams streams into slot-agnostic Candidate objects.
-        /// Each candidate gets a fingerprint, normalized metadata, and expires_at computed
-        /// from the supplied TTL.
-        /// </summary>
-        /// <param name="mediaItemId">Foreign key to media_items.id</param>
-        /// <param name="rawStreams">Raw streams from AIOStreams /stream endpoint</param>
-        /// <param name="candidateTtlHours">Hours until candidate expires (default 6)</param>
-        /// <param name="estimatedRuntimeSeconds">Used for bitrate estimation when size is present</param>
-        /// <returns>List of normalized, unslotted candidates (SlotKey is empty)</returns>
-        public List<Candidate> NormalizeStreams(
-            string mediaItemId,
-            List<AioStreamsStream> rawStreams,
-            int candidateTtlHours = 6,
-            int estimatedRuntimeSeconds = 0)
-        {
-            if (rawStreams == null || rawStreams.Count == 0)
-                return new List<Candidate>();
-
-            var candidates = new List<Candidate>(rawStreams.Count);
-            var now = DateTime.UtcNow;
-
-            foreach (var raw in rawStreams)
-            {
-                // Skip error streams
-                if (raw.Error != null)
-                    continue;
-
-                // Skip streams with no URL and no infoHash (nothing playable)
-                if (string.IsNullOrEmpty(raw.Url) && string.IsNullOrEmpty(raw.InfoHash))
-                    continue;
-
-                var candidate = BuildCandidate(mediaItemId, raw, now, candidateTtlHours, estimatedRuntimeSeconds);
-                if (candidate != null)
-                    candidates.Add(candidate);
-            }
-
-            _logger.LogDebug("Normalized {Count} candidates from {Total} raw streams for item {ItemId}",
-                candidates.Count, rawStreams.Count, mediaItemId);
-
-            return candidates;
-        }
-
-        // ── Internal pipeline ──────────────────────────────────────────────────
-
-        private Candidate BuildCandidate(
-            string mediaItemId,
-            AioStreamsStream raw,
-            DateTime now,
-            int ttlHours,
-            int estimatedRuntimeSeconds)
-        {
-            var candidate = new Candidate
-            {
-                Id = GenerateId(),
-                MediaItemId = mediaItemId,
-                SlotKey = string.Empty, // unslotted — SlotMatcher assigns slots
-                Rank = 0,               // will be set by SlotMatcher
-                Service = raw.Service?.Id,
-                StreamType = raw.StreamType ?? "debrid",
-                CreatedAt = now.ToString("o"),
-                ExpiresAt = now.AddHours(ttlHours).ToString("o"),
-            };
-
-            // ── Stable identity fields ──────────────────────────────────────
-            candidate.InfoHash = NormalizeInfoHash(raw.InfoHash);
-            candidate.FileIdx = raw.FileIdx;
-            candidate.BingeGroup = raw.BehaviorHints?.BingeGroup ?? raw.BingeGroup;
-
-            // ── Source metadata ─────────────────────────────────────────────
-            candidate.FileName = ResolveFileName(raw);
-            candidate.FileSize = ResolveFileSize(raw);
-            candidate.IsCached = raw.Service?.Cached ?? false;
-            candidate.Languages = string.Join(",", ResolveLanguages(raw));
-
-            // ── Three-tier technical metadata parsing ───────────────────────
-            var tech = ParseTechnicalMetadata(raw);
-            candidate.Resolution = tech.Resolution;
-            candidate.VideoCodec = tech.VideoCodec;
-            candidate.HdrClass = tech.HdrClass;
-            candidate.AudioCodec = tech.AudioCodec;
-            candidate.AudioChannels = tech.AudioChannels;
-            candidate.SourceType = tech.SourceType;
-
-            // ── Bitrate estimation ──────────────────────────────────────────
-            candidate.BitrateKbps = EstimateBitrate(raw, candidate.FileSize, estimatedRuntimeSeconds);
-
-            // ── Fingerprint ─────────────────────────────────────────────────
-            candidate.Fingerprint = ComputeFingerprint(raw, candidate.FileName, candidate.FileSize);
-
-            // ── Confidence score ────────────────────────────────────────────
-            candidate.ConfidenceScore = ComputeConfidence(raw, tech);
-
-            return candidate;
         }
 
         // ── Three-tier parsing ─────────────────────────────────────────────────
@@ -448,24 +343,6 @@ namespace InfiniteDrive.Services
             return null;
         }
 
-        // ── Field resolution helpers ────────────────────────────────────────────
-
-        private static string ResolveFileName(AioStreamsStream raw)
-        {
-            // Priority: behaviorHints.filename > parsedFile.title > null
-            return raw.BehaviorHints?.Filename
-                   ?? raw.ParsedFile?.Title
-                   ?? null;
-        }
-
-        private static long? ResolveFileSize(AioStreamsStream raw)
-        {
-            // AIOStreams provides size at stream level and videoSize in behaviorHints
-            return raw.Size
-                   ?? raw.BehaviorHints?.VideoSize
-                   ?? null;
-        }
-
         /// <summary>
         /// Resolve language list from an AIOStreams stream.
         /// Tier 1: <c>parsedFile.Languages</c> (structured).
@@ -506,85 +383,6 @@ namespace InfiniteDrive.Services
                     langs.Add(token.ToLowerInvariant());
             }
             return langs.Count > 0 ? langs : new List<string> { "und" };
-        }
-
-        // ── Bitrate estimation ──────────────────────────────────────────────────
-
-        private static int? EstimateBitrate(AioStreamsStream raw, long? fileSize, int estimatedRuntimeSeconds)
-        {
-            // AIOStreams may provide bitrate directly (in bits per second)
-            if (raw.Bitrate.HasValue && raw.Bitrate.Value > 0)
-                return (int)(raw.Bitrate.Value / 1000); // bits/s → kbps
-
-            // Estimate from file size and runtime
-            if (fileSize.HasValue && fileSize.Value > 0 && estimatedRuntimeSeconds > 0)
-                return (int)(fileSize.Value / (estimatedRuntimeSeconds * 1000L)); // bytes/(s*1000) ≈ kbps
-
-            return null;
-        }
-
-        // ── Fingerprint ─────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Compute a SHA1 fingerprint for deduplication from stable identity fields.
-        /// Per spec: SHA1(stream_id + ":" + bingeGroup + ":" + filename + ":" + videoSize)
-        /// </summary>
-        private static string ComputeFingerprint(AioStreamsStream raw, string fileName, long? fileSize)
-        {
-            var sb = new StringBuilder();
-            sb.Append(raw.Id ?? "");
-            sb.Append(':');
-            sb.Append(raw.BehaviorHints?.BingeGroup ?? raw.BingeGroup ?? "");
-            sb.Append(':');
-            sb.Append(fileName ?? "");
-            sb.Append(':');
-            sb.Append(fileSize?.ToString() ?? "0");
-
-            using var sha1 = SHA1.Create();
-            var hash = sha1.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
-            return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
-        }
-
-        // ── Confidence score ────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Compute a 0.0-1.0 confidence score based on how much metadata was successfully
-        /// parsed. Higher confidence = more reliable technical metadata.
-        /// </summary>
-        private static double ComputeConfidence(AioStreamsStream raw, TechnicalMetadata tech)
-        {
-            double score = 0.0;
-            int fields = 0;
-
-            // ParsedFile present is the strongest signal
-            if (raw.ParsedFile != null) score += 0.3;
-
-            // Resolution is the most important technical field
-            if (!string.IsNullOrEmpty(tech.Resolution)) { score += 0.2; fields++; }
-            if (!string.IsNullOrEmpty(tech.VideoCodec)) { score += 0.15; fields++; }
-            if (!string.IsNullOrEmpty(tech.AudioCodec)) { score += 0.1; fields++; }
-            if (!string.IsNullOrEmpty(tech.SourceType)) { score += 0.1; fields++; }
-            if (!string.IsNullOrEmpty(tech.HdrClass)) { score += 0.05; fields++; }
-            if (!string.IsNullOrEmpty(tech.AudioChannels)) { score += 0.05; fields++; }
-
-            // Bonus: has a debrid service + cache status
-            if (raw.Service?.Cached == true) score += 0.05;
-
-            return Math.Min(1.0, score);
-        }
-
-        // ── Utility ─────────────────────────────────────────────────────────────
-
-        private static string NormalizeInfoHash(string infoHash)
-        {
-            if (string.IsNullOrEmpty(infoHash)) return null;
-            var cleaned = infoHash.Trim().ToLowerInvariant();
-            return cleaned.Length == 40 && Regex.IsMatch(cleaned, @"^[0-9a-f]+$") ? cleaned : null;
-        }
-
-        private static string GenerateId()
-        {
-            return Guid.NewGuid().ToString("N");
         }
 
         // ── Internal record for parsing pipeline ───────────────────────────────

@@ -839,7 +839,7 @@ namespace InfiniteDrive.Services
             var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                using var client = new AioStreamsClient(config, _logger);
+                using var client = AioStreamsClientFactory.Create(_logger);
                 client.Cooldown = Plugin.Instance?.CooldownGate;
                 using var cts    = new CancellationTokenSource(5_000);
                 var (ok, err) = await client.TestConnectionAsync(cts.Token);

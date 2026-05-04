@@ -209,7 +209,7 @@ namespace InfiniteDrive.Tasks
                 return newItems;
             }
 
-            using var client = new AioStreamsClient(config, _logger);
+            using var client = AioStreamsClientFactory.Create(_logger);
             client.Cooldown = Plugin.Instance?.CooldownGate;
             if (!client.IsConfigured)
             {
@@ -1056,7 +1056,7 @@ namespace InfiniteDrive.Tasks
             var config = Plugin.Instance?.Configuration;
             if (config != null)
             {
-                var fallbackClient = new AioStreamsClient(config, _logger);
+                var fallbackClient = AioStreamsClientFactory.Create(_logger);
                 if (fallbackClient.IsConfigured)
                 {
                     try

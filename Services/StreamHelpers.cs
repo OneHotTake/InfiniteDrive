@@ -263,17 +263,6 @@ namespace InfiniteDrive.Services
 
         // ── Backoff ─────────────────────────────────────────────────────────────
 
-        /// <summary>
-        /// Calculates the next back-off delay in milliseconds using exponential
-        /// back-off with jitter.  Base: 1 second.  Max: 64 seconds.
-        /// </summary>
-        public static int ExponentialBackoffMs(int attempt)
-        {
-            var baseMs  = Math.Min(1000 * (int)Math.Pow(2, attempt), 64_000);
-            var jitter  = new Random().Next(0, Math.Max(1, baseMs / 4));
-            return baseMs + jitter;
-        }
-
         // ── Codec detection ─────────────────────────────────────────────────
 
         /// <summary>
@@ -572,6 +561,45 @@ namespace InfiniteDrive.Services
 
         private static bool ContainsI(string s, string value)
             => s.IndexOf(value, StringComparison.OrdinalIgnoreCase) >= 0;
+
+        // ── Candidate ranking (shared across AioMediaSourceProvider, ResolverService, PreCacheAioStreamsTask) ──
+
+        /// <summary>
+        /// Ranks candidates by quality tier (remux last), bitrate, and original rank.
+        /// Shared ranking logic — single source of truth.
+        /// </summary>
+        public static List<StreamCandidate> RankCandidates(List<StreamCandidate> candidates)
+        {
+            if (candidates.Count == 0) return candidates;
+            return candidates
+                .OrderBy(c => IsCandidateRemux(c) ? 1 : 0)
+                .ThenByDescending(c => TierScore(c.QualityTier))
+                .ThenByDescending(c => c.BitrateKbps ?? 0)
+                .ThenBy(c => c.Rank)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Checks whether a StreamCandidate is a REMUX by examining description, filename, and quality tier.
+        /// </summary>
+        public static bool IsCandidateRemux(StreamCandidate c) =>
+            (c.Description?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true)
+            || (c.FileName?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true)
+            || (c.QualityTier?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true);
+
+        /// <summary>
+        /// Returns a numeric score for quality tier sorting. Higher = better quality.
+        /// </summary>
+        public static int TierScore(string? tier)
+        {
+            if (string.IsNullOrEmpty(tier)) return 0;
+            var t = tier.ToLowerInvariant();
+            if (t.Contains("2160") || t.Contains("4k")) return 40;
+            if (t.Contains("1080")) return 30;
+            if (t.Contains("720")) return 20;
+            if (t.Contains("480") || t.Contains("sd")) return 10;
+            return 5;
+        }
 
         // ── Display name formatting ─────────────────────────────────────────────
 

@@ -919,7 +919,6 @@ namespace InfiniteDrive
             MaxCuratedStreams         = Clamp(MaxCuratedStreams,         1,     12);
             CandidateTtlHours         = Clamp(CandidateTtlHours,         1,     168);    // 1 h – 7 days
             SignatureValidityDays    = Clamp(SignatureValidityDays,    1,     3650);
-            SkipFutureEpisodes          = SkipFutureEpisodes;
             FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);
             UserCatalogLimit          = Clamp(UserCatalogLimit, 0, 50);
 

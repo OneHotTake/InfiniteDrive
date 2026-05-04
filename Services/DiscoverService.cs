@@ -365,7 +365,7 @@ namespace InfiniteDrive.Services
                 // Live search via AIOStreams
                 if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl) || !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                 {
-                    using var client = new AioStreamsClient(config, _logger);
+                    using var client = AioStreamsClientFactory.Create(_logger);
                     client.Cooldown = Plugin.Instance?.CooldownGate;
 
                     // Search both movie and series if no type filter
@@ -463,7 +463,7 @@ namespace InfiniteDrive.Services
             if (config == null)
                 return new();
 
-            using (var client = new AioStreamsClient(config, _logger))
+            using (var client = AioStreamsClientFactory.Create(_logger))
             {
                 client.Cooldown = Plugin.Instance?.CooldownGate;
                 try
