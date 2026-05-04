@@ -131,6 +131,7 @@ namespace InfiniteDrive.UI.Settings
             return new ContentControlsUI
             {
                 DefaultQualityTier = c.DefaultQualityTier ?? "1080p (any)",
+                UseRemuxForAutoSelection = c.UseRemuxForAutoSelection,
                 HideUnratedContent = c.HideUnratedContent,
             };
         }

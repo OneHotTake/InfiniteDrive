@@ -125,6 +125,29 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
+        /// Detects whether a filename indicates a Bluray REMUX file.
+        /// REMUX files are typically 40-60GB with TrueHD/Atmos/DTS-HD audio and often require transcoding.
+        /// </summary>
+        /// <param name="filename">
+        /// Original filename from <c>behaviorHints.filename</c>.
+        /// </param>
+        /// <returns>
+        /// True if the filename indicates a REMUX file (contains "remux" as a separate word),
+        /// false for regular encodes.
+        /// </returns>
+        public static bool IsRemuxFile(string? filename)
+        {
+            if (string.IsNullOrEmpty(filename))
+                return false;
+
+            var f = filename;
+            // Check for REMUX as a separate word (not part of another word)
+            // Common patterns: ".REMUX.", "-REMUX-", " REMUX "
+            return System.Text.RegularExpressions.Regex.IsMatch(f, @"\b(REMUX|remux)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        /// <summary>
         /// Returns a secondary codec score used for tie-breaking within the same quality tier.
         /// Higher score = preferred (Dolby Vision &gt; HDR10+ &gt; HDR10 &gt; HLG &gt; HEVC &gt; H.264).
         /// </summary>

@@ -351,7 +351,9 @@ namespace InfiniteDrive.Services
         // ── Private: helpers ─────────────────────────────────────────────────────
 
         /// <summary>
-        /// Generates a signed URL for /InfiniteDrive/resolve endpoint using resolve tokens.
+        /// Generates a signed URL for .strm files.
+        /// Uses the old /InfiniteDrive/resolve endpoint for compatibility.
+        /// TODO: Migrate to new AioMediaSourceProvider path (requires .strm rewrite).
         /// </summary>
         public static string BuildSignedStrmUrl(
             PluginConfiguration config,

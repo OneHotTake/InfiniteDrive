@@ -141,22 +141,18 @@ namespace InfiniteDrive.Services
             if (cached != null)
                 return cached;
 
-            // Cache miss — resolve via SEL fallback chain
+            // No cache — live resolve via AIOStreams
+            _logger.LogInformation("[Resolve] No cache for {Id}:{Quality}, falling back to live resolve",
+                req.Id, req.Quality);
             var resolved = await ResolveWithFallbackAsync(req);
-            if (resolved == null)
-                return Error(ResolverError.NoStreamsExist);
+            if (resolved != null)
+            {
+                // Cache for next time
+                _ = CacheResolvedUrlAsync(db, req, resolved);
+                return RedirectToStream(resolved.PlaybackUrl);
+            }
 
-            // Cache the resolved URL (fire-and-forget)
-            _ = CacheResolvedUrlAsync(db, req, resolved);
-
-            // Binge prefetch: fire-and-forget resolve of next episode
-            if (req.IdType == "series" && req.Season.HasValue && req.Episode.HasValue)
-                _ = BingePrefetchService.PrefetchNextEpisodeAsync(
-                    req.Id, req.Season.Value, req.Episode.Value,
-                    _logger);
-
-            // 302 redirect to binary proxy
-            return RedirectToStream(resolved.PlaybackUrl);
+            return Error(ResolverError.NoStreamsExist);
         }
 
         // ── SEL fallback resolution ──────────────────────────────────────────
@@ -178,6 +174,10 @@ namespace InfiniteDrive.Services
             // Build the chain: requested tier → fallback tiers → any
             var chain = TierFallbacks.TryGetValue(req.Quality, out var tiers)
                 ? tiers.ToList() : new List<string> { req.Quality };
+
+            // When UseRemuxForAutoSelection is false, skip REMUX tiers from the chain
+            if (!Config.UseRemuxForAutoSelection)
+                chain = chain.Where(t => !t.Contains("remux", StringComparison.OrdinalIgnoreCase)).ToList();
 
             foreach (var tier in chain)
             {
@@ -289,6 +289,18 @@ namespace InfiniteDrive.Services
         private async Task<object?> TryGetCachedUrlAsync(
             Data.DatabaseManager? db, ResolverRequest req)
         {
+            // Try stream_candidates first (populated by live resolve)
+            var candidate = await TryGetFromStreamCandidatesAsync(db, req);
+            if (candidate != null)
+                return candidate;
+
+            // Fallback to cached_streams (populated by pre-cache task)
+            return await TryGetFromPreCacheAsync(req);
+        }
+
+        private async Task<object?> TryGetFromStreamCandidatesAsync(
+            Data.DatabaseManager? db, ResolverRequest req)
+        {
             if (db == null) return null;
 
             try
@@ -300,16 +312,20 @@ namespace InfiniteDrive.Services
                     .Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Url))
                     .ToList();
 
+                // Respect REMUX setting — same filter as SelectBest
+                if (!Config.UseRemuxForAutoSelection && validCandidates != null)
+                    validCandidates = validCandidates
+                        .Where(c => !StreamHelpers.IsRemuxFile(c.FileName)).ToList();
+
                 if (validCandidates == null || validCandidates.Count == 0)
                     return null;
 
                 // Filter by quality tier fallback chain
                 var matched = FilterByQualityTier(validCandidates, req.Quality);
                 if (matched == null || matched.Count == 0)
-                    return null; // No cached candidates match requested quality — fall through to live resolve
+                    return null;
 
                 var top = PreferLanguageMatch(matched);
-
                 if (top == null)
                     return null;
 
@@ -318,15 +334,79 @@ namespace InfiniteDrive.Services
                     : $"movie:{req.Id}";
 
                 _logger.LogInformation(
-                    "[Resolve] Cache hit for {Media} — serving cached URL (age: {Age})",
-                    mediaLabel,
-                    FormatAge(top.ResolvedAt));
+                    "[Resolve] Stream-candidates hit for {Media} — age: {Age}",
+                    mediaLabel, FormatAge(top.ResolvedAt));
 
                 return RedirectToStream(top.Url);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[Resolve] Cache lookup failed for {Id}, falling through to live", req.Id);
+                _logger.LogDebug(ex, "[Resolve] stream_candidates lookup failed for {Id}", req.Id);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Fallback: reads cached_streams (pre-cache table) and returns rank-0
+        /// from the scoring service, matching the user's quality preferences.
+        /// </summary>
+        private async Task<object?> TryGetFromPreCacheAsync(ResolverRequest req)
+        {
+            try
+            {
+                var streamCache = Plugin.Instance?.StreamCacheService;
+                if (streamCache == null) return null;
+
+                var entry = await streamCache.GetByImdbAsync(req.Id, req.Season, req.Episode);
+                if (entry == null || string.IsNullOrEmpty(entry.VariantsJson)) return null;
+
+                var variants = System.Text.Json.JsonSerializer
+                    .Deserialize<List<StreamVariant>>(entry.VariantsJson);
+                if (variants == null || variants.Count == 0) return null;
+
+                // Convert variants to StreamCandidates for scoring
+                var candidates = variants
+                    .Where(v => !string.IsNullOrEmpty(v.Url))
+                    .Select((v, i) => new StreamCandidate
+                    {
+                        ImdbId = req.Id,
+                        Season = req.Season,
+                        Episode = req.Episode,
+                        Rank = i,
+                        Url = v.Url ?? "",
+                        FileName = v.FileName,
+                        QualityTier = v.QualityTier,
+                        Status = "valid",
+                        FileSize = v.SizeBytes,
+                    })
+                    .ToList();
+
+                // REMUX filter
+                if (!Config.UseRemuxForAutoSelection)
+                    candidates = candidates
+                        .Where(c => !StreamHelpers.IsRemuxFile(c.FileName)).ToList();
+
+                if (candidates.Count == 0) return null;
+
+                // Use scoring service to pick the best one (respects DefaultSlotKey)
+                var scoring = new Scoring.StreamScoringService(_logger, Config);
+                var best = scoring.SelectBest(candidates);
+                if (best.Count == 0) return null;
+
+                var top = best[0];
+                var mediaLabel = req.IdType == "series"
+                    ? $"series:{req.Id}:S{req.Season}E{req.Episode}"
+                    : $"movie:{req.Id}";
+
+                _logger.LogInformation(
+                    "[Resolve] Pre-cache hit for {Media} — {Name} (age: {Age})",
+                    mediaLabel, top.FileName ?? "unknown", FormatAge(entry.CachedAt));
+
+                return RedirectToStream(top.Url);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Resolve] Pre-cache lookup failed for {Id}", req.Id);
                 return null;
             }
         }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -794,11 +795,27 @@ namespace InfiniteDrive.Services
             CancellationToken cancellationToken = default,
             string? sel = null)
         {
-            var path = $"/stream/movie/{Uri.EscapeDataString(imdbId)}.json";
-            if (!string.IsNullOrEmpty(sel))
-                path += $"?sel={Uri.EscapeDataString(sel)}";
-            var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
-            return CheckForErrorStub(result, imdbId);
+            var sw = Stopwatch.StartNew();
+            _logger.LogInformation("[AioStreamsClient] START: GetMovieStreamsAsync for {ImdbId}", imdbId);
+
+            try
+            {
+                var path = $"/stream/movie/{Uri.EscapeDataString(imdbId)}.json";
+                if (!string.IsNullOrEmpty(sel))
+                    path += $"?sel={Uri.EscapeDataString(sel)}";
+                var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
+                sw.Stop();
+                _logger.LogInformation("[AioStreamsClient] COMPLETE: GetMovieStreamsAsync for {ImdbId} took {ElapsedMs}ms",
+                    imdbId, sw.ElapsedMilliseconds);
+                return CheckForErrorStub(result, imdbId);
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                _logger.LogError(ex, "[AioStreamsClient] FAILED: GetMovieStreamsAsync for {ImdbId} after {ElapsedMs}ms",
+                    imdbId, sw.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         /// <summary>
@@ -817,12 +834,28 @@ namespace InfiniteDrive.Services
             CancellationToken cancellationToken = default,
             string? sel = null)
         {
-            var id   = $"{imdbId}:{season}:{episode}";
-            var path = $"/stream/series/{Uri.EscapeDataString(id)}.json";
-            if (!string.IsNullOrEmpty(sel))
-                path += $"?sel={Uri.EscapeDataString(sel)}";
-            var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
-            return CheckForErrorStub(result, id);
+            var id = $"{imdbId}:{season}:{episode}";
+            var sw = Stopwatch.StartNew();
+            _logger.LogInformation("[AioStreamsClient] START: GetSeriesStreamsAsync for {Id}", id);
+
+            try
+            {
+                var path = $"/stream/series/{Uri.EscapeDataString(id)}.json";
+                if (!string.IsNullOrEmpty(sel))
+                    path += $"?sel={Uri.EscapeDataString(sel)}";
+                var result = await GetJsonWithFallbackAsync<AioStreamsStreamResponse>(path, cancellationToken);
+                sw.Stop();
+                _logger.LogInformation("[AioStreamsClient] COMPLETE: GetSeriesStreamsAsync for {Id} took {ElapsedMs}ms",
+                    id, sw.ElapsedMilliseconds);
+                return CheckForErrorStub(result, id);
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                _logger.LogError(ex, "[AioStreamsClient] FAILED: GetSeriesStreamsAsync for {Id} after {ElapsedMs}ms",
+                    id, sw.ElapsedMilliseconds);
+                throw;
+            }
         }
 
         // ── Multi-provider fetch loop ─────────────────────────────────────
@@ -1213,6 +1246,9 @@ namespace InfiniteDrive.Services
         {
             var safeUrl = SanitizeUrl(url);
             const int maxAttempts = 3;
+            var totalSw = Stopwatch.StartNew();
+
+            _logger.LogInformation("[GetRawStringAsync] START: {Url}", safeUrl);
 
             for (int attempt = 1; attempt <= maxAttempts; attempt++)
             {
@@ -1224,7 +1260,11 @@ namespace InfiniteDrive.Services
                     if (Cooldown != null)
                         await Cooldown.WaitAsync(ActiveCooldownKind, cancellationToken);
 
+                    var httpSw = Stopwatch.StartNew();
                     var response = await _sharedHttp.GetAsync(url, cancellationToken);
+                    httpSw.Stop();
+                    _logger.LogDebug("[GetRawStringAsync] HTTP GET completed in {ElapsedMs}ms for {Url}",
+                        httpSw.ElapsedMilliseconds, safeUrl);
 
                     if (!response.IsSuccessStatusCode)
                     {
@@ -1247,9 +1287,23 @@ namespace InfiniteDrive.Services
                         return null;
                     }
 
-                    return await response.Content.ReadAsStringAsync();
+                    var contentSw = Stopwatch.StartNew();
+                    var content = await response.Content.ReadAsStringAsync();
+                    contentSw.Stop();
+                    totalSw.Stop();
+
+                    _logger.LogInformation("[GetRawStringAsync] COMPLETE: {Url} - HTTP: {HttpMs}ms, ContentRead: {ContentMs}ms, Total: {TotalMs}ms",
+                        safeUrl, httpSw.ElapsedMilliseconds, contentSw.ElapsedMilliseconds, totalSw.ElapsedMilliseconds);
+
+                    return content;
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    totalSw.Stop();
+                    _logger.LogWarning("[GetRawStringAsync] CANCELLED after {TotalMs}ms for {Url}",
+                        totalSw.ElapsedMilliseconds, safeUrl);
+                    throw;
+                }
                 catch (TaskCanceledException ex)
                 {
                     _logger.LogWarning("[InfiniteDrive] Timeout fetching {Url}: {Msg}", safeUrl, ex.Message);
@@ -1261,6 +1315,9 @@ namespace InfiniteDrive.Services
                         await Task.Delay(delayMs, cancellationToken);
                         continue;
                     }
+                    totalSw.Stop();
+                    _logger.LogWarning("[GetRawStringAsync] TIMEOUT after {TotalMs}ms for {Url}",
+                        totalSw.ElapsedMilliseconds, safeUrl);
                     if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, null);
                     return null;
                 }
@@ -1275,6 +1332,9 @@ namespace InfiniteDrive.Services
                         await Task.Delay(delayMs, cancellationToken);
                         continue;
                     }
+                    totalSw.Stop();
+                    _logger.LogError(ex, "[GetRawStringAsync] CONNECTION FAILED after {TotalMs}ms for {Url}",
+                        totalSw.ElapsedMilliseconds, safeUrl);
                     if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, ex);
                     return null;
                 }
@@ -1282,11 +1342,16 @@ namespace InfiniteDrive.Services
                 catch (AioStreamsUnreachableException) { throw; }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "[InfiniteDrive] Error fetching {Url}", safeUrl);
+                    totalSw.Stop();
+                    _logger.LogError(ex, "[GetRawStringAsync] EXCEPTION after {TotalMs}ms for {Url}",
+                        totalSw.ElapsedMilliseconds, safeUrl);
                     return null;
                 }
             }
 
+            totalSw.Stop();
+            _logger.LogWarning("[GetRawStringAsync] ALL ATTEMPTS FAILED after {TotalMs}ms for {Url}",
+                totalSw.ElapsedMilliseconds, safeUrl);
             return null;
         }
 

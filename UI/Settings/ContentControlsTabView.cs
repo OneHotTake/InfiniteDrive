@@ -76,6 +76,7 @@ namespace InfiniteDrive.UI.Settings
             var preferred = cfg.PreferredQualityTiers?.ToHashSet() ?? new HashSet<string>(AllQualityTiers);
             var defaultTier = cfg.DefaultQualityTier ?? "1080p (any)";
 
+            UI.UseRemuxForAutoSelection = cfg.UseRemuxForAutoSelection;
             UI.QualityTierList.Clear();
 
             foreach (var tier in AllQualityTiers)
@@ -279,6 +280,7 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             cfg.DefaultQualityTier = UI.DefaultQualityTier ?? "1080p (any)";
+            cfg.UseRemuxForAutoSelection = UI.UseRemuxForAutoSelection;
             cfg.HideUnratedContent = UI.HideUnratedContent;
 
             // Sync DefaultSlotKey from UI tier selection so .strm files use the chosen quality

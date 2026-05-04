@@ -22,6 +22,9 @@ namespace InfiniteDrive.Services
         public static async Task<List<MediaStream>?> ProbeAsync(
             string cdnUrl, ILogger logger, CancellationToken ct)
         {
+            var sw = Stopwatch.StartNew();
+            logger.LogInformation("[CdnProber] START: Probing {Url}", TruncateUrl(cdnUrl));
+
             try
             {
                 var psi = new ProcessStartInfo
@@ -48,32 +51,37 @@ namespace InfiniteDrive.Services
                 if (!proc.WaitForExit(TimeoutMs + 2000))
                 {
                     try { proc.Kill(); } catch { }
-                    logger.LogDebug("[CdnProber] Timed out probing {Url}", TruncateUrl(cdnUrl));
+                    sw.Stop();
+                    logger.LogWarning("[CdnProber] TIMED OUT after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, TruncateUrl(cdnUrl));
                     return null;
                 }
 
                 if (proc.ExitCode != 0)
                 {
-                    logger.LogDebug("[CdnProber] Exit={Code} for {Url}: {Err}",
-                        proc.ExitCode, TruncateUrl(cdnUrl), Truncate(stderr, 200));
+                    sw.Stop();
+                    logger.LogWarning("[CdnProber] FAILED after {ElapsedMs}ms - ExitCode={Code} for {Url}: {Err}",
+                        sw.ElapsedMilliseconds, proc.ExitCode, TruncateUrl(cdnUrl), Truncate(stderr, 200));
                     return null;
                 }
 
                 var streams = ParseProbeOutput(stdout);
                 if (streams == null || streams.Count == 0)
                 {
-                    logger.LogDebug("[CdnProber] No streams parsed from {Url}", TruncateUrl(cdnUrl));
+                    sw.Stop();
+                    logger.LogWarning("[CdnProber] NO STREAMS after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, TruncateUrl(cdnUrl));
                     return null;
                 }
 
-                logger.LogInformation("[CdnProber] {Count} streams found for {Url}",
-                    streams.Count, TruncateUrl(cdnUrl));
+                sw.Stop();
+                logger.LogInformation("[CdnProber] SUCCESS after {ElapsedMs}ms - {Count} streams found for {Url}",
+                    sw.ElapsedMilliseconds, streams.Count, TruncateUrl(cdnUrl));
 
                 return streams;
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "[CdnProber] Exception probing {Url}", TruncateUrl(cdnUrl));
+                sw.Stop();
+                logger.LogError(ex, "[CdnProber] EXCEPTION after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, TruncateUrl(cdnUrl));
                 return null;
             }
         }
