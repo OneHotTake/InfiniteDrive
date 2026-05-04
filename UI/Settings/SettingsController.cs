@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Common;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Globalization;
+using Microsoft.Extensions.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
@@ -184,7 +185,7 @@ namespace InfiniteDrive.UI.Settings
                     }
                 }
             }
-            catch { }
+            catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "resolve external IP for EmbyBaseUrl"); }
 
             return current;
         }

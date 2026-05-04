@@ -42,15 +42,6 @@ namespace InfiniteDrive
         public static readonly Guid PluginGuid = new Guid("3c45a87e-2b4f-4d1a-9e73-8f12c3456789");
 
         /// <summary>
-        /// Static constructor runs when the assembly is first loaded — before any
-        /// instance members or type scanning. (Sprint 131: Removed Polly AssemblyResolve handler)
-        /// </summary>
-        static Plugin()
-        {
-            // No assembly resolution needed — plugin has no transitive dependencies
-        }
-
-        /// <summary>
         /// Singleton accessor used by scheduled tasks and services to reach
         /// shared plugin state (DatabaseManager, configuration, logger).
         /// </summary>

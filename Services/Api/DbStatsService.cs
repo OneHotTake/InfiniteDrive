@@ -45,7 +45,7 @@ namespace InfiniteDrive.Services
             var dbPath        = db.GetDatabasePath();
             long dbBytes      = 0;
             // File size stat is non-critical — fail silently if file is locked
-            try { dbBytes = new FileInfo(dbPath).Length; } catch { }
+            try { dbBytes = new FileInfo(dbPath).Length; } catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "read db file size"); }
 
             return new
             {

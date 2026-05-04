@@ -166,7 +166,7 @@ namespace InfiniteDrive
         public string LibraryRootMovies { get; set; } = "/media/infinitedrive/movies";
 
         // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  .STRM FILE STORAGE PATHS (LEGACY)                                   ║
+        // ║  .STRM FILE STORAGE PATHS                                             ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
         /// <summary>
@@ -328,8 +328,9 @@ namespace InfiniteDrive
         /// and never plays the .strm URL directly.  Set to <c>false</c> to revert to
         /// CDN-URL-in-Path behavior without redeploy (rollback switch).
         ///
-        /// Derived from <see cref="DirectPlayEnabled"/>: when DirectPlay is enabled,
-        /// RequiresOpening is false (bypasses the transcode path).
+        /// WARNING: Setting this to false bypasses OpenMediaSource entirely. The direct
+        /// .strm URL path has URL encoding issues (%7C pipe not decoded by Emby framework)
+        /// that break HMAC signature verification. Only disable if those issues are resolved.
         /// </summary>
         [DataMember]
         public bool UseRequiresOpening { get; set; } = true;
@@ -928,10 +929,6 @@ namespace InfiniteDrive
             if (MarvinActionsPerHour < 1) MarvinActionsPerHour = 360;
             if (CacheRefreshIntervalDays < 1) CacheRefreshIntervalDays = 30;
             if (MaxListsPerUser < 0) MaxListsPerUser = 10;
-
-            // Always use RequiresOpening so playback goes through OpenMediaSource
-            // (the .strm → /resolve → /Stream chain has URL encoding issues)
-            UseRequiresOpening = true;
 
             // Recompute instance type from manifest URL
             ResolvedInstanceType = DetectInstanceType(PrimaryManifestUrl);

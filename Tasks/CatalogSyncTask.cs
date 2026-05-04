@@ -705,34 +705,5 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        // ── Private: helpers ────────────────────────────────────────────────────
-
-        private static void EnsureDirectories(PluginConfiguration config)
-        {
-            if (!string.IsNullOrWhiteSpace(config.SyncPathMovies))
-                Directory.CreateDirectory(config.SyncPathMovies);
-            if (!string.IsNullOrWhiteSpace(config.SyncPathShows))
-                Directory.CreateDirectory(config.SyncPathShows);
-            if (!string.IsNullOrWhiteSpace(config.SyncPathAnime))
-                Directory.CreateDirectory(config.SyncPathAnime);
-        }
-
-
-        private static List<List<T>> SplitIntoBatches<T>(List<T> source, int size)
-        {
-            var result = new List<List<T>>();
-            for (int i = 0; i < source.Count; i += size)
-                result.Add(source.GetRange(i, Math.Min(size, source.Count - i)));
-            return result;
-        }
-
-        // ── Private helper DTOs ──────────────────────────────────────────────────
-
-        [DataContract]
-        private class SeasonEpisodes
-        {
-            [JsonPropertyName("season")]   public int         Season   { get; set; }
-            [JsonPropertyName("episodes")] public List<int>   Episodes { get; set; } = new List<int>();
-        }
     }
 }

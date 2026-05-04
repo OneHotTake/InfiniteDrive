@@ -700,10 +700,8 @@ namespace InfiniteDrive.Services
                 response.MarvinLastRunAt = lastMarvinRun;
 
                 // Count NeedsEnrich and Blocked items
-                var needsEnrichQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'NeedsEnrich' AND removed_at IS NULL;";
-                var blockedQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'Blocked' AND removed_at IS NULL;";
-                response.NeedsEnrichCount = await db.QueryScalarIntAsync(needsEnrichQuery);
-                response.BlockedCount = await db.QueryScalarIntAsync(blockedQuery);
+                response.NeedsEnrichCount = await db.GetNeedsEnrichCountAsync();
+                response.BlockedCount = await db.GetBlockedCountAsync();
 
                 // Sprint 150 M-6: Compute health status using 2×/3× interval thresholds
                 if (!string.IsNullOrEmpty(lastRefreshRun)

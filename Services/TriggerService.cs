@@ -883,24 +883,24 @@ namespace InfiniteDrive.Services
 
     public partial class TriggerService
     {
+        private HousekeepingService? _housekeepingSvc;
+        private HousekeepingService HousekeepingSvc => _housekeepingSvc ??= new HousekeepingService(_logManager);
+
         public object Post(HousekeepingOrphanedFoldersRequest _)
         {
-            var svc = new HousekeepingService(_logManager);
-            var removed = svc.CleanupOrphanedFolders();
+            var removed = HousekeepingSvc.CleanupOrphanedFolders();
             return new { status = "ok", removed };
         }
 
         public object Get(HousekeepingExpiredStrmRequest _)
         {
-            var svc = new HousekeepingService(_logManager);
-            var expired = svc.FindExpiredStrmFiles();
+            var expired = HousekeepingSvc.FindExpiredStrmFiles();
             return new { status = "ok", expired, count = expired.Count };
         }
 
         public object Get(HousekeepingStrmCountRequest _)
         {
-            var svc = new HousekeepingService(_logManager);
-            var count = svc.CountStrmFiles();
+            var count = HousekeepingSvc.CountStrmFiles();
             return new { status = "ok", count };
         }
     }

@@ -155,7 +155,7 @@ namespace InfiniteDrive.Services
                             source.RequiredHttpHeaders =
                                 JsonSerializer.Deserialize<Dictionary<string, string>>(token.HeadersJson);
                         }
-                        catch { }
+                        catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "deserialize cached token headers"); }
                     }
 
                     // Container from filename
@@ -188,7 +188,7 @@ namespace InfiniteDrive.Services
                                 }
                             }
                         }
-                        catch { /* fallback below */ }
+                        catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "ffprobe cached URL"); }
                     }
                     if (source.MediaStreams == null || source.MediaStreams.Count == 0)
                         source.MediaStreams = BuildStreamsFromFilename(token.FileName);
@@ -202,7 +202,7 @@ namespace InfiniteDrive.Services
                     _logger.LogInformation("[AioMediaSourceProvider] Opened cached URL for {Imdb}", token.ImdbId);
                     return liveStream;
                 }
-                catch { /* URL expired — fall through to fresh resolve */ }
+                catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "cached URL expired, falling through to fresh resolve"); }
             }
 
             // Fresh resolve via AIOStreams using infoHash+fileIdx or filename match
@@ -282,7 +282,7 @@ namespace InfiniteDrive.Services
                         }
                     }
                 }
-                catch { /* fallback below */ }
+                catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "ffprobe fresh URL"); }
             }
             if (freshSource.MediaStreams == null || freshSource.MediaStreams.Count == 0)
                 freshSource.MediaStreams = BuildStreamsFromFilename(freshFileName);
@@ -390,7 +390,7 @@ namespace InfiniteDrive.Services
                 if (!string.IsNullOrEmpty(best.HeadersJson))
                 {
                     try { source.RequiredHttpHeaders = JsonSerializer.Deserialize<Dictionary<string, string>>(best.HeadersJson); }
-                    catch { }
+                    catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "deserialize fresh-resolve headers"); }
                 }
 
                 if (!string.IsNullOrEmpty(best.FileName))
@@ -419,7 +419,7 @@ namespace InfiniteDrive.Services
                             }
                         }
                     }
-                    catch { /* fallback below */ }
+                    catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "ffprobe fresh-resolve URL"); }
                 }
                 if (source.MediaStreams == null || source.MediaStreams.Count == 0)
                     source.MediaStreams = BuildStreamsFromFilename(best.FileName);
@@ -429,7 +429,7 @@ namespace InfiniteDrive.Services
                 _logger.LogInformation("[AioMediaSourceProvider] Fresh resolve succeeded for {Imdb}", imdbId);
                 return liveStream;
             }
-            catch { return null; }
+            catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "TryFreshResolveAsync failed"); return null; }
         }
     }
 }
