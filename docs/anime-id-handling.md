@@ -47,7 +47,7 @@ The `[imdbid-kitsu:12345]` folder name is syntactically valid but **Emby's metad
 
 **`StreamUrlSigner.GenerateSignedUrl()`** uses `imdbId` as a path parameter:
 ```
-/EmbyStreams/Stream?id=kitsu:12345&type=series&...
+/InfiniteDrive/Stream?id=kitsu:12345&type=series&...
 ```
 
 The URL is syntactically valid and will be processed by the handler. However:

@@ -1,12 +1,12 @@
 # Documentation Index
 
-Welcome to EmbyStreams documentation. Choose the guide that matches your needs:
+Welcome to InfiniteDrive documentation. Choose the guide that matches your needs:
 
 ---
 
 ## 🚀 First Time Users
 
-**Start here if you're new to EmbyStreams:**
+**Start here if you're new to InfiniteDrive:**
 
 → **[Configuration Guide](./configuration.md)**
 - How to install the plugin
@@ -68,7 +68,7 @@ The Health tab refreshes server-side — clicking "Refresh Status" fetches live 
 
 ## 🔧 For Developers
 
-**If you're contributing to EmbyStreams:**
+**If you're contributing to InfiniteDrive:**
 
 → **[../CLAUDE.md](../CLAUDE.md)** — Developer guide
 - Project structure and architecture

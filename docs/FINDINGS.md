@@ -1,4 +1,4 @@
-# FINDINGS.md — EmbyStreams Plugin Codebase Map
+# FINDINGS.md — InfiniteDrive Plugin Codebase Map
 
 > **Handoff document.** Read this at the start of every session before touching code.
 > Update "Current State" and "Handoff Note" at the end of every sprint.
@@ -12,21 +12,21 @@
 | File | Class | Purpose |
 |------|-------|---------|
 | `Plugin.cs` | `Plugin : BasePlugin<PluginConfiguration>` | Singleton. Inits DatabaseManager. Auto-generates PluginSecret. |
-| `PluginConfiguration.cs` | `PluginConfiguration : BasePluginConfiguration` | All persisted settings. XML serialized to {DataPath}/plugins/configurations/EmbyStreams.xml. |
+| `PluginConfiguration.cs` | `PluginConfiguration : BasePluginConfiguration` | All persisted settings. XML serialized to {DataPath}/plugins/configurations/InfiniteDrive.xml. |
 
 ### HTTP Services (IService)
 
 | File | Routes | Auth | Purpose |
 |------|--------|------|---------|
-| `Services/PlaybackService.cs` | `GET /EmbyStreams/Play` | `[Authenticated]` | Legacy: resolves .strm → CDN URL. Still active for backwards compat. |
-| `Services/SignedStreamService.cs` | `GET /EmbyStreams/Stream` | **None (HMAC sig)** | NEW public endpoint — validates HMAC, resolves stream, 302 redirect |
-| `Services/UnauthenticatedStreamService.cs` | `GET /EmbyStreams/GetStream` | IP (localhost only) | FFprobe cache-only lookup |
-| `Services/DiscoverService.cs` | `GET/POST /EmbyStreams/Discover/*` | `[Authenticated]` | Browse/search/add Discover catalog |
-| `Services/StatusService.cs` | `GET /EmbyStreams/Status` | `[Authenticated]` | Health dashboard JSON |
-| `Services/TriggerService.cs` | `POST /EmbyStreams/Trigger` | Admin | Manual task trigger |
-| `Services/WebhookService.cs` | `POST /EmbyStreams/Webhook/Sync` | Optional secret | Radarr/Sonarr/Jellyseerr integration |
-| `Services/SetupService.cs` | `POST /EmbyStreams/Setup/*` | `[Authenticated]` | Dir creation, API key rotation |
-| `Services/StreamProxyService.cs` | `GET /EmbyStreams/Stream/{ProxyId}` | Token | Passthrough proxy for non-redirect clients |
+| `Services/PlaybackService.cs` | `GET /InfiniteDrive/Play` | `[Authenticated]` | Legacy: resolves .strm → CDN URL. Still active for backwards compat. |
+| `Services/SignedStreamService.cs` | `GET /InfiniteDrive/Stream` | **None (HMAC sig)** | NEW public endpoint — validates HMAC, resolves stream, 302 redirect |
+| `Services/UnauthenticatedStreamService.cs` | `GET /InfiniteDrive/GetStream` | IP (localhost only) | FFprobe cache-only lookup |
+| `Services/DiscoverService.cs` | `GET/POST /InfiniteDrive/Discover/*` | `[Authenticated]` | Browse/search/add Discover catalog |
+| `Services/StatusService.cs` | `GET /InfiniteDrive/Status` | `[Authenticated]` | Health dashboard JSON |
+| `Services/TriggerService.cs` | `POST /InfiniteDrive/Trigger` | Admin | Manual task trigger |
+| `Services/WebhookService.cs` | `POST /InfiniteDrive/Webhook/Sync` | Optional secret | Radarr/Sonarr/Jellyseerr integration |
+| `Services/SetupService.cs` | `POST /InfiniteDrive/Setup/*` | `[Authenticated]` | Dir creation, API key rotation |
+| `Services/StreamProxyService.cs` | `GET /InfiniteDrive/Stream/{ProxyId}` | Token | Passthrough proxy for non-redirect clients |
 
 ### Stream URL Signing
 
@@ -45,7 +45,7 @@
 | `Tasks/FileResurrectionTask.cs` | Every 2h | Rebuilds missing .strm files |
 | `Tasks/LibraryReadoptionTask.cs` | Scheduled | Deletes .strm when real file found |
 
-### Database (SQLite at {DataPath}/EmbyStreams/embystreams.db, schema V14)
+### Database (SQLite at {DataPath}/InfiniteDrive/infinitedrive.db, schema V14)
 
 Key tables: `catalog_items`, `discover_catalog`, `resolution_cache`, `stream_candidates`, `sync_state`.
 
@@ -53,7 +53,7 @@ Key tables: `catalog_items`, `discover_catalog`, `resolution_cache`, `stream_can
 
 | Location | Context | Post-Sprint 55 URL format |
 |----------|---------|--------------------------|
-| `CatalogSyncTask.WriteMovieStrm()` | Bulk catalog sync | `{EmbyBaseUrl}/EmbyStreams/Stream?id=...&type=movie&exp=...&sig=...` |
+| `CatalogSyncTask.WriteMovieStrm()` | Bulk catalog sync | `{EmbyBaseUrl}/InfiniteDrive/Stream?id=...&type=movie&exp=...&sig=...` |
 | `CatalogSyncTask.WriteSeriesStrmAsync()` | Episode .strm | `...&type=series&season={s}&episode={e}&sig=...` |
 | `CatalogSyncTask.WriteStrmFileForItemPublicAsync()` | Webhook / manual | Same as above |
 | `DiscoverService.Post(AddToLibrary)` | Single item | Same signed URL, folder-per-movie structure |
@@ -81,7 +81,7 @@ The `[imdbid-ttXXXXXXX]` suffix triggers Emby's built-in IMDB metadata scraper a
 
 **Why:** `.strm` files pointing to `[Authenticated]` endpoints break on VLC, Roku, Apple TV, ffmpeg — clients that can't inject `X-Emby-Token`.
 
-**How:** `StreamUrlSigner` embeds a time-limited HMAC-SHA256 signature in the URL. `/EmbyStreams/Stream` validates it without requiring Emby auth. PluginSecret (32-byte random, base64) is the signing key.
+**How:** `StreamUrlSigner` embeds a time-limited HMAC-SHA256 signature in the URL. `/InfiniteDrive/Stream` validates it without requiring Emby auth. PluginSecret (32-byte random, base64) is the signing key.
 
 ### A2: IMDB Folder Naming
 
@@ -102,7 +102,7 @@ IChannel has Emby client compatibility issues (especially around playback), conf
 ## Current State (post Sprint 55)
 
 - `Services/StreamUrlSigner.cs` — **NEW** — HMAC utility
-- `Services/SignedStreamService.cs` — **NEW** — public `/EmbyStreams/Stream` endpoint
+- `Services/SignedStreamService.cs` — **NEW** — public `/InfiniteDrive/Stream` endpoint
 - `PluginConfiguration.cs` — **UPDATED** — `PluginSecret` field added
 - `Plugin.cs` — **UPDATED** — auto-generates `PluginSecret` on first load
 - `Tasks/CatalogSyncTask.cs` — **UPDATED** — IMDB folder names, signed .strm URLs
@@ -133,14 +133,14 @@ IChannel has Emby client compatibility issues (especially around playback), conf
   - Applied `[Unauthenticated]` to SignedStreamService
 - v0.56.3 ✓ Public endpoint validation:
   - Deployed updated DLL to dev server
-  - Sent unauthenticated request to `/EmbyStreams/Stream`
+  - Sent unauthenticated request to `/InfiniteDrive/Stream`
   - Received HTTP 500 (app error, not 401 auth error) ← **PROOF endpoint is public**
   - Handler was called, HMAC validation code executed
 - Code verification all passed ✓
 
 **Architecture Decision (Auth — ✅ RESOLVED):**
 Public signed stream endpoint fully working:
-- Endpoint: `GET /EmbyStreams/Stream?id={imdb}&type={type}&exp={unix}&sig={hmac}`
+- Endpoint: `GET /InfiniteDrive/Stream?id={imdb}&type={type}&exp={unix}&sig={hmac}`
 - No Emby authentication required (uses `[Unauthenticated]` attribute)
 - HMAC-SHA256 signature validates request authenticity + expiry
 - Supports all clients: Emby, VLC, ffmpeg, Roku, Apple TV, web browsers

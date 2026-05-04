@@ -1,6 +1,6 @@
 # USER_DISCOVER — Discover as a First-Class User Space
 
-**Status:** Design Spec | **Owner:** embyStreams | **Target Sprints:** 157 (Discover un-gating) + 158 (User RSS catalogs)
+**Status:** Design Spec | **Owner:** InfiniteDrive | **Target Sprints:** 157 (Discover un-gating) + 158 (User RSS catalogs)
 
 ---
 
@@ -146,7 +146,7 @@ path. On Cinemeta failure the provider returns any stale cache entry
 tab.
 
 **Escape hatch.** Admins who want to curate their own empty-state
-content can override any of the three URLs in `EmbyStreams.xml` under
+content can override any of the three URLs in `InfiniteDrive.xml` under
 `DefaultRailOverrides` — **XML-only, no UI field**. This is the one
 escape hatch and it exists for admins, not users.
 
@@ -266,7 +266,7 @@ under them.
 ### Limits
 
 - Default **max 5 active lists per user** (config-invisible constant — admins
-  who really need more can change it in `EmbyStreams.xml`).
+  who really need more can change it in `InfiniteDrive.xml`).
 - Default **max 1000 items per list** (RSS feeds with more are truncated and
   a warning logged).
 - **Scheduled refresh cadence:** once every 6 hours, inside the existing

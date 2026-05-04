@@ -124,7 +124,7 @@ body{{
 </head>
 <body>
 <div class=""dont-panic"" id=""headline"">DON'T PANIC</div>
-<div class=""guide-subtitle"">— THE HITCHHIKER'S GUIDE TO EMBYSTREAMS —</div>
+<div class=""guide-subtitle"">— THE HITCHHIKER'S GUIDE TO INFINITEDRIVE —</div>
 
 <div class=""guide-cover"">
   <div class=""error-badge"" id=""badge"">REASON: UNKNOWN</div>

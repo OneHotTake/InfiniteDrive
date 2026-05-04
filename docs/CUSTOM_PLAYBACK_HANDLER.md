@@ -13,7 +13,7 @@
 **Two Approaches:**
 
 1. **Gelato's Method (Jellyfin):** Decorate `IMediaSourceManager` to return custom `MediaSourceInfo` objects with HTTP URLs → Jellyfin/ffmpeg handles the URL
-2. **EmbyStreams' Method (Emby):** Create .strm files with URLs → Emby calls `/EmbyStreams/Play` endpoint → Endpoint returns stream → Client/ffmpeg handles it
+2. **InfiniteDrive' Method (Emby):** Create .strm files with URLs → Emby calls `/InfiniteDrive/Play` endpoint → Endpoint returns stream → Client/ffmpeg handles it
 
 **Can Emby do what Gelato does?** Probably YES with `IMediaSourceManager` decorator (Emby also uses ASP.NET Core dependency injection as of 4.8+).
 
@@ -156,7 +156,7 @@ There's no plugin interface for custom video decoders. The client (browser, app)
 1. **Emby 4.8+ uses ASP.NET Core** (like modern Jellyfin)
 2. **Dependency Injection** is a core feature of ASP.NET Core
 3. **ServiceStack** (Emby's REST framework) integrates with DI
-4. **EmbyStreams** already uses `IServerEntryPoint` and custom services
+4. **InfiniteDrive** already uses `IServerEntryPoint` and custom services
 
 **Reasoning:**
 
@@ -187,12 +187,12 @@ public class YourDecorator : IMediaSourceManager {
 
 ---
 
-## Current EmbyStreams vs Potential IMediaSourceManager Approach
+## Current InfiniteDrive vs Potential IMediaSourceManager Approach
 
 ### Current: REST Endpoint + .strm Files
 
 ```
-.strm file: <Link>http://localhost:8096/EmbyStreams/Play?imdb=tt...</Link>
+.strm file: <Link>http://localhost:8096/InfiniteDrive/Play?imdb=tt...</Link>
     ↓
 Emby loads URL
     ↓
@@ -309,14 +309,14 @@ if (original != null) {
 
 | Approach | Complexity | ffmpeg Required | User Experience | Current Support |
 |---|---|---|---|---|
-| **REST Endpoint** (EmbyStreams) | Low | Yes | Separate endpoint, good UX | ✅ Working |
+| **REST Endpoint** (InfiniteDrive) | Low | Yes | Separate endpoint, good UX | ✅ Working |
 | **IMediaSourceManager Decorator** (Gelato) | Medium | Yes | Native UI, Emby integrated | ❓ Likely possible |
 | **IAsyncActionFilter** | Low | Yes | HTTP request interception | ✅ Possible (untested) |
 | **Custom Transcoder** | Very High | No | Replaces ffmpeg entirely | ❌ Not supported |
 
 ---
 
-## Recommendations for EmbyStreams
+## Recommendations for InfiniteDrive
 
 ### If You Want Deeper Integration Without Changing ffmpeg:
 
@@ -445,9 +445,9 @@ public IReadOnlyList<MediaSourceInfo> GetStaticMediaSources(
   - `IAsyncActionFilter` — HTTP request interception (Jellyfin/Emby 4.8+)
   - `IPluginServiceRegistrator` — Service registration hook
 
-- **EmbyStreams Approach:**
+- **InfiniteDrive Approach:**
   - `.strm` file format (XML with Link)
-  - `/EmbyStreams/Play` endpoint (custom REST handler)
+  - `/InfiniteDrive/Play` endpoint (custom REST handler)
   - `PlaybackService.cs` — Stream resolution logic
 
 ---
@@ -460,7 +460,7 @@ public IReadOnlyList<MediaSourceInfo> GetStaticMediaSources(
 - ❌ No, you can't replace ffmpeg itself
 - ❓ Maybe, Emby supports IMediaSourceManager decorator (untested)
 
-**Best approach for EmbyStreams:**
+**Best approach for InfiniteDrive:**
 
 1. **Short term:** Keep current approach (proven, stable)
 2. **Medium term:** Test IMediaSourceManager decorator (better UX, higher risk)

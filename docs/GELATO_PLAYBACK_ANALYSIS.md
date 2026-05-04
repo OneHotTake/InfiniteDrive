@@ -21,7 +21,7 @@ Result: Items play through Jellyfin's built-in media player seamlessly.
 
 ## Architecture: Database Injection vs .strm Files
 
-### EmbyStreams (File-Based)
+### InfiniteDrive (File-Based)
 ```
 Create .strm file on disk
     ↓
@@ -33,7 +33,7 @@ User clicks Play
     ↓
 Emby loads .strm XML → extracts URL
     ↓
-/EmbyStreams/Play?imdb=tt... endpoint resolves stream
+/InfiniteDrive/Play?imdb=tt... endpoint resolves stream
     ↓
 Client plays stream
 ```
@@ -276,9 +276,9 @@ alternate2 = Stream from provider B (isStream=true)
 
 ---
 
-## Comparison: Gelato vs EmbyStreams Playback
+## Comparison: Gelato vs InfiniteDrive Playback
 
-| Aspect | Gelato | EmbyStreams |
+| Aspect | Gelato | InfiniteDrive |
 |--------|--------|-------------|
 | **Item Storage** | Jellyfin database (virtual items) | .strm files on disk |
 | **Path Property** | HTTP URL (gelato/stream or CDN) | .strm file path (XML content) |
@@ -339,7 +339,7 @@ alternate2 = Stream from provider B (isStream=true)
 
 ---
 
-## Why EmbyStreams Uses .strm Files Instead
+## Why InfiniteDrive Uses .strm Files Instead
 
 **Design decision:** File-based .strm over database injection
 
@@ -354,7 +354,7 @@ alternate2 = Stream from provider B (isStream=true)
 
 ---
 
-## Key Learnings for EmbyStreams
+## Key Learnings for InfiniteDrive
 
 ### 1. Could Emby Support Per-User Manifests?
 Currently: Single admin-configured AIOStreams URL for all users
@@ -368,19 +368,19 @@ Gelato approach: `ConcurrentDictionary<Guid, PluginConfiguration>` per user
 
 **Feasibility:** Medium (would require file organization change)
 
-### 2. Could EmbyStreams Pre-Cache Better?
+### 2. Could InfiniteDrive Pre-Cache Better?
 Currently: Background resolver pre-caches for popular items
 
 Gelato approach: In-memory caching (lost on restart)
 
 **Better approach:**
-- Keep EmbyStreams' SQLite persistence
+- Keep InfiniteDrive' SQLite persistence
 - Add in-memory "hot" cache for frequently played items
 - Hybrid model: Memory for hot, disk for cold
 
 **Feasibility:** Low (straightforward addition)
 
-### 3. Could EmbyStreams Support P2P?
+### 3. Could InfiniteDrive Support P2P?
 Currently: Debrid CDN only (direct URLs)
 
 Gelato approach: MonoTorrent + magnet link support
@@ -402,13 +402,13 @@ Gelato approach: MonoTorrent + magnet link support
 
 When Jellyfin calls GetDownload, the DownloadFilter makes a request to that URL and streams it back. Jellyfin's native player handles the rest.
 
-**Applicable to EmbyStreams?** Partially:
+**Applicable to InfiniteDrive?** Partially:
 - Emby has different APIs (can't inject database items easily)
 - .strm files are more compatible with Emby's architecture
 - Pre-caching strategy is better than in-memory-only
 - Per-user support would require significant refactoring
 
-**Bottom Line:** Both approaches are valid. Gelato chose database injection (Jellyfin-native). EmbyStreams chose file-based (Emby-compatible). Each is optimal for its target server.
+**Bottom Line:** Both approaches are valid. Gelato chose database injection (Jellyfin-native). InfiniteDrive chose file-based (Emby-compatible). Each is optimal for its target server.
 
 ---
 

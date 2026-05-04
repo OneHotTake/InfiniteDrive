@@ -9,19 +9,19 @@ All changes written to `./newdocs/`. Dead/outdated docs flagged below.
 ## Critical Issues Found (Code Overrides Docs)
 
 ### 1. Config File Name — WRONG everywhere
-- **Doc says:** `EmbyStreams.xml`
+- **Doc says:** `InfiniteDrive.xml`
 - **Code says:** `InfiniteDrive.xml` (PluginConfiguration.cs:10)
 - **Impact:** All docs, troubleshooting guides, and security docs reference wrong filename
 - **Files affected:** docs/README.md, docs/configuration.md, docs/SECURITY.md, docs/troubleshooting.md, docs/USER_DISCOVER.md, docs/COOLDOWN.md, docs/features/discover.md, docs/HISTORY.md, Plugin.cs comment
 
-### 2. Plugin Name — "EmbyStreams" branding persists in docs
-- **Doc says:** "EmbyStreams" (product name in README, docs/README, VERSIONED_PLAYBACK, SECURITY, etc.)
+### 2. Plugin Name — "InfiniteDrive" branding persists in docs
+- **Doc says:** "InfiniteDrive" (product name in README, docs/README, VERSIONED_PLAYBACK, SECURITY, etc.)
 - **Code says:** `Name = "InfiniteDrive"` (Plugin.cs:254)
 - **Impact:** Everything user-facing references wrong product name
 - **Files affected:** docs/README.md, docs/VERSIONED_PLAYBACK.md, docs/SECURITY.md, docs/configuration.md, docs/features/discover.md, docs/HISTORY.md, docs/CUSTOM_PLAYBACK_HANDLER.md, docs/GELATO_STRM_ANALYSIS.md, docs/GELATO_PLAYBACK_ANALYSIS.md, docs/FINDINGS.md, docs/IChannel_Implementation_Verification.md, docs/failure-scenarios.md
 
 ### 3. Endpoint Routes — All WRONG
-- **Doc says:** `/EmbyStreams/Play` (old, deleted in Sprint 137)
+- **Doc says:** `/InfiniteDrive/Play` (old, deleted in Sprint 137)
 - **Code says:** `/InfiniteDrive/Resolve` (ResolverService.cs:39, Route attr) + `/InfiniteDrive/Stream` (StreamEndpointService.cs:20)
 - **Impact:** SECURITY.md, VERSIONED_PLAYBACK.md, failure-scenarios.md, CUSTOM_PLAYBACK_HANDLER.md, features/discover.md, FINDINGS.md — all describe non-existent endpoints
 - **Files affected:** docs/SECURITY.md, docs/VERSIONED_PLAYBACK.md, docs/failure-scenarios.md, docs/features/discover.md, docs/CUSTOM_PLAYBACK_HANDLER.md, docs/GELATO_STRM_ANALYSIS.md, docs/GELATO_PLAYBACK_ANALYSIS.md, docs/FINDINGS.md, docs/IChannel_Implementation_Verification.md
@@ -38,12 +38,12 @@ All changes written to `./newdocs/`. Dead/outdated docs flagged below.
 - **Files affected:** docs/getting-started.md
 
 ### 6. Installation Path — Wrong folder name
-- **Doc says:** `/var/lib/emby/plugins/EmbyStreams`
-- **Code says:** Plugin folder is `InfiniteDrive`, not `EmbyStreams`
+- **Doc says:** `/var/lib/emby/plugins/InfiniteDrive`
+- **Code says:** Plugin folder is `InfiniteDrive`, not `InfiniteDrive`
 - **Files affected:** docs/getting-started.md, docs/troubleshooting.md
 
 ### 7. Plugin DLL Name — Wrong
-- **Doc says:** `EmbyStreams.dll`
+- **Doc says:** `InfiniteDrive.dll`
 - **Code says:** `InfiniteDrive.dll` (AssemblyName in .csproj:10)
 - **Files affected:** README.md (root), docs/getting-started.md
 
@@ -78,7 +78,7 @@ All changes written to `./newdocs/`. Dead/outdated docs flagged below.
 - `docs/VERSION_SLOTS_AND_REWRITING.md` — Need verification
 - `docs/PERSISTENCE_AND_DELETION.md` — Need verification
 - `docs/CATALOG_AND_DEDUPLICATION.md` — Need verification
-- `docs/COOLDOWN.md` — References `InfiniteDrive.xml` correctly (minor fix: "EmbyStreams" branding)
+- `docs/COOLDOWN.md` — References `InfiniteDrive.xml` correctly (minor fix: "InfiniteDrive" branding)
 
 ---
 
@@ -132,7 +132,7 @@ All changes written to `./newdocs/`. Dead/outdated docs flagged below.
 | File | Change Type |
 |------|-------------|
 | `README.md` | Rewrite — fix plugin name, version, endpoints, architecture, Emby version |
-| `docs_README.md` | Update — fix branding from EmbyStreams to InfiniteDrive |
+| `docs_README.md` | Update — fix branding from InfiniteDrive to InfiniteDrive |
 | `ARCHITECTURE.md` | Complete rewrite — document actual service layer, DI, guardrails |
 | `getting-started.md` | Update — Emby 4.10.0.6+, plugin path, endpoints, EmbyApiKey |
 | `configuration.md` | Complete rewrite — correct fields, remove dead fields, add missing fields |

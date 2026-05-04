@@ -167,7 +167,7 @@
       35      /// Inherits <see cref="BasePlugin{TConfiguration}"/>      
           which handles XML config                                       
       36      /// persistence at                                         
-          {DataPath}/plugins/configurations/EmbyStreams.xml.             
+          {DataPath}/plugins/configurations/InfiniteDrive.xml.             
       37      /// </summary>                                             
       38 -    public class Plugin : BasePlugin<PluginConfiguration>,     
          -IHasWebPages, IHasThumbImage                                   

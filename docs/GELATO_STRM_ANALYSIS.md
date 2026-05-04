@@ -226,13 +226,13 @@ Why? Because if there's a `.ignore` file, Jellyfin won't scan that folder at all
    - Doesn't wait for file system changes
    - Unlike Jellyfin's more passive scanning
 
-2. **EmbyStreams Doesn't Use Stub Files**
+2. **InfiniteDrive Doesn't Use Stub Files**
    - No evidence in the codebase
    - No documentation mentioning them
    - Suggests Emby handles empty folders differently
 
 3. **Why Emby Might Not Need Them**
-   - When user configures: `SyncPathMovies = /media/embystreams/movies`
+   - When user configures: `SyncPathMovies = /media/infinitedrive/movies`
    - Emby likely creates a Movies folder in library immediately
    - Doesn't wait for files to appear
    - .strm files get added to already-existing folder
@@ -261,7 +261,7 @@ echo "http://example.com/video.mp4" > /media/test-lib/movies/test.strm
 
 ---
 
-## Comparison: Gelato vs EmbyStreams .strm Content
+## Comparison: Gelato vs InfiniteDrive .strm Content
 
 ### Gelato's Approach
 
@@ -281,7 +281,7 @@ Interpretation:
     - Alternate streams use real HTTP URLs (proxied by DownloadFilter)
 ```
 
-### EmbyStreams' Approach
+### InfiniteDrive' Approach
 
 ```
 .strm file content:
@@ -289,18 +289,18 @@ Interpretation:
 Always:
     <movie>
         <Title>Shawshank Redemption</Title>
-        <Link>http://localhost:8096/EmbyStreams/Play?imdb=tt0111161&api_key=xyz123</Link>
+        <Link>http://localhost:8096/InfiniteDrive/Play?imdb=tt0111161&api_key=xyz123</Link>
     </movie>
 
 Interpretation:
-    - URL points to EmbyStreams' /Play endpoint
+    - URL points to InfiniteDrive' /Play endpoint
     - Emby loads XML, extracts URL, calls /Play
     - /Play endpoint resolves stream and returns it
 ```
 
 ### Key Differences
 
-| Aspect | Gelato | EmbyStreams |
+| Aspect | Gelato | InfiniteDrive |
 |--------|--------|-------------|
 | **.strm format** | Plain text (fake URI or HTTP URL) | XML with Link tag |
 | **Primary items** | Fake URI (`gelato://stub/...`) | Real URL (`/Play?...`) |
@@ -325,7 +325,7 @@ PATH A (Gelato — Database-Native):
     ├─ Resolves from database or proxies HTTP requests
     └─ Alternate versions shown in UI
 
-PATH B (EmbyStreams — File-Based):
+PATH B (InfiniteDrive — File-Based):
     ├─ Create .strm XML files on disk
     ├─ Store real URLs in .strm content
     ├─ Emby discovers files via library scan
@@ -336,17 +336,17 @@ PATH B (EmbyStreams — File-Based):
 
 ---
 
-## Implementation Notes for EmbyStreams
+## Implementation Notes for InfiniteDrive
 
 ### Do We Need Stub Files?
 
 **Answer: Probably NOT, but could be defensive**
 
 **Current Implementation:**
-1. User creates `/media/embystreams/movies` folder
+1. User creates `/media/infinitedrive/movies` folder
 2. User adds to Emby library
 3. Emby creates Movies folder item
-4. EmbyStreams adds .strm files
+4. InfiniteDrive adds .strm files
 5. Library scan picks up .strm files
 
 **Why stub.txt might help:**
@@ -361,7 +361,7 @@ public static void EnsureFolderExists(string path) {
     Directory.CreateDirectory(path);
 
     // Optional: Create stub file for defensive scanning
-    var stub = Path.Combine(path, ".embystreams-stub");
+    var stub = Path.Combine(path, ".infinitedrive-stub");
     if (!File.Exists(stub)) {
         File.WriteAllText(stub, "Stub file for library scan trigger. Safe to delete.");
     }
@@ -374,7 +374,7 @@ public static void EnsureFolderExists(string path) {
 
 **Gelato's approach (show in UI):** Would require database injection + DownloadFilter
 
-**Simpler approach for EmbyStreams:**
+**Simpler approach for InfiniteDrive:**
 - Keep current design (one .strm per item)
 - When user clicks "play stream variant", update .strm file with new URL
 - Or: Add REST API to switch streams (similar to Discover AddToLibrary)
@@ -395,7 +395,7 @@ public static void EnsureFolderExists(string path) {
   - Virtual items (IsVirtualItem = true)
   - Library scanning behavior
 
-- **EmbyStreams Approach:**
+- **InfiniteDrive Approach:**
   - File-based discovery (no stub files observed)
   - XML-based .strm format
   - REST endpoint-based resolution

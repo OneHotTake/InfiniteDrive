@@ -2,7 +2,7 @@
 
 ## Overview
 
-EmbyStreams uses an **auto-generated API key** for playback authentication. This document explains the security model, limitations, and best practices.
+InfiniteDrive uses an **auto-generated API key** for playback authentication. This document explains the security model, limitations, and best practices.
 
 ## How Playback Authentication Works
 
@@ -12,10 +12,10 @@ When Emby plays a `.strm` file, it makes an HTTP request to the URL inside the f
 Without authentication, the plugin's playback endpoint would be publicly accessible to anyone with network access.
 
 ### The Solution
-EmbyStreams embeds a unique **API key** in every `.strm` file URL:
+InfiniteDrive embeds a unique **API key** in every `.strm` file URL:
 
 ```
-http://your-server:8096/EmbyStreams/Play?imdb=tt1234567&api_key=YOUR_KEY_HERE
+http://your-server:8096/InfiniteDrive/Play?imdb=tt1234567&api_key=YOUR_KEY_HERE
 ```
 
 When the playback endpoint receives the request, it validates the API key before returning stream URLs.
@@ -26,13 +26,13 @@ When the playback endpoint receives the request, it validates the API key before
 
 - **Local-only**: The API key is only used for local playback (your home network, not the internet)
 - **Scoped**: The key only permits playback requests, not admin operations
-- **Unique per instance**: Each EmbyStreams installation generates its own key during setup
+- **Unique per instance**: Each InfiniteDrive installation generates its own key during setup
 - **Can be rotated**: Generate a new key anytime via the Security Info panel
 - **No transmission**: The key is never sent over the internet, only used locally
 
 ### ⚠️ Limitations
 
-- **Stored on disk**: The API key is saved in your plugin configuration file (`/data/plugins/configurations/EmbyStreams.xml`)
+- **Stored on disk**: The API key is saved in your plugin configuration file (`/data/plugins/configurations/InfiniteDrive.xml`)
 - **Not encrypted at rest**: The key is stored in plaintext (same as other plugin settings like API keys for Real-Debrid, TorBox, etc.)
 - **No expiration**: Keys don't expire automatically; you must manually rotate them
 - **Single key**: All .strm files use the same key (rotating generates one new key for all files)
@@ -67,7 +67,7 @@ Rotating the key is **quick and non-disruptive**:
 
 ## How to Rotate
 
-1. Open the **EmbyStreams** plugin configuration page
+1. Open the **InfiniteDrive** plugin configuration page
 2. Click the **🔐 Playback Authentication** info banner
 3. Click **"Rotate Key"**
 4. Confirm in the dialog
@@ -120,11 +120,11 @@ Cons:
 - **More complex** — adds token generation, validation, and cleanup logic
 - **For local-only use** — overkill for a home media server
 
-**Conclusion**: For EmbyStreams' local-only use case, a static key with manual rotation is the better tradeoff. If you need time-limited tokens, that's a feature request we can consider for future versions.
+**Conclusion**: For InfiniteDrive' local-only use case, a static key with manual rotation is the better tradeoff. If you need time-limited tokens, that's a feature request we can consider for future versions.
 
 ## Best Practices
 
-1. **Enable Emby's local network access only** — Ensure EmbyStreams listens on your local network, not the internet
+1. **Enable Emby's local network access only** — Ensure InfiniteDrive listens on your local network, not the internet
 2. **Use HTTPS if remote access is enabled** — The API key is sent in the URL, so HTTPS prevents network sniffing
 3. **Rotate periodically** — Quarterly rotation is a good security refresh cadence
 4. **Don't share your API key** — Treat it like any other auth credential
@@ -143,4 +143,4 @@ If you have concerns about the security model or want to discuss improvements, p
 ---
 
 **Last Updated**: March 2026
-**EmbyStreams Version**: 0.19.7.0+
+**InfiniteDrive Version**: 0.19.7.0+

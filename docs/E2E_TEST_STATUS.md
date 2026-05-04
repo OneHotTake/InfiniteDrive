@@ -1,4 +1,4 @@
-# End-to-End Test Status - EmbyStreams Plugin
+# End-to-End Test Status - InfiniteDrive Plugin
 
 ## Current Status: Ready for Testing with Beta Software
 
@@ -8,7 +8,7 @@
 - All scripts and references updated to use beta locations
 
 ### Development Environment
-- Plugin development files are in `/home/onehottake/Projects/emby/embyStreams/`
+- Plugin development files are in `/home/onehottake/Projects/emby/InfiniteDrive/`
 - Data directory: `~/emby-dev-data`
 - User: onehottake
 - Port: 8096
@@ -22,7 +22,7 @@
 
 ### Quick Start 🚀
 ```bash
-cd /home/onehottake/Projects/emby/embyStreams
+cd /home/onehottake/Projects/emby/InfiniteDrive
 ./emby-reset.sh
 ```
 
@@ -36,15 +36,15 @@ Using a browser on the current server:
    - Create admin user (username/password)
    - Skip library setup for now
 3. **Configure Plugin**:
-   - Access: http://localhost:8096/web/configurationpage?name=EmbyStreams
+   - Access: http://localhost:8096/web/configurationpage?name=InfiniteDrive
    - Set manifest URL (e.g., Trakt or AIOStreams)
    - Click "Save"
 4. **Trigger Catalog Sync**:
-   - Use API: `curl -X POST "http://localhost:8096/EmbyStreams/Trigger?task=catalog_discover"`
+   - Use API: `curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=catalog_discover"`
    - OR wait for automatic sync
 5. **Verify .strm Files Created**:
    ```bash
-   ls /media/embystreams/movies/ | head -5
+   ls /media/infinitedrive/movies/ | head -5
    ```
 6. **Test Playback**:
    - Access Emby web UI
@@ -67,7 +67,7 @@ Using a browser on the current server:
 
 ### ✅ Catalog Sync Success
 - Database contains entries in `discover_catalog` table
-- .strm files created in `/media/embystreams/movies/`
+- .strm files created in `/media/infinitedrive/movies/`
 - Log shows: "Sync completed: X items found"
 
 ### ✅ Playback Success
@@ -98,7 +98,7 @@ Using a browser on the current server:
 ### Plugin Configuration Required
 - **Manifest URL**: Should point to active AIOStreams/Trakt/MDBList manifest
 - **API Key**: Optional, depends on manifest source
-- **Library Paths**: Ensure `/media/embystreams` exists and is writable
+- **Library Paths**: Ensure `/media/infinitedrive` exists and is writable
 
 ## Next Steps
 
@@ -111,7 +111,7 @@ Using a browser on the current server:
 
 ## Log Files
 - **Emby Server**: `~/emby-dev-data/logs/embyserver.txt`
-- **EmbyStreams**: `~/emby-dev-data/EmbyStreams/embystreams.db`
+- **InfiniteDrive**: `~/emby-dev-data/InfiniteDrive/infinitedrive.db`
 - **Startup**: `~/emby-dev.log`
 - **Build**: Check `dotnet build -c Release` output
 

@@ -1,14 +1,14 @@
 # The Corrected Citizenship Model
 
-The real files — your Curated physical library — are **sovereign territory**. EmbyStreams doesn't touch them, doesn't manage them, doesn't know they exist beyond "don't go there." They're Citizens by birthright, not by promotion. EmbyStreams only manages what it creates.
+The real files — your Curated physical library — are **sovereign territory**. InfiniteDrive doesn't touch them, doesn't manage them, doesn't know they exist beyond "don't go there." They're Citizens by birthright, not by promotion. InfiniteDrive only manages what it creates.
 
 ```
 SOVEREIGN  = Real physical files. Your Curated library.
-             Out of scope. EmbyStreams defers unconditionally.
+             Out of scope. InfiniteDrive defers unconditionally.
 
 CITIZEN    = Pinned .strm in the Permanent library.
              User explicitly chose this. Survives all syncs.
-             EmbyStreams manages it, but user owns the relationship.
+             InfiniteDrive manages it, but user owns the relationship.
 
 RESIDENT   = Unpinned .strm in the Permanent library.
              Got here via interaction. AIO-feed-backed.
@@ -50,9 +50,9 @@ SOVEREIGN is determined by a reconciliation job that runs:
 - On a weekly schedule (catch new Curated additions)
 - On demand via admin trigger
 
-It walks every non-EmbyStreams Emby library, extracts TMDB IDs from existing metadata/NFOs, and writes them into your DB as `citizenship = 'sovereign'`. This table is **read-only from EmbyStreams' perspective** — only the reconciliation job writes it.
+It walks every non-InfiniteDrive Emby library, extracts TMDB IDs from existing metadata/NFOs, and writes them into your DB as `citizenship = 'sovereign'`. This table is **read-only from InfiniteDrive' perspective** — only the reconciliation job writes it.
 
-**Critical rule:** If a SOVEREIGN record appears for something currently RESIDENT or CITIZEN, immediately delete the EmbyStreams `.strm` and mark `superseded_by_sovereign = true`. The real file is better. Get out of its way.
+**Critical rule:** If a SOVEREIGN record appears for something currently RESIDENT or CITIZEN, immediately delete the InfiniteDrive `.strm` and mark `superseded_by_sovereign = true`. The real file is better. Get out of its way.
 
 ---
 
@@ -62,14 +62,14 @@ It walks every non-EmbyStreams Emby library, extracts TMDB IDs from existing met
 +---------------------------------------------------------------------+
 |                                                                     |
 |   +===========+   <- Real files. Curated library. Beyond scope.    |
-|   | SOVEREIGN |      EmbyStreams never writes here.                 |
+|   | SOVEREIGN |      InfiniteDrive never writes here.                 |
 |   +====+======+      All other states defer unconditionally.        |
 |        |                                                            |
 |        | (reconciliation detects real file)                         |
 |        | <- if RESIDENT/CITIZEN exists, .strm deleted               |
 |        |                                                            |
 |   +----+--------------------------------------------------------+   |
-|   |              EMBYSTREAMS MANAGED ZONE                       |   |
+|   |              INFINITEDRIVE MANAGED ZONE                       |   |
 |   |                                                             |   |
 |   |   +---------+                                               |   |
 |   |   |  GHOST  |  <- IID hidden library                       |   |
@@ -108,7 +108,7 @@ It walks every non-EmbyStreams Emby library, extracts TMDB IDs from existing met
 **SOVEREIGN**
 ```
 Emby native playback -> real file on disk.
-EmbyStreams not involved. At all.
+InfiniteDrive not involved. At all.
 ```
 
 **CITIZEN / RESIDENT (Permanent library)**

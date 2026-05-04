@@ -1,4 +1,4 @@
-# EmbyStreams — Failure Scenarios
+# InfiniteDrive — Failure Scenarios
 
 This document describes every failure state the plugin can encounter and exactly what happens in each case. The goal is zero silent failures — every problem either resolves itself automatically or surfaces a clear error.
 
@@ -6,7 +6,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 ## Playback Failures
 
-### How `GET /EmbyStreams/Play` works (normal path)
+### How `GET /InfiniteDrive/Play` works (normal path)
 
 ```
 1. SQLite cache lookup
@@ -26,7 +26,7 @@ This document describes every failure state the plugin can encounter and exactly
            └─ no InfoHash / no API key / debrid not cached
                └─ go to step 5 (panic)
 
-5. Total failure → HTTP 503 + redirect to /EmbyStreams/Panic
+5. Total failure → HTTP 503 + redirect to /InfiniteDrive/Panic
 ```
 
 ---
@@ -37,7 +37,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 **Behaviour:** Stream URL served immediately via redirect or proxy. No external calls made. Playback begins in < 100 ms.
 
-**Logging:** `[EmbyStreams] Cache HIT for {imdb}` (Debug)
+**Logging:** `[InfiniteDrive] Cache HIT for {imdb}` (Debug)
 
 ---
 
@@ -53,7 +53,7 @@ This document describes every failure state the plugin can encounter and exactly
 3. If probe returns 401/403/404/410: tries each ranked candidate URL in turn
 4. If all candidates fail: falls through to sync AIOStreams call
 
-**Logging:** `[EmbyStreams] Cache HIT but URL aging for {imdb} — proactive range probe` (Debug)
+**Logging:** `[InfiniteDrive] Cache HIT but URL aging for {imdb} — proactive range probe` (Debug)
 
 ---
 
@@ -63,7 +63,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 **Behaviour:** Same range-probe flow as F-02. If all probes pass, the cache entry is refreshed in the background.
 
-**Logging:** `[EmbyStreams] Cache STALE for {imdb} — validating` (Debug)
+**Logging:** `[InfiniteDrive] Cache STALE for {imdb} — validating` (Debug)
 
 ---
 
@@ -76,7 +76,7 @@ This document describes every failure state the plugin can encounter and exactly
 2. If AIOStreams responds: new URL cached + served
 3. If AIOStreams is unreachable: Layer 3 direct debrid fallback attempted
 
-**Logging:** `[EmbyStreams] All cached URLs for {imdb} returned 4xx — sync resolving` (Warning)
+**Logging:** `[InfiniteDrive] All cached URLs for {imdb} returned 4xx — sync resolving` (Warning)
 
 **User impact:** Slight delay at play time (typically 2–20 s depending on AIOStreams addon count). No visible error if AIOStreams is up.
 
@@ -89,10 +89,10 @@ This document describes every failure state the plugin can encounter and exactly
 **Behaviour:**
 1. Makes a synchronous AIOStreams stream resolution call
 2. AIOStreams queries all configured addons in parallel
-3. EmbyStreams ranks results (quality tier → codec score → provider priority) and stores top candidates
+3. InfiniteDrive ranks results (quality tier → codec score → provider priority) and stores top candidates
 4. Serves the top-ranked URL, typically within 3–20 s
 
-**Logging:** `[EmbyStreams] Cache MISS for {imdb} — sync resolving` (Info)
+**Logging:** `[InfiniteDrive] Cache MISS for {imdb} — sync resolving` (Info)
 
 **Optimisation:** The background `LinkResolverTask` pre-resolves items before they are played. A cache miss at play time means the resolver hasn't reached this item yet, the item is new, or the cache was manually cleared.
 
@@ -107,7 +107,7 @@ This document describes every failure state the plugin can encounter and exactly
 2. Any subsequent play within the 1-hour window immediately returns 503 without calling AIOStreams again
 3. After 1 hour, the resolver retries automatically
 
-**Logging:** `[EmbyStreams] no_streams sentinel hit for {imdb} (1h TTL not expired)` (Debug) when the sentinel is hit on replay.
+**Logging:** `[InfiniteDrive] no_streams sentinel hit for {imdb} (1h TTL not expired)` (Debug) when the sentinel is hit on replay.
 
 **Why 1 hour TTL:** Prevents hammering AIOStreams for items that are genuinely unavailable. The short TTL ensures the plugin retries within the hour in case availability changes (torrent gets cached by a debrid user).
 
@@ -122,7 +122,7 @@ This document describes every failure state the plugin can encounter and exactly
 2. First fallback to respond successfully is used
 3. If all fallbacks are also unreachable: `AioStreamsUnreachableException` is thrown
 
-**Logging:** `[EmbyStreams] All AIOStreams instances unreachable for {imdb} — attempting direct debrid fallback` (Warning)
+**Logging:** `[InfiniteDrive] All AIOStreams instances unreachable for {imdb} — attempting direct debrid fallback` (Warning)
 
 ---
 
@@ -153,7 +153,7 @@ This document describes every failure state the plugin can encounter and exactly
 - The item has no stored InfoHash (was never cached by the debrid provider), OR
 - All providers report the torrent is not in their cache
 
-**Behaviour:** Emits 503 response with redirect to `/EmbyStreams/Panic`.
+**Behaviour:** Emits 503 response with redirect to `/InfiniteDrive/Panic`.
 
 ---
 
@@ -163,7 +163,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 **Behaviour:** Season/episode parameters are dropped and the request is treated as a movie lookup. AIOStreams has no concept of Season 0 episodes.
 
-**Logging:** `[EmbyStreams] Season 0 (specials) requested for {imdb} — falling back to movie lookup` (Debug)
+**Logging:** `[InfiniteDrive] Season 0 (specials) requested for {imdb} — falling back to movie lookup` (Debug)
 
 ---
 
@@ -182,7 +182,7 @@ This document describes every failure state the plugin can encounter and exactly
 **Behaviour:**
 1. Returns HTTP 503
 2. If `DontPanic = false`: standard JSON error response
-3. If the Emby client follows the body as a stream: it will get a redirect to `GET /EmbyStreams/Panic` which returns a Hitchhiker's Guide–styled HTML error page
+3. If the Emby client follows the body as a stream: it will get a redirect to `GET /InfiniteDrive/Panic` which returns a Hitchhiker's Guide–styled HTML error page
 
 **Error codes returned:**
 | Code | Meaning |
@@ -216,7 +216,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 **Behaviour:** Item is silently skipped. Only items with `tt` IMDB IDs are written to the Emby library.
 
-**Why:** EmbyStreams uses IMDB IDs as the universal key across catalog, cache, and `.strm` filenames. Non-IMDB IDs would require a separate mapping layer.
+**Why:** InfiniteDrive uses IMDB IDs as the universal key across catalog, cache, and `.strm` filenames. Non-IMDB IDs would require a separate mapping layer.
 
 ---
 
@@ -226,7 +226,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 **Behaviour:** The sync task logs an error for each affected item and continues. Items that cannot be written are recorded in the DB without a `strm_path`.
 
-**Resolution:** Fix file permissions; then run `POST /EmbyStreams/Trigger?task=file_resurrection` to write the missing `.strm` files.
+**Resolution:** Fix file permissions; then run `POST /InfiniteDrive/Trigger?task=file_resurrection` to write the missing `.strm` files.
 
 ---
 
@@ -267,7 +267,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 **Recovery:** Run a full catalog sync and wait for the background resolver to re-warm the cache. This process typically takes 15–60 minutes for a large catalog.
 
-**Logging:** `[EmbyStreams] Database integrity check failed — deleting and recreating {path}` (Warning)
+**Logging:** `[InfiniteDrive] Database integrity check failed — deleting and recreating {path}` (Warning)
 
 ---
 
@@ -281,7 +281,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 ### D-03: Database file locked
 
-**Trigger:** Another process (or a previous hung task) holds a write lock on `embystreams.db`.
+**Trigger:** Another process (or a previous hung task) holds a write lock on `infinitedrive.db`.
 
 **Behaviour:** SQLite WAL mode (`PRAGMA journal_mode=WAL`) allows concurrent reads but serialises writes. Write operations wait up to the SQLite default busy timeout. If the lock persists, writes fail with `SQLITE_BUSY`.
 
@@ -295,7 +295,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 **Trigger:** The debrid CDN closes the connection mid-stream (common for 4K+ bitrate streams on unstable WAN links, or when the CDN URL expires mid-stream).
 
-**Behaviour:** The Emby client receives a connection reset. Most clients (Infuse, Emby for Android) automatically retry from the last position. The plugin does not attempt to resume — a new `/EmbyStreams/Play` request will re-enter the resolution flow.
+**Behaviour:** The Emby client receives a connection reset. Most clients (Infuse, Emby for Android) automatically retry from the last position. The plugin does not attempt to resume — a new `/InfiniteDrive/Play` request will re-enter the resolution flow.
 
 ---
 
@@ -355,7 +355,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 ### S-02: SSRF attempt on TestUrl endpoint
 
-**Trigger:** `POST /EmbyStreams/TestUrl` with a URL using a non-http/https scheme (e.g. `file://`, `ftp://`) or targeting an APIPA address (`169.254.x.x`).
+**Trigger:** `POST /InfiniteDrive/TestUrl` with a URL using a non-http/https scheme (e.g. `file://`, `ftp://`) or targeting an APIPA address (`169.254.x.x`).
 
 **Behaviour:** Request is rejected with HTTP 400 before any network call is made.
 
@@ -409,11 +409,11 @@ This document describes every failure state the plugin can encounter and exactly
 
 ### T-04: Scheduled task timeout (30 min)
 
-**Trigger:** Any task triggered via `POST /EmbyStreams/Trigger` runs for more than 30 minutes.
+**Trigger:** Any task triggered via `POST /InfiniteDrive/Trigger` runs for more than 30 minutes.
 
 **Behaviour:** The task's `CancellationToken` is cancelled. Partial progress is preserved (already-written items remain in DB/disk). The task stops cleanly.
 
-**Logging:** `[EmbyStreams] TriggerService: '{task}' timed out (30 min)` (Warning)
+**Logging:** `[InfiniteDrive] TriggerService: '{task}' timed out (30 min)` (Warning)
 
 ---
 

@@ -11,7 +11,7 @@ namespace InfiniteDrive.Services
 {
     /// <summary>
     /// Scans library for user-added files ("Your Files").
-    /// Filters out EmbyStreams-managed items (.strm files).
+    /// Filters out InfiniteDrive-managed items (.strm files).
     /// </summary>
     public class YourFilesScanner
     {
@@ -31,7 +31,7 @@ namespace InfiniteDrive.Services
         {
             _logger.LogInformation("[YourFilesScanner] Scanning library for 'Your Files'...");
 
-            // Query all items that are NOT EmbyStreams-managed
+            // Query all items that are NOT InfiniteDrive-managed
             var query = new InternalItemsQuery
             {
                 IncludeItemTypes = new[] { "Movie", "Episode" },
@@ -52,7 +52,7 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Checks if an item is managed by EmbyStreams.
+        /// Checks if an item is managed by InfiniteDrive.
         /// </summary>
         private bool IsInfiniteDriveItem(BaseItem item)
         {

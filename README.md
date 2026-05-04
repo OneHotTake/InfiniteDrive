@@ -140,7 +140,7 @@ Emby Player → ResolverService  (real-time: picks streams, probes URLs, returns
 - **No cross-service ID translation at browse time** — IDs are passed as-is to the source addon's own `/meta` endpoint (same approach as Nuvio). Cross-resolution happens lazily at sync time.
 - **Dead streams sink, not drop** — stream probing reorders the M3U8 playlist so working streams come first, but dead URLs remain as last-resort fallback for the player
 - **Emby does its own metadata job** — we write scanner hints (`[imdbid-tt...]`, `[tmdbid-xxx]`) and NFO files; we don't try to replicate Emby's metadata logic
-- **Fresh install required** — this is a breaking change from EmbyStreams. No migration path. Start clean.
+- **Fresh install required** — this is a breaking change from InfiniteDrive. No migration path. Start clean.
 
 ---
 

@@ -1,9 +1,9 @@
-# EmbyStreams — Configuration Reference
+# InfiniteDrive — Configuration Reference
 
 Every configurable option is documented here, grouped by the tab or section where it appears in the plugin UI.
 
-**Config file location:** `{EmbyDataPath}/plugins/configurations/EmbyStreams.xml`
-Typical paths: `/var/lib/emby/data/plugins/configurations/EmbyStreams.xml` (Linux), `C:\ProgramData\Emby-Server\data\plugins\configurations\EmbyStreams.xml` (Windows).
+**Config file location:** `{EmbyDataPath}/plugins/configurations/InfiniteDrive.xml`
+Typical paths: `/var/lib/emby/data/plugins/configurations/InfiniteDrive.xml` (Linux), `C:\ProgramData\Emby-Server\data\plugins\configurations\InfiniteDrive.xml` (Windows).
 
 > All numeric fields are clamped to safe ranges automatically after save. You cannot break the plugin with an out-of-range value — it will be silently corrected to the nearest valid bound.
 
@@ -39,7 +39,7 @@ The UUID segment from your manifest URL. Leave empty only if your AIOStreams ins
 
 The encrypted-token segment from your manifest URL. Leave empty only if your AIOStreams instance has authentication disabled.
 
-> **Security note:** These values are stored in `EmbyStreams.xml` as plaintext. For a home server this is acceptable; for a shared or cloud host, be aware that local filesystem access grants full access to your debrid credentials through AIOStreams.
+> **Security note:** These values are stored in `InfiniteDrive.xml` as plaintext. For a home server this is acceptable; for a shared or cloud host, be aware that local filesystem access grants full access to your debrid credentials through AIOStreams.
 
 ### `AioStreamsFallbackUrls`
 **Type:** string · **Default:** empty
@@ -73,7 +73,7 @@ Set to empty string to accept everything AIOStreams returns.
 
 ## Catalog Sources
 
-EmbyStreams can populate your library from several sources. All active sources are merged; the same IMDB ID from two sources appears once in your library.
+InfiniteDrive can populate your library from several sources. All active sources are merged; the same IMDB ID from two sources appears once in your library.
 
 ### AIOStreams Catalogs
 
@@ -126,14 +126,14 @@ Disable if you intentionally want an empty library on first run.
 ## File Storage Paths
 
 ### `SyncPathMovies`
-**Type:** string · **Default:** `/media/embystreams/movies`
+**Type:** string · **Default:** `/media/infinitedrive/movies`
 
 Absolute path where movie `.strm` and `.nfo` files are written.
 
 Emby must have a **Movies** library pointed at this folder (or a parent of it).
 
 ### `SyncPathShows`
-**Type:** string · **Default:** `/media/embystreams/shows`
+**Type:** string · **Default:** `/media/infinitedrive/shows`
 
 Absolute path where TV show `.strm` and `.nfo` files are written.
 
@@ -153,7 +153,7 @@ This improves reliability for:
 - Foreign films and anime with transliteration differences
 - Any title where Emby would otherwise pick the wrong metadata entry
 
-Disable only if another tool (e.g. a Kodi database manager) manages your `.nfo` files and you do not want EmbyStreams to overwrite them.
+Disable only if another tool (e.g. a Kodi database manager) manages your `.nfo` files and you do not want InfiniteDrive to overwrite them.
 
 ### `EmbyBaseUrl`
 **Type:** string · **Default:** `http://127.0.0.1:8096`
@@ -182,7 +182,7 @@ Real-Debrid CDN URLs typically expire server-side at 4–6 hours. The plugin add
 
 Maximum number of AIOStreams API calls per UTC calendar day. When this limit is reached, the background resolver pauses until the next day. On-demand playback (cache miss at play time) is **not subject** to this budget — it always proceeds.
 
-Each call to AIOStreams may trigger multiple upstream addon requests internally; this budget counts the calls EmbyStreams makes to AIOStreams, not what AIOStreams makes downstream.
+Each call to AIOStreams may trigger multiple upstream addon requests internally; this budget counts the calls InfiniteDrive makes to AIOStreams, not what AIOStreams makes downstream.
 
 ### `MaxConcurrentResolutions`
 **Type:** int · **Range:** 1–20 · **Default:** `3`
@@ -230,7 +230,7 @@ Higher values (5) improve resilience against CDN URL expiry; lower values (1) sa
 ### `ProviderPriorityOrder`
 **Type:** string · **Default:** `realdebrid,torbox,alldebrid,debridlink,premiumize,stremthru,usenet,http`
 
-Comma-separated provider priority order. Within the same quality tier, EmbyStreams picks the provider that appears earliest in this list.
+Comma-separated provider priority order. Within the same quality tier, InfiniteDrive picks the provider that appears earliest in this list.
 
 Quality tier **always** overrides provider priority: a 4K TorBox stream beats a 1080p Real-Debrid stream regardless of this setting.
 
@@ -314,7 +314,7 @@ Enables a daily background task (`MetadataFallbackTask`) that checks for items w
 
 For each qualifying item, it writes a full Kodi-format `.nfo` (title, plot, poster URL, genres, cast, director) from the Cinemeta v3 API. This runs after Emby's own scraper has had a chance to process items.
 
-Disable if you never want EmbyStreams to write `.nfo` files beyond the minimal ID hints written by `EnableNfoHints`.
+Disable if you never want InfiniteDrive to write `.nfo` files beyond the minimal ID hints written by `EnableNfoHints`.
 
 ---
 
@@ -345,7 +345,7 @@ Set to `-1` to disable the automatic daily trigger and rely solely on the Emby S
 ### `WebhookSecret`
 **Type:** string · **Default:** empty
 
-Optional shared secret for `POST /EmbyStreams/Webhook/Sync`. When set, callers must include `Authorization: Bearer <secret>` or `X-Api-Key: <secret>`.
+Optional shared secret for `POST /InfiniteDrive/Webhook/Sync`. When set, callers must include `Authorization: Bearer <secret>` or `X-Api-Key: <secret>`.
 
 Leave empty only on fully trusted private networks. For Jellyseerr/Overseerr integrations on a home LAN, leaving this empty is fine.
 
@@ -364,7 +364,7 @@ When enabled, error states in the Health Dashboard are displayed as a friendly g
 
 Internal flag. Set to `true` by the wizard after initial setup is complete. While `false`, the plugin shows the Setup Wizard on load.
 
-To re-run the wizard: use `POST /EmbyStreams/Trigger?task=reset_wizard` or manually set this to `false` in `EmbyStreams.xml`.
+To re-run the wizard: use `POST /InfiniteDrive/Trigger?task=reset_wizard` or manually set this to `false` in `InfiniteDrive.xml`.
 
 ---
 

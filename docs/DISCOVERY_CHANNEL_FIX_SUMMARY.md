@@ -70,8 +70,8 @@ To test the Discover channel functionality:
 1. Address the remaining compilation errors in other files (if blocking)
 2. Or: Use a previously built version of the DLL if available
 3. Start the dev server: `./start-dev-server.sh`
-4. Access plugin config: http://localhost:9100/web/configurationpage?name=EmbyStreams
+4. Access plugin config: http://localhost:9100/web/configurationpage?name=InfiniteDrive
 5. Test end-to-end scenarios per E2E_TEST_STATUS.md
 
 ## Files Modified
-- `/home/onehottake/Projects/emby/embyStreamsStrm/Services/DiscoverChannel.cs`
+- `/home/onehottake/Projects/emby/InfiniteDriveStrm/Services/DiscoverChannel.cs`

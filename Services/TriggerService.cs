@@ -763,7 +763,7 @@ namespace InfiniteDrive.Services
             // Check write access
             try
             {
-                var probe = Path.Combine(path, ".embystreams_probe");
+                var probe = Path.Combine(path, ".infinitedrive_probe");
                 File.WriteAllText(probe, "probe");
                 File.Delete(probe);
                 resp.Checks.Add(new ValidationCheck
