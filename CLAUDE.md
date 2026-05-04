@@ -36,7 +36,7 @@ All state in .ai/. Never trust chat history.
 At sprint end: update REPO_MAP.md (one-liner only), archive old sprint, commit, push.
 
 ## Quick Ref
-dotnet build -c Release
+dotnet publish -c Release — ALWAYS publish, never just build (deploy script reads from publish/)
 ./scripts/emby-control.sh {start|stop|reset} — ALWAYS use this, NEVER sudo/systemctl
 
 High-risk files (require human review): Plugin.cs, DatabaseManager.cs, any auth/resolution code.
@@ -53,6 +53,7 @@ High-risk files (require human review): Plugin.cs, DatabaseManager.cs, any auth/
 - Only a single `CREATE TABLE IF NOT EXISTS` with bare-minimum columns + JSON fields.
 - All schema changes must be manual and destructive (drop & recreate is fine).
 - Never re-introduce `MigrateSchema`, `ALTER TABLE`, version tables, or positional column handling.
+- **Emby's SQLitePCL does NOT support**: expression defaults (`DEFAULT (datetime('now'))`, `DEFAULT (lower(hex(randomblob(16))))`), expression UNIQUE constraints (`UNIQUE(aio_id, COALESCE(...))`), or expression indexes (`CREATE INDEX ... ON t(expr)`). Use plain defaults only; provide values in code.
 
 ### Row Mapper Rules
 - **`SELECT *` queries**: MUST use name-based column lookup via `ColMap(table)` + `GetStr/GetReqStr/GetInt/...` helpers. Column order depends on DDL and is not stable.
