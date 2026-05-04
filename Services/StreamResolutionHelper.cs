@@ -66,8 +66,7 @@ namespace InfiniteDrive.Services
                     logger.LogDebug("[InfiniteDrive] Trying provider {Name} for {Imdb}",
                         providerKey, req.Imdb);
 
-                    using var client = new AioStreamsClient(
-                        provider.Url, provider.Uuid, provider.Token, logger);
+                    using var client = AioStreamsClientFactory.CreateForProvider(provider, logger);
                     AioStreamsStreamResponse? response;
 
                     if (req.Season.HasValue && req.Episode.HasValue)

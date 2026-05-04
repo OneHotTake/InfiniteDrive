@@ -798,59 +798,41 @@ namespace InfiniteDrive.Services
         {
             var results = new List<ProviderHealthEntry>();
 
-            // Test Primary
             if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
-            {
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                try
-                {
-                    var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
-                    using var client = new AioStreamsClient(url ?? string.Empty, uuid ?? string.Empty, token ?? string.Empty, _logger);
-                    using var cts = new CancellationTokenSource(5_000);
-                    var (ok, err) = await client.TestConnectionAsync(cts.Token);
-                    sw.Stop();
-                    results.Add(new ProviderHealthEntry
-                    {
-                        DisplayName = "Primary",
-                        Ok = ok,
-                        LatencyMs = (int)sw.ElapsedMilliseconds,
-                        Message = ok ? "Connected" : (err ?? "Failed")
-                    });
-                }
-                catch (Exception ex)
-                {
-                    sw.Stop();
-                    results.Add(new ProviderHealthEntry { DisplayName = "Primary", Ok = false, LatencyMs = (int)sw.ElapsedMilliseconds, Message = ex.Message });
-                }
-            }
+                results.Add(await TestProviderAsync("Primary", config.PrimaryManifestUrl));
 
-            // Test Secondary
             if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-            {
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                try
-                {
-                    var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
-                    using var client = new AioStreamsClient(url ?? string.Empty, uuid ?? string.Empty, token ?? string.Empty, _logger);
-                    using var cts = new CancellationTokenSource(5_000);
-                    var (ok, err) = await client.TestConnectionAsync(cts.Token);
-                    sw.Stop();
-                    results.Add(new ProviderHealthEntry
-                    {
-                        DisplayName = "Secondary",
-                        Ok = ok,
-                        LatencyMs = (int)sw.ElapsedMilliseconds,
-                        Message = ok ? "Connected" : (err ?? "Failed")
-                    });
-                }
-                catch (Exception ex)
-                {
-                    sw.Stop();
-                    results.Add(new ProviderHealthEntry { DisplayName = "Secondary", Ok = false, LatencyMs = (int)sw.ElapsedMilliseconds, Message = ex.Message });
-                }
-            }
+                results.Add(await TestProviderAsync("Secondary", config.SecondaryManifestUrl));
 
             return results;
+        }
+
+        /// <summary>
+        /// Tests a single provider manifest URL for connectivity.
+        /// </summary>
+        private async Task<ProviderHealthEntry> TestProviderAsync(string displayName, string manifestUrl)
+        {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                using var client = AioStreamsClientFactory.TryCreateForManifest(manifestUrl, _logger)
+                    ?? throw new InvalidOperationException("Failed to parse manifest URL");
+                using var cts = new CancellationTokenSource(5_000);
+                var (ok, err) = await client.TestConnectionAsync(cts.Token);
+                sw.Stop();
+                return new ProviderHealthEntry
+                {
+                    DisplayName = displayName,
+                    Ok = ok,
+                    LatencyMs = (int)sw.ElapsedMilliseconds,
+                    Message = ok ? "Connected" : (err ?? "Failed")
+                };
+            }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                return new ProviderHealthEntry { DisplayName = displayName, Ok = false, LatencyMs = (int)sw.ElapsedMilliseconds, Message = ex.Message };
+            }
         }
 
         /// <summary>
@@ -863,10 +845,8 @@ namespace InfiniteDrive.Services
 
             try
             {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
-                if (string.IsNullOrEmpty(url)) return names;
-
-                using var client = new AioStreamsClient(url, uuid ?? "", token ?? "", _logger);
+                using var client = AioStreamsClientFactory.TryCreateForManifest(config.PrimaryManifestUrl, _logger);
+                if (client == null) return names;
                 using var cts = new CancellationTokenSource(5_000);
                 var manifest = await client.GetManifestAsync(cts.Token);
                 if (manifest?.Catalogs == null) return names;

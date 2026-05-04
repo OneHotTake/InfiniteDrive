@@ -23,7 +23,7 @@ namespace InfiniteDrive.Services
         private readonly PluginConfiguration _config;
 
         // Grace period configuration
-        private readonly TimeSpan _gracePeriod = TimeSpan.FromDays(7);
+        private static readonly TimeSpan _gracePeriod = GracePeriodPolicy.Duration;
 
         public RemovalService(
             DatabaseManager db,
@@ -111,7 +111,7 @@ namespace InfiniteDrive.Services
             // CRITICAL: This MUST be a single JOIN query
             var hasEnabledSource = await _db.ItemHasEnabledSourceAsync(itemId, ct);
 
-            if (hasEnabledSource || item.Saved || item.Blocked)
+            if (GracePeriodPolicy.IsProtected(item, hasEnabledSource))
             {
                 // Item should not be removed, cancel grace period
                 item.GraceStartedAt = null;

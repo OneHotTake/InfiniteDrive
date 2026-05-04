@@ -116,9 +116,9 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// The cooldown kind to use for WaitAsync calls. Default: StreamResolve.
-        /// Callers can set this to CatalogFetch or Enrichment for different delay profiles.
+        /// Callers can set this to SeriesMeta for different delay profiles.
         /// </summary>
-        public CooldownKind ActiveCooldownKind { get; set; } = CooldownKind.StreamResolve;
+        public CooldownKind ActiveCooldownKind { get; set; } = CooldownKind.Default;
 
         // ── Constructor ─────────────────────────────────────────────────────────
 

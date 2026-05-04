@@ -541,12 +541,7 @@ namespace InfiniteDrive.Data
                 FROM catalog_items
                 WHERE local_source = @local_source AND removed_at IS NULL;";
 
-            using var conn = OpenConnection();
-            using var stmt = conn.PrepareStatement(sql);
-            BindText(stmt, "@local_source", localSource);
-            foreach (var row in stmt.AsRows())
-                return Task.FromResult(row.IsDBNull(0) ? 0 : row.GetInt(0));
-            return Task.FromResult(0);
+            return QueryScalarIntAsync(sql, cmd => BindText(cmd, "@local_source", localSource));
         }
 
         /// <summary>
@@ -563,11 +558,7 @@ namespace InfiniteDrive.Data
                   AND strm_path IS NOT NULL
                   AND removed_at IS NULL;";
 
-            using var conn = OpenConnection();
-            using var stmt = conn.PrepareStatement(sql);
-            foreach (var row in stmt.AsRows())
-                return Task.FromResult(row.IsDBNull(0) ? 0 : row.GetInt(0));
-            return Task.FromResult(0);
+            return QueryScalarIntAsync(sql);
         }
 
         /// <summary>
@@ -916,11 +907,7 @@ namespace InfiniteDrive.Data
                 FROM catalog_items
                 WHERE removed_at IS NULL;";
 
-            using var conn = OpenConnection();
-            using var stmt = conn.PrepareStatement(sql);
-            foreach (var row in stmt.AsRows())
-                return Task.FromResult(row.IsDBNull(0) ? 0 : row.GetInt(0));
-            return Task.FromResult(0);
+            return QueryScalarIntAsync(sql);
         }
 
         /// <summary>

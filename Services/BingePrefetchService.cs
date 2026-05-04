@@ -40,8 +40,7 @@ namespace InfiniteDrive.Services
 
                     try
                     {
-                        using var client = new AioStreamsClient(
-                            provider.Url, provider.Uuid, provider.Token, logger);
+                        using var client = AioStreamsClientFactory.CreateForProvider(provider, logger);
 
                         var response = await client.GetSeriesStreamsAsync(imdbId, season, episode + 1);
 

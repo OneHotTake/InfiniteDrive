@@ -78,7 +78,7 @@ namespace InfiniteDrive.Services
             // Throttle via cooldown gate
             if (_cooldown != null)
             {
-                try { await _cooldown.WaitAsync(CooldownKind.CatalogFetch, ct); }
+                try { await _cooldown.WaitAsync(CooldownKind.Default, ct); }
                 catch (OperationCanceledException) { return Fail(catalogId, "Cancelled", sw); }
             }
 
