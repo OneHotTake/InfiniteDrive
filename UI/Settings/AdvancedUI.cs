@@ -1,6 +1,9 @@
+using System.Collections.Generic;
 using System.ComponentModel;
 using Emby.Web.GenericEdit;
+using Emby.Web.GenericEdit.Common;
 using Emby.Web.GenericEdit.Elements;
+using Emby.Web.GenericEdit.Elements.List;
 using MediaBrowser.Model.Attributes;
 
 namespace InfiniteDrive.UI.Settings
@@ -33,7 +36,15 @@ namespace InfiniteDrive.UI.Settings
 
         [DisplayName("Log Level")]
         [Description("Minimum log verbosity level for InfiniteDrive. Default: Info.")]
+        [SelectItemsSource(nameof(LogLevelOptions))]
         public string PluginLogLevel { get; set; } = "Info";
+
+        [Browsable(false)]
+        public IEnumerable<EditorSelectOption> LogLevelOptions { get; set; } = new List<EditorSelectOption>
+        {
+            new() { Value = "Info", Name = "Info" },
+            new() { Value = "Debug", Name = "Debug" },
+        };
 
         public ButtonItem ClearCacheButton { get; set; } = new ButtonItem("Clear All Caches")
         {
