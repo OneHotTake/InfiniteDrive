@@ -135,3 +135,12 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Services/StrmWriterService.cs — deleted duplicate WriteEpisodeStrm, extracted BuildEpisodePath helper
 - Services/StreamHelpers.cs — deleted dead ExponentialBackoffMs
 - Services/CandidateNormalizer.cs — removed dead NormalizeStreams/BuildCandidate and 5 helper methods
+
+## Sprint 518 Complete (2026-05-04)
+- M-07: 3 sync-as-async DB methods → QueryScalarIntAsync with parameter binding overload
+- M-08: CooldownKind enum collapsed from 4 values → 2 (Default, SeriesMeta)
+- M-02: GracePeriodPolicy static class extracted from RemovalPipeline + RemovalService
+- M-01b: TestProviderAsync helper extracted in StatusService (2 duplicate blocks → 1 method)
+- M-05: AioStreamsClientFactory.CreateForProvider + TryCreateForManifest; 9 call sites routed through factory
+- AioImageProvider: deleted duplicate GetConfiguredProviders, now uses ProviderHelper.GetProviders
+- Net: -34 lines across 17 files + 1 new file (Models/GracePeriodPolicy.cs)

@@ -161,8 +161,8 @@ namespace InfiniteDrive.Tasks
             }
 
             // Build client from the specific manifest URL
-            var (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(manifestUrl);
-            if (string.IsNullOrWhiteSpace(baseUrl))
+            using var client = AioStreamsClientFactory.TryCreateForManifest(manifestUrl, logger);
+            if (client == null)
             {
                 result.ProviderReachable = false;
                 result.ErrorMessage = "AIOStreams URL could not be parsed";
@@ -170,9 +170,8 @@ namespace InfiniteDrive.Tasks
                 return result;
             }
 
-            using var client = new AioStreamsClient(baseUrl, uuid, token, logger);
             client.Cooldown = Plugin.Instance?.CooldownGate;
-            client.ActiveCooldownKind = CooldownKind.CatalogFetch;
+            client.ActiveCooldownKind = CooldownKind.Default;
             if (!client.IsConfigured)
             {
                 result.ProviderReachable = false;

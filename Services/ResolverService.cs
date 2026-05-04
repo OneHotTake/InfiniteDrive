@@ -220,8 +220,7 @@ namespace InfiniteDrive.Services
 
                 try
                 {
-                    using var client = new AioStreamsClient(
-                        provider.Url, provider.Uuid, provider.Token, _logger);
+                    using var client = AioStreamsClientFactory.CreateForProvider(provider, _logger);
 
                     AioStreamsStreamResponse? response;
 

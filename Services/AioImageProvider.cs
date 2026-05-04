@@ -239,22 +239,22 @@ namespace InfiniteDrive.Services
             var (type, id) = ResolveMetaQuery(item);
             if (string.IsNullOrEmpty(id)) return null;
 
-            foreach (var (url, uuid, token, name) in GetConfiguredProviders(config))
+            foreach (var provider in ProviderHelper.GetProviders(config))
             {
                 try
                 {
-                    using var client = new AioStreamsClient(url, uuid, token, _logger);
+                    using var client = AioStreamsClientFactory.CreateForProvider(provider, _logger);
                     var response = await client.GetMetaAsyncTyped(type, id, ct).ConfigureAwait(false);
                     if (response?.Meta != null)
                     {
-                        _logger.LogDebug("[AioImageProvider] Live meta from {Provider} for {Name}", name, item.Name);
+                        _logger.LogDebug("[AioImageProvider] Live meta from {Provider} for {Name}", provider.DisplayName, item.Name);
                         await CacheMetaToDbAsync(response.Meta, item, ct).ConfigureAwait(false);
                         return response.Meta;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogDebug(ex, "[AioImageProvider] Live meta failed from {Provider}", name);
+                    _logger.LogDebug(ex, "[AioImageProvider] Live meta failed from {Provider}", provider.DisplayName);
                 }
             }
 
@@ -307,26 +307,6 @@ namespace InfiniteDrive.Services
             }
         }
 
-        private static List<(string url, string uuid, string token, string name)> GetConfiguredProviders(PluginConfiguration config)
-        {
-            var list = new List<(string, string, string, string)>();
-
-            if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                    list.Add((url, uuid ?? "", token ?? "", "Primary"));
-            }
-
-            if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-            {
-                var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
-                if (!string.IsNullOrWhiteSpace(url))
-                    list.Add((url, uuid ?? "", token ?? "", "Secondary"));
-            }
-
-            return list;
-        }
 
         private static float? ParseRating(string? rating)
         {

@@ -20,7 +20,7 @@ namespace InfiniteDrive.Services
         private readonly ILogger<RemovalPipeline> _logger;
 
         // Grace period configuration
-        private readonly TimeSpan _gracePeriod = TimeSpan.FromDays(7);
+        private static readonly TimeSpan _gracePeriod = GracePeriodPolicy.Duration;
 
         public RemovalPipeline(
             RemovalService service,
@@ -93,7 +93,7 @@ namespace InfiniteDrive.Services
             var hasEnabledSource = await _db.ItemHasEnabledSourceAsync(item.Id, ct);
 
             // Check saved/blocked boolean columns (NOT status enum)
-            if (hasEnabledSource || item.Saved || item.Blocked)
+            if (GracePeriodPolicy.IsProtected(item, hasEnabledSource))
             {
                 // Item should not be removed, cancel grace period
                 item.GraceStartedAt = null;

@@ -101,7 +101,7 @@ namespace InfiniteDrive.Services
 
                 // Pre-call throttle via CooldownGate (Sprint 155)
                 if (Cooldown != null)
-                    await Cooldown.WaitAsync(CooldownKind.Enrichment, linkedCts.Token);
+                    await Cooldown.WaitAsync(CooldownKind.Default, linkedCts.Token);
 
                 var response = await _httpClient.GetAsync(url, linkedCts.Token);
 

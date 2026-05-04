@@ -15,7 +15,7 @@ namespace InfiniteDrive.Services
     /// <summary>
     /// Category of HTTP operation. Each kind maps to a different base delay in the profile.
     /// </summary>
-    public enum CooldownKind { CatalogFetch, StreamResolve, Enrichment, SeriesMeta }
+    public enum CooldownKind { Default, SeriesMeta }
 
     /// <summary>
     /// Throttle constants per instance type.

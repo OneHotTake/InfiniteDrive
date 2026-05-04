@@ -1095,9 +1095,7 @@ namespace InfiniteDrive.Tasks
         private AioStreamsClient? BuildClientForManifest(string? manifestUrl)
         {
             if (string.IsNullOrEmpty(manifestUrl)) return null;
-            var (baseUrl, uuid, token) = AioStreamsClient.TryParseManifestUrl(manifestUrl);
-            if (string.IsNullOrEmpty(baseUrl)) return null;
-            return new AioStreamsClient(baseUrl, uuid, token, _logger);
+            return AioStreamsClientFactory.TryCreateForManifest(manifestUrl, _logger);
         }
 
         /// <summary>

@@ -289,8 +289,17 @@ namespace InfiniteDrive.Data
         /// </summary>
         public Task<int> QueryScalarIntAsync(string sql, CancellationToken cancellationToken = default)
         {
+            return QueryScalarIntAsync(sql, null, cancellationToken);
+        }
+
+        /// <summary>
+        /// Queries for a scalar integer value with parameter binding.
+        /// </summary>
+        public Task<int> QueryScalarIntAsync(string sql, Action<IStatement>? bindParams, CancellationToken cancellationToken = default)
+        {
             using var conn = OpenConnection();
             using var stmt = conn.PrepareStatement(sql);
+            bindParams?.Invoke(stmt);
 
             foreach (var row in stmt.AsRows())
                 return Task.FromResult(row.IsDBNull(0) ? 0 : row.GetInt(0));
