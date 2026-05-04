@@ -205,12 +205,10 @@ namespace InfiniteDrive.Services
                         Id = Guid.NewGuid().ToString("N"),
                         Name = token.ProviderName ?? "Stream",
                         Path = token.Url,
-                        Type = MediaSourceType.Placeholder,
                         Protocol = MediaProtocol.Http,
                         SupportsDirectPlay = true,
                         SupportsDirectStream = true,
-                        RequiresOpening = true,
-                        SupportsProbing = true,
+                        RequiresOpening = false,
                     };
                     if (!string.IsNullOrEmpty(token.HeadersJson))
                     {
@@ -222,14 +220,40 @@ namespace InfiniteDrive.Services
                         catch { }
                     }
 
-                    // Container + MediaStreams from filename
+                    // Container from filename
                     if (!string.IsNullOrEmpty(token.FileName))
                     {
                         var ext = System.IO.Path.GetExtension(token.FileName)?.TrimStart('.');
                         if (!string.IsNullOrEmpty(ext))
                             source.Container = ext;
                     }
-                    source.MediaStreams = BuildStreamsFromFilename(token.FileName);
+
+                    // ffprobe the selected stream for real metadata
+                    if (!string.IsNullOrEmpty(token.Url))
+                    {
+                        try
+                        {
+                            using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                            probeCts.CancelAfter(TimeSpan.FromSeconds(8));
+                            var probed = await CdnProber.ProbeAsync(token.Url, _logger, probeCts.Token).ConfigureAwait(false);
+                            if (probed != null && probed.Count > 1)
+                            {
+                                source.MediaStreams = probed;
+                                // Cache probe result
+                                var sk = !string.IsNullOrEmpty(token.InfoHash)
+                                    ? $"{token.InfoHash}:{token.FileIdx}" : null;
+                                if (!string.IsNullOrEmpty(sk))
+                                {
+                                    var json = SerializeProbeStreams(probed);
+                                    var db = Plugin.Instance?.DatabaseManager;
+                                    if (db != null) _ = db.SaveProbeJsonAsync(sk, json);
+                                }
+                            }
+                        }
+                        catch { /* fallback below */ }
+                    }
+                    if (source.MediaStreams == null || source.MediaStreams.Count == 0)
+                        source.MediaStreams = BuildStreamsFromFilename(token.FileName);
 
                     var cachedStreamKey = !string.IsNullOrEmpty(token.InfoHash)
                         ? $"{token.InfoHash}:{token.FileIdx}"
@@ -280,18 +304,16 @@ namespace InfiniteDrive.Services
                 Id = Guid.NewGuid().ToString("N"),
                 Name = token.ProviderName ?? "Stream",
                 Path = match.Url,
-                Type = MediaSourceType.Placeholder,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
-                RequiresOpening = true,
-                SupportsProbing = true,
+                RequiresOpening = false,
             };
 
             if (match.Headers != null)
                 freshSource.RequiredHttpHeaders = match.Headers;
 
-            // Container + MediaStreams from filename
+            // Container from filename
             var freshFileName = match.BehaviorHints?.Filename ?? token.FileName;
             if (!string.IsNullOrEmpty(freshFileName))
             {
@@ -299,7 +321,33 @@ namespace InfiniteDrive.Services
                 if (!string.IsNullOrEmpty(ext))
                     freshSource.Container = ext;
             }
-            freshSource.MediaStreams = BuildStreamsFromFilename(freshFileName);
+
+            // ffprobe the selected stream for real metadata
+            if (!string.IsNullOrEmpty(match.Url))
+            {
+                try
+                {
+                    using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    probeCts.CancelAfter(TimeSpan.FromSeconds(8));
+                    var probed = await CdnProber.ProbeAsync(match.Url, _logger, probeCts.Token).ConfigureAwait(false);
+                    if (probed != null && probed.Count > 1)
+                    {
+                        freshSource.MediaStreams = probed;
+                        // Cache probe result
+                        var sk = !string.IsNullOrEmpty(token.InfoHash)
+                            ? $"{token.InfoHash}:{token.FileIdx}" : null;
+                        if (!string.IsNullOrEmpty(sk))
+                        {
+                            var json = SerializeProbeStreams(probed);
+                            var db = Plugin.Instance?.DatabaseManager;
+                            if (db != null) _ = db.SaveProbeJsonAsync(sk, json);
+                        }
+                    }
+                }
+                catch { /* fallback below */ }
+            }
+            if (freshSource.MediaStreams == null || freshSource.MediaStreams.Count == 0)
+                freshSource.MediaStreams = BuildStreamsFromFilename(freshFileName);
 
             var freshStreamKey = !string.IsNullOrEmpty(token.InfoHash)
                 ? $"{token.InfoHash}:{token.FileIdx}"
@@ -554,7 +602,18 @@ namespace InfiniteDrive.Services
                 catch { /* non-fatal */ }
             }
 
-            // MediaStreams set by ApplyCachedProbesAsync + fire-and-forget background probing
+            // Load cached ffprobe data for dropdown display
+            if (!string.IsNullOrEmpty(candidate.ProbeJson))
+            {
+                try
+                {
+                    var probed = DeserializeProbeStreams(candidate.ProbeJson);
+                    if (probed != null && probed.Count > 1)
+                        source.MediaStreams = probed;
+                }
+                catch { /* non-fatal */ }
+            }
+
             return source;
         }
 
@@ -686,7 +745,7 @@ namespace InfiniteDrive.Services
             }
         }
 
-        private Task<MediaSourceInfo> BuildSourceFromCandidateAsync(
+        private async Task<MediaSourceInfo> BuildSourceFromCandidateAsync(
             OpenTokenCandidate cand, string imdbId, CancellationToken ct)
         {
             var name = $"Stream #{cand.Rank + 1}";
@@ -695,39 +754,61 @@ namespace InfiniteDrive.Services
                 Id = Guid.NewGuid().ToString("N"),
                 Name = name,
                 Path = cand.Url ?? "",
-                Type = MediaSourceType.Placeholder,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
-                RequiresOpening = true,
+                RequiresOpening = false,
                 IsInfiniteStream = false,
-                SupportsProbing = true,
             };
 
             if (cand.Size.HasValue) source.Size = cand.Size.Value;
             if (cand.Headers != null) source.RequiredHttpHeaders = cand.Headers;
 
-            // Container + MediaStreams from filename — Emby does NOT probe ILiveStream sources,
-            // so we must provide enough info for direct play / transcode decisions.
+            // Container from filename
             if (!string.IsNullOrEmpty(cand.FileName))
             {
                 var ext = System.IO.Path.GetExtension(cand.FileName)?.TrimStart('.');
                 if (!string.IsNullOrEmpty(ext))
                     source.Container = ext;
-
-                source.MediaStreams = BuildStreamsFromFilename(cand.FileName);
             }
-            else
+
+            // Emby does NOT probe ILiveStream sources.
+            // Run ffprobe on the selected CDN URL to get real stream metadata.
+            // Only probes the ONE stream the user selected — no storm.
+            if (!string.IsNullOrEmpty(cand.Url))
             {
-                source.MediaStreams = new List<MediaStream>
+                try
                 {
-                    new MediaStream { Type = MediaStreamType.Video, Index = 0 },
-                    new MediaStream { Type = MediaStreamType.Audio, Index = 1 },
-                };
+                    using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                    probeCts.CancelAfter(TimeSpan.FromSeconds(8));
+                    var probed = await CdnProber.ProbeAsync(cand.Url, _logger, probeCts.Token).ConfigureAwait(false);
+                    if (probed != null && probed.Count > 1)
+                    {
+                        source.MediaStreams = probed;
+                        _logger.LogInformation("[AioMediaSourceProvider] ffprobe got {Count} streams for rank {Rank}",
+                            probed.Count, cand.Rank);
+                        // Cache probe result for dropdown display
+                        if (!string.IsNullOrEmpty(cand.StreamKey))
+                        {
+                            var json = SerializeProbeStreams(probed);
+                            var db = Plugin.Instance?.DatabaseManager;
+                            if (db != null)
+                                _ = db.SaveProbeJsonAsync(cand.StreamKey, json);
+                        }
+                        return source;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[AioMediaSourceProvider] ffprobe failed for rank {Rank}, using filename fallback", cand.Rank);
+                }
             }
 
-            return Task.FromResult(source);
+            // Fallback: parse what we can from filename
+            source.MediaStreams = BuildStreamsFromFilename(cand.FileName);
+
+            return source;
         }
 
         /// <summary>
@@ -963,12 +1044,9 @@ namespace InfiniteDrive.Services
                     Id = best.Id ?? Guid.NewGuid().ToString("N"),
                     Name = FormatCandidateName(best),
                     Path = best.Url!,
-                    Type = MediaSourceType.Placeholder,
                     Protocol = MediaProtocol.Http,
                     SupportsDirectPlay = true,
                     SupportsDirectStream = true,
-                    RequiresOpening = true,
-                    SupportsProbing = true,
                 };
                 if (!string.IsNullOrEmpty(best.HeadersJson))
                 {
@@ -982,7 +1060,30 @@ namespace InfiniteDrive.Services
                     if (!string.IsNullOrEmpty(ext))
                         source.Container = ext;
                 }
-                source.MediaStreams = BuildStreamsFromFilename(best.FileName);
+
+                // ffprobe the selected stream for real metadata
+                if (!string.IsNullOrEmpty(best.Url))
+                {
+                    try
+                    {
+                        using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                        probeCts.CancelAfter(TimeSpan.FromSeconds(8));
+                        var probed = await CdnProber.ProbeAsync(best.Url, _logger, probeCts.Token).ConfigureAwait(false);
+                        if (probed != null && probed.Count > 1)
+                        {
+                            source.MediaStreams = probed;
+                            if (!string.IsNullOrEmpty(best.StreamKey))
+                            {
+                                var json = SerializeProbeStreams(probed);
+                                var db = Plugin.Instance?.DatabaseManager;
+                                if (db != null) _ = db.SaveProbeJsonAsync(best.StreamKey, json);
+                            }
+                        }
+                    }
+                    catch { /* fallback below */ }
+                }
+                if (source.MediaStreams == null || source.MediaStreams.Count == 0)
+                    source.MediaStreams = BuildStreamsFromFilename(best.FileName);
 
                 var liveStream = new InfiniteDriveLiveStream(source, _logger);
                 await liveStream.Open(ct).ConfigureAwait(false);
