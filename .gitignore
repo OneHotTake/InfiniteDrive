@@ -47,3 +47,7 @@ test-config.json
 .dual-graph/
 libs/
 _retired/
+
+# Tool config / debug artifacts
+.opencode/
+playback*.txt
