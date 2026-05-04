@@ -1,12 +1,12 @@
 # InfiniteDrive — Service Inventory
 
-> Last reconciled: 2026-04-23 (Sprint 410: RequiresOpening Pipeline)
+> Last reconciled: 2026-05-04 (post-Sprint 516)
 
 ## Decomposed API Endpoints (Services/Api/)
 
-The monolithic `StatusService.cs` (2655 lines) was decomposed in Sprint 357 into four files:
+The monolithic `StatusService.cs` was decomposed into individual endpoint services. Each is a self-contained class handling one domain.
 
-### StatusService.cs (812 lines)
+### StatusService.cs
 
 **Route:** `/InfiniteDrive/Status`
 **Purpose:** Plugin status information endpoint.
@@ -15,7 +15,7 @@ The monolithic `StatusService.cs` (2655 lines) was decomposed in Sprint 357 into
 |--------|-------------|
 | `GetStatus()` | Returns current plugin status as JSON |
 
-### CatalogEndpoints.cs (520 lines)
+### CatalogEndpoints.cs
 
 **Route:** `/InfiniteDrive/Catalogs`
 **Purpose:** Catalog management and inspection.
@@ -26,27 +26,7 @@ The monolithic `StatusService.cs` (2655 lines) was decomposed in Sprint 357 into
 | `CatalogProgressService` | Progress streaming for catalog syncs |
 | `InspectService` | Catalog item inspection |
 
-### DiagnosticsEndpoints.cs (1020 lines)
-
-**Route:** `/InfiniteDrive/Health`, `/InfiniteDrive/Diagnostics`, and related
-**Purpose:** Health checks, diagnostics, debugging.
-
-| Class | Key Methods |
-|-------|-------------|
-| `HealthService` | `GetHealth()` — returns `HealthResponse` with manifest status, stream resolution stats, and `ActivePipeline` |
-| `PanicService` | Emergency reset/cleanup |
-| `DbStatsService` | Database statistics |
-| `RecentErrorsService` | Recent error log retrieval |
-| `UnhealthyItemsService` | Items in failed states |
-| `RawStreamsService` | Raw stream data inspection |
-| `DebugSeedMatrixService` | Debug matrix for seed items |
-| `DebugCatalogCountService` | Catalog count verification |
-| `AnimePluginStatusService` | Anime plugin status |
-| `TestUrlService` | URL connectivity testing |
-| `AnswerService` | Health check responses |
-| `MarvinService` | Marvin task status queries |
-
-### SearchEndpoints.cs (334 lines)
+### SearchEndpoints.cs
 
 **Route:** `/InfiniteDrive/Search`, `/InfiniteDrive/RefreshManifest`
 **Purpose:** Content search and manifest refresh.
@@ -56,101 +36,89 @@ The monolithic `StatusService.cs` (2655 lines) was decomposed in Sprint 357 into
 | `SearchService` | `GetSearch()` — searches AIOStreams catalogs |
 | `RefreshManifestService` | `GetRefreshManifest()`, `PostRefreshManifest()` — force-refresh manifest from configured URL |
 
+### Diagnostics Endpoints (decomposed into individual services)
+
+Each class is a standalone service file under `Services/Api/`:
+
+| Service | Route / Purpose |
+|---------|----------------|
+| `HealthService` | `/InfiniteDrive/Health` — health response with manifest status, stream resolution stats, `ActivePipeline` |
+| `PanicService` | Emergency reset/cleanup |
+| `DbStatsService` | Database statistics |
+| `RecentErrorsService` | Recent error log retrieval |
+| `UnhealthyItemsService` | Items in failed states |
+| `RawStreamsService` | Raw stream data inspection |
+| `MarvinService` | Marvin task status queries |
+| `TestUrlService` | URL connectivity testing |
+| `AnswerService` | Health check responses |
+| `AnimePluginStatusService` | Anime plugin status |
+
 ## Core Business Services (Services/)
 
-### NamingPolicyService (static)
+### AioMediaSourceProvider (3-file partial class)
 
-**Purpose:** Single source of truth for filesystem naming conventions. Sprint 354.
+**Purpose:** Populates Emby's version picker with live AIOStreams streams. Implements `IMediaSourceProvider`. Secure playback via `RequiresOpening = true`.
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `BuildFolderName` | `(string title, int? year, string? imdbId, string? tmdbId, string? tvdbId, string mediaType) → string` | Emby auto-match: `{Title} ({Year}) [imdbid-{id}]` |
-| `BuildFolderName` | `(string title, int? year, string? imdbId) → string` | Convenience overload |
-| `BuildFolderName` | `(CatalogItem item) → string` | Convenience overload |
-| `SanitisePath` | `(string input) → string` | Removes filesystem-unsafe characters |
+| File | Lines | Purpose |
+|------|-------|---------|
+| `AioMediaSourceProvider.cs` | 966 | `GetMediaSources()` — main entry point |
+| `AioMediaSourceProvider.Open.cs` | 430 | `OpenMediaSource()` — CDN URL materialization |
+| `AioMediaSourceProvider.StreamBuilding.cs` | 389 | Stream builder helpers |
 
-**ID priority:** IMDb (tt prefix) > TVDB (series/anime) > TMDB > title+year only.
+| Method | Description |
+|--------|-------------|
+| `GetMediaSources(item, ct)` | Returns `List<MediaSourceInfo>` with `RequiresOpening = true`, `OpenToken` = CDN URL |
+| `OpenMediaSource(openToken, currentLiveStreams, ct)` | Validates token, returns `InfiniteDriveLiveStream` with materialized `MediaSourceInfo` |
+| `MapStreamToSource(stream)` | Maps `AioStreamsStream` to `MediaSourceInfo` |
+| `MapCandidateToSource(candidate)` | Maps `StreamCandidate` to `MediaSourceInfo` |
 
-### NfoWriterService (static)
+**Security:**
+- `GetMediaSources()` sets `RequiresOpening = true`, `Path = ""`, `OpenToken = cdnUrl`
+- CDN URLs never appear in picker display
+- `OpenMediaSource()` validates token is HTTP/HTTPS URL, materializes CDN URL
 
-**Purpose:** Single authority for all NFO file generation. Sprint 356. Two quality levels.
+### ResolverService (2-file partial class)
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `WriteSeedNfo` | `(string strmPath, CatalogItem item, string? sourceType)` | Minimal NFO: IDs + title. For initial discovery. |
-| `WriteSeedEpisodeNfo` | `(string strmPath, string seriesTitle, int season, int episode, string? episodeTitle)` | Minimal episode NFO |
-| `WriteEnrichedNfo` | `(string nfoPath, AioEnrichedMeta meta, CatalogItem item)` | Full metadata NFO with cast, plot, ratings |
+| File | Lines | Purpose |
+|------|-------|---------|
+| `ResolverService.cs` | 349 | Resolve endpoint handler |
+| `ResolverService.Cache.cs` | 267 | Cache read/write operations |
 
-All XML encoding uses `SecurityElement.Escape`. No manual escaping anywhere.
+### AioStreamsClient + Factory
 
-### MetadataEnrichmentService (static)
+**AioStreamsClient.cs** (882 lines) — HTTP client for AIOStreams API calls.
 
-**Purpose:** Shared retry/backoff/rate-limit logic for metadata enrichment. Sprint 359.
+**AioStreamsClientFactory** — Factory pattern for creating client instances:
 
-**Retry schedule:** 4h → 24h → block at 3 retries. 2s delay between API calls. 429 breaks immediately.
+| Method | Description |
+|--------|-------------|
+| `Create()` | Create default client |
+| `CreateForProvider()` | Create client for a specific provider |
+| `TryCreateForManifest()` | Create client from manifest URL, with auto-detection |
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `EnrichBatchAsync` | `(List<EnrichmentRequest>, Func<EnrichmentRequest, CT, Task<EnrichedMetadata?>>, DatabaseManager, ILogger, CT) → Task<EnrichmentResult>` | Batch enrichment with retry gating |
+### StreamCacheService
 
-**Input DTO:** `EnrichmentRequest` — see [DTO_SCHEMAS.md](DTO_SCHEMAS.md).
-**Output:** `EnrichmentResult(EnrichedCount, BlockedCount, SkippedCount)`.
-
-### ManifestState (instance, on Plugin.Manifest)
-
-**Purpose:** Single authority for manifest status and staleness. Sprint 360.
-
-| Property/Method | Type | Description |
-|----------------|------|-------------|
-| `Status` | `ManifestStatusState` | Current status enum (Error/NotConfigured/Stale/Ok) |
-| `FetchedAt` | `DateTimeOffset` | Timestamp of last successful fetch |
-| `CheckStale()` | `void` | Sets Status to Stale if > 12 hours since FetchedAt |
-
-**Access pattern:** `Plugin.Manifest.Status`, `Plugin.Manifest.FetchedAt`, `Plugin.Manifest.CheckStale()`.
-**Replaces:** `Plugin.GetManifestStatus()`, `Plugin.SetManifestStatus()`, `Plugin.CheckManifestStale()`, `Plugin.ManifestFetchedAt` — all deleted.
-
-### PipelinePhaseTracker (instance, on Plugin.Pipeline)
-
-**Purpose:** Real-time task phase visibility for diagnostics and admin UI. Sprint 361.
-
-| Property/Method | Type | Description |
-|----------------|------|-------------|
-| `Current` | `PipelinePhase?` | Thread-safe snapshot of active phase |
-| `SetPhase(taskName, phaseName)` | `void` | Sets current phase, resets progress counters |
-| `ReportProgress(processed, total)` | `void` | Updates progress counters on current phase |
-| `Clear()` | `void` | Nulls current phase (task complete/failed) |
-
-Thread-safety via `Volatile.Read`/`Volatile.Write`. No DB writes, no events.
-
-**DTO:** `PipelinePhase(TaskName, PhaseName, StartedAt, ItemsTotal, ItemsProcessed)` — see [DTO_SCHEMAS.md](DTO_SCHEMAS.md).
-
-### ItemPipelineService
-
-**Purpose:** Manages item lifecycle transitions: Known → Resolved → Hydrated → Created → Indexed → Active.
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `ProcessItemAsync` | `(MediaItem, PipelineTrigger, CT) → Task<ItemPipelineResult>` | Full pipeline for a single item |
-
-**Dependencies:** DatabaseManager, StreamResolver, MetadataHydrator, DigitalReleaseGateService.
-
-### StrmWriterService
-
-**Purpose:** Unified .strm file writer with version slot support.
-
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `WriteAsync` | `(CatalogItem, SourceType, userId?, CT)` | Creates .strm with signed URL |
+**Purpose:** Cached stream read/write and `BuildMediaSources` operations.
 
 ### StreamResolutionHelper
 
 **Purpose:** Shared stream resolution with provider fallback.
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `SyncResolveViaProvidersAsync` | `(…) → Task<ResolutionResult?>` | Resolves via primary → secondary with circuit breaker |
+| Method | Description |
+|--------|-------------|
+| `SyncResolveViaProvidersAsync()` | Resolves via primary then secondary with circuit breaker |
 
 Returns `ResolutionResult` with structured failure modes (Success/Throttled/ContentMissing/ProviderDown).
+
+### StreamHelpers
+
+**File:** `StreamHelpers.cs` (634 lines)
+**Purpose:** Quality/backoff/ranking helpers. Centralized `CooldownGate.ParseRetryAfter` and exponential backoff.
+
+### CandidateNormalizer
+
+**File:** `CandidateNormalizer.cs` (440 lines)
+**Purpose:** Three-tier metadata parser for stream candidates.
 
 ### ResolverHealthTracker
 
@@ -171,119 +139,108 @@ Returns `ResolutionResult` with structured failure modes (Success/Throttled/Cont
 | `WaitAsync()` | Wait for current cooldown |
 | `SetActiveCooldownKind(kind)` | Set the active cooldown type |
 
-### ManifestFetcher
+**CooldownKind enum:** `Default`, `SeriesMeta` (collapsed from 4 values).
+**InstanceType:** `Shared`, `Private`. Auto-detected from manifest URL.
 
-**Purpose:** Fetches catalog manifests from configured sources.
+### StrmWriterService
 
-| Method | Description |
-|--------|-------------|
-| `FetchManifestAsync(url, ct)` | Fetch single manifest |
-| `FetchAllManifestsAsync(config, ct)` | Fetch all configured manifests |
-
-### SeriesPreExpansionService
-
-**Purpose:** Expands series catalog items to individual episodes before .strm writing.
+**File:** `StrmWriterService.cs` (429 lines)
+**Purpose:** Unified .strm file writer. Pre-cache sources use `Path=""` + `RequiresOpening` + `OpenToken`.
 
 | Method | Description |
 |--------|-------------|
-| `ExpandSeriesAsync(item, ct)` | Expand a series to episodes |
+| `WriteAsync(CatalogItem, SourceType, userId?, CT)` | Creates .strm with signed URL |
 
-### EpisodeDiffService / EpisodeRemovalService
+### NamingPolicyService (static)
 
-**Purpose:** Episode-level diff and removal.
+**Purpose:** Single source of truth for filesystem naming conventions.
 
 | Method | Description |
 |--------|-------------|
-| `DetectChanges(stored, incoming)` | Compare episode lists |
-| `RemoveEpisodeFiles(paths)` | Remove individual .strm files |
+| `BuildFolderName(...)` | Emby auto-match format: `{Title} ({Year}) [imdbid-{id}]` |
+| `SanitisePath(input)` | Removes filesystem-unsafe characters |
+
+**ID priority:** IMDb (tt prefix) > TVDB (series/anime) > TMDB > title+year only.
+
+### NfoWriterService (static)
+
+**Purpose:** Single authority for all NFO file generation. Two quality levels.
+
+| Method | Description |
+|--------|-------------|
+| `WriteSeedNfo(...)` | Minimal NFO: IDs + title. For initial discovery. |
+| `WriteSeedEpisodeNfo(...)` | Minimal episode NFO |
+| `WriteEnrichedNfo(...)` | Full metadata NFO with cast, plot, ratings |
+
+### MetadataEnrichmentService (static)
+
+**Purpose:** Shared retry/backoff/rate-limit logic for metadata enrichment.
+
+**Retry schedule:** 4h -> 24h -> block at 3 retries. 2s delay between API calls. 429 breaks immediately.
+
+| Method | Description |
+|--------|-------------|
+| `EnrichBatchAsync(...)` | Batch enrichment with retry gating |
+
+**Output:** `EnrichmentResult(EnrichedCount, BlockedCount, SkippedCount)`.
+
+### ManifestState (instance, on Plugin.Manifest)
+
+**Purpose:** Single authority for manifest status and staleness.
+
+| Property/Method | Type | Description |
+|----------------|------|-------------|
+| `Status` | `ManifestStatusState` | Current status enum (Error/NotConfigured/Stale/Ok) |
+| `FetchedAt` | `DateTimeOffset` | Timestamp of last successful fetch |
+| `CheckStale()` | `void` | Sets Status to Stale if > 12 hours since FetchedAt |
+
+### PipelinePhaseTracker (instance, on Plugin.Pipeline)
+
+**Purpose:** Real-time task phase visibility for diagnostics and admin UI.
+
+| Property/Method | Type | Description |
+|----------------|------|-------------|
+| `Current` | `PipelinePhase?` | Thread-safe snapshot of active phase |
+| `SetPhase(taskName, phaseName)` | `void` | Sets current phase, resets progress counters |
+| `ReportProgress(processed, total)` | `void` | Updates progress counters on current phase |
+| `Clear()` | `void` | Nulls current phase (task complete/failed) |
+
+### InfiniteDriveLiveStream
+
+**Purpose:** `ILiveStream` wrapper returned from `AioMediaSourceProvider.OpenMediaSource()`. Carries resolved `MediaSourceInfo` for Emby to play directly.
+
+| Member | Description |
+|--------|-------------|
+| `MediaSource` | Resolved CDN stream with `Path = cdnUrl`, `RequiresOpening = false` |
+| `UniqueId` | Unique stream identifier |
+| `EnableStreamSharing` | `false` |
+| `SupportsCopyTo` | `false` |
+
+### GracePeriodPolicy
+
+**File:** `Models/GracePeriodPolicy.cs`
+**Purpose:** Shared removal policy for items pending removal with configurable grace period.
 
 ### DiscoverService
 
 **Purpose:** User-facing Discover UI for browsing and adding content.
 
-| Method | Description |
-|--------|-------------|
-| `Browse(query)` | Browse available content |
-| `Search(query)` | Search by text |
-| `AddToLibrary(itemId, userId)` | Add item to user's library |
-| `RemoveFromLibrary(itemId, userId)` | Remove item from user's library |
-
-Responses include `AudioLanguages` field for previously-resolved items (populated from `stream_candidates.languages`).
-
 ### SavedService
 
 **Purpose:** Per-user saved items management.
 
-| Method | Description |
-|--------|-------------|
-| `SaveItemAsync(userId, itemId, reason)` | Save an item for a user |
-| `UnsaveItemAsync(userId, itemId)` | Unsave an item |
+### SeriesPreExpansionService
 
-### ResolverService / StreamEndpointService
+**Purpose:** Expands series catalog items to individual episodes before .strm writing.
 
-**Purpose:** HTTP endpoint handlers for stream resolution. **DEPRECATED (Sprint 410).**
+### EpisodeDiffService
 
-| Service | Route | Description |
-|---------|-------|-------------|
-| `ResolverService` | `/InfiniteDrive/resolve?token=...` | Sync pipeline movie resolution — DEPRECATED |
-| `StreamEndpointService` | `/InfiniteDrive/Stream?id=...&sig=...` | Series episode streaming — DEPRECATED |
-
-**Deprecated by:** `AioMediaSourceProvider.OpenMediaSource()` with `RequiresOpening = true`. Playback now gated behind Emby's auth layer instead of unauthenticated HMAC tokens.
-
-**Language-aware resolution (Language sprint):** ResolverService uses `IAuthorizationContext` to read the authenticated user's `PreferredMetadataLanguage`. When multiple cached candidates exist with different languages, candidates whose `Languages` field matches the user's preference are selected first. Falls through to rank-order if no match.
-
-### AioMediaSourceProvider
-
-**Purpose:** Populates Emby's version picker with live AIOStreams streams. Implements `IMediaSourceProvider`. Sprint 410: Secure playback via `RequiresOpening = true`.
-
-| Method | Description |
-|--------|-------------|
-| `GetMediaSources(item, ct)` | Returns `List<MediaSourceInfo>` with `RequiresOpening = true`, `OpenToken = cdnUrl` |
-| `OpenMediaSource(openToken, currentLiveStreams, ct)` | Validates token, returns `InfiniteDriveLiveStream` with materialized `MediaSourceInfo` |
-| `MapStreamToSource(stream)` | Maps `AioStreamsStream` → `MediaSourceInfo` with populated `MediaStreams` |
-| `MapCandidateToSource(candidate)` | Maps `StreamCandidate` → `MediaSourceInfo` with audio `MediaStreams` from `Languages` field |
-
-**Security (Sprint 410):**
-- `GetMediaSources()` sets `RequiresOpening = true`, `Path = ""`, `OpenToken = cdnUrl`
-- CDN URLs never appear in picker display
-- `OpenMediaSource()` validates token is HTTP/HTTPS URL, materializes CDN URL in returned `MediaSourceInfo`
-- Rollback via `PluginConfiguration.UseRequiresOpening = false` (default true)
-
-**MediaStreams population (Language sprint):** `MapStreamToSource()` builds `MediaStreams` list from:
-- Audio streams: one per language in `ParsedFile.Languages`, with title `"lang - channels audioTags"`
-- Subtitle streams: one per `Subtitles[]` entry, marked `IsExternal` with `DeliveryUrl` pointing to subtitle URL
-
-Sources are sorted by configured `MetadataLanguage` preference. Matching audio streams are marked `IsDefault = true`.
-
-### InfiniteDriveLiveStream
-
-**Purpose:** `ILiveStream` wrapper returned from `AioMediaSourceProvider.OpenMediaSource()`. Carries resolved `MediaSourceInfo` for Emby to play directly. Sprint 410.
-
-| Member | Type | Description |
-|--------|------|-------------|
-| `MediaSource` | `MediaSourceInfo` | Resolved CDN stream with `Path = cdnUrl`, `RequiresOpening = false` |
-| `UniqueId` | `string` | Unique stream identifier |
-| `TunerHostId` | `string` | Empty (not a TV tuner) |
-| `EnableStreamSharing` | `bool` | `false` |
-| `ConsumerCount` | `int` | Consumer count (unused) |
-| `OriginalStreamId` | `string` | Original stream ID (empty) |
-| `DateOpened` | `DateTimeOffset` | Stream open timestamp |
-| `SupportsCopyTo` | `bool` | `false` (Emby handles HTTP streaming directly) |
-| `Open(ct)` | `Task` | No-op (sets `DateOpened`) |
-| `Close()` | `Task` | No-op |
-| `CopyToAsync(PipeWriter, ct)` | `Task` | Throws `NotSupportedException` |
-| `CopyToAsync(Stream, ..., ct)` | `Task` | Throws `NotSupportedException` |
-
-**Note:** Emby uses `ILiveStream` interface for any "opening" flow where the source isn't immediately available. Despite the name suggesting TV/live streams, it's required by `IMediaSourceProvider.OpenMediaSource()` return type.
+**Purpose:** Episode-level diff and removal.
 
 ### CertificationResolver
 
-**Purpose:** Fetches MPAA/TV certifications from TMDB for discover catalog items.
-
-**Country locale (Language sprint):** Uses `PluginConfiguration.MetadataCountryCode` (default `"US"`) instead of hardcoded `"US"` to filter `release_dates` results.
+**Purpose:** Fetches MPAA/TV certifications from TMDB for discover catalog items. Uses `PluginConfiguration.MetadataCountryCode` (default `"US"`).
 
 ### ListFetcher
 
-**Purpose:** URL-sniffing dispatcher for external list providers (MDBList, Trakt, TMDB, AniList).
-
-**TMDB locale (Language sprint):** TMDB list API calls use `language={MetadataLanguage}-{MetadataCountryCode}` instead of hardcoded `language=en-US`.
+**Purpose:** URL-sniffing dispatcher for external list providers (MDBList, Trakt, TMDB, AniList). TMDB calls use `language={MetadataLanguage}-{MetadataCountryCode}`.

@@ -1,90 +1,146 @@
-# Stream Resolution & Failover Protocol
+# Stream Resolution Pipeline
 
-> **DEPRECATED (Sprint 410):** This document describes the pre-Sprint 410 resolution pipeline using unauthenticated HMAC tokens. See [REQUIRES_OPENING_PIPELINE.md](REQUIRES_OPENING_PIPELINE.md) for the current secure playback flow.
+Stream resolution is the process that turns a library item (a `.strm` file in Emby) into a playable CDN URL. This document describes the current pipeline from cache lookup through live resolution to playback.
 
-Stream resolution is the most volatile part of the system. This document defines the contract between the `ResolverService` (the API) and the `StreamResolutionHelper` (the Engine).
+## 1. Resolution Flow Overview
 
-## 1. The Resolution Contract
-We never return `null` or a raw URL. All resolution attempts must return a `ResolutionResult` object. This prevents "silent failures" where the system might assume content is missing just because a network request timed out.
+When a user browses or plays an item, the pipeline follows this order:
 
-### ResolutionResult Statuses
+1. **Pre-cache check** via `StreamCacheService` against `stream_resolution_cache`
+2. **Live resolution** via `AioMediaSourceProvider.GetMediaSources()` on cache miss
+3. **OpenMediaSource gating** via `RequiresOpening=true`
+4. **Fire-and-forget cache write** after live resolve
+
+## 2. Pre-Cache Check
+
+When `AioMediaSourceProvider.GetMediaSources()` is called:
+
+1. Query `StreamCacheService` for cached entries in `stream_resolution_cache` matching the item's `aio_id` (and `season`/`episode` for series).
+2. **HIT** — `BuildMediaSources()` converts cached entries into `MediaSourceInfo[]` instantly (<500ms). Each source has `Path=""`, `RequiresOpening=true`, and an `OpenToken` encoding `infoHash + fileIdx`.
+3. **MISS** — falls through to live resolution.
+
+Cached entries are populated by `PreCacheAioStreamsTask` (background) and by fire-and-forget writes after live resolution.
+
+## 3. Live Resolution
+
+When the cache has no entry for an item:
+
+1. `AioMediaSourceProvider` calls `AioStreamsClient.GetStreamsAsync()` with the item's provider ID.
+2. The AIOStreams API returns available streams from configured debrid providers.
+3. Streams are scored by quality tier and provider priority, then ranked.
+4. The top-ranked streams become `MediaSourceInfo[]` with `RequiresOpening=true`.
+5. Stream data is written to `stream_resolution_cache` via fire-and-forget `ProbeAndCacheAsync` for future lookups.
+
+### Multi-Manifest Failover
+
+If the primary manifest (`PrimaryManifestUrl`) returns `ProviderDown` or `ContentMissing`, the system attempts resolution against the secondary manifest (`SecondaryManifestUrl`). An item is only considered "dead" if both manifests return `ContentMissing`.
+
+## 4. OpenMediaSource Flow
+
+All playback sources have `RequiresOpening=true`. Emby never plays a `Path` directly — it always calls `OpenMediaSource(openToken)`.
+
+### Pre-Cached Stream
+
+1. `OpenMediaSource()` deserializes the `CachedStreamOpenToken` from the open token.
+2. Tries the cached URL directly (no HEAD check on rank-0).
+3. If the cached URL is expired: re-resolves via AIOStreams using `infoHash + fileIdx` matching against a fresh stream response.
+4. Returns `InfiniteDriveLiveStream` with a fresh CDN URL.
+
+### Live-Resolved Stream
+
+1. `OpenMediaSource()` tries candidates in rank order.
+2. For rank-0 candidates: skips the HEAD probe and goes directly to playback (fastest path).
+3. For lower-ranked candidates: falls back through `BuildFallbackStreamsFromFilename` if higher ranks fail.
+4. Returns `InfiniteDriveLiveStream` with the resolved CDN URL.
+
+### Fallback Strategy
+
+If the primary candidate fails during `OpenMediaSource`:
+
+1. Try next rank-ordered candidate.
+2. Use `BuildFallbackStreamsFromFilename` to construct alternatives from the filename metadata.
+3. If all candidates fail, attempt a fresh AIOStreams resolve.
+4. On `Throttled` (429): serve the best cached variant available rather than returning an error to the client.
+
+## 5. Rank-Based Stream Selection
+
+Streams are ranked by:
+
+1. **Quality tier** — 4K > 1080p > 720p > SD (configurable via `PreferredQualityTiers` and `DefaultQualityTier`).
+2. **Provider priority** — within the same tier, earlier providers in `ProviderPriorityOrder` win.
+3. **Language match** — audio language matching the user's `PreferredMetadataLanguage` is preferred.
+
+The rank-0 stream is the "best" match. It gets special treatment: no HEAD probe during `OpenMediaSource`, ensuring the fastest possible playback start.
+
+## 6. Stream Identity
+
+The durable identity of a stream is `infoHash + fileIdx`. This pair:
+
+* Survives CDN URL rotation (the hash stays the same even as CDN URLs expire).
+* Is encoded in open tokens for re-resolution.
+* Allows matching against fresh AIOStreams responses to find the same file with a new URL.
+
+## 7. CooldownGate Throttling
+
+All AIOStreams HTTP calls pass through `CooldownGate.WaitAsync()` with one of two `CooldownKind` profiles:
+
+| CooldownKind | Purpose | Delay (Shared) | Delay (Private) |
+|---|---|---|---|
+| `Default` | General API calls, catalog fetch, stream resolve | 0ms | 0ms |
+| `SeriesMeta` | Series metadata expansion, episode lookups | 200ms | 0ms |
+
+On any 429 response:
+
+1. `CooldownGate.Tripped()` sets a global cooldown (60s shared, 30s private).
+2. All HTTP pauses until the cooldown expires.
+3. If 3+ 429s occur within 1 hour on a shared instance, the dashboard suggests switching to a private instance.
+
+See [COOLDOWN.md](COOLDOWN.md) for full details.
+
+## 8. ResolutionResult Statuses
+
+All resolution attempts return a `ResolutionResult` object (never null):
+
 | Status | Meaning | Action |
-| :--- | :--- | :--- |
-| **Success** | URL found and validated. | Play immediately / Update cache. |
-| **Throttled** | Provider returned 429 (Rate Limit). | **SHUTDOWN** attempts for this item. Do NOT delete. Retry in next cycle. |
-| **ProviderDown** | Provider 5xx or Connection Timeout. | Trigger **Failover** to the Secondary Manifest. |
-| **ContentMissing**| Provider returned 404 on this manifest. | Check other manifest. If 404 on BOTH, mark for Pessimistic Deletion. |
+|---|---|---|
+| **Success** | URL found and validated | Play immediately / update cache |
+| **Throttled** | Provider returned 429 | Cease attempts for this item; retry in next cycle |
+| **ProviderDown** | Provider 5xx or connection timeout | Trigger failover to secondary manifest |
+| **ContentMissing** | Provider returned 404 | Check other manifest; if both 404, mark for deletion |
 
-## 2. The Failover Logic (Multi-Manifest)
-InfiniteDrive is designed to be manifest-agnostic. The logic follows a "Cascading Trust" model:
+## 9. Pre-Cache Background Task
 
-1.  **Primary Manifest:** Attempt resolution.
-2.  **Circuit Breaker Check:** If the Primary AIOStreams host is down, `ResolverHealthTracker` trips.
-3.  **The Secondary Pivot:** If Primary is `ProviderDown` or `ContentMissing`, the system MUST attempt the same resolution against the Secondary Manifest.
-4.  **Terminal Failure:** An item is only considered "Dead" if the result from the final configured manifest is `ContentMissing`.
+`PreCacheAioStreamsTask` runs inside MarvinTask on a configurable interval:
 
-## 3. Throttling & "The Days-Long Hydration"
-Because we throttle heavily to stay within AIOStreams' limits:
-- The **Optimistic Phase** assumes every item is a `Success`.
-- The **Pessimistic Hydration** phase uses a "Back-off" strategy.
-- If a `Throttled` status is received, the `HydrationManager` must cease requests for that specific provider for the duration of the `RetryAfter` window.
+* **Interval:** `PreCacheIntervalHours` (default 6h, range 1-48h)
+* **Batch size:** `PreCacheBatchSize` (default 42, range 1-500)
+* **TTL:** `PreCacheTTLDays` (default 14 days, range 1-90)
+* Budget-gated: checks `IsBudgetExhaustedAsync()` before each item
+* Rate-limit aware: respects CooldownGate on 429 responses
+* Provider failover: tries all configured providers per item via `ResolverHealthTracker`
 
-## 4. Playback Strategy
-During a live playback request (`/resolve`):
-- We serve the **Best Quality** currently known.
-- If the cached URL is expired, we trigger a "Fast-Path" resolution.
-- If the Fast-Path returns `Throttled`, we attempt to serve a lower-quality cached version or a secondary manifest link before returning a 429 to the client.
+## 10. Language-Aware Resolution
 
-## 5. Stream Pre-Cache (cached_streams)
+When multiple cached candidates exist, `ResolverService` applies a language fallback chain:
 
-The pre-cache layer sits **before** the legacy `stream_candidates` cache in `AioMediaSourceProvider.GetMediaSourcesCoreAsync`. When a user browses an item:
-
-1. Check `StreamCacheService.GetByImdbAsync(imdbId, season, episode)`
-2. **HIT** → `BuildMediaSources(entry)` → instant `MediaSourceInfo[]` (<500ms). Each variant has `RequiresOpening=true` with an open token encoding `infoHash + fileIdx`.
-3. **MISS** → fall through to existing live resolve logic (keeps working during alpha)
-4. After live resolve succeeds → fire-and-forget write to `cached_streams` via `StreamCacheService.StoreAsync`
-
-### When OpenMediaSource runs for a pre-cached stream:
-1. Parse `CachedStreamOpenToken` from open token
-2. Try cached URL first (HEAD check for freshness)
-3. If expired: re-resolve via AIO using `infoHash + fileIdx` matching against fresh stream response
-4. Return `InfiniteDriveLiveStream` with fresh CDN URL
-
-### Pre-Cache Background Task (`PreCacheAioStreamsTask`)
-- Interval: `PreCacheIntervalHours` (default 6h, range 1-48h)
-- Batch size: `PreCacheBatchSize` (default 42, range 1-500)
-- TTL: `PreCacheTTLDays` (default 14 days, range 1-90)
-- Budget-gated: checks `IsBudgetExhaustedAsync()` before each item
-- Rate-limit aware: exponential backoff 5s → 60s max with jitter on 429s
-- Provider failover: tries all configured providers per item via `ResolverHealthTracker`
-
-## 5. Security (HMAC)
-All resolved URLs passed to the `.strm` files must be signed via `PlaybackTokenService`.
-- **Rule:** No URL leaves the system without a signature.
-- **Rule:** Signatures must have an expiry matching the provider's token TTL (if known).
-
-## 6. Language-Aware Resolution
-
-When multiple cached candidates exist for an item (from `stream_candidates`), the `ResolverService` applies a language fallback chain:
-
-1. Parse `X-Emby-Token` from request headers via `IAuthorizationContext`
-2. Read the user's `PreferredMetadataLanguage`
-3. If empty, fall back to `Config.MetadataLanguage` (global plugin setting)
-4. If candidates have different `Languages` fields, prefer those matching the resolved language
-5. Falls through to rank-order selection if no language match found
+1. Parse `X-Emby-Token` from request headers via `IAuthorizationContext`.
+2. Read the user's `PreferredMetadataLanguage`.
+3. If empty, fall back to `Config.DefaultSubtitleLanguage` (global plugin setting).
+4. If candidates have different `Languages` fields, prefer those matching the resolved language.
+5. Falls through to rank-order selection if no language match found.
 
 ### MediaStreams (Version Picker)
 
 `AioMediaSourceProvider` populates `MediaSourceInfo.MediaStreams` for each stream:
 
 **Audio streams** — built from `AioStreamsStream.ParsedFile`:
-- One `MediaStream` per language in `ParsedFile.Languages`
-- Title format: `"{language} - {channels} {audioTags}"` (e.g. "Japanese - 5.1 Atmos")
-- First language marked `IsDefault = true`
+* One `MediaStream` per language in `ParsedFile.Languages`
+* Title format: `"{language} - {channels} {audioTags}"` (e.g. "Japanese - 5.1 Atmos")
+* First language marked `IsDefault = true`
 
 **Subtitle streams** — built from `AioStreamsStream.Subtitles`:
-- One `MediaStream` per subtitle entry
-- `IsExternal = true`, `DeliveryUrl` and `Path` set to subtitle URL
-- Language from `subtitle.Lang`
+* One `MediaStream` per subtitle entry
+* `IsExternal = true`, `DeliveryUrl` and `Path` set to subtitle URL
+* Language from `subtitle.Lang`
 
-**Language sorting** — sources are sorted by a fallback chain: `PluginConfiguration.MetadataLanguage` → library's `PreferredMetadataLanguage` (looked up via `ILibraryManager.GetVirtualFolders()`) → no sort. Matching audio streams are marked `IsDefault = true`.
+**Language sorting** — sources sorted by: `PluginConfiguration.DefaultSubtitleLanguage` → library's `PreferredMetadataLanguage` (via `ILibraryManager.GetVirtualFolders()`) → no sort. Matching audio streams marked `IsDefault = true`.
