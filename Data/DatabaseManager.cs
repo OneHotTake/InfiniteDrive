@@ -1164,8 +1164,8 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     source_list_id          TEXT,
     seasons_json            TEXT,
     strm_path               TEXT,
-    added_at                TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at              TEXT NOT NULL DEFAULT (datetime('now')),
+    added_at                TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
     removed_at              TEXT,
     local_path              TEXT,
     local_source            TEXT,
@@ -1230,13 +1230,12 @@ CREATE TABLE IF NOT EXISTS stream_resolution_cache (
     is_cached               INTEGER NOT NULL DEFAULT 1,
     url_resolved_at         TEXT,
     url_expires_at          TEXT,
-    resolved_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    resolved_at             TEXT NOT NULL,
     expires_at              TEXT NOT NULL,
     updated_at              TEXT,
     play_count              INTEGER NOT NULL DEFAULT 0,
     last_played_at          TEXT,
-    retry_count             INTEGER NOT NULL DEFAULT 0,
-    UNIQUE(aio_id, COALESCE(season, -1), COALESCE(episode, -1), rank)
+    retry_count             INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_src_aio ON stream_resolution_cache(aio_id, season, episode);
 CREATE INDEX IF NOT EXISTS idx_src_imdb ON stream_resolution_cache(imdb_id);
@@ -1260,7 +1259,7 @@ CREATE TABLE IF NOT EXISTS playback_log (
     bitrate_sustained   INTEGER,
     quality_downgrade   INTEGER DEFAULT 0,
     error_message       TEXT,
-    played_at           TEXT NOT NULL DEFAULT (datetime('now'))
+    played_at           TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_play_recent ON playback_log(played_at DESC);
 
@@ -1307,7 +1306,7 @@ CREATE TABLE IF NOT EXISTS discover_catalog (
     imdb_rating         REAL,
     certification       TEXT,
     added_at            TEXT NOT NULL,
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    updated_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_discover_imdb ON discover_catalog(imdb_id);
 CREATE INDEX IF NOT EXISTS idx_discover_source ON discover_catalog(catalog_source);
@@ -1330,7 +1329,7 @@ CREATE TABLE IF NOT EXISTS collection_membership (
     collection_name     TEXT NOT NULL,
     emby_item_id        TEXT NOT NULL,
     source              TEXT NOT NULL,
-    last_seen           TEXT NOT NULL DEFAULT (datetime('now')),
+    last_seen           TEXT NOT NULL,
     UNIQUE(collection_name, emby_item_id)
 );
 
@@ -1348,8 +1347,8 @@ CREATE TABLE IF NOT EXISTS home_section_tracking (
     rail_type       TEXT NOT NULL,
     emby_section_id TEXT,
     section_marker  TEXT NOT NULL,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL,
     UNIQUE(user_id, rail_type)
 );
 
@@ -1364,7 +1363,7 @@ CREATE TABLE IF NOT EXISTS ingestion_state (
 -- ── refresh_run_log ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS refresh_run_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    run_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    run_at          TEXT NOT NULL,
     worker          TEXT NOT NULL,
     step            TEXT NOT NULL,
     status          TEXT NOT NULL DEFAULT 'started',
@@ -1374,7 +1373,7 @@ CREATE TABLE IF NOT EXISTS refresh_run_log (
 
 -- ── media_items ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS media_items (
-    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    id                  TEXT PRIMARY KEY,
     primary_id_type     TEXT NOT NULL,
     primary_id          TEXT NOT NULL,
     media_type          TEXT NOT NULL CHECK (media_type IN ('movie','series')),
@@ -1386,8 +1385,8 @@ CREATE TABLE IF NOT EXISTS media_items (
     saved_at            TEXT,
     blocked             INTEGER NOT NULL DEFAULT 0,
     blocked_at          TEXT,
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
     grace_started_at    TEXT,
     superseded          INTEGER NOT NULL DEFAULT 0,
     superseded_conflict INTEGER NOT NULL DEFAULT 0,
@@ -1407,12 +1406,12 @@ CREATE INDEX IF NOT EXISTS idx_media_items_emby_id ON media_items(emby_item_id) 
 
 -- ── media_item_ids ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS media_item_ids (
-    id          TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    id          TEXT PRIMARY KEY,
     media_item_id TEXT NOT NULL,
     id_type     TEXT NOT NULL CHECK (id_type IN ('tmdb','imdb','tvdb','anilist','anidb','kitsu')),
     id_value    TEXT NOT NULL,
     is_primary  INTEGER NOT NULL DEFAULT 0,
-    created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at  TEXT NOT NULL,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_media_item_ids_item ON media_item_ids(media_item_id);
@@ -1421,11 +1420,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_media_item_ids_unique ON media_item_ids(me
 
 -- ── source_memberships ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS source_memberships (
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    id              TEXT PRIMARY KEY,
     source_id       TEXT NOT NULL,
     media_item_id   TEXT NOT NULL,
     user_catalog_id TEXT,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at      TEXT NOT NULL,
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     UNIQUE (source_id, media_item_id)
@@ -1447,21 +1446,21 @@ CREATE TABLE IF NOT EXISTS sources (
     last_synced_at      TEXT,
     emby_collection_id  TEXT,
     collection_name     TEXT,
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now'))
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_sources_enabled ON sources(enabled);
 
 -- ── collections ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS collections (
-    id                  TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    id                  TEXT PRIMARY KEY,
     source_id           TEXT NOT NULL,
     name                TEXT NOT NULL,
     emby_collection_id  TEXT,
     collection_name     TEXT,
     last_synced_at      TEXT,
-    created_at          TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at          TEXT NOT NULL DEFAULT (datetime('now')),
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_collections_source_id ON collections(source_id);
@@ -1475,7 +1474,7 @@ CREATE TABLE IF NOT EXISTS item_pipeline_log (
     trigger          TEXT NOT NULL,
     success          INTEGER NOT NULL,
     details          TEXT,
-    timestamp        TEXT NOT NULL DEFAULT (datetime('now'))
+    timestamp        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_pipeline_timestamp ON item_pipeline_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_pipeline_primary_id ON item_pipeline_log(primary_id);
@@ -1489,7 +1488,7 @@ CREATE TABLE IF NOT EXISTS stream_resolution_log (
     stream_count     INTEGER NOT NULL,
     selected_stream  TEXT,
     duration_ms      INTEGER NOT NULL,
-    timestamp        TEXT NOT NULL DEFAULT (datetime('now'))
+    timestamp        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_resolution_timestamp ON stream_resolution_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_resolution_primary_id ON stream_resolution_log(primary_id);
@@ -1512,12 +1511,12 @@ CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHE
 
 -- ── user_item_saves ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS user_item_saves (
-    id            TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+    id            TEXT PRIMARY KEY,
     user_id       TEXT NOT NULL,
     media_item_id TEXT NOT NULL,
     save_reason   TEXT CHECK (save_reason IN ('explicit','watched_episode','admin_override')),
     saved_season  INTEGER,
-    saved_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    saved_at      TEXT NOT NULL,
     FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
     UNIQUE (user_id, media_item_id)
 );
@@ -1532,7 +1531,7 @@ CREATE TABLE IF NOT EXISTS blocked_items (
     anilist_id   TEXT,
     title        TEXT NOT NULL,
     media_type   TEXT NOT NULL,
-    blocked_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    blocked_at   TEXT NOT NULL,
     blocked_by   TEXT NOT NULL,
     unblocked_at TEXT,
     unblocked_by TEXT
@@ -1856,7 +1855,6 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 // Skip empty lines and comments
                 if (string.IsNullOrEmpty(trimmed) || trimmed.StartsWith("--"))
                 {
-                    current.AppendLine(line);
                     continue;
                 }
 
