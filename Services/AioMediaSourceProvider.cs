@@ -238,7 +238,7 @@ namespace InfiniteDrive.Services
                             var probed = await CdnProber.ProbeAsync(token.Url, _logger, probeCts.Token).ConfigureAwait(false);
                             if (probed != null && probed.Count > 1)
                             {
-                                source.MediaStreams = probed;
+                                source.MediaStreams = FilterKnownStreams(probed);
                                 // Cache probe result
                                 var sk = !string.IsNullOrEmpty(token.InfoHash)
                                     ? $"{token.InfoHash}:{token.FileIdx}" : null;
@@ -332,7 +332,7 @@ namespace InfiniteDrive.Services
                     var probed = await CdnProber.ProbeAsync(match.Url, _logger, probeCts.Token).ConfigureAwait(false);
                     if (probed != null && probed.Count > 1)
                     {
-                        freshSource.MediaStreams = probed;
+                        freshSource.MediaStreams = FilterKnownStreams(probed);
                         // Cache probe result
                         var sk = !string.IsNullOrEmpty(token.InfoHash)
                             ? $"{token.InfoHash}:{token.FileIdx}" : null;
@@ -609,7 +609,7 @@ namespace InfiniteDrive.Services
                 {
                     var probed = DeserializeProbeStreams(candidate.ProbeJson);
                     if (probed != null && probed.Count > 1)
-                        source.MediaStreams = probed;
+                        source.MediaStreams = FilterKnownStreams(probed);
                 }
                 catch { /* non-fatal */ }
             }
@@ -785,7 +785,7 @@ namespace InfiniteDrive.Services
                     var probed = await CdnProber.ProbeAsync(cand.Url, _logger, probeCts.Token).ConfigureAwait(false);
                     if (probed != null && probed.Count > 1)
                     {
-                        source.MediaStreams = probed;
+                        source.MediaStreams = FilterKnownStreams(probed);
                         _logger.LogInformation("[AioMediaSourceProvider] ffprobe got {Count} streams for rank {Rank}",
                             probed.Count, cand.Rank);
                         // Cache probe result for dropdown display
@@ -1071,7 +1071,7 @@ namespace InfiniteDrive.Services
                         var probed = await CdnProber.ProbeAsync(best.Url, _logger, probeCts.Token).ConfigureAwait(false);
                         if (probed != null && probed.Count > 1)
                         {
-                            source.MediaStreams = probed;
+                            source.MediaStreams = FilterKnownStreams(probed);
                             if (!string.IsNullOrEmpty(best.StreamKey))
                             {
                                 var json = SerializeProbeStreams(probed);
@@ -1373,6 +1373,15 @@ namespace InfiniteDrive.Services
                     bitRate = ms.BitRate,
                     isDefault = ms.IsDefault,
                 }));
+        }
+
+        private static List<MediaStream> FilterKnownStreams(List<MediaStream> streams)
+        {
+            var known = streams.Where(s =>
+                s.Type == MediaStreamType.Video ||
+                s.Type == MediaStreamType.Audio ||
+                s.Type == MediaStreamType.Subtitle).ToList();
+            return known.Count > 0 ? known : streams;
         }
 
         private static string ParseLanguageFromFilename(string fnUpper)
