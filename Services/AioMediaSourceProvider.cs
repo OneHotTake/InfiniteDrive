@@ -205,10 +205,12 @@ namespace InfiniteDrive.Services
                         Id = Guid.NewGuid().ToString("N"),
                         Name = token.ProviderName ?? "Stream",
                         Path = token.Url,
+                        Type = MediaSourceType.Placeholder,
                         Protocol = MediaProtocol.Http,
                         SupportsDirectPlay = true,
                         SupportsDirectStream = true,
-                        RequiresOpening = false,
+                        RequiresOpening = true,
+                        SupportsProbing = true,
                     };
                     if (!string.IsNullOrEmpty(token.HeadersJson))
                     {
@@ -220,13 +222,18 @@ namespace InfiniteDrive.Services
                         catch { }
                     }
 
-                    // Filename fallback; fire-and-forget probe for future cache
+                    // Container + MediaStreams from filename
+                    if (!string.IsNullOrEmpty(token.FileName))
+                    {
+                        var ext = System.IO.Path.GetExtension(token.FileName)?.TrimStart('.');
+                        if (!string.IsNullOrEmpty(ext))
+                            source.Container = ext;
+                    }
+                    source.MediaStreams = BuildStreamsFromFilename(token.FileName);
+
                     var cachedStreamKey = !string.IsNullOrEmpty(token.InfoHash)
                         ? $"{token.InfoHash}:{token.FileIdx}"
                         : null;
-                    source.MediaStreams = BuildFallbackStreamsFromFilename(token.FileName);
-                    if (!string.IsNullOrEmpty(cachedStreamKey))
-                        _ = ProbeAndCacheAsync(cachedStreamKey, token.Url, token.FileName);
 
                     var liveStream = new InfiniteDriveLiveStream(source, _logger);
                     await liveStream.Open(cancellationToken).ConfigureAwait(false);
@@ -273,23 +280,30 @@ namespace InfiniteDrive.Services
                 Id = Guid.NewGuid().ToString("N"),
                 Name = token.ProviderName ?? "Stream",
                 Path = match.Url,
+                Type = MediaSourceType.Placeholder,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
-                RequiresOpening = false,
+                RequiresOpening = true,
+                SupportsProbing = true,
             };
 
             if (match.Headers != null)
                 freshSource.RequiredHttpHeaders = match.Headers;
 
-            // Filename fallback; fire-and-forget probe for future cache
+            // Container + MediaStreams from filename
+            var freshFileName = match.BehaviorHints?.Filename ?? token.FileName;
+            if (!string.IsNullOrEmpty(freshFileName))
+            {
+                var ext = System.IO.Path.GetExtension(freshFileName)?.TrimStart('.');
+                if (!string.IsNullOrEmpty(ext))
+                    freshSource.Container = ext;
+            }
+            freshSource.MediaStreams = BuildStreamsFromFilename(freshFileName);
+
             var freshStreamKey = !string.IsNullOrEmpty(token.InfoHash)
                 ? $"{token.InfoHash}:{token.FileIdx}"
                 : null;
-            var freshFileName = token.FileName ?? match.BehaviorHints?.Filename;
-            freshSource.MediaStreams = BuildFallbackStreamsFromFilename(freshFileName);
-            if (!string.IsNullOrEmpty(freshStreamKey) && !string.IsNullOrEmpty(match.Url))
-                _ = ProbeAndCacheAsync(freshStreamKey, match.Url, freshFileName);
 
             var freshLiveStream = new InfiniteDriveLiveStream(freshSource, _logger);
             await freshLiveStream.Open(cancellationToken).ConfigureAwait(false);
@@ -681,23 +695,113 @@ namespace InfiniteDrive.Services
                 Id = Guid.NewGuid().ToString("N"),
                 Name = name,
                 Path = cand.Url ?? "",
+                Type = MediaSourceType.Placeholder,
                 Protocol = MediaProtocol.Http,
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
-                RequiresOpening = false,
+                RequiresOpening = true,
                 IsInfiniteStream = false,
+                SupportsProbing = true,
             };
 
             if (cand.Size.HasValue) source.Size = cand.Size.Value;
             if (cand.Headers != null) source.RequiredHttpHeaders = cand.Headers;
 
-            // Filename fallback for immediate playback; fire-and-forget probe for future cache
-            source.MediaStreams = BuildFallbackStreamsFromFilename(cand.FileName);
-            if (!string.IsNullOrEmpty(cand.StreamKey) && !string.IsNullOrEmpty(cand.Url))
-                _ = ProbeAndCacheAsync(cand.StreamKey, cand.Url, cand.FileName);
+            // Container + MediaStreams from filename — Emby does NOT probe ILiveStream sources,
+            // so we must provide enough info for direct play / transcode decisions.
+            if (!string.IsNullOrEmpty(cand.FileName))
+            {
+                var ext = System.IO.Path.GetExtension(cand.FileName)?.TrimStart('.');
+                if (!string.IsNullOrEmpty(ext))
+                    source.Container = ext;
+
+                source.MediaStreams = BuildStreamsFromFilename(cand.FileName);
+            }
+            else
+            {
+                source.MediaStreams = new List<MediaStream>
+                {
+                    new MediaStream { Type = MediaStreamType.Video, Index = 0 },
+                    new MediaStream { Type = MediaStreamType.Audio, Index = 1 },
+                };
+            }
 
             return Task.FromResult(source);
+        }
+
+        /// <summary>
+        /// Builds minimal MediaStreams from filename so Emby can decide direct play vs transcode.
+        /// ILiveStream sources are NOT probed by Emby — this is the only stream info it gets.
+        /// </summary>
+        private static List<MediaStream> BuildStreamsFromFilename(string? fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return new List<MediaStream>
+            {
+                new MediaStream { Type = MediaStreamType.Video, Index = 0 },
+                new MediaStream { Type = MediaStreamType.Audio, Index = 1 },
+            };
+
+            var fn = fileName.ToUpperInvariant();
+
+            // Video codec from filename
+            var videoCodec = "";
+            if (fn.Contains("H265") || fn.Contains("H.265") || fn.Contains("HEVC") || fn.Contains("X265") || fn.Contains("X.265"))
+                videoCodec = "hevc";
+            else if (fn.Contains("H264") || fn.Contains("H.264") || fn.Contains("AVC") || fn.Contains("X264") || fn.Contains("X.264"))
+                videoCodec = "h264";
+            else if (fn.Contains("AV1"))
+                videoCodec = "av1";
+            else if (fn.Contains("VP9"))
+                videoCodec = "vp9";
+            else if (fn.Contains("VP8"))
+                videoCodec = "vp8";
+
+            // Audio codec from filename
+            var audioCodec = "";
+            if (fn.Contains("EAC3") || fn.Contains("E-AC3") || fn.Contains("DDP") || fn.Contains("DD+"))
+                audioCodec = "eac3";
+            else if (fn.Contains("AC3") || fn.Contains("AC-3") || fn.Contains("DD5") || fn.Contains("DD "))
+                audioCodec = "ac3";
+            else if (fn.Contains("DTS-HD") || fn.Contains("DTSHD"))
+                audioCodec = "dtshd";
+            else if (fn.Contains("DTS"))
+                audioCodec = "dts";
+            else if (fn.Contains("TRUEHD") || fn.Contains("ATMOS"))
+                audioCodec = "truehd";
+            else if (fn.Contains("AAC"))
+                audioCodec = "aac";
+            else if (fn.Contains("FLAC"))
+                audioCodec = "flac";
+            else if (fn.Contains("OPUS"))
+                audioCodec = "opus";
+
+            // Channels
+            int? channels = null;
+            if (fn.Contains("7.1")) channels = 8;
+            else if (fn.Contains("5.1")) channels = 6;
+            else if (fn.Contains("2.0") || fn.Contains("STEREO")) channels = 2;
+
+            var streams = new List<MediaStream>
+            {
+                new MediaStream
+                {
+                    Type = MediaStreamType.Video,
+                    Index = 0,
+                    Codec = videoCodec,
+                    IsDefault = true,
+                },
+                new MediaStream
+                {
+                    Type = MediaStreamType.Audio,
+                    Index = 1,
+                    Codec = audioCodec,
+                    Channels = channels,
+                    IsDefault = true,
+                },
+            };
+
+            return streams;
         }
 
         private static string ExtractProviderFromName(string? name)
@@ -714,138 +818,6 @@ namespace InfiniteDrive.Services
 
         // ═══════════════════════════════════════════════════════════════════════════
         //  Probing (cache → live probe, never overwrites with worse data)
-        // ═══════════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Probes the top source in a list for accurate MediaStreams.
-        /// Only updates if probe succeeds — never replaces with fallback data.
-        /// </summary>
-        private async Task ProbeTopSourceAsync(
-            List<MediaSourceInfo> sources, int index,
-            string? streamKey, string? fileName, CancellationToken ct)
-        {
-            if (sources.Count <= index) return;
-            var source = sources[index];
-            var url = source.Path;
-            if (string.IsNullOrEmpty(url)) return;
-
-            var db = Plugin.Instance?.DatabaseManager;
-
-            // 1. Cached probe data
-            if (!string.IsNullOrEmpty(streamKey) && db != null)
-            {
-                try
-                {
-                    var probeJson = await db.GetProbeJsonAsync(streamKey).ConfigureAwait(false);
-                    if (!string.IsNullOrEmpty(probeJson))
-                    {
-                        var probed = DeserializeProbeStreams(probeJson);
-                        if (probed != null && probed.Count > 1)
-                        {
-                            source.MediaStreams = probed;
-                            _logger.LogDebug("[InfiniteDrive] Probe cache hit for {StreamKey}", streamKey);
-                            return;
-                        }
-                    }
-                }
-                catch { /* non-fatal */ }
-            }
-
-            // 2. Live probe with 5s timeout
-            using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            probeCts.CancelAfter(TimeSpan.FromSeconds(5));
-            try
-            {
-                var probed = await CdnProber.ProbeAsync(url, _logger, probeCts.Token).ConfigureAwait(false);
-                if (probed != null && probed.Count > 1)
-                {
-                    source.MediaStreams = probed;
-                    _logger.LogInformation(
-                        "[InfiniteDrive] Probed top source, got {Count} streams for {StreamKey}",
-                        probed.Count, streamKey);
-                    if (!string.IsNullOrEmpty(streamKey) && db != null)
-                    {
-                        var json = SerializeProbeStreams(probed);
-                        await db.SaveProbeJsonAsync(streamKey, json).ConfigureAwait(false);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[InfiniteDrive] Probe failed for top source – keeping metadata");
-            }
-        }
-
-        /// <summary>
-        /// Probes a CDN URL for real MediaStreams: cache → live probe → filename fallback.
-        /// Used by OpenMediaSource paths where no prior MediaStreams exist.
-        /// </summary>
-        private async Task ProbeAndSetStreamsAsync(
-            MediaSourceInfo source, string? streamKey, string? url, string? fileName, CancellationToken ct)
-        {
-            var db = Plugin.Instance?.DatabaseManager;
-
-            // 1. Cached probe data
-            if (!string.IsNullOrEmpty(streamKey) && db != null)
-            {
-                var probeJson = await db.GetProbeJsonAsync(streamKey).ConfigureAwait(false);
-                if (!string.IsNullOrEmpty(probeJson))
-                {
-                    source.MediaStreams = DeserializeProbeStreams(probeJson);
-                    return;
-                }
-            }
-
-            // 2. Live probe with 5s timeout
-            if (!string.IsNullOrEmpty(url))
-            {
-                using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                probeCts.CancelAfter(TimeSpan.FromSeconds(5));
-                try
-                {
-                    var probed = await CdnProber.ProbeAsync(url, _logger, probeCts.Token).ConfigureAwait(false);
-                    if (probed != null && probed.Count > 1)
-                    {
-                        source.MediaStreams = probed;
-                        var json = SerializeProbeStreams(probed);
-                        if (!string.IsNullOrEmpty(streamKey) && db != null)
-                            await db.SaveProbeJsonAsync(streamKey, json).ConfigureAwait(false);
-                        return;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex,
-                        "[InfiniteDrive] Probe failed for {StreamKey} – falling back to filename data",
-                        streamKey);
-                }
-            }
-
-            // 3. Safety net — never return zero MediaStreams
-            source.MediaStreams = BuildFallbackStreamsFromFilename(fileName);
-        }
-
-        /// <summary>
-        /// Fire-and-forget probe: probes CDN URL and caches results for future lookups.
-        /// Never blocks playback — used instead of ProbeAndSetStreamsAsync in OpenMediaSource paths.
-        /// </summary>
-        private async Task ProbeAndCacheAsync(string streamKey, string url, string? fileName)
-        {
-            try
-            {
-                var db = Plugin.Instance?.DatabaseManager;
-                if (db == null) return;
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
-                var probed = await CdnProber.ProbeAsync(url, _logger, cts.Token).ConfigureAwait(false);
-                if (probed != null && probed.Count > 1)
-                {
-                    var json = SerializeProbeStreams(probed);
-                    await db.SaveProbeJsonAsync(streamKey, json).ConfigureAwait(false);
-                }
-            }
-            catch { /* non-blocking */ }
-        }
-
         // ═══════════════════════════════════════════════════════════════════════════
         //  DB caching
         // ═══════════════════════════════════════════════════════════════════════════
@@ -991,9 +963,12 @@ namespace InfiniteDrive.Services
                     Id = best.Id ?? Guid.NewGuid().ToString("N"),
                     Name = FormatCandidateName(best),
                     Path = best.Url!,
+                    Type = MediaSourceType.Placeholder,
                     Protocol = MediaProtocol.Http,
                     SupportsDirectPlay = true,
                     SupportsDirectStream = true,
+                    RequiresOpening = true,
+                    SupportsProbing = true,
                 };
                 if (!string.IsNullOrEmpty(best.HeadersJson))
                 {
@@ -1001,7 +976,13 @@ namespace InfiniteDrive.Services
                     catch { }
                 }
 
-                source.MediaStreams = BuildFallbackStreamsFromFilename(best.FileName);
+                if (!string.IsNullOrEmpty(best.FileName))
+                {
+                    var ext = System.IO.Path.GetExtension(best.FileName)?.TrimStart('.');
+                    if (!string.IsNullOrEmpty(ext))
+                        source.Container = ext;
+                }
+                source.MediaStreams = BuildStreamsFromFilename(best.FileName);
 
                 var liveStream = new InfiniteDriveLiveStream(source, _logger);
                 await liveStream.Open(ct).ConfigureAwait(false);
@@ -1291,17 +1272,6 @@ namespace InfiniteDrive.Services
                     bitRate = ms.BitRate,
                     isDefault = ms.IsDefault,
                 }));
-        }
-
-        private static List<MediaStream> BuildFallbackStreamsFromFilename(string? fileName)
-        {
-            // Minimal placeholders — Emby probes the actual CDN URL for real stream info.
-            // Do NOT fabricate codec/channels values here; wrong values break transcoding.
-            return new List<MediaStream>
-            {
-                new MediaStream { Type = MediaStreamType.Video, Index = 0 },
-                new MediaStream { Type = MediaStreamType.Audio, Index = 1 },
-            };
         }
 
         private static string ParseLanguageFromFilename(string fnUpper)
