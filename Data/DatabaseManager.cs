@@ -29,15 +29,13 @@ namespace InfiniteDrive.Data
 
         private static class Tables
         {
-            public const string CatalogItems     = "catalog_items";
-            public const string ResolutionCache  = "resolution_cache";
-            public const string StreamCandidates = "stream_candidates";
-            public const string PlaybackLog      = "playback_log";
-            public const string ClientCompat     = "client_compat";
-            public const string ApiBudget        = "api_budget";
-            public const string SyncState        = "sync_state";
-            public const string CollectionMembership = "collection_membership";
-            public const string HomeSectionTracking = "home_section_tracking";
+            public const string CatalogItems          = "catalog_items";
+            public const string StreamResolutionCache = "stream_resolution_cache";
+            public const string PlaybackLog           = "playback_log";
+            public const string ApiBudget             = "api_budget";
+            public const string SyncState             = "sync_state";
+            public const string CollectionMembership  = "collection_membership";
+            public const string HomeSectionTracking   = "home_section_tracking";
         }
 
         // ── Fields ──────────────────────────────────────────────────────────────
@@ -271,7 +269,7 @@ namespace InfiniteDrive.Data
         /// Returns all IMDB IDs for active (non-removed, non-blocked) catalog items.
         /// Used by IChannel for bulk library-decoration (✓ prefix on titles).
         /// </summary>
-        public async Task<HashSet<string>> GetAllPinnedImdbIdsAsync()
+        public async Task<HashSet<string>> GetAllPinnedAioIdsAsync()
         {
             const string sql = @"
                 SELECT imdb_id FROM catalog_items
@@ -284,7 +282,7 @@ namespace InfiniteDrive.Data
         /// <summary>
         /// Returns the first active catalog item with the specified IMDB ID, or null.
         /// </summary>
-        public async Task<CatalogItem?> GetCatalogItemByImdbIdAsync(string imdbId)
+        public async Task<CatalogItem?> GetCatalogItemByAioIdAsync(string imdbId)
         {
             const string sql = @"
                 SELECT * FROM catalog_items
@@ -358,10 +356,10 @@ namespace InfiniteDrive.Data
 
 
         /// <summary>
-        /// Synchronous version of GetCatalogItemByImdbIdAsync for use in
+        /// Synchronous version of GetCatalogItemByAioIdAsync for use in
         /// non-async contexts (e.g. GetEpisodeCountForSeason).
         /// </summary>
-        public CatalogItem? GetCatalogItemByImdbIdSync(string imdbId)
+        public CatalogItem? GetCatalogItemByAioIdSync(string imdbId)
         {
             const string sql = @"
                 SELECT * FROM catalog_items
@@ -620,7 +618,7 @@ namespace InfiniteDrive.Data
         /// </summary>
         public async Task ClearResolutionCacheAsync(CancellationToken cancellationToken = default)
         {
-            await ExecuteWriteAsync("DELETE FROM resolution_cache;", _ => { }, cancellationToken);
+            await ExecuteWriteAsync("DELETE FROM stream_resolution_cache;", _ => { }, cancellationToken);
         }
 
         /// <summary>
@@ -630,27 +628,165 @@ namespace InfiniteDrive.Data
         public async Task<int> ClearFailedSentinelAsync(string imdbId, CancellationToken cancellationToken = default)
         {
             const string countSql = @"
-                SELECT COUNT(*) FROM resolution_cache
-                WHERE imdb_id = @imdb_id AND status = 'failed';";
+                SELECT COUNT(*) FROM stream_resolution_cache
+                WHERE aio_id = @aio_id AND status = 'failed';";
 
             const string deleteSql = @"
-                DELETE FROM resolution_cache
-                WHERE imdb_id = @imdb_id AND status = 'failed';";
+                DELETE FROM stream_resolution_cache
+                WHERE aio_id = @aio_id AND status = 'failed';";
 
             int count;
             using (var conn = OpenConnection())
             {
                 using var stmt = conn.PrepareStatement(countSql);
-                BindText(stmt, "@imdb_id", imdbId);
+                BindText(stmt, "@aio_id", imdbId);
                 count = 0;
                 foreach (var row in stmt.AsRows())
                     count = row.GetInt(0);
             }
 
             if (count > 0)
-                await ExecuteWriteAsync(deleteSql, cmd => BindText(cmd, "@imdb_id", imdbId), cancellationToken);
+                await ExecuteWriteAsync(deleteSql, cmd => BindText(cmd, "@aio_id", imdbId), cancellationToken);
 
             return count;
+        }
+
+        /// <summary>
+        /// Looks up a cached stream for the given (imdb, season, episode) triple.
+        /// Returns null on cache miss. Reads rank-0 from stream_resolution_cache.
+        /// </summary>
+        public async Task<ResolutionEntry?> GetCachedStreamAsync(
+            string imdbId, int? season, int? episode)
+        {
+            const string sql = @"
+                SELECT id, aio_id, season, episode, url, quality_tier, file_name, file_size,
+                       bitrate_kbps, info_hash, is_cached, status, resolved_at, expires_at,
+                       play_count, last_played_at, retry_count
+                FROM stream_resolution_cache
+                WHERE aio_id = @aio_id
+                  AND rank = 0
+                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))
+                LIMIT 1;";
+
+            return await QuerySingleAsync(sql, cmd =>
+            {
+                BindText(cmd, "@aio_id", imdbId);
+                BindNullableInt(cmd, "@season",  season);
+                BindNullableInt(cmd, "@episode", episode);
+            }, ReadResolutionEntryFromCache);
+        }
+
+        /// <summary>
+        /// Increments play_count and updates last_played_at for rank-0 entries.
+        /// </summary>
+        public async Task IncrementPlayCountAsync(
+            string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE stream_resolution_cache
+                SET play_count     = play_count + 1,
+                    last_played_at = datetime('now')
+                WHERE aio_id = @aio_id
+                  AND rank = 0
+                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@aio_id", imdbId);
+                BindNullableInt(cmd, "@season",  season);
+                BindNullableInt(cmd, "@episode", episode);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Marks rank-0 entries as <c>failed</c> and increments retry_count.
+        /// </summary>
+        public async Task MarkStreamFailedAsync(
+            string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE stream_resolution_cache
+                SET status      = 'failed',
+                    retry_count = retry_count + 1,
+                    resolved_at = datetime('now')
+                WHERE aio_id = @aio_id
+                  AND rank = 0
+                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@aio_id", imdbId);
+                BindNullableInt(cmd, "@season",  season);
+                BindNullableInt(cmd, "@episode", episode);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Returns all valid, unexpired rank-0 entries for dead-link scan.
+        /// </summary>
+        public Task<List<ResolutionEntry>> GetValidCacheEntriesAsync()
+        {
+            const string sql = @"
+                SELECT id, aio_id, season, episode, url, quality_tier, file_name, file_size,
+                       bitrate_kbps, info_hash, is_cached, status, resolved_at, expires_at,
+                       play_count, last_played_at, retry_count
+                FROM stream_resolution_cache
+                WHERE status = 'valid'
+                  AND rank = 0
+                  AND expires_at > datetime('now')
+                  AND url IS NOT NULL
+                  AND url != ''
+                ORDER BY expires_at ASC;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+
+            var rows = new List<ResolutionEntry>();
+            foreach (var row in stmt.AsRows())
+            {
+                rows.Add(ReadResolutionEntryFromCache(row));
+            }
+            return Task.FromResult(rows);
+        }
+
+        /// <summary>
+        /// Marks rank-0 entries as stale.
+        /// </summary>
+        public async Task MarkStreamStaleAsync(
+            string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE stream_resolution_cache
+                SET status = 'stale', updated_at = datetime('now')
+                WHERE aio_id = @aio_id
+                  AND rank = 0
+                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@aio_id", imdbId);
+                BindNullableInt(cmd, "@season",  season);
+                BindNullableInt(cmd, "@episode", episode);
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Marks all entries sharing an info_hash as stale.
+        /// </summary>
+        public async Task InvalidateByTorrentHashAsync(string infoHash, CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE stream_resolution_cache
+                SET status = 'stale', updated_at = datetime('now')
+                WHERE info_hash = @info_hash
+                  AND info_hash IS NOT NULL;";
+
+            await ExecuteWriteAsync(sql,
+                cmd => BindText(cmd, "@info_hash", infoHash), cancellationToken);
         }
 
         /// <summary>
@@ -735,13 +871,11 @@ namespace InfiniteDrive.Data
             });
             strmPaths.RemoveAll(string.IsNullOrEmpty);
 
-            await ExecuteWriteAsync("DELETE FROM catalog_items;",     _ => { }, cancellationToken);
-            await ExecuteWriteAsync("DELETE FROM resolution_cache;",  _ => { }, cancellationToken);
-            await ExecuteWriteAsync("DELETE FROM stream_candidates;", _ => { }, cancellationToken);
-            await ExecuteWriteAsync("DELETE FROM playback_log;",      _ => { }, cancellationToken);
-            await ExecuteWriteAsync("DELETE FROM client_compat;",     _ => { }, cancellationToken);
-            await ExecuteWriteAsync("DELETE FROM api_budget;",        _ => { }, cancellationToken);
-            await ExecuteWriteAsync("DELETE FROM sync_state;",        _ => { }, cancellationToken);
+            await ExecuteWriteAsync("DELETE FROM catalog_items;",            _ => { }, cancellationToken);
+            await ExecuteWriteAsync("DELETE FROM stream_resolution_cache;", _ => { }, cancellationToken);
+            await ExecuteWriteAsync("DELETE FROM playback_log;",            _ => { }, cancellationToken);
+            await ExecuteWriteAsync("DELETE FROM api_budget;",              _ => { }, cancellationToken);
+            await ExecuteWriteAsync("DELETE FROM sync_state;",              _ => { }, cancellationToken);
 
             return strmPaths;
         }
@@ -1048,306 +1182,30 @@ namespace InfiniteDrive.Data
                 ReadCatalogItem).ConfigureAwait(false);
         }
 
-        /// <summary>
-        /// Returns all client compatibility profiles, ordered by client_type.
-        /// Used by the health dashboard to show learned per-client streaming behaviour.
-        /// </summary>
-        public async Task<List<ClientCompatEntry>> GetAllClientCompatsAsync()
-        {
-            const string sql = @"
-                SELECT client_type, supports_redirect, max_safe_bitrate,
-                       preferred_quality, test_count, last_tested_at
-                FROM client_compat
-                ORDER BY client_type;";
-
-            return await QueryListAsync(sql, null, ReadClientCompat);
-        }
-
         // ── resolution_cache repository ─────────────────────────────────────────
 
-        /// <summary>
-        /// Inserts or replaces a resolution cache entry.
-        /// UNIQUE constraint on (imdb_id, season, episode) drives the upsert.
-        /// </summary>
-        // Shared SQL constant used by both the individual and the combined-transaction upserts.
-        private const string ResolutionCacheUpsertSql = @"
-                INSERT INTO resolution_cache
-                    (id, imdb_id, season, episode,
-                     stream_url, quality_tier, file_name, file_size, file_bitrate_kbps,
-                     fallback_1, fallback_1_quality, fallback_2, fallback_2_quality,
-                     torrent_hash, rd_cached,
-                     resolution_tier, status, resolved_at, expires_at,
-                     play_count, last_played_at, retry_count, updated_at)
-                VALUES
-                    (@id, @imdb_id, @season, @episode,
-                     @stream_url, @quality_tier, @file_name, @file_size, @file_bitrate_kbps,
-                     @fallback_1, @fallback_1_quality, @fallback_2, @fallback_2_quality,
-                     @torrent_hash, @rd_cached,
-                     @resolution_tier, @status, @resolved_at, @expires_at,
-                     @play_count, @last_played_at, @retry_count, datetime('now'))
-                ON CONFLICT(imdb_id, season, episode) DO UPDATE SET
-                    stream_url          = excluded.stream_url,
-                    quality_tier        = excluded.quality_tier,
-                    file_name           = excluded.file_name,
-                    file_size           = excluded.file_size,
-                    file_bitrate_kbps   = excluded.file_bitrate_kbps,
-                    fallback_1          = excluded.fallback_1,
-                    fallback_1_quality  = excluded.fallback_1_quality,
-                    fallback_2          = excluded.fallback_2,
-                    fallback_2_quality  = excluded.fallback_2_quality,
-                    torrent_hash        = excluded.torrent_hash,
-                    rd_cached           = excluded.rd_cached,
-                    resolution_tier     = excluded.resolution_tier,
-                    status              = excluded.status,
-                    resolved_at         = excluded.resolved_at,
-                    expires_at          = excluded.expires_at,
-                    retry_count         = excluded.retry_count,
-                    updated_at          = datetime('now');";
+        // ── stream_resolution_cache repository (consolidated) ────────────────────
 
-        private void BindResolutionCacheParams(IStatement cmd, ResolutionEntry entry)
-        {
-            BindText(cmd, "@id",                 entry.Id);
-            BindText(cmd, "@imdb_id",            entry.ImdbId);
-            BindNullableInt(cmd,  "@season",            entry.Season);
-            BindNullableInt(cmd,  "@episode",           entry.Episode);
-            BindText(cmd, "@stream_url",         entry.StreamUrl);
-            BindNullableText(cmd, "@quality_tier",      entry.QualityTier);
-            BindNullableText(cmd, "@file_name",         entry.FileName);
-            BindNullableLong(cmd, "@file_size",         entry.FileSize);
-            BindNullableInt(cmd,  "@file_bitrate_kbps", entry.FileBitrateKbps);
-            BindNullableText(cmd, "@fallback_1",        entry.Fallback1);
-            BindNullableText(cmd, "@fallback_1_quality",entry.Fallback1Quality);
-            BindNullableText(cmd, "@fallback_2",        entry.Fallback2);
-            BindNullableText(cmd, "@fallback_2_quality",entry.Fallback2Quality);
-            BindNullableText(cmd, "@torrent_hash",      entry.TorrentHash);
-            cmd.BindParameters["@rd_cached"].Bind(entry.RdCached);
-            BindText(cmd, "@resolution_tier",    entry.ResolutionTier);
-            BindText(cmd, "@status",             entry.Status);
-            BindText(cmd, "@resolved_at",        entry.ResolvedAt);
-            BindText(cmd, "@expires_at",         entry.ExpiresAt);
-            cmd.BindParameters["@play_count"].Bind(entry.PlayCount);
-            BindNullableText(cmd, "@last_played_at",    entry.LastPlayedAt);
-            cmd.BindParameters["@retry_count"].Bind(entry.RetryCount);
-        }
-
-        public async Task UpsertResolutionCacheAsync(ResolutionEntry entry, CancellationToken cancellationToken = default)
-        {
-            await ExecuteWriteAsync(ResolutionCacheUpsertSql,
-                cmd => BindResolutionCacheParams(cmd, entry), cancellationToken);
-        }
-
-        /// <summary>
-        /// Looks up a cached stream for the given (imdb, season, episode) triple.
-        /// Returns null on cache miss.
-        /// </summary>
-        public async Task<ResolutionEntry?> GetCachedStreamAsync(
-            string imdbId, int? season, int? episode)
-        {
-            const string sql = @"
-                SELECT id, imdb_id, season, episode,
-                       stream_url, quality_tier, file_name, file_size, file_bitrate_kbps,
-                       fallback_1, fallback_1_quality, fallback_2, fallback_2_quality,
-                       torrent_hash, rd_cached,
-                       resolution_tier, status, resolved_at, expires_at,
-                       play_count, last_played_at, retry_count
-                FROM resolution_cache
-                WHERE imdb_id = @imdb_id
-                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
-                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))
-                LIMIT 1;";
-
-            return await QuerySingleAsync(sql, cmd =>
-            {
-                BindText(cmd, "@imdb_id", imdbId);
-                BindNullableInt(cmd, "@season",  season);
-                BindNullableInt(cmd, "@episode", episode);
-            }, ReadResolutionEntry);
-        }
-
-        /// <summary>
-        /// Returns up to <paramref name="maxCount"/> resolution entries that need
-        /// (re-)resolution for the given tier.
-        ///
-        /// Failed items are subject to exponential backoff based on <c>retry_count</c>:
-        /// <list type="bullet">
-        ///   <item>1st failure  → retry after  6 hours</item>
-        ///   <item>2nd failure  → retry after 12 hours</item>
-        ///   <item>3rd failure  → retry after 24 hours</item>
-        ///   <item>4th+ failure → retry after 48 hours (ceiling)</item>
-        /// </list>
-        /// </summary>
-        public async Task<List<ResolutionEntry>> GetPendingResolutionsByTierAsync(
-            string tier, int maxCount)
-        {
-            // Exponential backoff: hours = min(48, 6 * 2^(retry_count-1))
-            // SQLite expression: MIN(48, 6 * CAST(ROUND(POWER(2, MAX(0, retry_count-1))) AS INT))
-            // We compute the backoff directly in SQL so no application-side filtering is needed.
-            const string sql = @"
-                SELECT id, imdb_id, season, episode,
-                       stream_url, quality_tier, file_name, file_size, file_bitrate_kbps,
-                       fallback_1, fallback_1_quality, fallback_2, fallback_2_quality,
-                       torrent_hash, rd_cached,
-                       resolution_tier, status, resolved_at, expires_at,
-                       play_count, last_played_at, retry_count
-                FROM resolution_cache
-                WHERE resolution_tier = @tier
-                  AND (status = 'stale' OR expires_at < datetime('now'))
-                  AND NOT (
-                        status = 'failed'
-                        AND resolved_at > datetime('now',
-                            '-' || CAST(
-                                MIN(48, 6 * CAST(ROUND(POWER(2.0, MAX(0, retry_count - 1))) AS INTEGER))
-                            AS TEXT) || ' hours')
-                  )
-                ORDER BY last_played_at DESC
-                LIMIT @max_count;";
-
-            return await QueryListAsync(sql, cmd =>
-            {
-                BindText(cmd, "@tier", tier);
-                cmd.BindParameters["@max_count"].Bind(maxCount);
-            }, ReadResolutionEntry);
-        }
-
-        /// <summary>
-        /// Increments play_count and updates last_played_at for the specified entry.
-        /// </summary>
-        public async Task IncrementPlayCountAsync(
-            string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE resolution_cache
-                SET play_count     = play_count + 1,
-                    last_played_at = datetime('now')
-                WHERE imdb_id = @imdb_id
-                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
-                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@imdb_id", imdbId);
-                BindNullableInt(cmd, "@season",  season);
-                BindNullableInt(cmd, "@episode", episode);
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Marks a resolution entry as <c>failed</c> and increments retry_count.
-        /// </summary>
-        public async Task MarkStreamFailedAsync(
-            string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE resolution_cache
-                SET status      = 'failed',
-                    retry_count = retry_count + 1,
-                    resolved_at = datetime('now')
-                WHERE imdb_id = @imdb_id
-                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
-                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@imdb_id", imdbId);
-                BindNullableInt(cmd, "@season",  season);
-                BindNullableInt(cmd, "@episode", episode);
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Marks a resolution entry as <c>stale</c>, triggering re-resolution
-        /// on the next LinkResolverTask run.
-        /// </summary>
-        /// <summary>
-        /// W7: Returns all resolution_cache entries that currently have <c>status='valid'</c>
-        /// and a non-empty stream URL, for use by the dead-link background scan.
-        /// Only returns entries whose TTL has not yet expired.
-        /// </summary>
-        public Task<List<ResolutionEntry>> GetValidCacheEntriesAsync()
-        {
-            const string sql = @"
-                SELECT imdb_id, season, episode, stream_url, status, resolution_tier, expires_at, resolved_at
-                FROM resolution_cache
-                WHERE status = 'valid'
-                  AND expires_at > datetime('now')
-                  AND stream_url IS NOT NULL
-                  AND stream_url != ''
-                ORDER BY expires_at ASC;";
-
-            using var conn = OpenConnection();
-            using var stmt = conn.PrepareStatement(sql);
-
-            var rows = new List<ResolutionEntry>();
-            foreach (var row in stmt.AsRows())
-            {
-                rows.Add(new ResolutionEntry
-                {
-                    ImdbId         = row.GetString(0),
-                    Season         = row.IsDBNull(1) ? (int?)null : row.GetInt(1),
-                    Episode        = row.IsDBNull(2) ? (int?)null : row.GetInt(2),
-                    StreamUrl      = row.IsDBNull(3) ? string.Empty : row.GetString(3),
-                    Status         = row.IsDBNull(4) ? string.Empty : row.GetString(4),
-                    ResolutionTier = row.IsDBNull(5) ? string.Empty : row.GetString(5),
-                    ExpiresAt      = row.IsDBNull(6) ? string.Empty : row.GetString(6),
-                });
-            }
-            return Task.FromResult(rows);
-        }
-
-        public async Task MarkStreamStaleAsync(
-            string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE resolution_cache
-                SET status = 'stale'
-                WHERE imdb_id = @imdb_id
-                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
-                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@imdb_id", imdbId);
-                BindNullableInt(cmd, "@season",  season);
-                BindNullableInt(cmd, "@episode", episode);
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Marks all entries sharing a torrent hash as stale (bulk season-pack invalidation).
-        /// Called when any episode from the pack returns 403/404 during proxy.
-        /// </summary>
-        public async Task InvalidateByTorrentHashAsync(string torrentHash, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE resolution_cache
-                SET status = 'stale'
-                WHERE torrent_hash = @torrent_hash
-                  AND torrent_hash IS NOT NULL;";
-
-            await ExecuteWriteAsync(sql,
-                cmd => BindText(cmd, "@torrent_hash", torrentHash), cancellationToken);
-        }
-
-        // ── stream_candidates repository ────────────────────────────────────────
+        // Shared SQL constants for the consolidated stream_resolution_cache table
 
         private const string CandidateDeleteSql = @"
-            DELETE FROM stream_candidates
-            WHERE imdb_id = @imdb_id
+            DELETE FROM stream_resolution_cache
+            WHERE aio_id = @aio_id
               AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
               AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
 
         private const string CandidateInsertSql = @"
-            INSERT INTO stream_candidates
-                (id, imdb_id, season, episode, rank,
-                 provider_key, stream_type, url, headers_json,
+            INSERT INTO stream_resolution_cache
+                (id, aio_id, imdb_id, season, episode, rank,
+                 provider_key, url, headers_json,
                  quality_tier, file_name, file_size, bitrate_kbps,
                  is_cached, resolved_at, expires_at, status,
                  info_hash, file_idx, stream_key, binge_group,
                  languages, subtitles_json, description,
                  raw_stream_json)
             VALUES
-                (@id, @imdb_id, @season, @episode, @rank,
-                 @provider_key, @stream_type, @url, @headers_json,
+                (@id, @aio_id, @imdb_id, @season, @episode, @rank,
+                 @provider_key, @url, @headers_json,
                  @quality_tier, @file_name, @file_size, @bitrate_kbps,
                  @is_cached, @resolved_at, @expires_at, @status,
                  @info_hash, @file_idx, @stream_key, @binge_group,
@@ -1365,7 +1223,7 @@ namespace InfiniteDrive.Data
             var first = candidates[0];
             using (var delStmt = c.PrepareStatement(CandidateDeleteSql))
             {
-                BindText(delStmt,        "@imdb_id", first.ImdbId);
+                BindText(delStmt,        "@aio_id",  first.ImdbId);
                 BindNullableInt(delStmt, "@season",  first.Season);
                 BindNullableInt(delStmt, "@episode", first.Episode);
                 while (delStmt.MoveNext()) { }
@@ -1375,12 +1233,12 @@ namespace InfiniteDrive.Data
             {
                 using var insStmt = c.PrepareStatement(CandidateInsertSql);
                 BindText(insStmt,         "@id",           cand.Id);
-                BindText(insStmt,         "@imdb_id",      cand.ImdbId);
+                BindText(insStmt,         "@aio_id",       cand.ImdbId);
+                BindNullableText(insStmt, "@imdb_id",      cand.ImdbId.StartsWith("tt", StringComparison.Ordinal) ? cand.ImdbId : null);
                 BindNullableInt(insStmt,  "@season",       cand.Season);
                 BindNullableInt(insStmt,  "@episode",      cand.Episode);
                 insStmt.BindParameters["@rank"].Bind(cand.Rank);
                 BindText(insStmt,         "@provider_key", cand.ProviderKey);
-                BindText(insStmt,         "@stream_type",  cand.StreamType);
                 BindText(insStmt,         "@url",          cand.Url);
                 BindNullableText(insStmt, "@headers_json", cand.HeadersJson);
                 BindNullableText(insStmt, "@quality_tier", cand.QualityTier);
@@ -1425,27 +1283,18 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Atomically writes both a <see cref="ResolutionEntry"/> (resolution_cache) and
-        /// its ranked <see cref="StreamCandidate"/> list (stream_candidates) in a single
-        /// SQLite transaction.  Use this instead of calling the two individual upserts
-        /// separately when both writes should succeed or fail together.
+        /// Atomically writes ranked candidate list into stream_resolution_cache
+        /// in a single SQLite transaction.
         /// </summary>
         public async Task UpsertResolutionResultAsync(ResolutionEntry entry, List<StreamCandidate> candidates, CancellationToken cancellationToken = default)
         {
+            if (candidates == null || candidates.Count == 0) return;
+
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
             {
                 using var conn = OpenConnection();
-                conn.RunInTransaction(c =>
-                {
-                    using (var stmt = c.PrepareStatement(ResolutionCacheUpsertSql))
-                    {
-                        BindResolutionCacheParams(stmt, entry);
-                        while (stmt.MoveNext()) { }
-                    }
-
-                    InsertCandidatesCore(c, candidates);
-                });
+                conn.RunInTransaction(c => InsertCandidatesCore(c, candidates));
             }
             finally
             {
@@ -1463,15 +1312,15 @@ namespace InfiniteDrive.Data
             string imdbId, int? season, int? episode)
         {
             const string sql = @"
-                SELECT id, imdb_id, season, episode, rank,
-                       provider_key, stream_type, url, headers_json,
+                SELECT id, aio_id, season, episode, rank,
+                       provider_key, 'debrid' AS stream_type, url, headers_json,
                        quality_tier, file_name, file_size, bitrate_kbps,
                        is_cached, resolved_at, expires_at, status,
                        info_hash, file_idx, stream_key, binge_group,
                        languages, subtitles_json, probe_json, description,
                        raw_stream_json
-                FROM stream_candidates
-                WHERE imdb_id = @imdb_id
+                FROM stream_resolution_cache
+                WHERE aio_id = @aio_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
                   AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))
                   AND status != 'failed'
@@ -1479,7 +1328,7 @@ namespace InfiniteDrive.Data
 
             return await QueryListAsync(sql, cmd =>
             {
-                BindText(cmd,        "@imdb_id", imdbId);
+                BindText(cmd,        "@aio_id", imdbId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
             }, ReadStreamCandidate);
@@ -1492,7 +1341,7 @@ namespace InfiniteDrive.Data
         {
             if (string.IsNullOrEmpty(streamKey)) return null;
             const string sql = @"
-                SELECT probe_json FROM stream_candidates
+                SELECT probe_json FROM stream_resolution_cache
                 WHERE stream_key = @stream_key AND probe_json IS NOT NULL
                 LIMIT 1";
 
@@ -1508,7 +1357,7 @@ namespace InfiniteDrive.Data
         {
             if (string.IsNullOrEmpty(streamKey) || string.IsNullOrEmpty(probeJson)) return;
             const string sql = @"
-                UPDATE stream_candidates
+                UPDATE stream_resolution_cache
                 SET probe_json = @probe_json
                 WHERE stream_key = @stream_key";
 
@@ -1529,7 +1378,7 @@ namespace InfiniteDrive.Data
         {
             if (string.IsNullOrEmpty(streamKey) || string.IsNullOrEmpty(url)) return;
             const string sql = @"
-                UPDATE stream_candidates
+                UPDATE stream_resolution_cache
                 SET url = @url, url_resolved_at = @resolved_at, url_expires_at = @expires_at
                 WHERE stream_key = @stream_key";
 
@@ -1567,8 +1416,8 @@ namespace InfiniteDrive.Data
                   AND mi.status IN ('active','indexed','created')
                   AND mi.blocked = 0
                   AND NOT EXISTS (
-                      SELECT 1 FROM stream_candidates sc
-                      WHERE lower(sc.imdb_id) = lower(ids.id_value)
+                      SELECT 1 FROM stream_resolution_cache sc
+                      WHERE lower(sc.aio_id) = lower(ids.id_value)
                         AND sc.season IS NULL
                         AND sc.status != 'failed'
                   )
@@ -1605,8 +1454,8 @@ namespace InfiniteDrive.Data
                   AND season_num IS NOT NULL
                   AND episode_num IS NOT NULL
                   AND NOT EXISTS (
-                      SELECT 1 FROM stream_candidates sc
-                      WHERE lower(sc.imdb_id) = lower(ids.id_value)
+                      SELECT 1 FROM stream_resolution_cache sc
+                      WHERE lower(sc.aio_id) = lower(ids.id_value)
                         AND sc.season = season_num
                         AND sc.episode = episode_num
                         AND sc.status != 'failed'
@@ -1658,16 +1507,16 @@ namespace InfiniteDrive.Data
             string imdbId, int? season, int? episode, int rank, string status, CancellationToken cancellationToken = default)
         {
             const string sql = @"
-                UPDATE stream_candidates
+                UPDATE stream_resolution_cache
                 SET status = @status
-                WHERE imdb_id = @imdb_id
+                WHERE aio_id = @aio_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
                   AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))
                   AND rank    = @rank;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd,        "@imdb_id", imdbId);
+                BindText(cmd,        "@aio_id", imdbId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
                 cmd.BindParameters["@rank"].Bind(rank);
@@ -1683,14 +1532,14 @@ namespace InfiniteDrive.Data
             string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
         {
             const string sql = @"
-                DELETE FROM stream_candidates
-                WHERE imdb_id = @imdb_id
+                DELETE FROM stream_resolution_cache
+                WHERE aio_id = @aio_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
                   AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd,        "@imdb_id", imdbId);
+                BindText(cmd,        "@aio_id", imdbId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
             }, cancellationToken);
@@ -1704,8 +1553,8 @@ namespace InfiniteDrive.Data
         public Task<Dictionary<string, int>> GetCandidateCountsByTypeAsync()
         {
             const string sql = @"
-                SELECT stream_type, COUNT(*) AS cnt
-                FROM stream_candidates
+                SELECT 'debrid' AS stream_type, COUNT(*) AS cnt
+                FROM stream_resolution_cache
                 WHERE status   = 'valid'
                   AND expires_at > datetime('now')
                 GROUP BY stream_type
@@ -2084,91 +1933,6 @@ namespace InfiniteDrive.Data
 
             await ExecuteWriteAsync(sql,
                 cmd => cmd.BindParameters["@max_rows"].Bind(maxRows), cancellationToken);
-        }
-
-        // ── client_compat repository ────────────────────────────────────────────
-
-        /// <summary>
-        /// Returns the client compat profile for the given client type, or null.
-        /// </summary>
-        public async Task<ClientCompatEntry?> GetClientCompatAsync(string clientType)
-        {
-            const string sql = @"
-                SELECT client_type, supports_redirect, max_safe_bitrate,
-                       preferred_quality, test_count, last_tested_at
-                FROM client_compat
-                WHERE client_type = @client_type;";
-
-            return await QuerySingleAsync(sql,
-                cmd => BindText(cmd, "@client_type", clientType),
-                ReadClientCompat);
-        }
-
-        /// <summary>
-        /// Inserts or updates a client compatibility profile.
-        /// </summary>
-        public async Task UpsertClientCompatAsync(ClientCompatEntry entry, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                INSERT INTO client_compat
-                    (client_type, supports_redirect, max_safe_bitrate,
-                     preferred_quality, test_count, last_tested_at, updated_at)
-                VALUES
-                    (@client_type, @supports_redirect, @max_safe_bitrate,
-                     @preferred_quality, @test_count, @last_tested_at, datetime('now'))
-                ON CONFLICT(client_type) DO UPDATE SET
-                    supports_redirect = excluded.supports_redirect,
-                    max_safe_bitrate  = COALESCE(excluded.max_safe_bitrate, client_compat.max_safe_bitrate),
-                    preferred_quality = COALESCE(excluded.preferred_quality, client_compat.preferred_quality),
-                    test_count        = excluded.test_count,
-                    last_tested_at    = excluded.last_tested_at,
-                    updated_at        = datetime('now');";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@client_type",        entry.ClientType);
-                cmd.BindParameters["@supports_redirect"].Bind(entry.SupportsRedirect);
-                BindNullableInt(cmd,  "@max_safe_bitrate",  entry.MaxSafeBitrate);
-                BindNullableText(cmd, "@preferred_quality", entry.PreferredQuality);
-                cmd.BindParameters["@test_count"].Bind(entry.TestCount);
-                BindNullableText(cmd, "@last_tested_at",    entry.LastTestedAt);
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Updates the learned max bitrate and redirect support for a client.
-        /// Called by StreamProxyService during active streaming.
-        /// </summary>
-        public async Task UpdateClientCompatAsync(
-            string clientType, bool supportsRedirect, int? maxBitrate, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                INSERT INTO client_compat (client_type, supports_redirect, max_safe_bitrate, test_count, last_tested_at, updated_at)
-                VALUES (@client_type, @supports_redirect, @max_safe_bitrate, 1, datetime('now'), datetime('now'))
-                ON CONFLICT(client_type) DO UPDATE SET
-                    supports_redirect = @supports_redirect,
-                    max_safe_bitrate  = COALESCE(@max_safe_bitrate, client_compat.max_safe_bitrate),
-                    test_count        = client_compat.test_count + 1,
-                    last_tested_at    = datetime('now'),
-                    updated_at        = datetime('now');";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@client_type",        clientType);
-                cmd.BindParameters["@supports_redirect"].Bind(supportsRedirect ? 1 : 0);
-                BindNullableInt(cmd, "@max_safe_bitrate", maxBitrate);
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Deletes all learned client compatibility profiles.
-        /// Used by the dashboard "Reset Client Intelligence" action to clear
-        /// stale per-device proxy-mode and bitrate-cap records.
-        /// </summary>
-        public async Task ClearAllClientProfilesAsync(CancellationToken cancellationToken = default)
-        {
-            const string sql = "DELETE FROM client_compat;";
-            await ExecuteWriteAsync(sql, cmd => { }, cancellationToken);
         }
 
         // ── api_budget repository ───────────────────────────────────────────────
@@ -2563,46 +2327,26 @@ namespace InfiniteDrive.Data
         // ── Night 3 helpers: resolution queue, stats ────────────────────────────
 
         /// <summary>
-        /// Inserts or marks stale a resolution_cache row so the
-        /// <see cref="Tasks.LinkResolverTask"/> picks it up in the next run.
-        /// If a valid row already exists it is bumped to stale so re-resolution
-        /// is triggered with the requested tier priority.
+        /// Marks existing entries as stale for re-resolution.
         /// </summary>
         public async Task QueueForResolutionAsync(
             string imdbId, int? season, int? episode, string tier, CancellationToken cancellationToken = default)
         {
-            // Use a two-step upsert:
-            //   1. INSERT OR IGNORE — creates a placeholder row if none exists.
-            //      stream_url = '' satisfies NOT NULL; status='stale' + expires_at=now
-            //      ensures GetPendingResolutionsByTierAsync picks it up.
-            //   2. UPDATE — if the row already existed and is valid/stale, refresh tier + stale flag.
-            const string insertSql = @"
-                INSERT OR IGNORE INTO resolution_cache
-                    (id, imdb_id, season, episode,
-                     stream_url, resolution_tier, status, resolved_at, expires_at)
-                VALUES
-                    (lower(hex(randomblob(16))), @imdb_id, @season, @episode,
-                     '', @tier, 'stale', datetime('now'), datetime('now'));";
-
-            const string updateSql = @"
-                UPDATE resolution_cache
-                SET resolution_tier = @tier,
-                    status          = 'stale',
-                    expires_at      = datetime('now')
-                WHERE imdb_id  = @imdb_id
+            const string sql = @"
+                UPDATE stream_resolution_cache
+                SET status     = 'stale',
+                    expires_at = datetime('now'),
+                    updated_at = datetime('now')
+                WHERE aio_id = @aio_id
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
                   AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL));";
 
-            void BindAll(IStatement cmd)
+            await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", imdbId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
-                BindText(cmd, "@tier", tier);
-            }
-
-            await ExecuteWriteAsync(insertSql, BindAll, cancellationToken);
-            await ExecuteWriteAsync(updateSql, BindAll, cancellationToken);
+            }, cancellationToken);
         }
 
         /// <summary>
@@ -2709,7 +2453,7 @@ namespace InfiniteDrive.Data
                               OR (status='valid' AND expires_at <= datetime('now'))
                              THEN 1 ELSE 0 END)                                       AS stale,
                     SUM(CASE WHEN status='failed' THEN 1 ELSE 0 END)                  AS failed
-                FROM resolution_cache;";
+                FROM stream_resolution_cache;";
 
             using var conn = OpenConnection();
             using var stmt = conn.PrepareStatement(sql);
@@ -2747,8 +2491,8 @@ namespace InfiniteDrive.Data
                 FROM catalog_items ci
                 WHERE ci.removed_at IS NULL AND ci.local_source = 'strm'
                   AND EXISTS (
-                      SELECT 1 FROM resolution_cache rc
-                      WHERE rc.imdb_id    = ci.imdb_id
+                      SELECT 1 FROM stream_resolution_cache rc
+                      WHERE rc.aio_id    = ci.imdb_id
                         AND rc.status     = 'valid'
                         AND rc.expires_at > datetime('now')
                   );";
@@ -2758,8 +2502,8 @@ namespace InfiniteDrive.Data
                 FROM catalog_items ci
                 WHERE ci.removed_at IS NULL AND ci.local_source = 'strm'
                   AND NOT EXISTS (
-                      SELECT 1 FROM resolution_cache rc
-                      WHERE rc.imdb_id = ci.imdb_id
+                      SELECT 1 FROM stream_resolution_cache rc
+                      WHERE rc.aio_id = ci.imdb_id
                   );";
 
             static int RunScalar(IDatabaseConnection conn, string sql)
@@ -2814,10 +2558,10 @@ namespace InfiniteDrive.Data
             GetFailedItemsAsync(int limit = 50)
         {
             const string sql = @"
-                SELECT rc.imdb_id, COALESCE(ci.title, rc.imdb_id), rc.season, rc.episode, rc.expires_at
-                FROM resolution_cache rc
+                SELECT rc.aio_id, COALESCE(ci.title, rc.aio_id), rc.season, rc.episode, rc.expires_at
+                FROM stream_resolution_cache rc
                 LEFT JOIN catalog_items ci
-                       ON ci.imdb_id = rc.imdb_id AND ci.removed_at IS NULL
+                       ON ci.imdb_id = rc.aio_id AND ci.removed_at IS NULL
                 WHERE rc.status = 'failed'
                   AND rc.expires_at > datetime('now')
                 ORDER BY rc.expires_at DESC
@@ -2925,38 +2669,56 @@ CREATE INDEX IF NOT EXISTS idx_catalog_imdb ON catalog_items(imdb_id);
 CREATE INDEX IF NOT EXISTS idx_catalog_active ON catalog_items(removed_at) WHERE removed_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_catalog_media_type ON catalog_items(media_type, removed_at);
 
--- ── resolution_cache ────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS resolution_cache (
-    id                  TEXT PRIMARY KEY,
-    imdb_id             TEXT NOT NULL,
-    season              INTEGER,
-    episode             INTEGER,
-    stream_url          TEXT NOT NULL,
-    quality_tier        TEXT,
-    file_name           TEXT,
-    file_size           INTEGER,
-    file_bitrate_kbps   INTEGER,
-    fallback_1          TEXT,
-    fallback_1_quality  TEXT,
-    fallback_2          TEXT,
-    fallback_2_quality  TEXT,
-    torrent_hash        TEXT,
-    rd_cached           INTEGER DEFAULT 1,
-    resolution_tier     TEXT NOT NULL DEFAULT 'tier3' CHECK(resolution_tier IN ('tier0','tier1','tier2','tier3')),
-    status              TEXT NOT NULL DEFAULT 'valid' CHECK(status IN ('valid','stale','failed')),
-    resolved_at         TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at          TEXT NOT NULL,
-    play_count          INTEGER NOT NULL DEFAULT 0,
-    last_played_at      TEXT,
-    retry_count         INTEGER NOT NULL DEFAULT 0,
-    updated_at          TEXT,
-    UNIQUE(imdb_id, season, episode)
+-- ── stream_resolution_cache (consolidated from resolution_cache + stream_candidates + cached_streams) ──
+-- aio_id: AIOStreams top-level id (may be IMDB tt-prefix, kitsu:NNNNN, mal:NNNNN, etc.)
+-- imdb_id: nullable, only set when a true IMDB ID is known
+-- tmdb_key: nullable, TMDB-prefixed compound key for secondary lookup
+CREATE TABLE IF NOT EXISTS stream_resolution_cache (
+    id                      TEXT PRIMARY KEY,
+    aio_id                  TEXT NOT NULL,
+    imdb_id                 TEXT,
+    tmdb_key                TEXT,
+    media_type              TEXT NOT NULL DEFAULT 'movie',
+    season                  INTEGER,
+    episode                 INTEGER,
+    item_id                 TEXT,
+    rank                    INTEGER NOT NULL DEFAULT 0,
+    provider_key            TEXT NOT NULL DEFAULT 'unknown',
+    stream_key              TEXT,
+    info_hash               TEXT,
+    file_idx                INTEGER,
+    url                     TEXT NOT NULL,
+    quality_tier            TEXT,
+    file_name               TEXT,
+    file_size               INTEGER,
+    bitrate_kbps            INTEGER,
+    languages               TEXT,
+    subtitles_json          TEXT,
+    description             TEXT,
+    binge_group             TEXT,
+    headers_json            TEXT,
+    raw_stream_json         TEXT,
+    probe_json              TEXT,
+    variants_json           TEXT DEFAULT '[]',
+    manifest_source         TEXT,
+    status                  TEXT NOT NULL DEFAULT 'valid',
+    is_cached               INTEGER NOT NULL DEFAULT 1,
+    url_resolved_at         TEXT,
+    url_expires_at          TEXT,
+    resolved_at             TEXT NOT NULL DEFAULT (datetime('now')),
+    expires_at              TEXT NOT NULL,
+    updated_at              TEXT,
+    play_count              INTEGER NOT NULL DEFAULT 0,
+    last_played_at          TEXT,
+    retry_count             INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(aio_id, COALESCE(season, -1), COALESCE(episode, -1), rank)
 );
-CREATE INDEX IF NOT EXISTS idx_res_imdb ON resolution_cache(imdb_id);
-CREATE INDEX IF NOT EXISTS idx_res_status ON resolution_cache(status, expires_at);
-CREATE INDEX IF NOT EXISTS idx_res_tier ON resolution_cache(resolution_tier, status);
-CREATE INDEX IF NOT EXISTS idx_res_torrent ON resolution_cache(torrent_hash) WHERE torrent_hash IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_res_priority ON resolution_cache(resolution_tier, last_played_at DESC, status);
+CREATE INDEX IF NOT EXISTS idx_src_aio ON stream_resolution_cache(aio_id, season, episode);
+CREATE INDEX IF NOT EXISTS idx_src_imdb ON stream_resolution_cache(imdb_id);
+CREATE INDEX IF NOT EXISTS idx_src_tmdb ON stream_resolution_cache(tmdb_key);
+CREATE INDEX IF NOT EXISTS idx_src_expires ON stream_resolution_cache(expires_at);
+CREATE INDEX IF NOT EXISTS idx_src_stream_key ON stream_resolution_cache(stream_key);
+CREATE INDEX IF NOT EXISTS idx_src_status ON stream_resolution_cache(status);
 
 -- ── playback_log ────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS playback_log (
@@ -2976,17 +2738,6 @@ CREATE TABLE IF NOT EXISTS playback_log (
     played_at           TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_play_recent ON playback_log(played_at DESC);
-
--- ── client_compat ───────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS client_compat (
-    client_type         TEXT PRIMARY KEY,
-    supports_redirect   INTEGER NOT NULL DEFAULT 1,
-    max_safe_bitrate    INTEGER,
-    preferred_quality   TEXT,
-    test_count          INTEGER NOT NULL DEFAULT 0,
-    last_tested_at      TEXT,
-    updated_at          TEXT
-);
 
 -- ── api_budget ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS api_budget (
@@ -3014,41 +2765,6 @@ CREATE TABLE IF NOT EXISTS sync_state (
     items_running       INTEGER DEFAULT 0,
     updated_at          TEXT
 );
-
--- ── stream_candidates ───────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS stream_candidates (
-    id                      TEXT PRIMARY KEY,
-    imdb_id                 TEXT NOT NULL,
-    season                  INTEGER,
-    episode                 INTEGER,
-    rank                    INTEGER NOT NULL,
-    provider_key            TEXT NOT NULL DEFAULT 'unknown',
-    stream_type             TEXT NOT NULL DEFAULT 'debrid',
-    url                     TEXT NOT NULL,
-    headers_json            TEXT,
-    quality_tier            TEXT,
-    file_name               TEXT,
-    file_size               INTEGER,
-    bitrate_kbps            INTEGER,
-    is_cached               INTEGER NOT NULL DEFAULT 1,
-    resolved_at             TEXT NOT NULL,
-    expires_at              TEXT NOT NULL,
-    status                  TEXT NOT NULL DEFAULT 'valid',
-    info_hash               TEXT,
-    file_idx                INTEGER,
-    stream_key              TEXT,
-    binge_group             TEXT,
-    absolute_episode_number INTEGER,
-    languages               TEXT,
-    subtitles_json          TEXT,
-    probe_json              TEXT,
-    url_resolved_at         TEXT,
-    url_expires_at          TEXT,
-    description             TEXT,
-    raw_stream_json         TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_key ON stream_candidates(imdb_id, COALESCE(season,-1), COALESCE(episode,-1), rank);
-CREATE INDEX IF NOT EXISTS idx_candidates_item ON stream_candidates(imdb_id, season, episode, rank);
 
 -- ── discover_catalog ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS discover_catalog (
@@ -3110,21 +2826,6 @@ CREATE TABLE IF NOT EXISTS home_section_tracking (
     created_at      TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
     UNIQUE(user_id, rail_type)
-);
-
--- ── version_slots ───────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS version_slots (
-    slot_key        TEXT PRIMARY KEY,
-    label           TEXT NOT NULL,
-    resolution      TEXT NOT NULL,
-    video_codecs    TEXT NOT NULL DEFAULT 'any',
-    hdr_classes     TEXT NOT NULL DEFAULT '',
-    audio_preferences TEXT NOT NULL,
-    enabled         INTEGER NOT NULL DEFAULT 0,
-    is_default      INTEGER NOT NULL DEFAULT 0,
-    sort_order      INTEGER NOT NULL DEFAULT 0,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- ── ingestion_state ─────────────────────────────────────────────────────────
@@ -3240,73 +2941,6 @@ CREATE TABLE IF NOT EXISTS collections (
 );
 CREATE INDEX IF NOT EXISTS idx_collections_source_id ON collections(source_id);
 
--- ── candidates ──────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS candidates (
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    media_item_id   TEXT NOT NULL,
-    slot_key        TEXT NOT NULL,
-    rank            INTEGER NOT NULL,
-    service         TEXT,
-    stream_type     TEXT NOT NULL DEFAULT 'debrid',
-    resolution      TEXT,
-    video_codec     TEXT,
-    hdr_class       TEXT,
-    audio_codec     TEXT,
-    audio_channels  TEXT,
-    file_name       TEXT,
-    file_size       INTEGER,
-    bitrate_kbps    INTEGER,
-    languages       TEXT,
-    source_type     TEXT,
-    is_cached       INTEGER NOT NULL DEFAULT 0,
-    fingerprint     TEXT NOT NULL,
-    binge_group     TEXT,
-    info_hash       TEXT,
-    file_idx        INTEGER,
-    confidence_score REAL NOT NULL DEFAULT 0.0,
-    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at      TEXT NOT NULL,
-    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_candidates_item_slot ON candidates(media_item_id, slot_key, rank);
-CREATE INDEX IF NOT EXISTS idx_candidates_fingerprint ON candidates(fingerprint);
-CREATE INDEX IF NOT EXISTS idx_candidates_expires ON candidates(expires_at);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_candidates_unique ON candidates(media_item_id, slot_key, fingerprint);
-
--- ── version_snapshots ───────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS version_snapshots (
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    media_item_id   TEXT NOT NULL,
-    slot_key        TEXT NOT NULL,
-    candidate_id    TEXT NOT NULL,
-    snapshot_at     TEXT NOT NULL DEFAULT (datetime('now')),
-    playback_url    TEXT,
-    playback_url_cached_at TEXT,
-    playback_url_expires_at TEXT,
-    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
-    UNIQUE (media_item_id, slot_key)
-);
-CREATE INDEX IF NOT EXISTS idx_snapshots_item ON version_snapshots(media_item_id);
-
--- ── materialized_versions ───────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS materialized_versions (
-    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-    media_item_id   TEXT NOT NULL,
-    slot_key        TEXT NOT NULL,
-    strm_path       TEXT NOT NULL,
-    nfo_path        TEXT NOT NULL,
-    strm_url_hash   TEXT NOT NULL,
-    is_base         INTEGER NOT NULL DEFAULT 0,
-    materialized_at TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    strm_token_expires_at INTEGER,
-    FOREIGN KEY (media_item_id) REFERENCES media_items(id) ON DELETE CASCADE,
-    UNIQUE (media_item_id, slot_key)
-);
-CREATE INDEX IF NOT EXISTS idx_materialized_item ON materialized_versions(media_item_id);
-CREATE INDEX IF NOT EXISTS idx_materialized_slot ON materialized_versions(slot_key);
-CREATE INDEX IF NOT EXISTS idx_materialized_base ON materialized_versions(is_base) WHERE is_base = 1;
-
 -- ── item_pipeline_log ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS item_pipeline_log (
     primary_id       TEXT NOT NULL,
@@ -3365,16 +2999,6 @@ CREATE TABLE IF NOT EXISTS user_item_saves (
 CREATE INDEX IF NOT EXISTS idx_user_saves_user ON user_item_saves(user_id);
 CREATE INDEX IF NOT EXISTS idx_user_saves_item ON user_item_saves(media_item_id);
 
--- ── stream_cache ────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS stream_cache (
-    media_id      TEXT PRIMARY KEY NOT NULL,
-    url           TEXT NOT NULL,
-    url_secondary TEXT,
-    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at    TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_cache_expires ON stream_cache(expires_at);
-
 -- ── blocked_items ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS blocked_items (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3392,22 +3016,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_imdb ON blocked_items(lower(imdb_id));
 CREATE INDEX IF NOT EXISTS idx_bi_tmdb ON blocked_items(lower(tmdb_id));
 CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
 
--- ── cached_streams ──────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS cached_streams (
-    tmdb_key          TEXT PRIMARY KEY,
-    imdb_id           TEXT NOT NULL,
-    media_type        TEXT NOT NULL,
-    season            INTEGER,
-    episode           INTEGER,
-    item_id           TEXT,
-    variants          TEXT NOT NULL,
-    cached_at         TEXT NOT NULL DEFAULT (datetime('now')),
-    expires_at        TEXT NOT NULL,
-    status            TEXT NOT NULL DEFAULT 'valid',
-    manifest_source   TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_cs_imdb ON cached_streams(imdb_id, season, episode);
-CREATE INDEX IF NOT EXISTS idx_cs_item ON cached_streams(item_id) WHERE item_id IS NOT NULL;
+-- ── Migration: merge old tables into stream_resolution_cache ────────────────
 ";
             // Split on semicolons but preserve BEGIN...END blocks in triggers.
             var statements = SplitDdl(ddl);
@@ -3418,44 +3027,193 @@ CREATE INDEX IF NOT EXISTS idx_cs_item ON cached_streams(item_id) WHERE item_id 
                     conn.Execute(sql);
             }
 
-            // Seed version_slots
-            SeedVersionSlots(conn);
+            // Migrate data from legacy tables into stream_resolution_cache
+            MigrateLegacyTables(conn);
+
+            // Drop legacy tables
+            DropLegacyTables(conn);
 
             _logger.LogInformation("[InfiniteDrive] Schema created successfully");
         }
 
-        private void SeedVersionSlots(IDatabaseConnection conn)
+        private void MigrateLegacyTables(IDatabaseConnection conn)
         {
-            var slots = new (string Key, string Label, string Resolution, string VideoCodecs, string HdrClasses, string AudioPreferences, int Enabled, int IsDefault, int SortOrder)[]
+            // Idempotency: check if v2 migration (aio_id) already ran
+            try
             {
-                ("best_available", "Best Available",    "highest", "any", "any", "atmos,dd_plus_71,dd_plus_51,dd_51", 1, 1, 0),
-                ("4k_dv",          "4K · Dolby Vision", "2160p", "hevc,av1", "dv",   "atmos,dd_plus_71,dd_plus_51",     0, 0, 1),
-                ("4k_hdr",         "4K · HDR",          "2160p", "hevc,av1", "hdr10","atmos,dd_plus_51,dd_51",          0, 0, 2),
-                ("4k_sdr",         "4K · SDR",          "2160p", "hevc,av1", "",    "dd_plus_51,dd_51,aac",             0, 0, 3),
-                ("hd_broad",       "HD · Broad",        "1080p", "h264", "",       "dd_plus_51,dd_51,aac_stereo",      0, 0, 4),
-                ("hd_efficient",   "HD · Efficient",    "1080p", "hevc",     "",    "dd_plus_51,aac_stereo",            0, 0, 5),
-                ("compact",        "Compact",           "720p",  "h264",     "",    "aac,dd",                           0, 0, 6),
-            };
+                using var flagCheck = conn.PrepareStatement(
+                    "SELECT 1 FROM plugin_metadata WHERE key = 'cache_migrated_v2' LIMIT 1");
+                foreach (var _ in flagCheck.AsRows()) return; // already migrated
+            }
+            catch { /* plugin_metadata may not exist yet */ }
 
-            const string sql = @"
-                INSERT OR IGNORE INTO version_slots
-                    (slot_key, label, resolution, video_codecs, hdr_classes, audio_preferences, enabled, is_default, sort_order)
-                VALUES
-                    (@slot_key, @label, @resolution, @video_codecs, @hdr_classes, @audio_preferences, @enabled, @is_default, @sort_order)";
-
-            foreach (var slot in slots)
+            // Only migrate if stream_candidates exists and stream_resolution_cache is empty
+            bool hasCandidates = false;
+            try
             {
-                using var stmt = conn.PrepareStatement(sql);
-                stmt.BindParameters["@slot_key"].Bind(slot.Key);
-                stmt.BindParameters["@label"].Bind(slot.Label);
-                stmt.BindParameters["@resolution"].Bind(slot.Resolution);
-                stmt.BindParameters["@video_codecs"].Bind(slot.VideoCodecs);
-                stmt.BindParameters["@hdr_classes"].Bind(slot.HdrClasses);
-                stmt.BindParameters["@audio_preferences"].Bind(slot.AudioPreferences);
-                stmt.BindParameters["@enabled"].Bind(slot.Enabled);
-                stmt.BindParameters["@is_default"].Bind(slot.IsDefault);
-                stmt.BindParameters["@sort_order"].Bind(slot.SortOrder);
-                while (stmt.MoveNext()) { }
+                using var check = conn.PrepareStatement("SELECT 1 FROM sqlite_master WHERE type='table' AND name='stream_candidates' LIMIT 1");
+                foreach (var _ in check.AsRows()) { hasCandidates = true; break; }
+            }
+            catch { return; }
+
+            if (!hasCandidates) return;
+
+            // Check if stream_resolution_cache already has rows (from a prior v1 migration)
+            int cacheCount = 0;
+            try
+            {
+                using var cnt = conn.PrepareStatement("SELECT COUNT(*) FROM stream_resolution_cache LIMIT 1");
+                foreach (var row in cnt.AsRows()) { cacheCount = row.GetInt(0); break; }
+            }
+            catch { }
+
+            if (cacheCount > 0)
+            {
+                // v1 migration ran but v2 hasn't — need to add aio_id column and backfill
+                MigrateV1ToV2(conn);
+                return;
+            }
+
+            _logger.LogInformation("[InfiniteDrive] Migrating stream_candidates → stream_resolution_cache (v2/aio_id)...");
+
+            try
+            {
+                // The old stream_candidates.imdb_id column stores the AIOStreams primary ID
+                // (which may be an IMDB tt-prefix, kitsu:NNNNN, etc.) — map it to aio_id.
+                conn.Execute(@"
+                    INSERT OR IGNORE INTO stream_resolution_cache
+                        (id, aio_id, imdb_id, season, episode, rank, provider_key, stream_key,
+                         info_hash, file_idx, url, quality_tier, file_name, file_size,
+                         bitrate_kbps, languages, subtitles_json, description, binge_group,
+                         headers_json, raw_stream_json, probe_json, status, is_cached,
+                         url_resolved_at, url_expires_at, resolved_at, expires_at, updated_at,
+                         play_count, last_played_at, retry_count)
+                    SELECT
+                        id,
+                        imdb_id AS aio_id,
+                        CASE WHEN imdb_id LIKE 'tt%' THEN imdb_id ELSE NULL END AS imdb_id,
+                        season, episode, rank, provider_key, stream_key,
+                        info_hash, file_idx, url, quality_tier, file_name, file_size,
+                        bitrate_kbps, languages, subtitles_json, description, binge_group,
+                        headers_json, raw_stream_json, probe_json, status, is_cached,
+                        url_resolved_at, url_expires_at, resolved_at, expires_at, updated_at,
+                        0, NULL, 0
+                    FROM stream_candidates");
+
+                // Migrate play counts from resolution_cache → rank-0 rows
+                try
+                {
+                    conn.Execute(@"
+                        UPDATE stream_resolution_cache
+                        SET play_count = COALESCE((SELECT rc.play_count FROM resolution_cache rc
+                            WHERE lower(rc.imdb_id) = lower(stream_resolution_cache.aio_id)
+                            AND COALESCE(rc.season,-1) = COALESCE(stream_resolution_cache.season,-1)
+                            AND COALESCE(rc.episode,-1) = COALESCE(stream_resolution_cache.episode,-1)), 0),
+                            retry_count = COALESCE((SELECT rc.retry_count FROM resolution_cache rc
+                            WHERE lower(rc.imdb_id) = lower(stream_resolution_cache.aio_id)
+                            AND COALESCE(rc.season,-1) = COALESCE(stream_resolution_cache.season,-1)
+                            AND COALESCE(rc.episode,-1) = COALESCE(stream_resolution_cache.episode,-1)), 0),
+                            last_played_at = (SELECT rc.last_played_at FROM resolution_cache rc
+                            WHERE lower(rc.imdb_id) = lower(stream_resolution_cache.aio_id)
+                            AND COALESCE(rc.season,-1) = COALESCE(stream_resolution_cache.season,-1)
+                            AND COALESCE(rc.episode,-1) = COALESCE(stream_resolution_cache.episode,-1))
+                        WHERE rank = 0");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[InfiniteDrive] resolution_cache play count migration skipped");
+                }
+
+                // Migrate cached_streams data → rank-0 rows
+                try
+                {
+                    conn.Execute(@"
+                        UPDATE stream_resolution_cache
+                        SET tmdb_key = (SELECT cs.tmdb_key FROM cached_streams cs
+                                WHERE lower(cs.imdb_id) = lower(stream_resolution_cache.aio_id)
+                                AND COALESCE(cs.season,-1) = COALESCE(stream_resolution_cache.season,-1)
+                                AND COALESCE(cs.episode,-1) = COALESCE(stream_resolution_cache.episode,-1) LIMIT 1),
+                            media_type = COALESCE((SELECT cs.media_type FROM cached_streams cs
+                                WHERE lower(cs.imdb_id) = lower(stream_resolution_cache.aio_id) LIMIT 1), 'movie'),
+                            variants_json = COALESCE((SELECT cs.variants FROM cached_streams cs
+                                WHERE lower(cs.imdb_id) = lower(stream_resolution_cache.aio_id) LIMIT 1), '[]'),
+                            manifest_source = (SELECT cs.manifest_source FROM cached_streams cs
+                                WHERE lower(cs.imdb_id) = lower(stream_resolution_cache.aio_id) LIMIT 1)
+                        WHERE rank = 0 AND tmdb_key IS NULL");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[InfiniteDrive] cached_streams migration skipped");
+                }
+
+                MarkMigrationComplete(conn);
+                _logger.LogInformation("[InfiniteDrive] Migration v2 (aio_id) complete");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] Legacy table migration failed, continuing with fresh tables");
+            }
+        }
+
+        /// <summary>
+        /// Upgrades a v1 stream_resolution_cache (imdb_id-based) to v2 (aio_id-based).
+        /// Called when v1 migration already ran but the aio_id column doesn't exist yet.
+        /// </summary>
+        private void MigrateV1ToV2(IDatabaseConnection conn)
+        {
+            _logger.LogInformation("[InfiniteDrive] Upgrading stream_resolution_cache from v1 to v2 (aio_id)...");
+
+            try
+            {
+                // Add aio_id column if it doesn't exist
+                try
+                {
+                    conn.Execute("ALTER TABLE stream_resolution_cache ADD COLUMN aio_id TEXT");
+                }
+                catch { /* column may already exist */ }
+
+                // Backfill: old imdb_id IS the AIOStreams primary ID
+                conn.Execute(@"
+                    UPDATE stream_resolution_cache
+                    SET aio_id = imdb_id
+                    WHERE aio_id IS NULL");
+
+                // Set imdb_id to NULL for non-tt values (keep only real IMDB IDs)
+                conn.Execute(@"
+                    UPDATE stream_resolution_cache
+                    SET imdb_id = NULL
+                    WHERE imdb_id IS NOT NULL AND imdb_id NOT LIKE 'tt%'");
+
+                MarkMigrationComplete(conn);
+                _logger.LogInformation("[InfiniteDrive] v1 → v2 upgrade complete");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[InfiniteDrive] v1 → v2 upgrade failed");
+            }
+        }
+
+        private void MarkMigrationComplete(IDatabaseConnection conn)
+        {
+            try
+            {
+                conn.Execute(@"
+                    INSERT OR REPLACE INTO plugin_metadata (key, value)
+                    VALUES ('cache_migrated_v2', '1')");
+            }
+            catch { /* plugin_metadata may not exist — non-critical */ }
+        }
+
+        private void DropLegacyTables(IDatabaseConnection conn)
+        {
+            foreach (var table in new[]
+            {
+                "resolution_cache", "stream_candidates", "cached_streams", "stream_cache",
+                "client_compat", "version_slots", "materialized_versions", "version_snapshots", "candidates"
+            })
+            {
+                try { conn.Execute($"DROP TABLE IF EXISTS [{table}]"); }
+                catch { /* ignore */ }
             }
         }
 
@@ -3812,7 +3570,7 @@ WHERE discover_catalog_fts MATCH @query
             }, ReadDiscoverCatalogEntry);
         }
 
-        public async Task<DiscoverCatalogEntry?> GetDiscoverCatalogEntryByImdbIdAsync(string imdbId)
+        public async Task<DiscoverCatalogEntry?> GetDiscoverCatalogEntryByAioIdAsync(string imdbId)
         {
             const string sql = @"
 SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
@@ -4055,9 +3813,9 @@ LIMIT 1";
         {
             foreach (var table in new[]
             {
-                Tables.CatalogItems, Tables.ResolutionCache, Tables.StreamCandidates,
-                Tables.PlaybackLog, Tables.ClientCompat, Tables.SyncState,
-                "discover_catalog", "materialized_versions", "user_catalogs",
+                Tables.CatalogItems, Tables.StreamResolutionCache,
+                Tables.PlaybackLog, Tables.SyncState,
+                "discover_catalog", "user_catalogs",
                 "media_items", "sources", "collection_membership"
             })
             {
@@ -4153,30 +3911,25 @@ LIMIT 1";
         // These mappers use queries with explicit column lists — positional is safe.
         // Name-based lookup is only used with SELECT * queries (ReadCatalogItem).
 
-        private static ResolutionEntry ReadResolutionEntry(IResultSet r) => new ResolutionEntry
+        // Maps stream_resolution_cache columns to ResolutionEntry (rank-0 queries)
+        private static ResolutionEntry ReadResolutionEntryFromCache(IResultSet r) => new ResolutionEntry
         {
-            Id               = r.GetString(0),
-            ImdbId           = r.GetString(1),
-            Season           = r.IsDBNull(2)  ? null : r.GetInt(2),
-            Episode          = r.IsDBNull(3)  ? null : r.GetInt(3),
-            StreamUrl        = r.GetString(4),
-            QualityTier      = r.IsDBNull(5)  ? null : r.GetString(5),
-            FileName         = r.IsDBNull(6)  ? null : r.GetString(6),
-            FileSize         = r.IsDBNull(7)  ? null : r.GetInt64(7),
-            FileBitrateKbps  = r.IsDBNull(8)  ? null : r.GetInt(8),
-            Fallback1        = r.IsDBNull(9)  ? null : r.GetString(9),
-            Fallback1Quality = r.IsDBNull(10) ? null : r.GetString(10),
-            Fallback2        = r.IsDBNull(11) ? null : r.GetString(11),
-            Fallback2Quality = r.IsDBNull(12) ? null : r.GetString(12),
-            TorrentHash      = r.IsDBNull(13) ? null : r.GetString(13),
-            RdCached         = r.GetInt(14),
-            ResolutionTier   = r.GetString(15),
-            Status           = r.GetString(16),
-            ResolvedAt       = r.GetString(17),
-            ExpiresAt        = r.GetString(18),
-            PlayCount        = r.GetInt(19),
-            LastPlayedAt     = r.IsDBNull(20) ? null : r.GetString(20),
-            RetryCount       = r.GetInt(21),
+            Id              = r.IsDBNull(0)  ? "" : r.GetString(0),
+            ImdbId          = r.GetString(1),
+            Season          = r.IsDBNull(2)  ? null : r.GetInt(2),
+            Episode         = r.IsDBNull(3)  ? null : r.GetInt(3),
+            StreamUrl       = r.IsDBNull(4)  ? "" : r.GetString(4),
+            QualityTier     = r.IsDBNull(5)  ? null : r.GetString(5),
+            FileName        = r.IsDBNull(6)  ? null : r.GetString(6),
+            FileSize        = r.IsDBNull(7)  ? null : r.GetInt64(7),
+            FileBitrateKbps = r.IsDBNull(8)  ? null : r.GetInt(8),
+            TorrentHash     = r.IsDBNull(9)  ? null : r.GetString(9),
+            Status          = r.IsDBNull(11) ? "" : r.GetString(11),
+            ResolvedAt      = r.IsDBNull(12) ? "" : r.GetString(12),
+            ExpiresAt       = r.IsDBNull(13) ? "" : r.GetString(13),
+            PlayCount       = r.IsDBNull(14) ? 0 : r.GetInt(14),
+            LastPlayedAt    = r.IsDBNull(15) ? null : r.GetString(15),
+            RetryCount      = r.IsDBNull(16) ? 0 : r.GetInt(16),
         };
 
         private static StreamCandidate ReadStreamCandidate(IResultSet r) => new StreamCandidate
@@ -4227,16 +3980,6 @@ LIMIT 1";
             PlayedAt       = r.GetString(13),
         };
 
-        private static ClientCompatEntry ReadClientCompat(IResultSet r) => new ClientCompatEntry
-        {
-            ClientType      = r.GetString(0),
-            SupportsRedirect = r.GetInt(1),
-            MaxSafeBitrate  = r.IsDBNull(2) ? null : r.GetInt(2),
-            PreferredQuality = r.IsDBNull(3) ? null : r.GetString(3),
-            TestCount       = r.GetInt(4),
-            LastTestedAt    = r.IsDBNull(5) ? null : r.GetString(5),
-        };
-
         private static SyncState ReadSyncState(IResultSet r) => new SyncState
         {
             SourceKey           = r.GetString(0),
@@ -4282,7 +4025,7 @@ LIMIT 1";
 
         async Task<CatalogItem?> ICatalogRepository.GetByIdAsync(string imdbId, CancellationToken ct)
         {
-            return await GetCatalogItemByImdbIdAsync(imdbId);
+            return await GetCatalogItemByAioIdAsync(imdbId);
         }
 
         async Task ICatalogRepository.UpsertAsync(CatalogItem item, CancellationToken ct)
@@ -4324,36 +4067,41 @@ LIMIT 1";
             string imdbId, int? season, int episode,
             string resolvedUrl, DateTime expiresAt, CancellationToken ct)
         {
-            var entry = new ResolutionEntry
+            const string sql = @"
+                UPDATE stream_resolution_cache
+                SET url = @url, expires_at = @expires_at, status = 'valid',
+                    resolved_at = datetime('now'), updated_at = datetime('now')
+                WHERE aio_id = @aio_id
+                  AND rank = 0
+                  AND (season IS @season OR (season IS NULL AND @season IS NULL))
+                  AND episode = @episode;";
+            await ExecuteWriteAsync(sql, cmd =>
             {
-                ImdbId = imdbId,
-                Season = season,
-                Episode = episode,
-                StreamUrl = resolvedUrl,
-                ExpiresAt = expiresAt.ToString("o"),
-                Status = "valid",
-                ResolvedAt = DateTime.UtcNow.ToString("o")
-            };
-            await UpsertResolutionCacheAsync(entry, ct);
+                BindText(cmd, "@aio_id", imdbId);
+                BindNullableInt(cmd, "@season", season);
+                BindNullableInt(cmd, "@episode", episode == 0 ? null : (int?)episode);
+                BindText(cmd, "@url", resolvedUrl);
+                BindText(cmd, "@expires_at", expiresAt.ToString("o"));
+            }, ct);
         }
 
         async Task IResolutionCacheRepository.InvalidateAsync(string imdbId, CancellationToken ct)
         {
             const string sql = @"
-                UPDATE resolution_cache
-                SET status = 'stale'
-                WHERE imdb_id = @imdb_id;";
+                UPDATE stream_resolution_cache
+                SET status = 'stale', updated_at = datetime('now')
+                WHERE aio_id = @aio_id;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", imdbId);
             });
         }
 
         async Task IResolutionCacheRepository.PurgeExpiredAsync(CancellationToken ct)
         {
             const string sql = @"
-                DELETE FROM resolution_cache
+                DELETE FROM stream_resolution_cache
                 WHERE expires_at < datetime('now');";
 
             await ExecuteWriteAsync(sql, _ => { });
@@ -4640,7 +4388,7 @@ LIMIT 1";
         /// Blocks a catalog item by its IMDB ID.
         /// Sets blocked_at and blocked_by, clearing nfo_status.
         /// </summary>
-        public async Task BlockCatalogItemByImdbIdAsync(string imdbId, string blockedBy, CancellationToken ct = default)
+        public async Task BlockCatalogItemByAioIdAsync(string imdbId, string blockedBy, CancellationToken ct = default)
         {
             const string sql = @"
                 UPDATE catalog_items
@@ -5858,101 +5606,6 @@ LIMIT 1";
             return Task.FromResult(stmt.AsRows().Any());
         }
 
-        // ── Stream cache operations (Sprint 112B) ───────────────────────────────────
-
-        /// <summary>
-        /// Gets cached stream entry for a media ID.
-        /// </summary>
-        public Task<(string? Url, string? UrlSecondary)> GetCachedStreamAsync(string mediaId, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                SELECT url, url_secondary
-                FROM stream_cache
-                WHERE media_id = @MediaId
-                  AND expires_at > datetime('now');";
-
-            using var conn = OpenConnection();
-            using var stmt = conn.PrepareStatement(sql);
-            BindText(stmt, "@MediaId", mediaId);
-
-            foreach (var row in stmt.AsRows())
-            {
-                var url = row.IsDBNull(0) ? null : row.GetString(0);
-                var urlSecondary = row.IsDBNull(1) ? null : row.GetString(1);
-                return Task.FromResult((url, urlSecondary));
-            }
-
-            return Task.FromResult<(string?, string?)>((null, null));
-        }
-
-        /// <summary>
-        /// Sets primary cached URL for a media ID.
-        /// </summary>
-        public async Task SetCachedStreamPrimaryAsync(string mediaId, string url, TimeSpan? ttl = null, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                INSERT INTO stream_cache (media_id, url, created_at, expires_at)
-                VALUES (@MediaId, @Url, datetime('now'), @ExpiresAt)
-                ON CONFLICT(media_id) DO UPDATE SET
-                    url = excluded.url,
-                    created_at = datetime('now'),
-                    expires_at = excluded.expires_at;";
-
-            var expiresAt = DateTimeOffset.UtcNow.Add(ttl ?? TimeSpan.FromHours(24));
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@MediaId", mediaId);
-                BindText(cmd, "@Url", url);
-                BindText(cmd, "@ExpiresAt", expiresAt.ToString("o"));
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Sets secondary cached URL for a media ID.
-        /// </summary>
-        public async Task SetCachedStreamSecondaryAsync(string mediaId, string url, TimeSpan? ttl = null, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE stream_cache
-                SET url_secondary = @Url,
-                    expires_at = @ExpiresAt
-                WHERE media_id = @MediaId;";
-
-            var expiresAt = DateTimeOffset.UtcNow.Add(ttl ?? TimeSpan.FromHours(24));
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@MediaId", mediaId);
-                BindText(cmd, "@Url", url);
-                BindText(cmd, "@ExpiresAt", expiresAt.ToString("o"));
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Deletes cached stream entry for a media ID.
-        /// </summary>
-        public async Task DeleteCachedStreamAsync(string mediaId, CancellationToken cancellationToken = default)
-        {
-            const string sql = "DELETE FROM stream_cache WHERE media_id = @MediaId;";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@MediaId", mediaId);
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Purges all expired cache entries.
-        /// </summary>
-        public async Task PurgeExpiredCacheAsync(CancellationToken cancellationToken = default)
-        {
-            const string sql = "DELETE FROM stream_cache WHERE expires_at <= datetime('now');";
-
-            await ExecuteWriteAsync(sql, _ => { }, cancellationToken);
-            _logger?.LogInformation("[DatabaseManager] Purged expired cache entries");
-        }
-
         #region Home Section Tracking (Sprint 118C)
 
         /// <summary>
@@ -6066,40 +5719,6 @@ LIMIT 1";
 
         #endregion
 
-        // ── Version Slots ────────────────────────────────────────────────────────
-
-        /// <summary>Returns all version slot rows ordered by sort_order.</summary>
-        public Task<List<InfiniteDrive.Models.VersionSlot>> GetVersionSlotsAsync(CancellationToken ct = default)
-        {
-            const string sql = @"
-                SELECT slot_key, label, resolution, hdr_classes, enabled, is_default, sort_order
-                FROM version_slots
-                ORDER BY sort_order;";
-
-            return QueryListAsync(sql, null, row => new InfiniteDrive.Models.VersionSlot
-            {
-                SlotKey    = row.GetString(0),
-                Label      = row.GetString(1),
-                Resolution = row.GetString(2),
-                HdrClasses = row.IsDBNull(3) ? string.Empty : row.GetString(3),
-                Enabled    = row.GetInt(4) != 0,
-                IsDefault  = row.GetInt(5) != 0,
-                SortOrder  = row.GetInt(6),
-            });
-        }
-
-        /// <summary>Enables or disables a single version slot by key.</summary>
-        public Task SetVersionSlotEnabledAsync(string slotKey, bool enabled, CancellationToken ct = default)
-        {
-            const string sql = "UPDATE version_slots SET enabled = @enabled, updated_at = datetime('now') WHERE slot_key = @slot_key AND is_default = 0;";
-            using var conn = OpenConnection();
-            using var stmt = conn.PrepareStatement(sql);
-            BindInt(stmt, "@enabled", enabled ? 1 : 0);
-            BindText(stmt, "@slot_key", slotKey);
-            stmt.MoveNext();
-            return Task.CompletedTask;
-        }
-
         // ═══════════════════════════════════════════════════════════════════════════
         //  cached_streams — pre-cached stream metadata
         // ═══════════════════════════════════════════════════════════════════════════
@@ -6108,7 +5727,7 @@ LIMIT 1";
         /// Resolves the TMDB ID for an IMDB ID by joining media_item_ids.
         /// Returns null if no TMDB ID is found.
         /// </summary>
-        public async Task<string?> GetTmdbIdForImdbAsync(string imdbId)
+        public async Task<string?> GetTmdbIdForAioIdAsync(string imdbId)
         {
             const string sql = @"
                 SELECT tmdb_ids.id_value
@@ -6126,18 +5745,20 @@ LIMIT 1";
         }
 
         /// <summary>
-        /// Gets a cached stream entry by its TMDB key.
+        /// Gets a cached stream entry by its TMDB key from stream_resolution_cache.
         /// Returns null if not found or expired.
         /// </summary>
-        public async Task<CachedStreamEntry?> GetCachedStreamsAsync(string tmdbKey)
+        public async Task<CachedStreamEntry?> GetCachedStreamsByTmdbKeyAsync(string tmdbKey)
         {
             const string sql = @"
-                SELECT tmdb_key, imdb_id, media_type, season, episode, item_id,
-                       variants, cached_at, expires_at, status, manifest_source
-                FROM cached_streams
+                SELECT tmdb_key, aio_id, media_type, season, episode, item_id,
+                       variants_json, resolved_at, expires_at, status, manifest_source
+                FROM stream_resolution_cache
                 WHERE tmdb_key = @tmdb_key
+                  AND rank = 0
                   AND status = 'valid'
-                  AND expires_at > datetime('now')";
+                  AND expires_at > datetime('now')
+                LIMIT 1";
 
             return await QuerySingleAsync(sql,
                 cmd => BindText(cmd, "@tmdb_key", tmdbKey),
@@ -6148,14 +5769,15 @@ LIMIT 1";
         /// Gets a cached stream entry by IMDB ID (+ optional season/episode).
         /// Fallback when TMDB key is not known.
         /// </summary>
-        public async Task<CachedStreamEntry?> GetCachedStreamsByImdbAsync(
+        public async Task<CachedStreamEntry?> GetCachedStreamsByAioIdAsync(
             string imdbId, int? season, int? episode)
         {
             const string sql = @"
-                SELECT tmdb_key, imdb_id, media_type, season, episode, item_id,
-                       variants, cached_at, expires_at, status, manifest_source
-                FROM cached_streams
-                WHERE imdb_id = @imdb_id
+                SELECT tmdb_key, aio_id, media_type, season, episode, item_id,
+                       variants_json, resolved_at, expires_at, status, manifest_source
+                FROM stream_resolution_cache
+                WHERE aio_id = @aio_id
+                  AND rank = 0
                   AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
                   AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))
                   AND status = 'valid'
@@ -6164,7 +5786,7 @@ LIMIT 1";
 
             return await QuerySingleAsync(sql, cmd =>
             {
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", imdbId);
                 BindNullableInt(cmd, "@season", season);
                 BindNullableInt(cmd, "@episode", episode);
             }, ReadCachedStreamEntry).ConfigureAwait(false);
@@ -6174,17 +5796,24 @@ LIMIT 1";
         public async Task UpsertCachedStreamAsync(CachedStreamEntry entry)
         {
             const string sql = @"
-                INSERT OR REPLACE INTO cached_streams
-                    (tmdb_key, imdb_id, media_type, season, episode, item_id,
-                     variants, cached_at, expires_at, status, manifest_source)
-                VALUES
-                    (@tmdb_key, @imdb_id, @media_type, @season, @episode, @item_id,
-                     @variants, @cached_at, @expires_at, @status, @manifest_source)";
+                UPDATE stream_resolution_cache
+                SET tmdb_key        = @tmdb_key,
+                    media_type      = @media_type,
+                    item_id         = @item_id,
+                    variants_json   = @variants,
+                    expires_at      = @expires_at,
+                    status          = @status,
+                    manifest_source = @manifest_source,
+                    updated_at      = datetime('now')
+                WHERE aio_id = @aio_id
+                  AND rank = 0
+                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@tmdb_key", entry.TmdbKey);
-                BindText(cmd, "@imdb_id", entry.ImdbId);
+                BindText(cmd, "@aio_id", entry.ImdbId);
                 BindText(cmd, "@media_type", entry.MediaType);
                 BindNullableInt(cmd, "@season", entry.Season);
                 BindNullableInt(cmd, "@episode", entry.Episode);
@@ -6204,9 +5833,9 @@ LIMIT 1";
         public async Task InvalidateCachedStreamAsync(string imdbId, int? season, int? episode)
         {
             const string sql = @"
-                UPDATE cached_streams
-                SET status = 'expired'
-                WHERE imdb_id = @id
+                UPDATE stream_resolution_cache
+                SET status = 'expired', updated_at = datetime('now')
+                WHERE aio_id = @id
                   AND (@season IS NULL AND season IS NULL OR season = @season)
                   AND (@episode IS NULL AND episode IS NULL OR episode = @episode)";
 
@@ -6243,8 +5872,8 @@ LIMIT 1";
                   AND mi.status IN ('active','indexed','created')
                   AND mi.blocked = 0
                   AND NOT EXISTS (
-                      SELECT 1 FROM cached_streams cs
-                      WHERE cs.imdb_id = ids.id_value
+                      SELECT 1 FROM stream_resolution_cache cs
+                      WHERE cs.aio_id = ids.id_value
                         AND cs.media_type = 'movie'
                         AND cs.status = 'valid'
                   )
@@ -6282,8 +5911,8 @@ LIMIT 1";
                   AND season_num IS NOT NULL
                   AND episode_num IS NOT NULL
                   AND NOT EXISTS (
-                      SELECT 1 FROM cached_streams cs
-                      WHERE cs.imdb_id = ids.id_value
+                      SELECT 1 FROM stream_resolution_cache cs
+                      WHERE cs.aio_id = ids.id_value
                         AND cs.media_type = 'series'
                         AND cs.season = season_num
                         AND cs.episode = episode_num
@@ -6333,14 +5962,14 @@ LIMIT 1";
         {
             return new CachedStreamEntry
             {
-                TmdbKey = r.GetString(0),
+                TmdbKey = r.IsDBNull(0) ? "" : r.GetString(0),
                 ImdbId = r.GetString(1),
-                MediaType = r.GetString(2),
+                MediaType = r.IsDBNull(2) ? "movie" : r.GetString(2),
                 Season = r.IsDBNull(3) ? (int?)null : r.GetInt(3),
                 Episode = r.IsDBNull(4) ? (int?)null : r.GetInt(4),
                 ItemId = r.IsDBNull(5) ? null : r.GetString(5),
-                VariantsJson = r.GetString(6),
-                CachedAt = r.GetString(7),
+                VariantsJson = r.IsDBNull(6) ? "[]" : r.GetString(6),
+                CachedAt = r.IsDBNull(7) ? "" : r.GetString(7),
                 ExpiresAt = r.GetString(8),
                 Status = r.GetString(9),
                 ManifestSource = r.IsDBNull(10) ? null : r.GetString(10),

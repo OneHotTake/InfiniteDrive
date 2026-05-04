@@ -10,7 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
-using InfiniteDrive.Services.Scoring;
+
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
@@ -431,7 +431,7 @@ namespace InfiniteDrive.Services
             // ── Pre-cache lookup (cached_streams table) ──────────────────────────
             try
             {
-                var cached = await StreamCache.GetByImdbAsync(imdbId, season, episode).ConfigureAwait(false);
+                var cached = await StreamCache.GetByAioIdAsync(imdbId, season, episode).ConfigureAwait(false);
                 if (cached != null)
                 {
                     var preSources = StreamCache.BuildMediaSources(cached);
@@ -457,10 +457,11 @@ namespace InfiniteDrive.Services
 
                     if (dbCandidates?.Count > 0)
                     {
-                        // Apply scoring to DB candidates
-                        var scoringService = new StreamScoringService(_logger, config);
-                        var scored = scoringService.SelectBest(
-                            dbCandidates.Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Url)).ToList());
+                        // Inline ranking replaces StreamScoringService
+                        var valid = dbCandidates
+                            .Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Url))
+                            .ToList();
+                        var scored = RankCandidates(valid, config);
 
                         if (scored.Count > 0)
                         {
@@ -540,7 +541,7 @@ namespace InfiniteDrive.Services
                 0, // unlimited — let SelectBest's bucket algorithm curate
                 config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
 
-            return new StreamScoringService(_logger, config).SelectBest(ranked);
+            return RankCandidates(ranked, config);
         }
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1692,7 +1693,7 @@ namespace InfiniteDrive.Services
                 var ttlDays = config.PreCacheTTLDays > 0 ? config.PreCacheTTLDays : 14;
 
                 // Build primary key: prefer TMDB, fallback to IMDB
-                var tmdbId = await cacheService.ResolveTmdbIdAsync(imdbId).ConfigureAwait(false);
+                var tmdbId = await cacheService.ResolveTmdbIdForAioIdAsync(imdbId).ConfigureAwait(false);
                 var primaryKey = cacheService.BuildPrimaryKey(tmdbId, imdbId, mediaType, season, episode);
 
                 var entry = new CachedStreamEntry
@@ -1725,6 +1726,39 @@ namespace InfiniteDrive.Services
             if (lower.Contains("av1")) return "av1";
             if (lower.Contains("xvid")) return "xvid";
             return null;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        //  Inline candidate ranking (replaces StreamScoringService)
+        // ═══════════════════════════════════════════════════════════════════════════
+
+        private static List<StreamCandidate> RankCandidates(
+            List<StreamCandidate> candidates, PluginConfiguration config)
+        {
+            if (candidates.Count == 0) return candidates;
+
+            return candidates
+                .OrderBy(c => IsRemux(c) ? 1 : 0)
+                .ThenByDescending(c => TierScore(c.QualityTier))
+                .ThenByDescending(c => c.BitrateKbps ?? 0)
+                .ThenBy(c => c.Rank)
+                .ToList();
+        }
+
+        private static bool IsRemux(StreamCandidate c) =>
+            (c.Description?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true)
+            || (c.FileName?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true)
+            || (c.QualityTier?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true);
+
+        private static int TierScore(string? tier)
+        {
+            if (string.IsNullOrEmpty(tier)) return 0;
+            var t = tier.ToLowerInvariant();
+            if (t.Contains("2160") || t.Contains("4k")) return 40;
+            if (t.Contains("1080")) return 30;
+            if (t.Contains("720")) return 20;
+            if (t.Contains("480") || t.Contains("sd")) return 10;
+            return 5;
         }
 
         // ═══════════════════════════════════════════════════════════════════════════

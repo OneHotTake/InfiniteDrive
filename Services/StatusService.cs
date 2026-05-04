@@ -150,9 +150,6 @@ namespace InfiniteDrive.Services
         /// <summary>Item count per catalog source key.</summary>
         public Dictionary<string, int> SourceStats { get; set; } = new Dictionary<string, int>();
 
-        /// <summary>Learned per-client streaming capability profiles.</summary>
-        public List<ClientCompatEntry> ClientProfiles { get; set; } = new List<ClientCompatEntry>();
-
         /// <summary>Last 10 playback log entries, newest first.</summary>
         public List<PlaybackLogEntry> RecentPlays { get; set; } = new List<PlaybackLogEntry>();
 
@@ -609,17 +606,6 @@ namespace InfiniteDrive.Services
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "[InfiniteDrive] Status: source stats query failed");
-            }
-
-            // ── Client compat profiles ───────────────────────────────────────────
-
-            try
-            {
-                response.ClientProfiles = await db.GetAllClientCompatsAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[InfiniteDrive] Status: client compat query failed");
             }
 
             // ── Sync states ──────────────────────────────────────────────────────

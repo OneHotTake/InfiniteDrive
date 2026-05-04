@@ -128,7 +128,7 @@ namespace InfiniteDrive.Services
 
                 if (string.IsNullOrEmpty(resolvedId)) { skippedNoImdb++; continue; }
 
-                var existing = await _db.GetCatalogItemByImdbIdAsync(resolvedId);
+                var existing = await _db.GetCatalogItemByAioIdAsync(resolvedId);
                 var isNew = existing == null;
 
                 var catalogItem = existing ?? new CatalogItem

@@ -704,7 +704,7 @@ namespace InfiniteDrive.Services
                     return new DiscoverDetailResponse { Item = null };
                 }
 
-                var entry = await _db.GetDiscoverCatalogEntryByImdbIdAsync(req.ImdbId);
+                var entry = await _db.GetDiscoverCatalogEntryByAioIdAsync(req.ImdbId);
                 if (entry == null)
                 {
                     return new DiscoverDetailResponse { Item = null };
@@ -752,7 +752,7 @@ namespace InfiniteDrive.Services
                 }
 
                 // Check if already in library
-                var existing = await _db.GetCatalogItemByImdbIdAsync(req.ImdbId);
+                var existing = await _db.GetCatalogItemByAioIdAsync(req.ImdbId);
                 if (existing != null)
                 {
                     return new DiscoverAddToLibraryResponse

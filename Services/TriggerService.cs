@@ -96,7 +96,6 @@ namespace InfiniteDrive.Services
         // ── Constants ────────────────────────────────────────────────────────────
 
         private const string TaskCatalogSync          = "catalog_sync";
-        private const string TaskClearClientProfiles  = "clear_client_profiles";
         private const string TaskForceSyncReset       = "force_sync";   // A7: bypass interval guard
         private const string TaskClearCache           = "clear_cache";  // A4: nuke resolution cache
         private const string TaskDeadLinkScan         = "dead_link_scan"; // W7: proactive dead-URL detection
@@ -151,19 +150,6 @@ namespace InfiniteDrive.Services
                 case TaskSeriesGapScan:
                 case TaskSeriesGapRepair:
                     _logger.LogWarning("[Trigger] {Trigger} is deprecated — superseded by catalog-first episode sync (Sprint 222)", taskKey);
-                    break;
-
-                case TaskClearClientProfiles:
-                    FireAndForget(async ct =>
-                    {
-                        var db = Plugin.Instance?.DatabaseManager;
-                        if (db != null)
-                        {
-                            await db.ClearAllClientProfilesAsync();
-                            _logger.LogInformation(
-                                "[InfiniteDrive] All client compatibility profiles cleared via dashboard");
-                        }
-                    }, taskKey);
                     break;
 
                 // A7 — reset interval guard so next catalog sync fetches everything fresh
@@ -309,7 +295,6 @@ namespace InfiniteDrive.Services
                         Task    = taskKey,
                         Message = $"Unknown task '{taskKey}'. Valid keys: " +
                                   $"{TaskCatalogSync}, " +
-                                  $"{TaskClearClientProfiles}, " +
                                   $"{TaskForceSyncReset}, {TaskClearCache}, {TaskDeadLinkScan}, " +
                                   $"{TaskPurgeCatalog}, {TaskResetAll}, {TaskResetWizard}",
                     };
