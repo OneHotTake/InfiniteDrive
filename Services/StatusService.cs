@@ -766,7 +766,7 @@ namespace InfiniteDrive.Services
 
             try
             {
-                using var client = new AioStreamsClient(config, _logger);
+                using var client = AioStreamsClientFactory.Create(_logger);
                 client.Cooldown = Plugin.Instance?.CooldownGate;
                 using var cts    = new CancellationTokenSource(5_000);
                 var (connOk, connErr) = await client.TestConnectionAsync(cts.Token);

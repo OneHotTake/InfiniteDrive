@@ -41,8 +41,11 @@ namespace InfiniteDrive.Services
             return true;
         }
 
-        public int SecondsUntilReset(int limit, TimeSpan window) =>
-            (int)(window - (DateTimeOffset.UtcNow - _windowStart)).TotalSeconds;
+        public int SecondsUntilReset(int limit, TimeSpan window)
+        {
+            var remaining = (int)(window - (DateTimeOffset.UtcNow - _windowStart)).TotalSeconds;
+            return Math.Max(1, remaining);
+        }
     }
 
     /// <summary>
@@ -50,13 +53,16 @@ namespace InfiniteDrive.Services
     /// Limits: 30 resolve/minute, 120 stream/minute per IP.
     /// Returns 429 with Retry-After: 60 when exceeded.
     /// Exempts localhost / configured trusted IPs.
+    /// Periodically evicts stale entries to prevent memory leaks.
     /// </summary>
-    public sealed class RateLimiter
+    public sealed class RateLimiter : IDisposable
     {
         private readonly ILogger<RateLimiter> _logger;
         private readonly ConcurrentDictionary<string, IpRateLimit> _resolveLimits = new();
         private readonly ConcurrentDictionary<string, IpRateLimit> _streamLimits = new();
         private readonly string[] _trustedIps;
+        private readonly Timer _cleanupTimer;
+        private static readonly TimeSpan CleanupInterval = TimeSpan.FromMinutes(5);
 
         public const int ResolveLimitPerMinute = 30;
         public const int StreamLimitPerMinute = 120;
@@ -67,6 +73,12 @@ namespace InfiniteDrive.Services
         {
             _logger = logger;
             _trustedIps = trustedIps ?? Array.Empty<string>();
+            _cleanupTimer = new Timer(EvictStaleEntries, null, CleanupInterval, CleanupInterval);
+        }
+
+        public void Dispose()
+        {
+            _cleanupTimer?.Dispose();
         }
 
         /// <summary>
@@ -151,13 +163,32 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Gets the client IP address from the request.
-        /// Handles forwarded headers (X-Forwarded-For, X-Real-IP).
+        /// Uses RemoteIp directly — forwarded headers are not trusted by default.
         /// </summary>
         public static string? GetClientIp(IRequest request)
         {
-            // Only trust forwarded headers if behind a known proxy
-            // Direct RemoteIp is always authoritative when not proxied
             return request.RemoteIp?.ToString();
+        }
+
+        /// <summary>
+        /// Evicts rate limit entries whose window has expired, preventing unbounded memory growth.
+        /// </summary>
+        private void EvictStaleEntries(object? state)
+        {
+            var cutoff = DateTimeOffset.UtcNow - OneMinute;
+            EvictFrom(_resolveLimits, cutoff, "resolve");
+            EvictFrom(_streamLimits, cutoff, "stream");
+        }
+
+        private void EvictFrom(ConcurrentDictionary<string, IpRateLimit> limits, DateTimeOffset cutoff, string label)
+        {
+            foreach (var kvp in limits)
+            {
+                if (kvp.Value.WindowStart < cutoff)
+                {
+                    limits.TryRemove(kvp.Key, out _);
+                }
+            }
         }
     }
 }

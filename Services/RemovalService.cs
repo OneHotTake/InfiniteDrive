@@ -124,9 +124,6 @@ namespace InfiniteDrive.Services
             // Remove .strm file
             RemoveStrmFileAsync(item);
 
-            // Remove from Emby library
-            await RemoveFromEmbyAsync(item, ct);
-
             // Update status to Deleted (NOT Removed - that status doesn't exist)
             item.Status = ItemStatus.Deleted;
             item.UpdatedAt = DateTimeOffset.UtcNow;
@@ -189,34 +186,6 @@ namespace InfiniteDrive.Services
             // ── Movie: single .strm file + version variants ───────────────────
             StrmWriterService.DeleteWithVersions(strmPath);
             _logger.LogDebug("[RemovalService] Deleted .strm + versions: {Path}", strmPath);
-        }
-
-        /// <summary>
-        /// Removes an item from the Emby library.
-        /// </summary>
-        private async Task RemoveFromEmbyAsync(MediaItem item, CancellationToken ct)
-        {
-            if (string.IsNullOrEmpty(item.EmbyItemId))
-            {
-                _logger.LogWarning("[RemovalService] Item {ItemId} has no EmbyItemId", item.Id);
-                return;
-            }
-
-            var embyItemId = Guid.Parse(item.EmbyItemId);
-            var baseItem = _libraryManager.GetItemById(embyItemId);
-
-            if (baseItem == null)
-            {
-                _logger.LogWarning("[RemovalService] Emby item not found: {EmbyItemId}", embyItemId);
-                return;
-            }
-
-            // Note: ILibraryManager does not provide DeleteItemAsync directly
-            // The .strm file deletion is sufficient - Emby will automatically
-            // remove the library item during the next library scan
-            _logger.LogDebug("[RemovalService] Emby removal handled by .strm deletion for item {EmbyItemId}", embyItemId);
-
-            await Task.CompletedTask;
         }
 
         /// <summary>

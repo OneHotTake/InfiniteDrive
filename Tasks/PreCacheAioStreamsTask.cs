@@ -177,7 +177,7 @@ namespace InfiniteDrive.Tasks
                 0, // unlimited — let SelectBest's bucket algorithm curate per tier
                 config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
 
-            var best = InlineRank(ranked);
+            var best = StreamHelpers.RankCandidates(ranked);
             if (best.Count == 0) return null;
 
             var variants = best.Take(MaxVariantsPerItem).Select(MapToVariant).ToList();
@@ -196,33 +196,6 @@ namespace InfiniteDrive.Tasks
                 ExpiresAt = DateTime.UtcNow.AddDays(ttlDays).ToString("o"),
                 Status = "valid",
             };
-        }
-
-        private static List<StreamCandidate> InlineRank(List<StreamCandidate> candidates)
-        {
-            if (candidates.Count == 0) return candidates;
-            return candidates
-                .OrderBy(c => IsRemux(c) ? 1 : 0)
-                .ThenByDescending(c => TierScore(c.QualityTier))
-                .ThenByDescending(c => c.BitrateKbps ?? 0)
-                .ThenBy(c => c.Rank)
-                .ToList();
-        }
-
-        private static bool IsRemux(StreamCandidate c) =>
-            (c.Description?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true)
-            || (c.FileName?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true)
-            || (c.QualityTier?.Contains("remux", StringComparison.OrdinalIgnoreCase) == true);
-
-        private static int TierScore(string? tier)
-        {
-            if (string.IsNullOrEmpty(tier)) return 0;
-            var t = tier.ToLowerInvariant();
-            if (t.Contains("2160") || t.Contains("4k")) return 40;
-            if (t.Contains("1080")) return 30;
-            if (t.Contains("720")) return 20;
-            if (t.Contains("480") || t.Contains("sd")) return 10;
-            return 5;
         }
 
         private static StreamVariant MapToVariant(StreamCandidate c)

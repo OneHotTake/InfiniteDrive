@@ -8,9 +8,9 @@ Root
 Configuration/               : UI HTML/JS only (never read in backend)
 Data/                        : Schema + DatabaseManager (SQLite)
 Services/                    : all business logic
-Services/Api/                : extracted endpoint classes (Catalog, Diagnostics, Search)
+Services/Api/                : extracted endpoint classes (Catalog, Diagnostics, Health, Stats, etc.)
 Tasks/                       : background tasks
-Models/                      : POCO only + ResolutionResult
+Models/                      : POCO only + ResolutionResult + AioStreams DTOs
 
 .ai/
 - CURRENT_TASK.md            : active task only (read first)
@@ -117,3 +117,21 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - New: Models/CachedStreamEntry.cs (CachedStreamEntry, StreamVariant, UncachedItem), Services/StreamCacheService.cs (IStreamCacheService), Tasks/PreCacheAioStreamsTask.cs
 - Modified: Plugin.cs (StreamCacheService singleton), PluginConfiguration.cs (EnablePreCache, PreCacheBatchSize, PreCacheIntervalHours, PreCacheTTLDays)
 - Modified: Data/DatabaseManager.cs (cached_streams table + 5 query methods), Services/AioMediaSourceProvider.cs (pre-cache check + write-through), Services/TriggerService.cs (precache trigger)
+
+## Sprint 515 Complete (2026-05-04)
+- Model consolidation + service decomposition: 3 stream DTOs merged into StreamCandidate, dual ICatalogRepository eliminated, state machines merged
+- DatabaseManager decomposed into 6 partial classes: DatabaseManager.cs (2341), DatabaseManager.MediaItems.cs (1022), DatabaseManager.Catalog.cs (972), DatabaseManager.StreamCache.cs (403), DatabaseManager.Operations.cs (1028), DatabaseManager.Discover.cs (404)
+- AioMediaSourceProvider split: AioMediaSourceProvider.cs (966), AioMediaSourceProvider.Open.cs (430), AioMediaSourceProvider.StreamBuilding.cs (389)
+- ResolverService split: ResolverService.cs (349), ResolverService.Cache.cs (267)
+- CatalogSyncTask extracted: CatalogSyncTask.cs (738), CatalogProviders.cs (859)
+- Deleted: Models/Candidate.cs, Repositories/CatalogRepository.cs
+
+## Sprint 516 Complete (2026-05-04)
+- DiagnosticsEndpoints split into 10 individual service files; deleted DebugSeedMatrixService
+- New: Services/Api/AnimePluginStatusService.cs, TestUrlService.cs, AnswerService.cs, MarvinService.cs, DbStatsService.cs, PanicService.cs, RecentErrorsService.cs, UnhealthyItemsService.cs, RawStreamsService.cs, HealthService.cs
+- Services/Api/DiagnosticsEndpoints.cs — now 7 lines (comment only, services extracted)
+- Models/AioStreams.cs — NEW (534 lines, 18 DTOs + exceptions extracted from AioStreamsClient)
+- Services/AioStreamsClient.cs — 1482→882 lines (DTOs extracted, dead methods deleted, GetMovieStreamsAsync/GetSeriesStreamsAsync merged into GetStreamsCoreAsync)
+- Services/StrmWriterService.cs — deleted duplicate WriteEpisodeStrm, extracted BuildEpisodePath helper
+- Services/StreamHelpers.cs — deleted dead ExponentialBackoffMs
+- Services/CandidateNormalizer.cs — removed dead NormalizeStreams/BuildCandidate and 5 helper methods
