@@ -135,7 +135,7 @@ namespace InfiniteDrive.Services
                 if (db == null) return;
 
                 // Clear seasons_json — MarvinTask will rewrite it on its next run.
-                var catalogItem = await db.GetCatalogItemByImdbIdAsync(imdbId);
+                var catalogItem = await db.GetCatalogItemByAioIdAsync(imdbId);
                 if (catalogItem == null) return;
 
                 await db.UpdateSeasonsJsonAsync(imdbId, catalogItem.Source, string.Empty);
@@ -325,9 +325,6 @@ namespace InfiniteDrive.Services
                     await QueueNextEpisodesAsync(db, imdb, season.Value, episode.Value);
                 }
 
-                // ── Update client compat if we have bitrate data ──────────────────
-
-                await UpdateClientCompatIfNeededAsync(db, e, clientType);
             }
             catch (Exception ex)
             {
@@ -501,7 +498,7 @@ namespace InfiniteDrive.Services
                 if (count > 0)
                 {
                     // Fallback to anime provider IDs from UniqueIdsJson
-                    var catalogItem = db.GetCatalogItemByImdbIdSync(imdbId);
+                    var catalogItem = db.GetCatalogItemByAioIdSync(imdbId);
                     if (catalogItem != null)
                     {
                         var uniqueIds = db.ParseUniqueIdsJson(catalogItem.UniqueIdsJson);
@@ -559,29 +556,6 @@ namespace InfiniteDrive.Services
             catch
             {
                 return 0;
-            }
-        }
-
-        // ── Private: client compat update ────────────────────────────────────────
-
-        private async Task UpdateClientCompatIfNeededAsync(
-            Data.DatabaseManager db,
-            PlaybackStopEventArgs e,
-            string clientType)
-        {
-            // This fires on every successful playback stop (redirect or proxy).
-            // Increment test_count and confirm that redirect works for this client type.
-            // ThroughputTrackingStream handles the failure path (sets supports_redirect=0).
-            try
-            {
-                // UpdateClientCompatAsync upserts and bumps test_count atomically.
-                // Passing supportsRedirect=true and null bitrate keeps existing constraints.
-                await db.UpdateClientCompatAsync(clientType, supportsRedirect: true, maxBitrate: null);
-                _logger.LogDebug("[InfiniteDrive] Redirect-success recorded for client {Client}", clientType);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "[InfiniteDrive] client compat update skipped for {Client}", clientType);
             }
         }
 

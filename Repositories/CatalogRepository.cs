@@ -49,7 +49,7 @@ namespace InfiniteDrive.Repositories
         {
             try
             {
-                var item = await _db.GetCatalogItemByImdbIdAsync(imdbId);
+                var item = await _db.GetCatalogItemByAioIdAsync(imdbId);
                 if (item != null)
                 {
                     _logger.LogDebug("[CatalogRepository] Found catalog item for {ImdbId}", imdbId);
@@ -86,7 +86,7 @@ namespace InfiniteDrive.Repositories
                 // ICatalogRepository.DeleteAsync only takes imdbId, but DatabaseManager requires source too
                 // For now, we'll soft-delete all catalog items with this imdbId
                 // This is a temporary adaptation until the interface or DatabaseManager is updated
-                var existing = await _db.GetCatalogItemByImdbIdAsync(imdbId);
+                var existing = await _db.GetCatalogItemByAioIdAsync(imdbId);
                 if (existing != null)
                 {
                     await _db.MarkCatalogItemRemovedAsync(imdbId, existing.Source, ct);

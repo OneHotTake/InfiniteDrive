@@ -20,12 +20,12 @@ namespace InfiniteDrive.Services
     public interface IStreamCacheService
     {
         Task<CachedStreamEntry?> GetAsync(string tmdbKey);
-        Task<CachedStreamEntry?> GetByImdbAsync(string imdbId, int? season, int? episode);
+        Task<CachedStreamEntry?> GetByAioIdAsync(string aioId, int? season, int? episode);
         Task StoreAsync(CachedStreamEntry entry);
         List<MediaSourceInfo> BuildMediaSources(CachedStreamEntry entry);
         Task<List<UncachedItem>> GetUncachedAsync(int limit, CancellationToken ct);
         string BuildPrimaryKey(string? tmdbId, string imdbId, string mediaType, int? season, int? episode);
-        Task<string?> ResolveTmdbIdAsync(string imdbId);
+        Task<string?> ResolveTmdbIdForAioIdAsync(string aioId);
         Task InvalidateAsync(string imdbId, int? season, int? episode);
         Task PreCacheSingleAsync(string imdbId, string mediaType, int? season, int? episode);
     }
@@ -57,7 +57,7 @@ namespace InfiniteDrive.Services
 
             try
             {
-                return await db.GetCachedStreamsAsync(tmdbKey).ConfigureAwait(false);
+                return await db.GetCachedStreamsByTmdbKeyAsync(tmdbKey).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -67,18 +67,18 @@ namespace InfiniteDrive.Services
         }
 
         /// <inheritdoc/>
-        public async Task<CachedStreamEntry?> GetByImdbAsync(string imdbId, int? season, int? episode)
+        public async Task<CachedStreamEntry?> GetByAioIdAsync(string aioId, int? season, int? episode)
         {
             var db = Plugin.Instance?.DatabaseManager;
-            if (db == null || string.IsNullOrEmpty(imdbId)) return null;
+            if (db == null || string.IsNullOrEmpty(aioId)) return null;
 
             try
             {
-                return await db.GetCachedStreamsByImdbAsync(imdbId, season, episode).ConfigureAwait(false);
+                return await db.GetCachedStreamsByAioIdAsync(aioId, season, episode).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[StreamCache] GetByImdbAsync failed for {Imdb}", imdbId);
+                _logger.LogDebug(ex, "[StreamCache] GetByAioIdAsync failed for {AioId}", aioId);
                 return null;
             }
         }
@@ -127,17 +127,17 @@ namespace InfiniteDrive.Services
         }
 
         /// <inheritdoc/>
-        public async Task<string?> ResolveTmdbIdAsync(string imdbId)
+        public async Task<string?> ResolveTmdbIdForAioIdAsync(string aioId)
         {
             var db = Plugin.Instance?.DatabaseManager;
-            if (db == null || string.IsNullOrEmpty(imdbId)) return null;
+            if (db == null || string.IsNullOrEmpty(aioId)) return null;
             try
             {
-                return await db.GetTmdbIdForImdbAsync(imdbId).ConfigureAwait(false);
+                return await db.GetTmdbIdForAioIdAsync(aioId).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[StreamCache] ResolveTmdbIdAsync failed for {Imdb}", imdbId);
+                _logger.LogDebug(ex, "[StreamCache] ResolveTmdbIdForAioIdAsync failed for {AioId}", aioId);
                 return null;
             }
         }

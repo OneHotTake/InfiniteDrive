@@ -357,7 +357,7 @@ namespace InfiniteDrive.Services
                 var streamCache = Plugin.Instance?.StreamCacheService;
                 if (streamCache == null) return null;
 
-                var entry = await streamCache.GetByImdbAsync(req.Id, req.Season, req.Episode);
+                var entry = await streamCache.GetByAioIdAsync(req.Id, req.Season, req.Episode);
                 if (entry == null || string.IsNullOrEmpty(entry.VariantsJson)) return null;
 
                 var variants = System.Text.Json.JsonSerializer
@@ -388,9 +388,13 @@ namespace InfiniteDrive.Services
 
                 if (candidates.Count == 0) return null;
 
-                // Use scoring service to pick the best one (respects DefaultSlotKey)
-                var scoring = new Scoring.StreamScoringService(_logger, Config);
-                var best = scoring.SelectBest(candidates);
+                // Inline ranking: quality tier sort + remux last
+                var best = candidates
+                    .OrderBy(c => StreamHelpers.IsRemuxFile(c.FileName) ? 1 : 0)
+                    .ThenByDescending(c => TierScore(c.QualityTier))
+                    .ThenByDescending(c => c.BitrateKbps ?? 0)
+                    .ThenBy(c => c.Rank)
+                    .ToList();
                 if (best.Count == 0) return null;
 
                 var top = best[0];
@@ -591,6 +595,17 @@ namespace InfiniteDrive.Services
                     _ => "Unknown error"
                 }
             };
+        }
+
+        private static int TierScore(string? tier)
+        {
+            if (string.IsNullOrEmpty(tier)) return 0;
+            var t = tier.ToLowerInvariant();
+            if (t.Contains("2160") || t.Contains("4k")) return 40;
+            if (t.Contains("1080")) return 30;
+            if (t.Contains("720")) return 20;
+            if (t.Contains("480") || t.Contains("sd")) return 10;
+            return 5;
         }
     }
 }

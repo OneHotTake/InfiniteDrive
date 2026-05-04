@@ -35,7 +35,6 @@ namespace InfiniteDrive.Tasks
 
         private readonly ILogger<RefreshTask>           _logger;
         private readonly ILibraryManager               _libraryManager;
-        private readonly VersionMaterializer?           _materializer;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
 
@@ -47,8 +46,6 @@ namespace InfiniteDrive.Tasks
         {
             _logger         = new EmbyLoggerAdapter<RefreshTask>(logManager.GetLogger("InfiniteDrive"));
             _libraryManager = libraryManager;
-            _materializer   = new VersionMaterializer(_logger);
-
         }
 
         /// <summary>
@@ -404,15 +401,6 @@ namespace InfiniteDrive.Tasks
 
         private async Task<int> WriteStepAsync(List<CatalogItem> items, CancellationToken cancellationToken)
         {
-            // Get enabled version slots
-            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
-            if (!slots.Any())
-            {
-                _logger.LogWarning("[InfiniteDrive] No enabled version slots configured");
-                return 0;
-            }
-
-            var defaultSlot = slots.FirstOrDefault(s => s.IsDefault) ?? slots.First();
             var config = Plugin.Instance!.Configuration;
             var embyBaseUrl = GetEmbyBaseUrl(config);
 
@@ -436,7 +424,7 @@ namespace InfiniteDrive.Tasks
                 var movieResults = new ConcurrentBag<(bool success, CatalogItem item)>();
 
                 var movieTasks = movies.Select(item => ProcessMovieItemAsync(
-                    item, slots, defaultSlot, config, embyBaseUrl, movieGate, movieResults, cancellationToken));
+                    item, config, embyBaseUrl, movieGate, movieResults, cancellationToken));
                 await Task.WhenAll(movieTasks);
 
                 foreach (var (success, item) in movieResults)
@@ -472,8 +460,6 @@ namespace InfiniteDrive.Tasks
 
         private async Task ProcessMovieItemAsync(
             CatalogItem item,
-            List<Models.VersionSlot> slots,
-            Models.VersionSlot defaultSlot,
             PluginConfiguration config,
             string embyBaseUrl,
             SemaphoreSlim gate,
@@ -490,28 +476,21 @@ namespace InfiniteDrive.Tasks
 
                 Directory.CreateDirectory(folderPath);
 
-                foreach (var slot in slots)
+                var baseName = Path.GetFileNameWithoutExtension(folderName);
+                var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? "", "imdb", null, null);
+                var fileName = baseName + ".strm";
+                var fullPath = Path.Combine(folderPath, fileName);
+                var tmpPath = fullPath + ".tmp";
+
+                try
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    var (strmUrl, _) = (_materializer ?? throw new InvalidOperationException("Materializer not initialized")).BuildStrmUrlWithExpiry(
-                        embyBaseUrl, item.ImdbId, slot.SlotKey, "imdb", null, null);
-
-                    var baseName = Path.GetFileNameWithoutExtension(folderName);
-                    var fileName = _materializer.GetFileName(baseName, slot, defaultSlot, ".strm");
-                    var fullPath = Path.Combine(folderPath, fileName);
-                    var tmpPath = fullPath + ".tmp";
-
-                    try
-                    {
-                        await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
-                        File.Move(tmpPath, fullPath, overwrite: true);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .strm: {Path}", fullPath);
-                        if (File.Exists(tmpPath)) File.Delete(tmpPath);
-                    }
+                    await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
+                    File.Move(tmpPath, fullPath, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .strm: {Path}", fullPath);
+                    if (File.Exists(tmpPath)) File.Delete(tmpPath);
                 }
 
                 item.ItemState = ItemState.Written;
@@ -636,11 +615,6 @@ namespace InfiniteDrive.Tasks
         private async Task<int> HintStepAsync(List<CatalogItem> items, CancellationToken cancellationToken)
         {
             var hinted = 0;
-            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
-            if (!slots.Any())
-                return 0;
-
-            var defaultSlot = slots.FirstOrDefault(s => s.IsDefault) ?? slots.First();
 
             foreach (var item in items)
             {
@@ -660,9 +634,6 @@ namespace InfiniteDrive.Tasks
                     }
 
                     // NFO no longer needed — folder name provides ID hints to Emby
-                    foreach (var slot in slots)
-                        cancellationToken.ThrowIfCancellationRequested();
-
                     // Update NFO status
                     item.NfoStatus = "Hinted";
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
@@ -918,13 +889,7 @@ namespace InfiniteDrive.Tasks
             if (!expiringItems.Any())
                 return 0;
 
-            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
-            if (!slots.Any())
-                return 0;
-
-            var defaultSlot = slots.FirstOrDefault(s => s.IsDefault) ?? slots.First();
             var config = Plugin.Instance!.Configuration;
-            var embyBaseUrl = GetEmbyBaseUrl(config);
 
             foreach (var item in expiringItems)
             {
@@ -939,25 +904,13 @@ namespace InfiniteDrive.Tasks
 
                 try
                 {
-                    foreach (var slot in slots)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
+                    var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? "", "imdb", null, null);
+                    var fileName = baseName + ".strm";
+                    var fullPath = Path.Combine(folderPath, fileName);
+                    var tmpPath = fullPath + ".tmp";
 
-                        var (strmUrl, expiresAtUnix) = (_materializer ?? throw new InvalidOperationException("Materializer not initialized")).BuildStrmUrlWithExpiry(
-                            embyBaseUrl,
-                            item.ImdbId,
-                            slot.SlotKey,
-                            "imdb",
-                            null,
-                            null);
-
-                        var fileName = _materializer.GetFileName(baseName, slot, defaultSlot, ".strm");
-                        var fullPath = Path.Combine(folderPath, fileName);
-                        var tmpPath = fullPath + ".tmp";
-
-                        await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
-                        File.Move(tmpPath, fullPath, overwrite: true);
-                    }
+                    await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
+                    File.Move(tmpPath, fullPath, overwrite: true);
 
                     // Update token expiry timestamp
                     item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(Plugin.Instance!.Configuration.SignatureValidityDays).ToUnixTimeSeconds();

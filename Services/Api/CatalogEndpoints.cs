@@ -415,7 +415,7 @@ namespace InfiniteDrive.Services
 
             try
             {
-                var catalogItem = await db.GetCatalogItemByImdbIdAsync(imdb);
+                var catalogItem = await db.GetCatalogItemByAioIdAsync(imdb);
                 if (catalogItem == null)
                 {
                     response.Found = false;

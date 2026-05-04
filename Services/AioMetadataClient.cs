@@ -80,7 +80,7 @@ namespace InfiniteDrive.Services
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db != null)
                 {
-                    var catalogItem = await db.GetCatalogItemByImdbIdAsync(imdbId);
+                    var catalogItem = await db.GetCatalogItemByAioIdAsync(imdbId);
                     lookupId = catalogItem?.TmdbId ?? imdbId;
                 }
                 else

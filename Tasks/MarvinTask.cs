@@ -457,62 +457,8 @@ namespace InfiniteDrive.Tasks
             if (!expiringItems.Any())
                 return;
 
-            var renewedCount = 0;
-            var slots = await Plugin.Instance!.VersionSlotRepository.GetEnabledSlotsAsync(cancellationToken);
-            if (!slots.Any())
-                return;
-
-            var defaultSlot = slots.FirstOrDefault(s => s.IsDefault) ?? slots.First();
-            var config = Plugin.Instance!.Configuration;
-            var embyBaseUrl = GetEmbyBaseUrl(config);
-            var materializer = new VersionMaterializer(_logger);
-
-            foreach (var item in expiringItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (string.IsNullOrEmpty(item.StrmPath) || string.IsNullOrEmpty(item.LocalPath))
-                    continue;
-
-                var folderPath = item.LocalPath!;
-                var baseName = Path.GetFileNameWithoutExtension(folderPath);
-
-                try
-                {
-                    foreach (var slot in slots)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-
-                        var (strmUrl, expiresAtUnix) = materializer.BuildStrmUrlWithExpiry(
-                            embyBaseUrl,
-                            item.ImdbId,
-                            slot.SlotKey,
-                            "imdb",
-                            null,
-                            null);
-
-                        var fileName = $"{baseName}{(slot.IsDefault ? "" : $"_{slot.SlotKey}")}.strm";
-                        var fullPath = Path.Combine(folderPath, fileName);
-                        var tmpPath = fullPath + ".tmp";
-
-                        await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
-                        File.Move(tmpPath, fullPath, overwrite: true);
-                    }
-
-                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(config.SignatureValidityDays).ToUnixTimeSeconds();
-                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                    await db.UpsertCatalogItemAsync(item, cancellationToken);
-
-                    renewedCount++;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Token renewal failed for {Imdb}", item.ImdbId);
-                }
-            }
-
-            if (renewedCount > 0)
-                _logger.LogInformation("[InfiniteDrive] Token renewal: Renewed {Count} items", renewedCount);
+            // Version-slot token renewal disabled — slot infrastructure removed.
+            return;
         }
 
         private async Task PersistEnrichmentCountsAsync(CancellationToken cancellationToken)
