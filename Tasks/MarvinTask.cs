@@ -393,7 +393,7 @@ namespace InfiniteDrive.Tasks
             var db = Plugin.Instance!.DatabaseManager;
 
             var needsEnrichQuery = @"
-                SELECT * FROM catalog_items
+                SELECT id, imdb_id, title, year, retry_count, next_retry_at FROM catalog_items
                 WHERE nfo_status = 'NeedsEnrich'
                 AND (next_retry_at IS NULL OR next_retry_at <= unixepoch('now'))
                 AND removed_at IS NULL
@@ -413,10 +413,10 @@ namespace InfiniteDrive.Tasks
                 {
                     Id = row.GetString(0),
                     ImdbId = row.IsDBNull(1) ? null : row.GetString(1),
-                    Title = row.GetString(4),
-                    Year = row.IsDBNull(5) ? (int?)null : row.GetInt(5),
-                    RetryCount = row.GetInt(20),
-                    NextRetryAt = row.IsDBNull(22) ? (long?)null : row.GetInt64(22)
+                    Title = row.GetString(2),
+                    Year = row.IsDBNull(3) ? (int?)null : row.GetInt(3),
+                    RetryCount = row.GetInt(4),
+                    NextRetryAt = row.IsDBNull(5) ? (long?)null : row.GetInt64(5)
                 });
 
             if (!needsEnrichItems.Any())
@@ -465,11 +465,8 @@ namespace InfiniteDrive.Tasks
         {
             var db = Plugin.Instance!.DatabaseManager;
 
-            var blockedQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'Blocked' AND removed_at IS NULL;";
-            var blockedCount = await db.QueryScalarIntAsync(blockedQuery, cancellationToken);
-
-            var needsEnrichQuery = "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'NeedsEnrich' AND removed_at IS NULL;";
-            var needsEnrichCount = await db.QueryScalarIntAsync(needsEnrichQuery, cancellationToken);
+            var blockedCount = await db.GetBlockedCountAsync(cancellationToken);
+            var needsEnrichCount = await db.GetNeedsEnrichCountAsync(cancellationToken);
 
             await db.PersistMetadataAsync("blocked_enrichment_count", blockedCount.ToString(), cancellationToken);
             await db.PersistMetadataAsync("needs_enrich_count", needsEnrichCount.ToString(), cancellationToken);

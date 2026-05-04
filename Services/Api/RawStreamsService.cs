@@ -113,19 +113,5 @@ namespace InfiniteDrive.Services
             }
         }
 
-        private static int? ParsePort(string? url)
-        {
-            if (string.IsNullOrEmpty(url))
-                return null;
-            try
-            {
-                var uri = new Uri(url);
-                return uri.Port > 0 ? uri.Port : (uri.Scheme == "https" ? 443 : 80);
-            }
-            catch
-            {
-                return null;
-            }
-        }
     }
 }

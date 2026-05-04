@@ -43,11 +43,6 @@ namespace InfiniteDrive.Services
         // Single-flight lock: prevents duplicate AIOStreams fetches for the same item
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _keyLocks = new();
 
-        private static readonly HttpClient _headClient = new()
-        {
-            Timeout = TimeSpan.FromSeconds(5),
-        };
-
         /// <summary>
         /// Lazy-resolved stream cache service from Plugin.Instance singleton.
         /// Avoids constructor injection issues with Emby's DI container.
@@ -796,35 +791,6 @@ namespace InfiniteDrive.Services
                     if (ms.IsDefault) hasMatch = true;
                 }
             }
-        }
-
-        /// <summary>
-        /// Builds a probe cache key (infoHash:fileIdx) from a CachedStreamEntry's first variant.
-        /// </summary>
-        private static string? BuildStreamKeyFromEntry(CachedStreamEntry entry, int variantIndex)
-        {
-            try
-            {
-                var variants = JsonSerializer.Deserialize<List<StreamVariant>>(entry.VariantsJson);
-                if (variants == null || variantIndex >= variants.Count) return null;
-                var v = variants[variantIndex];
-                if (!string.IsNullOrEmpty(v.StreamKey)) return v.StreamKey;
-                if (!string.IsNullOrEmpty(v.InfoHash))
-                    return $"{v.InfoHash}:{v.FileIdx}";
-            }
-            catch { /* non-fatal */ }
-            return null;
-        }
-
-        private static string? GetFileNameFromEntry(CachedStreamEntry entry, int variantIndex)
-        {
-            try
-            {
-                var variants = JsonSerializer.Deserialize<List<StreamVariant>>(entry.VariantsJson);
-                if (variants == null || variantIndex >= variants.Count) return null;
-                return variants[variantIndex].FileName;
-            }
-            catch { return null; }
         }
 
         private string? GetLibraryLanguage(string? itemPath)

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Data;
 using InfiniteDrive.Models;
+using Microsoft.Extensions.Logging;
 
 namespace InfiniteDrive.Services
 {
@@ -100,7 +101,7 @@ namespace InfiniteDrive.Services
                 !string.IsNullOrWhiteSpace(config.LibraryNameSeries);
 
             int catalogCount = 0;
-            try { catalogCount = await _database.GetCatalogItemCountAsync(); } catch { }
+            try { catalogCount = await _database.GetCatalogItemCountAsync(); } catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "get catalog item count"); }
 
             int strmCount = 0;
             try
@@ -109,12 +110,12 @@ namespace InfiniteDrive.Services
                 strmCount += CountStrm(config.SyncPathShows);
                 strmCount += CountStrm(config.SyncPathAnime);
             }
-            catch { }
+            catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "count .strm files"); }
 
             bool accessible = false;
             if (libConfigured)
             {
-                try { accessible = Directory.Exists(config.SyncPathMovies); } catch { }
+                try { accessible = Directory.Exists(config.SyncPathMovies); } catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "check SyncPathMovies accessibility"); }
             }
 
             return new LibraryHealth

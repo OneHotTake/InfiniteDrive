@@ -32,44 +32,6 @@ namespace InfiniteDrive.Services
         //  MediaStreams builders (unchanged helpers)
         // ═══════════════════════════════════════════════════════════════════════════
 
-        private static List<MediaStream> BuildMediaStreamsFromLanguages(string? languages,
-            string? qualityTier = null, int? bitrateKbps = null)
-        {
-            var streams = new List<MediaStream>();
-
-            streams.Add(new MediaStream
-            {
-                Type      = MediaStreamType.Video,
-                Index     = 0,
-                Codec     = qualityTier != null && (qualityTier.Contains("remux") || qualityTier.Contains("2160") || qualityTier.Contains("4k"))
-                                ? "hevc" : "h264",
-                Language  = "und",
-                IsDefault = true,
-            });
-            if (bitrateKbps.HasValue)
-                streams[0].BitRate = bitrateKbps.Value;
-
-            if (string.IsNullOrEmpty(languages)) return streams;
-
-            foreach (var lang in languages.Split(',', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var trimmed = lang.Trim();
-                if (string.IsNullOrEmpty(trimmed)) continue;
-
-                streams.Add(new MediaStream
-                {
-                    Type         = MediaStreamType.Audio,
-                    Language     = trimmed,
-                    Title        = trimmed,
-                    DisplayTitle = trimmed,
-                    IsDefault    = streams.Count == 1,
-                    Index        = streams.Count,
-                });
-            }
-
-            return streams;
-        }
-
         private static List<MediaStream>? DeserializeProbeStreams(string probeJson)
         {
             using var doc = System.Text.Json.JsonDocument.Parse(probeJson);
@@ -128,16 +90,6 @@ namespace InfiniteDrive.Services
                 s.Type == MediaStreamType.Audio ||
                 s.Type == MediaStreamType.Subtitle).ToList();
             return known.Count > 0 ? known : streams;
-        }
-
-        private static string ParseLanguageFromFilename(string fnUpper)
-        {
-            var langs = new[] { "ENG", "JPN", "ITA", "FRE", "GER", "SPA", "POR", "KOR", "CHI", "RUS", "ARA", "HIN", "THA", "DUAL" };
-            foreach (var lang in langs)
-            {
-                if (fnUpper.Contains(lang)) return lang.ToLowerInvariant();
-            }
-            return "und";
         }
 
         private static void AppendSubtitlesFromJson(List<MediaStream> streams, string? subtitlesJson)

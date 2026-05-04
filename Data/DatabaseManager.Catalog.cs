@@ -67,37 +67,6 @@ namespace InfiniteDrive.Data
             }, cancellationToken);
         }
 
-        /// <summary>
-        /// Upserts a source membership.
-        /// </summary>
-        public async Task UpsertSourceMembershipAsync(string sourceId, string mediaItemId, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                INSERT INTO source_memberships (source_id, media_item_id)
-                VALUES (@SourceId, @MediaItemId)
-                ON CONFLICT(source_id, media_item_id) DO NOTHING;";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@SourceId", sourceId);
-                BindText(cmd, "@MediaItemId", mediaItemId);
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Deletes all source memberships for a source.
-        /// </summary>
-        public async Task DeleteSourceMembershipsForSourceAsync(string sourceId, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                DELETE FROM source_memberships
-                WHERE source_id = @SourceId;";
-
-            await ExecuteWriteAsync(sql,
-                cmd => BindText(cmd, "@SourceId", sourceId),
-                cancellationToken);
-        }
-
         // ── user_catalogs CRUD (Sprint 158) ─────────────────────────────────────
 
         /// <summary>
@@ -233,28 +202,6 @@ namespace InfiniteDrive.Data
                 BindText(cmd, "@status", status);
                 BindText(cmd, "@id", catalogId);
             }, ct);
-        }
-
-        /// <summary>
-        /// Returns the count of active source memberships for a catalog item.
-        /// Counts system-catalog memberships plus user-catalog memberships whose
-        /// user_catalog is still active. Used by Deep Clean / deprecation flow.
-        /// </summary>
-        public Task<int> CountActiveClaimsAsync(string catalogItemId, CancellationToken ct = default)
-        {
-            const string sql = @"
-                SELECT COUNT(*) FROM source_memberships sm
-                WHERE sm.media_item_id = @item_id
-                  AND (sm.user_catalog_id IS NULL
-                   OR EXISTS (SELECT 1 FROM user_catalogs uc
-                              WHERE uc.id = sm.user_catalog_id AND uc.active = 1));";
-
-            using var conn = OpenConnection();
-            using var stmt = conn.PrepareStatement(sql);
-            BindText(stmt, "@item_id", catalogItemId);
-            foreach (var row in stmt.AsRows())
-                return Task.FromResult(row.IsDBNull(0) ? 0 : row.GetInt(0));
-            return Task.FromResult(0);
         }
 
         /// <summary>
@@ -497,119 +444,6 @@ namespace InfiniteDrive.Data
             BindText(stmt, "@IdValue", mediaId.Value);
             return Task.FromResult(stmt.AsRows().Any());
         }
-
-        #region Home Section Tracking (Sprint 118C)
-
-        /// <summary>
-        /// Inserts a new home section tracking record.
-        /// Sprint 118: Home Screen Rails.
-        /// </summary>
-        public async Task InsertHomeSectionTrackingAsync(
-            InfiniteDrive.Models.HomeSectionTracking tracking,
-            CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                INSERT INTO home_section_tracking
-                    (id, user_id, rail_type, emby_section_id, section_marker, created_at, updated_at)
-                VALUES (@id, @user_id, @rail_type, @emby_section_id, @section_marker, @created_at, @updated_at);";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@id", tracking.Id);
-                BindText(cmd, "@user_id", tracking.UserId);
-                BindText(cmd, "@rail_type", tracking.RailType);
-                BindNullableText(cmd, "@emby_section_id", tracking.EmbySectionId);
-                BindText(cmd, "@section_marker", tracking.SectionMarker);
-                BindText(cmd, "@created_at", tracking.CreatedAt.ToString("o"));
-                BindText(cmd, "@updated_at", tracking.UpdatedAt.ToString("o"));
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Gets a home section tracking record by user ID and rail type.
-        /// Sprint 118: Home Screen Rails.
-        /// </summary>
-        public async Task<InfiniteDrive.Models.HomeSectionTracking?> GetHomeSectionTrackingAsync(
-            string userId,
-            string railType,
-            CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                SELECT id, user_id, rail_type, emby_section_id, section_marker, created_at, updated_at
-                FROM home_section_tracking
-                WHERE user_id = @user_id AND rail_type = @rail_type
-                LIMIT 1;";
-
-            var results = await QueryListAsync(sql, cmd =>
-            {
-                BindText(cmd, "@user_id", userId);
-                BindText(cmd, "@rail_type", railType);
-            }, row => new InfiniteDrive.Models.HomeSectionTracking
-            {
-                Id = row.GetString(0),
-                UserId = row.GetString(1),
-                RailType = row.GetString(2),
-                EmbySectionId = row.IsDBNull(3) ? null : row.GetString(3),
-                SectionMarker = row.GetString(4),
-                CreatedAt = DateTimeOffset.Parse(row.GetString(5)),
-                UpdatedAt = DateTimeOffset.Parse(row.GetString(6))
-            });
-
-            return results.FirstOrDefault();
-        }
-
-        /// <summary>
-        /// Updates an existing home section tracking record.
-        /// Sprint 118: Home Screen Rails.
-        /// </summary>
-        public async Task UpdateHomeSectionTrackingAsync(
-            InfiniteDrive.Models.HomeSectionTracking tracking,
-            CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE home_section_tracking
-                SET emby_section_id = @emby_section_id,
-                    updated_at = @updated_at
-                WHERE id = @id;";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@id", tracking.Id);
-                BindNullableText(cmd, "@emby_section_id", tracking.EmbySectionId);
-                BindText(cmd, "@updated_at", tracking.UpdatedAt.ToString("o"));
-            }, cancellationToken);
-        }
-
-        /// <summary>
-        /// Gets all home section tracking records for a user.
-        /// Sprint 118: Home Screen Rails.
-        /// </summary>
-        public async Task<List<InfiniteDrive.Models.HomeSectionTracking>> GetAllHomeSectionTrackingAsync(
-            string userId,
-            CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                SELECT id, user_id, rail_type, emby_section_id, section_marker, created_at, updated_at
-                FROM home_section_tracking
-                WHERE user_id = @user_id
-                ORDER BY rail_type;";
-
-            return await QueryListAsync(sql, cmd =>
-            {
-                BindText(cmd, "@user_id", userId);
-            }, row => new InfiniteDrive.Models.HomeSectionTracking
-            {
-                Id = row.GetString(0),
-                UserId = row.GetString(1),
-                RailType = row.GetString(2),
-                EmbySectionId = row.IsDBNull(3) ? null : row.GetString(3),
-                SectionMarker = row.GetString(4),
-                CreatedAt = DateTimeOffset.Parse(row.GetString(5)),
-                UpdatedAt = DateTimeOffset.Parse(row.GetString(6))
-            });
-        }
-
-        #endregion
 
         // ═══════════════════════════════════════════════════════════════════════════
         //  cached_streams — pre-cached stream metadata
@@ -968,5 +802,15 @@ namespace InfiniteDrive.Data
                 UnblockedBy = r.IsDBNull(9) ? null : r.GetString(9),
             }).ConfigureAwait(false);
         }
+
+        public Task<int> GetNeedsEnrichCountAsync(CancellationToken ct = default)
+            => QueryScalarIntAsync(
+                "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'NeedsEnrich' AND removed_at IS NULL;",
+                ct);
+
+        public Task<int> GetBlockedCountAsync(CancellationToken ct = default)
+            => QueryScalarIntAsync(
+                "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'Blocked' AND removed_at IS NULL;",
+                ct);
     }
 }

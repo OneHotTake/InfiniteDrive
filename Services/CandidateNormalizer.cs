@@ -215,7 +215,7 @@ namespace InfiniteDrive.Services
             if (lower.Contains("hdr10"))
                 return "hdr10";
 
-            if (lower.Contains("hdr") || lower.Contains("hdr"))
+            if (lower.Contains("hdr"))
                 return "hdr10";
 
             // No HDR detected — SDR

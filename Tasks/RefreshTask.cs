@@ -121,7 +121,7 @@ namespace InfiniteDrive.Tasks
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[InfiniteDrive] RefreshTask Populate failed");
-                try { await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "error", 0, ex.Message, cancellationToken); } catch { }
+                try { await Plugin.Instance!.DatabaseManager.UpdateRunLogAsync(runLogId, "error", 0, ex.Message, cancellationToken); } catch (Exception logEx) { Plugin.Instance?.Logger.LogDebug(logEx, "[InfiniteDrive] Non-fatal: {Context}", "update run log on error"); }
                 throw;
             }
         }
@@ -402,7 +402,7 @@ namespace InfiniteDrive.Tasks
         private async Task<int> WriteStepAsync(List<CatalogItem> items, CancellationToken cancellationToken)
         {
             var config = Plugin.Instance!.Configuration;
-            var embyBaseUrl = GetEmbyBaseUrl(config);
+            var embyBaseUrl = string.IsNullOrEmpty(config.EmbyBaseUrl) ? "http://localhost:8096" : config.EmbyBaseUrl.TrimEnd('/');
 
             // Split into movies and series
             var series = items.Where(i =>
@@ -988,18 +988,7 @@ namespace InfiniteDrive.Tasks
             };
         }
 
-        private static string GetEmbyBaseUrl(PluginConfiguration config)
-        {
-            // Use configured Emby base URL for resolve tokens
-            // This ensures .strm files point to the local Emby server for proxying
-            if (!string.IsNullOrEmpty(config.EmbyBaseUrl))
-            {
-                return config.EmbyBaseUrl.TrimEnd('/');
-            }
 
-            // Fallback to localhost if not configured
-            return "http://localhost:8096";
-        }
 
         private static int? ParseYear(string? releaseInfo)
         {

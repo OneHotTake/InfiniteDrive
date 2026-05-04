@@ -239,7 +239,7 @@ namespace InfiniteDrive.Services
                 if (!string.IsNullOrEmpty(dir))
                     CleanEmptyDir(Path.GetDirectoryName(dir));
             }
-            catch { /* best-effort cleanup */ }
+            catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "DeleteWithVersions cleanup"); }
         }
 
         /// <summary>
@@ -281,7 +281,7 @@ namespace InfiniteDrive.Services
         private static void SafeDelete(string? path)
         {
             if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
-            try { File.Delete(path); } catch { }
+            try { File.Delete(path); } catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", $"SafeDelete {path}"); }
         }
 
         private static void CleanEmptyDir(string? dir)
@@ -292,7 +292,7 @@ namespace InfiniteDrive.Services
                 if (!Directory.EnumerateFileSystemEntries(dir).Any())
                     Directory.Delete(dir);
             }
-            catch { }
+            catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", $"CleanEmptyDir {dir}"); }
         }
 
         // ── Private: helpers ─────────────────────────────────────────────────────

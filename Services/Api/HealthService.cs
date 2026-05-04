@@ -128,13 +128,6 @@ namespace InfiniteDrive.Services
                 // Pipeline phase — Sprint 362
                 response.ActivePipeline = Plugin.Pipeline.Current;
     
-                // Catalog count (from manifest, approximate)
-                response.CatalogCount = 0; // Would need to fetch manifest for exact count
-    
-                // Catalogs skipped
-                // For now, return empty list - would need to track during sync
-                response.CatalogsSkipped = new List<HealthResponse.CatalogSkippedEntry>();
-    
                 // Stream resolution success rate
                 var cacheStats = await db.GetResolutionCacheStatsAsync();
                 float successRate = 0;
@@ -147,15 +140,6 @@ namespace InfiniteDrive.Services
                 // Last sync times (Sprint 102A-04: Read from plugin_metadata table)
                 response.LastSyncTime = db.GetMetadata("last_sync_time");
                 response.LastCollectionSyncTime = db.GetMetadata("last_collection_sync_time");
-    
-                // Blocked addons
-                response.BlockedAddons = new List<string>();
-    
-                // Configuration required
-                response.ConfigurationRequired = false;
-    
-                // Pending episodes
-                response.PendingEpisodes = 0;
     
                 // ── FIX-101A-05: Anime pending items ─────────────────────────────
                 // Count anime items that are pending (OVA/ONA/SPECIAL without strm)

@@ -266,20 +266,6 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Returns all IMDB IDs for active (non-removed, non-blocked) catalog items.
-        /// Used by IChannel for bulk library-decoration (✓ prefix on titles).
-        /// </summary>
-        public async Task<HashSet<string>> GetAllPinnedAioIdsAsync()
-        {
-            const string sql = @"
-                SELECT imdb_id FROM catalog_items
-                WHERE imdb_id IS NOT NULL AND blocked_at IS NULL AND removed_at IS NULL";
-
-            var results = await QueryListAsync(sql, _ => { }, row => row.GetString(0)).ConfigureAwait(false);
-            return new HashSet<string>(results, StringComparer.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
         /// Returns the first active catalog item with the specified IMDB ID, or null.
         /// </summary>
         public async Task<CatalogItem?> GetCatalogItemByAioIdAsync(string imdbId)
@@ -323,9 +309,6 @@ namespace InfiniteDrive.Data
             int limit,
             CancellationToken cancellationToken = default)
         {
-            // TODO: Refactor to query materialized_versions table instead of catalog_items
-            // The strm_token_expires_at column belongs in materialized_versions, not catalog_items
-            // For now, return all written items without token expiry filtering
             const string sql = @"
                 SELECT * FROM catalog_items
                 WHERE item_state = 1 AND removed_at IS NULL
@@ -775,21 +758,6 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Marks all entries sharing an info_hash as stale.
-        /// </summary>
-        public async Task InvalidateByTorrentHashAsync(string infoHash, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE stream_resolution_cache
-                SET status = 'stale', updated_at = datetime('now')
-                WHERE info_hash = @info_hash
-                  AND info_hash IS NOT NULL;";
-
-            await ExecuteWriteAsync(sql,
-                cmd => BindText(cmd, "@info_hash", infoHash), cancellationToken);
-        }
-
-        /// <summary>
         /// Clears the <c>last_sync_at</c> timestamp for all sources so the interval
         /// guard is bypassed on the next catalog sync run.
         /// </summary>
@@ -935,37 +903,6 @@ namespace InfiniteDrive.Data
         public string? GetCircuitBreakerState()
         {
             return GetMetadata("circuit_breaker_state");
-        }
-
-        public async Task<List<CatalogItem>> GetItemsMissingStrmAsync()
-        {
-            const string sql = @"
-                SELECT * FROM catalog_items
-                WHERE removed_at IS NULL
-                  AND blocked_at IS NULL
-                  AND (strm_path IS NULL OR strm_path = '')
-                  AND (local_source IS NULL OR local_source != 'library');";
-
-            return await QueryListAsync(sql, _ => { }, ReadCatalogItem);
-        }
-
-        /// <summary>
-        /// Increments the resurrection counter for a catalog item by one.
-        /// Called each time a missing file is rebuilt as a .strm.
-        /// </summary>
-        public async Task IncrementResurrectionCountAsync(string imdbId, string source, CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE catalog_items
-                SET resurrection_count = resurrection_count + 1,
-                    updated_at         = datetime('now')
-                WHERE imdb_id = @imdb_id AND source = @source;";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@imdb_id", imdbId);
-                BindText(cmd, "@source",  source);
-            }, cancellationToken);
         }
 
         /// <summary>
@@ -1646,7 +1583,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                     "SELECT 1 FROM plugin_metadata WHERE key = 'cache_migrated_v2' LIMIT 1");
                 foreach (var _ in flagCheck.AsRows()) return; // already migrated
             }
-            catch { /* plugin_metadata may not exist yet */ }
+            catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "plugin_metadata may not exist yet"); }
 
             // Only migrate if stream_candidates exists and stream_resolution_cache is empty
             bool hasCandidates = false;
@@ -1655,7 +1592,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 using var check = conn.PrepareStatement("SELECT 1 FROM sqlite_master WHERE type='table' AND name='stream_candidates' LIMIT 1");
                 foreach (var _ in check.AsRows()) { hasCandidates = true; break; }
             }
-            catch { return; }
+            catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "check stream_candidates table existence"); return; }
 
             if (!hasCandidates) return;
 
@@ -1666,7 +1603,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 using var cnt = conn.PrepareStatement("SELECT COUNT(*) FROM stream_resolution_cache LIMIT 1");
                 foreach (var row in cnt.AsRows()) { cacheCount = row.GetInt(0); break; }
             }
-            catch { }
+            catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "count stream_resolution_cache rows"); }
 
             if (cacheCount > 0)
             {
@@ -1771,7 +1708,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 {
                     conn.Execute("ALTER TABLE stream_resolution_cache ADD COLUMN aio_id TEXT");
                 }
-                catch { /* column may already exist */ }
+                catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "ALTER TABLE aio_id column may already exist"); }
 
                 // Backfill: old imdb_id IS the AIOStreams primary ID
                 conn.Execute(@"
@@ -1802,7 +1739,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                     INSERT OR REPLACE INTO plugin_metadata (key, value)
                     VALUES ('cache_migrated_v2', '1')");
             }
-            catch { /* plugin_metadata may not exist — non-critical */ }
+            catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "mark migration complete in plugin_metadata"); }
         }
 
         private void DropLegacyTables(IDatabaseConnection conn)
@@ -1814,7 +1751,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
             })
             {
                 try { conn.Execute($"DROP TABLE IF EXISTS [{table}]"); }
-                catch { /* ignore */ }
+                catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", $"drop legacy table {table}"); }
             }
         }
 

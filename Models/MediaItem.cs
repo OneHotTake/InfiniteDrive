@@ -142,16 +142,6 @@ namespace InfiniteDrive.Models
         // ── Derived State ──────────────────────────────────────────────────────
 
         /// <summary>
-        /// Whether this item is saved.
-        /// </summary>
-        public bool IsSaved => Saved;
-
-        /// <summary>
-        /// Whether this item is blocked.
-        /// </summary>
-        public bool IsBlocked => Blocked;
-
-        /// <summary>
         /// Whether this item is playable (Active or Saved).
         /// </summary>
         public bool IsPlayable => Status == ItemStatus.Active || Saved;

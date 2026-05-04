@@ -251,7 +251,7 @@ namespace InfiniteDrive.Services
                         provider.DisplayName, req.Id);
 
                     if (ex.GetType().Name.Contains("RateLimit"))
-                        return null;
+                        continue;
                 }
             }
 
