@@ -18,6 +18,7 @@ namespace InfiniteDrive.Services.Scoring
         private readonly ILogger _logger;
         private readonly int _maxStreams;
         private readonly List<(int Res, int SrcMax, int Max)> _buckets;
+        private readonly bool _useRemuxForAutoSelection;
 
         /// <summary>
         /// Initializes a new instance of the StreamScoringService.
@@ -29,6 +30,30 @@ namespace InfiniteDrive.Services.Scoring
             _logger   = logger;
             _maxStreams = Math.Clamp(config.MaxCuratedStreams, 1, 12);
             _buckets   = ParseBuckets(config.StreamBucketsJson);
+            _useRemuxForAutoSelection = config.UseRemuxForAutoSelection;
+
+            // Reorder buckets so the user's default quality tier is first (rank-0)
+            var defaultRes = DefaultTierToResTier(config.DefaultSlotKey);
+            if (defaultRes >= 0)
+            {
+                var defaultBucket = _buckets.FirstOrDefault(b => b.Res == defaultRes);
+                _buckets.Remove(defaultBucket);
+                _buckets.Insert(0, defaultBucket);
+            }
+        }
+
+        /// <summary>
+        /// Maps the user's DefaultSlotKey to a resolution tier index.
+        /// </summary>
+        private static int DefaultTierToResTier(string? slotKey)
+        {
+            if (string.IsNullOrEmpty(slotKey)) return -1;
+            var k = slotKey.ToLowerInvariant();
+            if (k.Contains("4k") || k.Contains("2160")) return 0;
+            if (k.Contains("1080")) return 1;
+            if (k.Contains("720")) return 2;
+            if (k.Contains("480") || k.Contains("sd")) return 3;
+            return -1;
         }
 
         /// <summary>
@@ -39,8 +64,15 @@ namespace InfiniteDrive.Services.Scoring
             if (candidates == null || candidates.Count == 0)
                 return new List<StreamCandidate>();
 
+            // Filter out REMUX when UseRemuxForAutoSelection is false
+            // REMUX files take 40+ seconds to probe and often require transcoding
+            // Use IsRemuxFile(filename) directly — IsRemux column may not exist in DB yet
+            var filtered = _useRemuxForAutoSelection
+                ? candidates
+                : candidates.Where(c => !StreamHelpers.IsRemuxFile(c.FileName)).ToList();
+
             // Score every candidate
-            var scored = candidates
+            var scored = filtered
                 .Select(c => (
                     Candidate: c,
                     ResTier:   ResTier(c),
@@ -80,8 +112,8 @@ namespace InfiniteDrive.Services.Scoring
                 selected[i].Rank = i;
 
             _logger.LogInformation(
-                "[StreamScoringService] Selected {Count} from {Total} candidates",
-                selected.Count, candidates.Count);
+                "[StreamScoringService] Selected {Count} from {Total} candidates (filtered {Filtered} REMUX)",
+                selected.Count, candidates.Count, candidates.Count - filtered.Count);
 
             return selected;
         }
@@ -123,13 +155,19 @@ namespace InfiniteDrive.Services.Scoring
 
         /// <summary>
         /// Maps source type to tier: 0=Remux 1=BluRay 2=WEB-DL 3=WEB/WEBRip 4=HDRip/SCR 5=TS/CAM 9=unknown.
+        /// When UseRemuxForAutoSelection is false, REMUX is deprioritized (tier 6, after AAC/FLAC/OPUS audio).
         /// </summary>
-        public static int SrcTier(StreamCandidate c)
+        public int SrcTier(StreamCandidate c)
         {
             var fn = c.FileName ?? "";
             var fnUpper = fn.ToUpperInvariant();
 
-            if (fnUpper.Contains("REMUX")) return 0;
+            if (fnUpper.Contains("REMUX"))
+            {
+                // Deprioritize REMUX when UseRemuxForAutoSelection is false
+                // REMUX goes after WEBRip (tier 3) but before unknown sources (tier 9)
+                return _useRemuxForAutoSelection ? 0 : 6;
+            }
             if (fnUpper.Contains("BLURAY") || fnUpper.Contains("BDRIP") ||
                 fnUpper.Contains("BD-RIP") || fnUpper.Contains("BLU-RAY") ||
                 fnUpper.Contains("DVDRIP") || fnUpper.Contains("DVD-RIP")) return 1;

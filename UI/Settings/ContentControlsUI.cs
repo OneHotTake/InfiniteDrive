@@ -47,6 +47,25 @@ namespace InfiniteDrive.UI.Settings
         [SelectItemsSource(nameof(DefaultQualityTierOptions))]
         public string DefaultQualityTier { get; set; } = "1080p (any)";
 
+        public SpacerItem Spacer1_5 { get; set; } = new SpacerItem();
+
+        [DisplayName("Use REMUX files for auto-selection")]
+        [Description(
+            "When enabled, 4K/1080p Bluray REMUX files (40-60GB, TrueHD/Atmos audio) are included in " +
+            "auto-selection. REMUX files take 40+ seconds to probe and often require transcoding. " +
+            "When disabled (recommended), REMUX is deprioritized in favor of faster-starting encodes.")]
+        public bool UseRemuxForAutoSelection { get; set; } = false;
+
+        public SpacerItem Spacer1_75 { get; set; } = new SpacerItem();
+
+        public LabelItem RemuxWarning { get; set; } = new LabelItem
+        (
+            "⚠️ ATTENTION: Please review your AIOStreams configuration. InfiniteDrive will attempt " +
+            "to play the highest quality available for your chosen setup. If your provider offers " +
+            "mostly REMUX files, consider enabling the 'Use REMUX files' toggle above, but expect " +
+            "30-60 second startup times."
+        );
+
         // ═══════════════════════════════════════════════════════════════
         // Section 2: Parental Controls (Discover-only)
         // ═══════════════════════════════════════════════════════════════

@@ -294,6 +294,10 @@ namespace InfiniteDrive.Services
             var ids = ParseUniqueIds(catalogItem.UniqueIdsJson);
             foreach (var kvp in ids)
                 item.SetProviderId(kvp.Key, kvp.Value);
+
+            // Mark this item as belonging to InfiniteDrive so Emby uses GetMediaSources + OpenMediaSource
+            // instead of treating it as a regular media file and probing the .strm URL directly
+            item.SetProviderId("INFINITEDRIVE", "1");
         }
     }
 

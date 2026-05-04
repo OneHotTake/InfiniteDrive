@@ -758,6 +758,16 @@ namespace InfiniteDrive
         public string DefaultQualityTier { get; set; } = "1080p (any)";
 
         /// <summary>
+        /// When true, REMUX files (4K/1080p Bluray REMUX) are included in auto-selection.
+        /// When false (default), REMUX files are deprioritized in favor of faster-starting encodes.
+        /// REMUX files are 40-60GB, take 40+ seconds to probe, and often require transcoding due to
+        /// TrueHD/Atmos audio which most clients don't support natively.
+        /// Default: false.
+        /// </summary>
+        [DataMember]
+        public bool UseRemuxForAutoSelection { get; set; } = false;
+
+        /// <summary>
         /// When true, catalog items without a known rating are hidden from all users (admin-level global toggle).
         /// Default: false.
         /// </summary>
