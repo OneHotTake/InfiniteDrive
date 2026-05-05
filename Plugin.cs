@@ -18,8 +18,10 @@ using MediaBrowser.Common.Plugins;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Globalization;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Plugins;
 using MediaBrowser.Model.Plugins.UI;
@@ -175,6 +177,12 @@ namespace InfiniteDrive
         /// Initialized during InitialiseDatabaseManager().
         /// </summary>
         public Services.SystemStateService SystemStateService { get; private set; } = null!;
+
+        /// <summary>IProviderManager for targeted metadata refresh (replaces full library scan).</summary>
+        public IProviderManager? ProviderManager { get; internal set; }
+
+        /// <summary>IFileSystem for constructing MetadataRefreshOptions.</summary>
+        public IFileSystem? FileSystem { get; internal set; }
 
         /// <summary>
         /// Plugin constructor — lightweight only per Emby conventions.

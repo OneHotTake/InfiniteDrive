@@ -10,6 +10,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
 using MediaBrowser.Model.Services;
+using MediaBrowser.Model.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -111,6 +112,7 @@ namespace InfiniteDrive.Services
         private readonly ILibraryManager          _libraryManager;
         private readonly ILogManager              _logManager;
         private readonly IAuthorizationContext    _authCtx;
+        private readonly ITaskManager             _taskManager;
 
         // ── IRequiresRequest ─────────────────────────────────────────────────────
         public IRequest Request { get; set; } = null!;
@@ -121,12 +123,14 @@ namespace InfiniteDrive.Services
         public TriggerService(
             ILibraryManager      libraryManager,
             ILogManager          logManager,
-            IAuthorizationContext authCtx)
+            IAuthorizationContext authCtx,
+            ITaskManager         taskManager)
         {
-            _libraryManager = libraryManager;
-            _logManager     = logManager;
-            _authCtx        = authCtx;
-            _logger         = new EmbyLoggerAdapter<TriggerService>(logManager.GetLogger("InfiniteDrive"));
+            _libraryManager  = libraryManager;
+            _logManager      = logManager;
+            _authCtx         = authCtx;
+            _taskManager     = taskManager;
+            _logger          = new EmbyLoggerAdapter<TriggerService>(logManager.GetLogger("InfiniteDrive"));
         }
 
         // ── IService ─────────────────────────────────────────────────────────────
@@ -143,8 +147,8 @@ namespace InfiniteDrive.Services
             switch (taskKey)
             {
                 case TaskCatalogSync:
-                    FireAndForget(ct => new MarvinTask(_logManager, _libraryManager)
-                        .Execute(ct, new Progress<double>()), taskKey);
+                    _taskManager.CancelIfRunningAndQueue<MarvinTask>();
+                    _logger.LogInformation("[InfiniteDrive] MarvinTask queued via ITaskManager");
                     break;
 
                 case TaskSeriesGapScan:
@@ -338,8 +342,8 @@ namespace InfiniteDrive.Services
                 _logger.LogInformation("[InfiniteDrive] All sync states cleared - next catalog sync will run immediately");
                 
                 // Trigger a sync immediately (via Marvin, which now includes sync)
-                FireAndForget(ct => new MarvinTask(_logManager, _libraryManager)
-                    .Execute(ct, new Progress<double>()), "catalog_sync");
+                _taskManager.CancelIfRunningAndQueue<MarvinTask>();
+                _logger.LogInformation("[InfiniteDrive] MarvinTask queued via ITaskManager (clear sync states)");
                 
                 return new TriggerResponse
                 {

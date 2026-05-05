@@ -10,7 +10,9 @@ using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using InfiniteDrive.Services;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Logging;
+using MediaBrowser.Model.Notifications;
 using MediaBrowser.Model.Tasks;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 using Microsoft.Extensions.Logging;
@@ -219,10 +221,22 @@ namespace InfiniteDrive.Tasks
                 pipelineSw.Stop();
                 _logger.LogInformation("[InfiniteDrive] MarvinTask completed successfully in {Ms}ms (4-phase pipeline)", pipelineSw.ElapsedMilliseconds);
 
+                _ = NotificationService.NotifyAsync(
+                    "MarvinComplete",
+                    "Marvin pipeline complete",
+                    $"4-phase pipeline finished in {pipelineSw.ElapsedMilliseconds}ms — {allWrittenItems.Count} items populated",
+                    cancellationToken: cancellationToken);
+
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "[InfiniteDrive] MarvinTask failed");
+                _ = NotificationService.NotifyAsync(
+                    "MarvinFailed",
+                    "Marvin pipeline error",
+                    $"Pipeline failed: {ex.Message}",
+                    NotificationLevel.Error,
+                    cancellationToken: CancellationToken.None);
                 throw;
             }
             finally
@@ -432,14 +446,9 @@ namespace InfiniteDrive.Tasks
 
             if (result.EnrichedCount > 0)
             {
-                try
-                {
-                    _libraryManager.QueueLibraryScan();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Enrichment: Failed to trigger library scan");
-                }
+                await RefreshEnrichedItemsAsync(
+                    needsEnrichItems.Take(result.EnrichedCount).Select(r => r.AioId).ToList(),
+                    cancellationToken);
             }
         }
 
@@ -466,6 +475,66 @@ namespace InfiniteDrive.Tasks
 
             await db.PersistMetadataAsync("blocked_enrichment_count", blockedCount.ToString(), cancellationToken);
             await db.PersistMetadataAsync("needs_enrich_count", needsEnrichCount.ToString(), cancellationToken);
+        }
+
+        private async Task RefreshEnrichedItemsAsync(List<string?> enrichedAioIds, CancellationToken cancellationToken)
+        {
+            var providerManager = Plugin.Instance?.ProviderManager;
+            var fileSystem      = Plugin.Instance?.FileSystem;
+
+            if (providerManager == null || fileSystem == null)
+            {
+                _logger.LogDebug("[InfiniteDrive] IProviderManager/IFileSystem not available, falling back to library scan");
+                try { _libraryManager.QueueLibraryScan(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "[InfiniteDrive] Enrichment: Failed to trigger library scan fallback"); }
+                return;
+            }
+
+            var db = Plugin.Instance!.DatabaseManager;
+            var refreshed = 0;
+
+            foreach (var aioId in enrichedAioIds)
+            {
+                if (string.IsNullOrEmpty(aioId)) continue;
+                cancellationToken.ThrowIfCancellationRequested();
+
+                try
+                {
+                    var catalogItem = await db.GetCatalogItemByAioIdAsync(aioId);
+                    if (catalogItem?.StrmPath == null) continue;
+
+                    // Find the Emby item by its .strm folder path
+                    var embyItem = _libraryManager.FindByPath(catalogItem.StrmPath, false);
+                    if (embyItem == null)
+                    {
+                        // Also try as directory (for series)
+                        embyItem = _libraryManager.FindByPath(catalogItem.StrmPath, true);
+                    }
+
+                    if (embyItem != null)
+                    {
+                        var options = new MetadataRefreshOptions(fileSystem);
+                        providerManager.QueueRefresh(embyItem.InternalId, options, RefreshPriority.Low);
+                        refreshed++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[InfiniteDrive] Enrichment: Failed to refresh {AioId}", aioId);
+                }
+            }
+
+            if (refreshed > 0)
+            {
+                _logger.LogInformation("[InfiniteDrive] Enrichment: Targeted refresh queued for {Count} items", refreshed);
+            }
+            else
+            {
+                // Fallback: no items found in Emby yet, do a full scan
+                _logger.LogDebug("[InfiniteDrive] Enrichment: No Emby items found for targeted refresh, falling back to library scan");
+                try { _libraryManager.QueueLibraryScan(); }
+                catch (Exception ex) { _logger.LogWarning(ex, "[InfiniteDrive] Enrichment: Failed to trigger library scan fallback"); }
+            }
         }
 
         private static string GetEmbyBaseUrl(PluginConfiguration config)
