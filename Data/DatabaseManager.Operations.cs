@@ -123,26 +123,26 @@ namespace InfiniteDrive.Data
             });
         }
 
-        // ── Sprint 142: NFO status methods ─────────────────────────────────────
+        // ── Sprint 142: Enrichment status methods ─────────────────────────────────────
 
-        public async Task UpdateNfoStatusAsync(
+        public async Task UpdateEnrichmentStatusAsync(
             string aioId,
             string source,
-            string nfoStatus,
+            string enrichmentStatus,
             int? retryCount,
             string? nextRetryAt,
             CancellationToken ct = default)
         {
             const string sql = @"
                 UPDATE catalog_items
-                SET nfo_status = @nfo_status,
+                SET enrichment_status = @enrichment_status,
                     retry_count = COALESCE(@retry_count, retry_count + 1),
                     next_retry_at = @next_retry_at
                 WHERE aio_id = @aio_id AND source = @source;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd, "@nfo_status", nfoStatus);
+                BindText(cmd, "@enrichment_status", enrichmentStatus);
                 if (retryCount.HasValue)
                     BindInt(cmd, "@retry_count", retryCount.Value);
                 else
@@ -156,39 +156,39 @@ namespace InfiniteDrive.Data
             }, ct);
         }
 
-        public async Task<List<CatalogItem>> GetItemsByNfoStatusAsync(
-            string nfoStatus,
+        public async Task<List<CatalogItem>> GetItemsByEnrichmentStatusAsync(
+            string enrichmentStatus,
             int limit,
             CancellationToken ct = default)
         {
             const string sql = @"
                 SELECT * FROM catalog_items
-                WHERE nfo_status = @nfo_status
+                WHERE enrichment_status = @enrichment_status
                   AND removed_at IS NULL
                   AND blocked_at IS NULL
                 LIMIT @limit;";
 
             return await QueryListAsync(sql, cmd =>
             {
-                BindText(cmd, "@nfo_status", nfoStatus);
+                BindText(cmd, "@enrichment_status", enrichmentStatus);
                 BindInt(cmd, "@limit", limit);
             }, ReadCatalogItem);
         }
 
         /// <summary>
-        /// Sets the nfo_status for a catalog item by id.
+        /// Sets the enrichment_status for a catalog item by id.
         /// Used by MarvinTask for enrichment retry backoff.
         /// </summary>
-        public async Task SetNfoStatusAsync(string itemId, string nfoStatus, CancellationToken cancellationToken = default)
+        public async Task SetEnrichmentStatusAsync(string itemId, string enrichmentStatus, CancellationToken cancellationToken = default)
         {
             const string sql = @"
                 UPDATE catalog_items
-                SET nfo_status = @nfo_status, updated_at = datetime('now')
+                SET enrichment_status = @enrichment_status, updated_at = datetime('now')
                 WHERE id = @id;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd, "@nfo_status", nfoStatus);
+                BindText(cmd, "@enrichment_status", enrichmentStatus);
                 BindText(cmd, "@id", itemId);
             }, cancellationToken);
         }
@@ -245,7 +245,7 @@ namespace InfiniteDrive.Data
                 UPDATE catalog_items
                 SET blocked_at  = NULL,
                     blocked_by  = NULL,
-                    nfo_status  = 'NeedsEnrich',
+                    enrichment_status  = 'NeedsEnrich',
                     retry_count = 0,
                     next_retry_at = NULL,
                     updated_at  = datetime('now')

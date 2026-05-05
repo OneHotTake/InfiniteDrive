@@ -23,7 +23,7 @@ namespace InfiniteDrive.Data
                        status, failure_reason, saved, saved_at,
                        blocked, blocked_at, created_at, updated_at, grace_started_at,
                        superseded, superseded_conflict, superseded_at,
-                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       emby_item_id, emby_indexed_at, strm_path,
                        watch_progress_pct, favorited
                 FROM media_items
                 WHERE id = @ItemId
@@ -44,7 +44,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM media_items mi
                 INNER JOIN media_item_ids mii ON mi.id = mii.media_item_id
@@ -72,7 +72,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM media_items mi
                 INNER JOIN source_memberships sm ON mi.id = sm.media_item_id
@@ -93,7 +93,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM media_items mi
                 WHERE mi.saved = @Saved
@@ -116,7 +116,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM user_item_saves us
                 JOIN media_items mi ON us.media_item_id = mi.id
@@ -228,7 +228,7 @@ namespace InfiniteDrive.Data
                        status, failure_reason, saved, saved_at,
                        blocked, blocked_at, created_at, updated_at, grace_started_at,
                        superseded, superseded_conflict, superseded_at,
-                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       emby_item_id, emby_indexed_at, strm_path,
                        watch_progress_pct, favorited
                 FROM media_items
                 WHERE primary_id = @PrimaryId
@@ -250,7 +250,7 @@ namespace InfiniteDrive.Data
                        status, failure_reason, saved, saved_at,
                        blocked, blocked_at, created_at, updated_at, grace_started_at,
                        superseded, superseded_conflict, superseded_at,
-                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       emby_item_id, emby_indexed_at, strm_path,
                        watch_progress_pct, favorited
                 FROM media_items
                 WHERE id = @Id
@@ -272,7 +272,7 @@ namespace InfiniteDrive.Data
                        status, failure_reason, saved, saved_at,
                        blocked, blocked_at, created_at, updated_at, grace_started_at,
                        superseded, superseded_conflict, superseded_at,
-                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       emby_item_id, emby_indexed_at, strm_path,
                        watch_progress_pct, favorited
                 FROM media_items
                 WHERE title LIKE @Query
@@ -289,7 +289,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Blocks a catalog item by its AIO ID.
-        /// Sets blocked_at and blocked_by, clearing nfo_status.
+        /// Sets blocked_at and blocked_by, clearing enrichment_status.
         /// </summary>
         public async Task BlockCatalogItemByAioIdAsync(string aioId, string blockedBy, CancellationToken ct = default)
         {
@@ -353,7 +353,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM media_items mi
                 WHERE mi.grace_started_at IS NOT NULL
@@ -381,7 +381,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM media_items mi
                 {0}
@@ -427,7 +427,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM media_items mi
                 WHERE mi.title LIKE @Query
@@ -450,14 +450,14 @@ namespace InfiniteDrive.Data
                      status, failure_reason, saved, saved_at,
                      blocked, blocked_at, created_at, updated_at, grace_started_at,
                      superseded, superseded_conflict, superseded_at,
-                     emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                     emby_item_id, emby_indexed_at, strm_path,
                      watch_progress_pct, favorited)
                 VALUES
                     (@id, @primary_id_type, @primary_id, @media_type, @title, @year,
                      @status, @failure_reason, @saved, @saved_at,
                      @blocked, @blocked_at, @created_at, @updated_at, @grace_started_at,
                      @superseded, @superseded_conflict, @superseded_at,
-                     @emby_item_id, @emby_indexed_at, @strm_path, @nfo_path,
+                     @emby_item_id, @emby_indexed_at, @strm_path,
                      @watch_progress_pct, @favorited)
                 ON CONFLICT(id) DO UPDATE SET
                     status = excluded.status,
@@ -474,7 +474,6 @@ namespace InfiniteDrive.Data
                     emby_item_id = excluded.emby_item_id,
                     emby_indexed_at = excluded.emby_indexed_at,
                     strm_path = excluded.strm_path,
-                    nfo_path = excluded.nfo_path,
                     watch_progress_pct = excluded.watch_progress_pct,
                     favorited = excluded.favorited;";
 
@@ -501,7 +500,6 @@ namespace InfiniteDrive.Data
                 BindNullableText(cmd, "@emby_item_id", item.EmbyItemId);
                 BindNullableText(cmd, "@emby_indexed_at", item.EmbyIndexedAt?.ToString("o"));
                 BindNullableText(cmd, "@strm_path", item.StrmPath);
-                BindNullableText(cmd, "@nfo_path", item.NfoPath);
                 BindInt(cmd, "@watch_progress_pct", item.WatchProgressPct);
                 BindInt(cmd, "@favorited", item.Favorited ? 1 : 0);
             }, cancellationToken);
@@ -551,7 +549,6 @@ namespace InfiniteDrive.Data
                     emby_item_id = @emby_item_id,
                     emby_indexed_at = @emby_indexed_at,
                     strm_path = @strm_path,
-                    nfo_path = @nfo_path,
                     watch_progress_pct = @watch_progress_pct,
                     favorited = @favorited,
                     updated_at = datetime('now')
@@ -578,7 +575,6 @@ namespace InfiniteDrive.Data
                 BindNullableText(cmd, "@emby_item_id", item.EmbyItemId);
                 BindNullableText(cmd, "@emby_indexed_at", item.EmbyIndexedAt?.ToString("o"));
                 BindNullableText(cmd, "@strm_path", item.StrmPath);
-                BindNullableText(cmd, "@nfo_path", item.NfoPath);
                 BindInt(cmd, "@watch_progress_pct", item.WatchProgressPct);
                 BindInt(cmd, "@favorited", item.Favorited ? 1 : 0);
             }, cancellationToken);

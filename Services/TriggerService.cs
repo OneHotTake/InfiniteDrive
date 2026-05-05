@@ -223,7 +223,7 @@ namespace InfiniteDrive.Services
                     }, taskKey);
                     break;
 
-                // Wipe catalog DB rows + sync_state + candidates + all .strm/.nfo on disk.
+                // Wipe catalog DB rows + sync_state + candidates + all .strm on disk.
                 // Resolution cache is preserved so re-sync can reuse existing cached URLs.
                 case TaskPurgeCatalog:
                     FireAndForget(async ct =>
@@ -243,12 +243,12 @@ namespace InfiniteDrive.Services
 
                         _logger.LogInformation(
                             "[InfiniteDrive] PurgeCatalog: {Items} catalog rows removed, " +
-                            "{Files} .strm/.nfo files deleted from disk",
+                            "{Files} .strm files deleted from disk",
                             strmPaths.Count, deleted);
                     }, taskKey);
                     break;
 
-                // Full clean slate: wipe ALL tables + all .strm/.nfo on disk + VACUUM.
+                // Full clean slate: wipe ALL tables + all .strm on disk + VACUUM.
                 case TaskResetAll:
                     FireAndForget(async ct =>
                     {
@@ -267,7 +267,7 @@ namespace InfiniteDrive.Services
 
                         _logger.LogInformation(
                             "[InfiniteDrive] ResetAll: all tables cleared, " +
-                            "{Files} .strm/.nfo files deleted from disk",
+                            "{Files} .strm files deleted from disk",
                             deleted);
                     }, taskKey);
                     break;
@@ -383,9 +383,9 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Deletes the physical .strm and sibling .nfo file for each path in
+        /// Deletes the physical .strm file for each path in
         /// <paramref name="strmPaths"/>, then removes the parent directory if it
-        /// becomes empty.  Also bulk-deletes any remaining .strm/.nfo files found
+        /// becomes empty.  Also bulk-deletes any remaining .strm files found
         /// under <paramref name="moviesRoot"/> and <paramref name="showsRoot"/> so
         /// that a PurgeCatalog or ResetAll leaves no orphaned files even for items
         /// whose strm_path was never written to the DB.
@@ -410,14 +410,6 @@ namespace InfiniteDrive.Services
                         count++;
                     }
 
-                    // Delete the sibling .nfo (same base name, different extension)
-                    var nfo = Path.ChangeExtension(path, ".nfo");
-                    if (File.Exists(nfo))
-                    {
-                        File.Delete(nfo);
-                        count++;
-                    }
-
                     // Remove parent directory if now empty
                     var dir = Path.GetDirectoryName(path);
                     if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir)
@@ -432,7 +424,7 @@ namespace InfiniteDrive.Services
                 }
             }
 
-            // Sweep the root directories for any orphaned .strm/.nfo not tracked in DB
+            // Sweep the root directories for any orphaned .strm not tracked in DB
             foreach (var root in new[] { moviesRoot, showsRoot })
             {
                 if (string.IsNullOrWhiteSpace(root) || !Directory.Exists(root))
@@ -441,10 +433,6 @@ namespace InfiniteDrive.Services
                 try
                 {
                     foreach (var file in Directory.EnumerateFiles(root, "*.strm", SearchOption.AllDirectories))
-                    {
-                        try { File.Delete(file); count++; } catch { /* best effort */ }
-                    }
-                    foreach (var file in Directory.EnumerateFiles(root, "*.nfo", SearchOption.AllDirectories))
                     {
                         try { File.Delete(file); count++; } catch { /* best effort */ }
                     }

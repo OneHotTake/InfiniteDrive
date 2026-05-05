@@ -809,7 +809,7 @@ namespace InfiniteDrive.Services
                     PinnedAt = now
                 };
 
-                // Write .strm and .nfo files via StrmWriterService (Sprint 156)
+                // Write .strm files via StrmWriterService (Sprint 156)
                 var strmPath = await _strmWriter.WriteAsync(
                     catalogItem,
                     SourceType.Aio,

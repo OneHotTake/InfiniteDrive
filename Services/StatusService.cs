@@ -198,10 +198,10 @@ namespace InfiniteDrive.Services
         /// <summary>ISO-8601 UTC timestamp of last MarvinTask completion.</summary>
         public string? MarvinLastRunAt { get; set; }
 
-        /// <summary>Number of items with nfo_status = 'NeedsEnrich'.</summary>
+        /// <summary>Number of items with enrichment_status = 'NeedsEnrich'.</summary>
         public int NeedsEnrichCount { get; set; }
 
-        /// <summary>Number of items with nfo_status = 'Blocked'.</summary>
+        /// <summary>Number of items with enrichment_status = 'Blocked'.</summary>
         public int BlockedCount { get; set; }
 
         /// <summary>Health of RefreshTask: "green", "yellow", or "red" based on 2×/3× interval thresholds.</summary>

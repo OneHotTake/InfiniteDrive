@@ -366,10 +366,6 @@ namespace InfiniteDrive.Tasks
                         _logger.LogDebug("[InfiniteDrive] Deleted orphan .strm: {Path}", orphanFile);
                         orphanedCount++;
 
-                        var nfoPath = Path.ChangeExtension(orphanFile, ".nfo");
-                        if (File.Exists(nfoPath))
-                            File.Delete(nfoPath);
-
                         var parentDir = Path.GetDirectoryName(orphanFile);
                         if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
                         {
@@ -394,7 +390,7 @@ namespace InfiniteDrive.Tasks
 
             var needsEnrichQuery = @"
                 SELECT id, aio_id, title, year, retry_count, next_retry_at FROM catalog_items
-                WHERE nfo_status = 'NeedsEnrich'
+                WHERE enrichment_status = 'NeedsEnrich'
                 AND (next_retry_at IS NULL OR next_retry_at <= unixepoch('now'))
                 AND removed_at IS NULL
                 ORDER BY

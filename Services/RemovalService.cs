@@ -172,7 +172,7 @@ namespace InfiniteDrive.Services
             {
                 try
                 {
-                    // Delete entire series folder (all seasons, all .strm + .nfo)
+                    // Delete entire series folder (all seasons, all .strm)
                     Directory.Delete(strmPath, recursive: true);
                     _logger.LogInformation("[RemovalService] Deleted series folder: {Path}", strmPath);
                     return;

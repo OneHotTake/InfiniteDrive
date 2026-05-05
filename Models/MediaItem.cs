@@ -125,11 +125,6 @@ namespace InfiniteDrive.Models
         public string? StrmPath { get; set; }
 
         /// <summary>
-        /// Path to the .nfo file on disk.
-        /// </summary>
-        public string? NfoPath { get; set; }
-
-        /// <summary>
         /// Watch progress percentage (0-100).
         /// </summary>
         public int WatchProgressPct { get; set; }

@@ -104,7 +104,7 @@ namespace InfiniteDrive.Data
                  source, source_list_id, seasons_json, strm_path,
                  added_at, updated_at, removed_at,
                  local_path, local_source, item_state, pin_source, pinned_at,
-                 nfo_status, retry_count, next_retry_at,
+                 enrichment_status, retry_count, next_retry_at,
                  blocked_at, blocked_by, first_added_by_user_id,
                  tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_expanded_at, last_verified_at,
                  source_manifest_url)
@@ -113,7 +113,7 @@ namespace InfiniteDrive.Data
                  @source, @source_list_id, @seasons_json, @strm_path,
                  @added_at, @updated_at, @removed_at,
                  @local_path, @local_source, @item_state, @pin_source, @pinned_at,
-                 @nfo_status, @retry_count, @next_retry_at,
+                 @enrichment_status, @retry_count, @next_retry_at,
                  @blocked_at, @blocked_by, @first_added_by_user_id,
                  @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_expanded_at, @last_verified_at,
                  @source_manifest_url)
@@ -130,7 +130,7 @@ namespace InfiniteDrive.Data
                 item_state    = COALESCE(excluded.item_state,    catalog_items.item_state),
                 pin_source    = COALESCE(excluded.pin_source,    catalog_items.pin_source),
                 pinned_at     = COALESCE(excluded.pinned_at,     catalog_items.pinned_at),
-                nfo_status    = COALESCE(excluded.nfo_status, catalog_items.nfo_status),
+                enrichment_status = COALESCE(excluded.enrichment_status, catalog_items.enrichment_status),
                 retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
                 next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
                 blocked_at    = COALESCE(catalog_items.blocked_at, excluded.blocked_at),
@@ -171,7 +171,7 @@ namespace InfiniteDrive.Data
             cmd.BindParameters["@item_state"].Bind((int)item.ItemState);
             BindNullableText(cmd, "@pin_source",     item.PinSource);
             BindNullableText(cmd, "@pinned_at",      item.PinnedAt);
-            BindNullableText(cmd, "@nfo_status",     item.NfoStatus);
+            BindNullableText(cmd, "@enrichment_status", item.EnrichmentStatus);
             BindInt(cmd,         "@retry_count",    item.RetryCount);
             if (item.NextRetryAt.HasValue)
                 cmd.BindParameters["@next_retry_at"].Bind(item.NextRetryAt.Value);
@@ -936,7 +936,7 @@ namespace InfiniteDrive.Data
                        mi.status, mi.failure_reason, mi.saved, mi.saved_at,
                        mi.blocked, mi.blocked_at, mi.created_at, mi.updated_at, mi.grace_started_at,
                        mi.superseded, mi.superseded_conflict, mi.superseded_at,
-                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path, mi.nfo_path,
+                       mi.emby_item_id, mi.emby_indexed_at, mi.strm_path,
                        mi.watch_progress_pct, mi.favorited
                 FROM media_items mi
                 WHERE mi.media_type = 'series'
@@ -1174,7 +1174,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     pin_source              TEXT,
     pinned_at               TEXT,
     unique_ids_json         TEXT,
-    nfo_status              TEXT,
+    enrichment_status       TEXT,
     retry_count             INTEGER DEFAULT 0,
     next_retry_at           INTEGER,
     blocked_at              TEXT,
@@ -1394,7 +1394,6 @@ CREATE TABLE IF NOT EXISTS media_items (
     emby_item_id        TEXT,
     emby_indexed_at     TEXT,
     strm_path           TEXT,
-    nfo_path            TEXT,
     watch_progress_pct  INTEGER NOT NULL DEFAULT 0,
     favorited           INTEGER NOT NULL DEFAULT 0
 );
@@ -1837,7 +1836,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 PinSource         = GetStr(m, r, "pin_source"),
                 PinnedAt          = GetStr(m, r, "pinned_at"),
                 UniqueIdsJson     = GetStr(m, r, "unique_ids_json"),
-                NfoStatus         = GetStr(m, r, "nfo_status"),
+                EnrichmentStatus  = GetStr(m, r, "enrichment_status"),
                 RetryCount        = GetInt(m, r, "retry_count") ?? 0,
                 NextRetryAt       = GetLong(m, r, "next_retry_at"),
                 BlockedAt         = GetStr(m, r, "blocked_at"),
