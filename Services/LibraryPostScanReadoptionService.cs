@@ -130,19 +130,31 @@ namespace InfiniteDrive.Services
         /// </summary>
         private bool IsSupersededByRealFile(CatalogItem item)
         {
-            KeyValuePair<string, string>? providerId = null;
+            // Build provider ID list: AioId might be tt-prefix (IMDB) or another format
+            var providerIds = new List<KeyValuePair<string, string>>();
 
-            if (!string.IsNullOrEmpty(item.ImdbId))
-                providerId = new KeyValuePair<string, string>("imdb", item.ImdbId);
-            else if (!string.IsNullOrEmpty(item.TmdbId))
-                providerId = new KeyValuePair<string, string>("tmdb", item.TmdbId);
+            if (!string.IsNullOrEmpty(item.AioId))
+            {
+                if (item.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    providerIds.Add(new KeyValuePair<string, string>("imdb", item.AioId));
+                else if (item.AioId.Contains(':'))
+                {
+                    var parts = item.AioId.Split(':');
+                    if (parts.Length == 2)
+                        providerIds.Add(new KeyValuePair<string, string>(parts[0], parts[1]));
+                }
+                else
+                    providerIds.Add(new KeyValuePair<string, string>("imdb", item.AioId));
+            }
+            if (!string.IsNullOrEmpty(item.TmdbId))
+                providerIds.Add(new KeyValuePair<string, string>("tmdb", item.TmdbId));
 
-            if (!providerId.HasValue)
+            if (providerIds.Count == 0)
                 return false; // Cannot match without a provider ID
 
             var query = new MediaBrowser.Controller.Entities.InternalItemsQuery
             {
-                AnyProviderIdEquals = new[] { providerId.Value },
+                AnyProviderIdEquals = providerIds.ToArray(),
                 IsVirtualItem = false,
                 Recursive = true
             };

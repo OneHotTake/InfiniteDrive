@@ -355,7 +355,7 @@ namespace InfiniteDrive.Services
         /// live streams, and torrent-type streams are silently skipped.
         /// </summary>
         /// <param name="response">Raw AIOStreams stream response.</param>
-        /// <param name="imdbId">IMDB ID for the returned candidates.</param>
+        /// <param name="aioId">AIO ID for the returned candidates.</param>
         /// <param name="season">Season number; null for movies.</param>
         /// <param name="episode">Episode number; null for movies.</param>
         /// <param name="providerPriorityOrder">
@@ -373,7 +373,7 @@ namespace InfiniteDrive.Services
         /// <returns>Ranked candidate list, rank 0 = best.</returns>
         public static List<StreamCandidate> RankAndFilterStreams(
             AioStreamsStreamResponse response,
-            string imdbId,
+            string aioId,
             int?   season,
             int?   episode,
             string providerPriorityOrder,
@@ -470,7 +470,7 @@ namespace InfiniteDrive.Services
 
                 results.Add(new StreamCandidate
                 {
-                    ImdbId      = imdbId,
+                    AioId       = aioId,
                     Season      = season,
                     Episode     = episode,
                     Rank        = rank,

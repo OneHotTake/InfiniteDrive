@@ -11,8 +11,8 @@ namespace InfiniteDrive.Models
         /// <summary>UUID primary key.</summary>
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        /// <summary>IMDB ID of the played item.</summary>
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID of the played item.</summary>
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>Display title (for the dashboard "Recent Activity" panel).</summary>
         public string? Title { get; set; }

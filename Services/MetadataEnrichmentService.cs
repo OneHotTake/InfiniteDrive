@@ -17,13 +17,13 @@ namespace InfiniteDrive.Services
     public class EnrichmentRequest
     {
         public string Id { get; init; } = string.Empty;
-        public string? ImdbId { get; init; }
+        public string? AioId { get; init; }
         public string Title { get; init; } = string.Empty;
         public int? Year { get; init; }
         public int RetryCount { get; set; }
         public long? NextRetryAt { get; set; }
         /// <summary>
-        /// Full CatalogItem for NFO writing. If null, service will look up by ImdbId.
+        /// Full CatalogItem for NFO writing. If null, service will look up by AioId.
         /// </summary>
         public CatalogItem? CatalogItem { get; init; }
     }
@@ -97,7 +97,7 @@ namespace InfiniteDrive.Services
                         await db.UpdateItemRetryInfoAsync(item.Id, 0, null, cancellationToken);
 
                         enrichedCount++;
-                        logger.LogDebug("[InfiniteDrive] Enriched metadata for {Imdb}", item.ImdbId ?? item.Title);
+                        logger.LogDebug("[InfiniteDrive] Enriched metadata for {AioId}", item.AioId ?? item.Title);
                     }
                     else
                     {
@@ -115,14 +115,14 @@ namespace InfiniteDrive.Services
                         {
                             await db.SetNfoStatusAsync(item.Id, "Blocked", cancellationToken);
                             blockedCount++;
-                            logger.LogWarning("[InfiniteDrive] Enrichment blocked for {Id} after 3 retries", item.ImdbId ?? item.Title);
+                            logger.LogWarning("[InfiniteDrive] Enrichment blocked for {Id} after 3 retries", item.AioId ?? item.Title);
                         }
                         else
                         {
                             await db.UpdateItemRetryInfoAsync(item.Id, item.RetryCount, nextRetrySeconds, cancellationToken);
                         }
 
-                        logger.LogDebug("[InfiniteDrive] Enrichment failed for {Id}, retry {Count}", item.ImdbId ?? item.Title, item.RetryCount);
+                        logger.LogDebug("[InfiniteDrive] Enrichment failed for {Id}, retry {Count}", item.AioId ?? item.Title, item.RetryCount);
                     }
 
                 }
@@ -139,11 +139,11 @@ namespace InfiniteDrive.Services
                 }
                 catch (JsonException ex)
                 {
-                    logger.LogWarning(ex, "[InfiniteDrive] Enrich bad metadata for {Id}, skipping.", item.ImdbId ?? item.Title);
+                    logger.LogWarning(ex, "[InfiniteDrive] Enrich bad metadata for {Id}, skipping.", item.AioId ?? item.Title);
                 }
                 catch (Exception ex)
                 {
-                    logger.LogWarning(ex, "[InfiniteDrive] Enrich failed for {Id}", item.ImdbId ?? item.Title);
+                    logger.LogWarning(ex, "[InfiniteDrive] Enrich failed for {Id}", item.AioId ?? item.Title);
                 }
             }
 

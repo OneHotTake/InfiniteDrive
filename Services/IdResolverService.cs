@@ -104,6 +104,14 @@ namespace InfiniteDrive.Services
             {
                 aniDbId = manifestId.Substring(8); // AniList → same resolution path as kitsu/mal
             }
+            else if (lower.StartsWith("anidb:") || lower.StartsWith("anidb_"))
+            {
+                aniDbId = manifestId.Substring(6); // AniDB → anime resolution path
+            }
+            else if (lower.StartsWith("simkl:") || lower.StartsWith("simkl_"))
+            {
+                aniDbId = manifestId.Substring(5); // SIMKL → anime resolution path
+            }
             else if (lower.StartsWith("imdb:"))
             {
                 imdbId = manifestId.Substring(5);

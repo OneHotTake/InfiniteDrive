@@ -63,24 +63,24 @@ namespace InfiniteDrive.Services
 
                 try
                 {
-                    logger.LogDebug("[InfiniteDrive] Trying provider {Name} for {Imdb}",
-                        providerKey, req.Imdb);
+                    logger.LogDebug("[InfiniteDrive] Trying provider {Name} for {AioId}",
+                        providerKey, req.AioId);
 
                     using var client = AioStreamsClientFactory.CreateForProvider(provider, logger);
                     AioStreamsStreamResponse? response;
 
                     if (req.Season.HasValue && req.Episode.HasValue)
                         response = await client.GetSeriesStreamsAsync(
-                            req.Imdb, req.Season.Value, req.Episode.Value, cts.Token);
+                            req.AioId, req.Season.Value, req.Episode.Value, cts.Token);
                     else
-                        response = await client.GetMovieStreamsAsync(req.Imdb, cts.Token);
+                        response = await client.GetMovieStreamsAsync(req.AioId, cts.Token);
 
                     if (response?.Streams == null || response.Streams.Count == 0)
                         continue;
 
                     // Build ranked candidates and write to stream_candidates
                     var candidates = StreamHelpers.RankAndFilterStreams(
-                        response, req.Imdb, req.Season, req.Episode,
+                        response, req.AioId, req.Season, req.Episode,
                         config.ProviderPriorityOrder,
                         0, // unlimited — let SelectBest's bucket algorithm curate per tier
                         config.CacheLifetimeMinutes);
@@ -96,7 +96,7 @@ namespace InfiniteDrive.Services
                     }
                     catch (Exception dbEx)
                     {
-                        logger.LogError(dbEx, "[InfiniteDrive] Failed to cache resolution for {Imdb} — resolution succeeded but not cached", req.Imdb);
+                        logger.LogError(dbEx, "[InfiniteDrive] Failed to cache resolution for {AioId} — resolution succeeded but not cached", req.AioId);
                     }
 
                     healthTracker?.RecordSuccess(providerKey);
@@ -129,15 +129,15 @@ namespace InfiniteDrive.Services
                 }
                 catch (OperationCanceledException)
                 {
-                    logger.LogWarning("[InfiniteDrive] Sync resolve timed out ({Timeout}s) for {Imdb}",
-                        timeoutMs / 1000, req.Imdb);
+                    logger.LogWarning("[InfiniteDrive] Sync resolve timed out ({Timeout}s) for {AioId}",
+                        timeoutMs / 1000, req.AioId);
                     return new ResolutionResult { Status = ResolutionStatus.ProviderDown };
                 }
                 catch (Exception ex)
                 {
                     healthTracker?.RecordFailure(providerKey);
-                    logger.LogError(ex, "[InfiniteDrive] Sync resolve failed for {Imdb} with provider {Name}",
-                        req.Imdb, providerKey);
+                    logger.LogError(ex, "[InfiniteDrive] Sync resolve failed for {AioId} with provider {Name}",
+                        req.AioId, providerKey);
                 }
             }
 
@@ -153,7 +153,7 @@ namespace InfiniteDrive.Services
         /// Returns the stream URL from cache or resolves via providers if cache miss/stale.
         /// </summary>
         public static async Task<string?> GetStreamUrlAsync(
-            string imdbId,
+            string aioId,
             int? season,
             int? episode,
             PluginConfiguration config,
@@ -163,9 +163,9 @@ namespace InfiniteDrive.Services
             CancellationToken cancellationToken = default)
         {
             // Step 1: Check cache first
-            var cached = await db.GetCachedStreamAsync(imdbId, season, episode);
+            var cached = await db.GetCachedStreamAsync(aioId, season, episode);
             var candidates = cached != null
-                ? await db.GetStreamCandidatesAsync(imdbId, season, episode)
+                ? await db.GetStreamCandidatesAsync(aioId, season, episode)
                 : new List<StreamCandidate>();
 
             // Step 2: If valid cache hit, use rank 0 candidate
@@ -173,17 +173,17 @@ namespace InfiniteDrive.Services
             if (cached?.Status == "valid" && !IsExpired(cached.ExpiresAt))
             {
                 streamUrl = candidates.Count > 0 ? candidates[0].Url : cached.StreamUrl;
-                logger.LogDebug("[StreamResolutionHelper] Cache HIT for {Imdb} S{Season}E{Episode}",
-                    imdbId, season ?? 0, episode ?? 0);
+                logger.LogDebug("[StreamResolutionHelper] Cache HIT for {AioId} S{Season}E{Episode}",
+                    aioId, season ?? 0, episode ?? 0);
                 return streamUrl;
             }
 
             // Step 3: Cache miss or stale — sync resolve
-            logger.LogDebug("[StreamResolutionHelper] Cache MISS for {Imdb} - resolving via providers", imdbId);
+            logger.LogDebug("[StreamResolutionHelper] Cache MISS for {AioId} - resolving via providers", aioId);
 
             var playReq = new PlayRequest
             {
-                Imdb = imdbId,
+                AioId = aioId,
                 Season = season,
                 Episode = episode
             };
@@ -191,7 +191,7 @@ namespace InfiniteDrive.Services
             var resolved = await SyncResolveViaProvidersAsync(playReq, config, db, logger, healthTracker, cancellationToken);
             if (resolved.Status == ResolutionStatus.Success && resolved.Entry != null)
             {
-                var resolvedCandidates = await db.GetStreamCandidatesAsync(imdbId, season, episode);
+                var resolvedCandidates = await db.GetStreamCandidatesAsync(aioId, season, episode);
                 streamUrl = resolvedCandidates.Count > 0 ? resolvedCandidates[0].Url : resolved.StreamUrl;
             }
 
@@ -214,7 +214,7 @@ namespace InfiniteDrive.Services
 
             return new ResolutionEntry
             {
-                ImdbId = req.Imdb,
+                AioId = req.AioId,
                 Season = req.Season,
                 Episode = req.Episode,
                 StreamUrl = primary.Url,
@@ -253,7 +253,7 @@ namespace InfiniteDrive.Services
     /// </summary>
     public class PlayRequest
     {
-        public string Imdb { get; set; } = string.Empty;
+        public string AioId { get; set; } = string.Empty;
         public int? Season { get; set; }
         public int? Episode { get; set; }
     }

@@ -79,7 +79,7 @@ namespace InfiniteDrive.Services
         /// Generates a complete signed URL for the /InfiniteDrive/Stream endpoint.
         /// </summary>
         /// <param name="embyBaseUrl">Public Emby base URL (e.g. http://192.168.1.50:8096). Trailing slash stripped.</param>
-        /// <param name="imdbId">IMDB ID (e.g. tt0133093).</param>
+        /// <param name="aioId">AIO ID (e.g. tt0133093).</param>
         /// <param name="mediaType">"movie" or "series".</param>
         /// <param name="season">Season number for series; null for movies.</param>
         /// <param name="episode">Episode number for series; null for movies.</param>
@@ -88,7 +88,7 @@ namespace InfiniteDrive.Services
         /// <returns>Fully formed signed URL string.</returns>
         public static string GenerateSignedUrl(
             string embyBaseUrl,
-            string imdbId,
+            string aioId,
             string mediaType,
             int? season,
             int? episode,
@@ -96,12 +96,12 @@ namespace InfiniteDrive.Services
             TimeSpan validity)
         {
             var exp = DateTimeOffset.UtcNow.Add(validity).ToUnixTimeSeconds();
-            var sig = ComputeHmac(imdbId, mediaType, season, episode, exp, pluginSecret);
+            var sig = ComputeHmac(aioId, mediaType, season, episode, exp, pluginSecret);
 
             var sb = new System.Text.StringBuilder();
             sb.Append(embyBaseUrl.TrimEnd('/'));
             sb.Append("/InfiniteDrive/Stream?id=");
-            sb.Append(System.Uri.EscapeDataString(imdbId));
+            sb.Append(System.Uri.EscapeDataString(aioId));
             sb.Append("&type=");
             sb.Append(System.Uri.EscapeDataString(mediaType));
             sb.Append("&exp=");

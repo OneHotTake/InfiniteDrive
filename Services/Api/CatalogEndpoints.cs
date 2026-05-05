@@ -316,8 +316,8 @@ namespace InfiniteDrive.Services
 
         // ── Catalog info ───────────────────────────────────────────────────────
 
-        /// <summary>IMDB ID.</summary>
-        public string? ImdbId { get; set; }
+        /// <summary>AIOStreams primary ID.</summary>
+        public string? AioId { get; set; }
 
         /// <summary>Title from the catalog.</summary>
         public string? Title { get; set; }
@@ -409,7 +409,7 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrEmpty(imdb))
                 return new InspectResponse { Error = "imdb parameter is required" };
 
-            var response = new InspectResponse { ImdbId = imdb };
+            var response = new InspectResponse { AioId = imdb };
 
             // ── Catalog record ───────────────────────────────────────────────────
 

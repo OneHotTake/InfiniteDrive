@@ -344,7 +344,7 @@ namespace InfiniteDrive.Tasks
                         lock (idSet)
                         {
                             foreach (var item in fetchResult.Items)
-                                idSet.Add(item.ImdbId);
+                                idSet.Add(item.AioId);
                         }
                     }
 
@@ -417,8 +417,8 @@ namespace InfiniteDrive.Tasks
             var seen = new Dictionary<string, CatalogItem>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in items)
             {
-                if (string.IsNullOrEmpty(item.ImdbId)) continue;
-                var key = $"{item.ImdbId}|{item.Source}";
+                if (string.IsNullOrEmpty(item.AioId)) continue;
+                var key = $"{item.AioId}|{item.Source}";
 
                 // FIX-217-05: Also dedup by TMDB ID when available — anime items
                 // may have kitsu:XXX as ImdbId but share tmdb_id with a regular catalog entry
@@ -479,7 +479,7 @@ namespace InfiniteDrive.Tasks
                     catch (Exception itemEx)
                     {
                         _logger.LogDebug(itemEx,
-                            "[InfiniteDrive] Failed to upsert catalog item {ImdbId}", item.ImdbId);
+                            "[InfiniteDrive] Failed to upsert catalog item {AioId}", item.AioId);
                     }
                 }
                 _logger.LogInformation(
@@ -631,10 +631,10 @@ namespace InfiniteDrive.Tasks
                         && path.StartsWith(syncShows, StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    string? imdbId = null;
-                    item.ProviderIds?.TryGetValue("Imdb", out imdbId);
-                    if (!string.IsNullOrEmpty(imdbId) && !map.ContainsKey(imdbId))
-                        map[imdbId] = path;
+                    string? aioId = null;
+                    item.ProviderIds?.TryGetValue("Imdb", out aioId);
+                    if (!string.IsNullOrEmpty(aioId) && !map.ContainsKey(aioId))
+                        map[aioId] = path;
                 }
             }
             catch (Exception ex)

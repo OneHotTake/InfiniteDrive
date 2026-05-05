@@ -43,7 +43,7 @@ namespace InfiniteDrive.Services
         private readonly ILogger<EmbyEventHandler> _logger;
 
         // Episode count cache to prevent repeated queries during binge sessions.
-        // Cache key format: "{imdbId}:S{season}"
+        // Cache key format: "{aioId}:S{season}"
         private static readonly ConcurrentDictionary<string, (int count, DateTime expires)>
             _episodeCountCache = new();
 
@@ -124,25 +124,36 @@ namespace InfiniteDrive.Services
         {
             try
             {
-                // Resolve the IMDB ID of the parent series so we can clear its seasons_json
-                string? imdbId = null;
+                // Resolve the AIO ID of the parent series by trying all provider IDs
+                string? aioId = null;
                 var series = _libraryManager.GetItemById(episode.SeriesId);
-                series?.ProviderIds?.TryGetValue("Imdb", out imdbId);
-
-                if (string.IsNullOrEmpty(imdbId)) return;
+                if (series?.ProviderIds == null) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
 
-                // Clear seasons_json — MarvinTask will rewrite it on its next run.
-                var catalogItem = await db.GetCatalogItemByAioIdAsync(imdbId);
-                if (catalogItem == null) return;
+                foreach (var kvp in series.ProviderIds)
+                {
+                    var catalogItem = await db.GetCatalogItemByProviderIdAsync(kvp.Key, kvp.Value)
+                        .ConfigureAwait(false);
+                    if (catalogItem != null && !string.IsNullOrEmpty(catalogItem.AioId))
+                    {
+                        aioId = catalogItem.AioId;
+                        break;
+                    }
+                }
 
-                await db.UpdateSeasonsJsonAsync(imdbId, catalogItem.Source, string.Empty);
+                if (string.IsNullOrEmpty(aioId)) return;
+
+                // Clear seasons_json — MarvinTask will rewrite it on its next run.
+                var item = await db.GetCatalogItemByAioIdAsync(aioId);
+                if (item == null) return;
+
+                await db.UpdateSeasonsJsonAsync(aioId, item.Source, string.Empty);
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] New episode indexed for {ImdbId} — seasons_json cleared",
-                    imdbId);
+                    "[InfiniteDrive] New episode indexed for {AioId} — seasons_json cleared",
+                    aioId);
             }
             catch (Exception ex)
             {
@@ -177,18 +188,37 @@ namespace InfiniteDrive.Services
         {
             try
             {
-                // Extract IMDB ID
-                if (!item.ProviderIds.TryGetValue("Imdb", out var imdbId) || string.IsNullOrEmpty(imdbId))
-                    return;
+                // Extract AIO ID by trying all provider IDs
+                string? aioId = null;
+                var db = Plugin.Instance?.DatabaseManager;
+                if (db == null) return;
+
+                if (item.ProviderIds != null)
+                {
+                    foreach (var kvp in item.ProviderIds)
+                    {
+                        if (string.Equals(kvp.Key, "INFINITEDRIVE", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        var catalogItem = await db.GetCatalogItemByProviderIdAsync(kvp.Key, kvp.Value)
+                            .ConfigureAwait(false);
+                        if (catalogItem != null && !string.IsNullOrEmpty(catalogItem.AioId))
+                        {
+                            aioId = catalogItem.AioId;
+                            break;
+                        }
+                    }
+                }
+
+                if (string.IsNullOrEmpty(aioId)) return;
 
                 // Per-item cooldown: skip if same item refreshed in last 5 minutes
-                var cooldownKey = imdbId;
+                var cooldownKey = aioId;
                 if (_refreshCooldowns.TryGetValue(cooldownKey, out var lastRefresh))
                 {
                     if (DateTime.UtcNow - lastRefresh < RefreshCooldown)
                     {
-                        _logger.LogDebug("[InfiniteDrive] Skipping refresh for {Imdb} — cooldown ({Remaining:F0}s remaining)",
-                            imdbId, (RefreshCooldown - (DateTime.UtcNow - lastRefresh)).TotalSeconds);
+                        _logger.LogDebug("[InfiniteDrive] Skipping refresh for {AioId} — cooldown ({Remaining:F0}s remaining)",
+                            aioId, (RefreshCooldown - (DateTime.UtcNow - lastRefresh)).TotalSeconds);
                         return;
                     }
                 }
@@ -218,14 +248,14 @@ namespace InfiniteDrive.Services
                 if (cacheService == null) return;
 
                 // Invalidate existing cache
-                await cacheService.InvalidateAsync(imdbId, season, episode).ConfigureAwait(false);
+                await cacheService.InvalidateAsync(aioId, season, episode).ConfigureAwait(false);
 
                 // Fire-and-forget single-item pre-cache
-                _ = cacheService.PreCacheSingleAsync(imdbId, mediaType, season, episode);
+                _ = cacheService.PreCacheSingleAsync(aioId, mediaType, season, episode);
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] Smart refresh: invalidated + queued refresh for {Imdb} S{S}E{E}",
-                    imdbId, season, episode);
+                    "[InfiniteDrive] Smart refresh: invalidated + queued refresh for {AioId} S{S}E{E}",
+                    aioId, season, episode);
             }
             catch (Exception ex)
             {
@@ -268,30 +298,38 @@ namespace InfiniteDrive.Services
         {
             try
             {
-                // Extract IMDB ID from provider IDs
-                string? imdbId = null;
-                if (item.ProviderIds != null &&
-                    item.ProviderIds.TryGetValue("Imdb", out var providerImdb))
-                {
-                    imdbId = providerImdb;
-                }
-
-                // Fallback: try to extract from .strm path
-                if (string.IsNullOrEmpty(imdbId) && item.Path != null &&
-                    item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
-                {
-                    (imdbId, _, _) = await ExtractInfoFromStrmAsync(item.Path).ConfigureAwait(false);
-                }
-
-                if (string.IsNullOrEmpty(imdbId)) return;
-
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
 
                 // ── Title restoration: correct MKV-embedded title overwrite ────────
-                await RestoreTitleAsync(item, imdbId).ConfigureAwait(false);
+                await RestoreTitleAsync(item, db).ConfigureAwait(false);
 
                 // ── Binge pre-warm (series only) ───────────────────────────────────
+                // Extract AIO ID for binge pre-warm by trying all provider IDs
+                string? aioId = null;
+                if (item.ProviderIds != null)
+                {
+                    foreach (var kvp in item.ProviderIds)
+                    {
+                        if (string.Equals(kvp.Key, "INFINITEDRIVE", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        var catalogItem = await db.GetCatalogItemByProviderIdAsync(kvp.Key, kvp.Value)
+                            .ConfigureAwait(false);
+                        if (catalogItem != null && !string.IsNullOrEmpty(catalogItem.AioId))
+                        {
+                            aioId = catalogItem.AioId;
+                            break;
+                        }
+                    }
+                }
+
+                // Fallback: try to extract from .strm path
+                if (string.IsNullOrEmpty(aioId) && item.Path != null &&
+                    item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+                {
+                    (aioId, _, _) = await ExtractInfoFromStrmAsync(item.Path).ConfigureAwait(false);
+                }
+
                 int? season = null, episode = null;
 
                 if (item is Episode ep)
@@ -304,16 +342,16 @@ namespace InfiniteDrive.Services
                     (season, episode) = ParseSeasonEpisodeFromPath(item.Path);
                 }
 
-                if (!season.HasValue || !episode.HasValue) return;
+                if (string.IsNullOrEmpty(aioId) || !season.HasValue || !episode.HasValue) return;
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] Binge pre-warm triggered: {Imdb} S{S}E{E} — queuing next episodes",
-                    imdbId, season, episode);
+                    "[InfiniteDrive] Binge pre-warm triggered: {AioId} S{S}E{E} — queuing next episodes",
+                    aioId, season, episode);
 
-                await QueueNextEpisodesAsync(db, imdbId, season.Value, episode.Value);
+                await QueueNextEpisodesAsync(db, aioId, season.Value, episode.Value);
 
                 // Refresh remaining season episodes in background
-                _ = Task.Run(() => RefreshSeriesCacheAsync(db, imdbId, season.Value, episode.Value));
+                _ = Task.Run(() => RefreshSeriesCacheAsync(db, aioId, season.Value, episode.Value));
             }
             catch (Exception ex)
             {
@@ -324,14 +362,29 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Restores the correct catalog title if Emby overwrote it with
         /// MKV-embedded metadata (raw torrent filenames) during playback.
+        /// Iterates through all provider IDs (IMDB, TMDB, Kitsu, AniList, MAL, etc.)
+        /// to find the catalog item.
         /// </summary>
-        private async Task RestoreTitleAsync(BaseItem item, string imdbId)
+        private async Task RestoreTitleAsync(BaseItem item, Data.DatabaseManager db)
         {
             try
             {
-                var catalogItem = await Plugin.Instance.DatabaseManager
-                    .GetCatalogItemByAioIdAsync(imdbId)
-                    .ConfigureAwait(false);
+                if (item.ProviderIds == null || item.ProviderIds.Count == 0) return;
+
+                CatalogItem? catalogItem = null;
+
+                // Try each provider ID until we find a match
+                foreach (var kvp in item.ProviderIds)
+                {
+                    if (string.Equals(kvp.Key, "INFINITEDRIVE", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    catalogItem = await db.GetCatalogItemByProviderIdAsync(kvp.Key, kvp.Value)
+                        .ConfigureAwait(false);
+
+                    if (catalogItem != null && !string.IsNullOrEmpty(catalogItem.Title))
+                        break;
+                }
 
                 if (catalogItem == null || string.IsNullOrEmpty(catalogItem.Title)) return;
 
@@ -339,8 +392,8 @@ namespace InfiniteDrive.Services
                 if (string.Equals(item.Name, catalogItem.Title, StringComparison.Ordinal)) return;
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] Title correction: restoring '{Correct}' (was '{Wrong}') for {Imdb}",
-                    catalogItem.Title, item.Name, imdbId);
+                    "[InfiniteDrive] Title correction: restoring '{Correct}' (was '{Wrong}')",
+                    catalogItem.Title, item.Name);
 
                 // Update in-memory item
                 item.Name = catalogItem.Title;
@@ -350,14 +403,14 @@ namespace InfiniteDrive.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[InfiniteDrive] RestoreTitleAsync failed for {Imdb}", imdbId);
+                _logger.LogDebug(ex, "[InfiniteDrive] RestoreTitleAsync failed for {Name}", item.Name);
             }
         }
 
         /// <summary>
-        /// Extracts IMDB ID, season, and episode from a .strm file URL.
+        /// Extracts AIO ID, season, and episode from a .strm file URL.
         /// </summary>
-        private static async Task<(string imdb, int? season, int? episode)> ExtractInfoFromStrmAsync(string strmPath)
+        private static async Task<(string aioId, int? season, int? episode)> ExtractInfoFromStrmAsync(string strmPath)
         {
             try
             {
@@ -403,14 +456,14 @@ namespace InfiniteDrive.Services
         {
             try
             {
-                // Read the .strm file to extract imdb/season/episode
+                // Read the .strm file to extract aioId/season/episode
                 if (!File.Exists(strmPath)) return;
 
                 // File.ReadAllText is sync but this runs in a Task.Run thread — acceptable.
                 var strmUrl = File.ReadAllText(strmPath).Trim();
-                var (imdb, season, episode) = ParseStrmUrl(strmUrl);
+                var (aioId, season, episode) = ParseStrmUrl(strmUrl);
 
-                if (string.IsNullOrEmpty(imdb)) return;
+                if (string.IsNullOrEmpty(aioId)) return;
                 if (!IsInfiniteDriveUrl(strmUrl)) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
@@ -419,15 +472,15 @@ namespace InfiniteDrive.Services
                 // Log playback stop details
                 var clientType = ExtractClientType(e);
                 _logger.LogInformation(
-                    "[InfiniteDrive] Playback stopped: {Imdb} S{S}E{E} client={Client}",
-                    imdb, season, episode, clientType);
+                    "[InfiniteDrive] Playback stopped: {AioId} S{S}E{E} client={Client}",
+                    aioId, season, episode, clientType);
 
                 // ── Next-Up pre-warm ─────────────────────────────────────────────
 
                 if (season.HasValue && episode.HasValue)
                 {
                     // Queue episodes episode+1 and episode+2 for Tier 1 resolution
-                    await QueueNextEpisodesAsync(db, imdb, season.Value, episode.Value);
+                    await QueueNextEpisodesAsync(db, aioId, season.Value, episode.Value);
                 }
 
             }
@@ -445,12 +498,12 @@ namespace InfiniteDrive.Services
         /// have a fresh cache entry (within 70% of TTL).
         /// </summary>
         private async Task RefreshSeriesCacheAsync(
-            Data.DatabaseManager db, string imdb, int season, int episode)
+            Data.DatabaseManager db, string aioId, int season, int episode)
         {
             try
             {
                 var cacheLifetime = Plugin.Instance?.Configuration?.CacheLifetimeMinutes ?? 240;
-                int episodesInSeason = GetEpisodeCountForSeason(db, imdb, season);
+                int episodesInSeason = GetEpisodeCountForSeason(db, aioId, season);
                 int queued = 0;
 
                 // Pre-warm all remaining episodes in the current season
@@ -458,7 +511,7 @@ namespace InfiniteDrive.Services
                 {
                     try
                     {
-                        var existing = await db.GetCachedStreamAsync(imdb, season, ep);
+                        var existing = await db.GetCachedStreamAsync(aioId, season, ep);
                         if (existing != null && existing.Status == "valid")
                         {
                             if (DateTime.TryParse(existing.ResolvedAt, out var resolved))
@@ -468,14 +521,14 @@ namespace InfiniteDrive.Services
                             }
                         }
 
-                        await db.QueueForResolutionAsync(imdb, season, ep, "tier1");
+                        await db.QueueForResolutionAsync(aioId, season, ep, "tier1");
                         queued++;
                     }
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
-                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {Imdb} S{S:D2}E{E:D2}",
-                            imdb, season, ep);
+                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {AioId} S{S:D2}E{E:D2}",
+                            aioId, season, ep);
                     }
                 }
 
@@ -484,7 +537,7 @@ namespace InfiniteDrive.Services
                 {
                     try
                     {
-                        var existing = await db.GetCachedStreamAsync(imdb, season + 1, ep);
+                        var existing = await db.GetCachedStreamAsync(aioId, season + 1, ep);
                         if (existing != null && existing.Status == "valid")
                         {
                             if (DateTime.TryParse(existing.ResolvedAt, out var resolved))
@@ -494,39 +547,39 @@ namespace InfiniteDrive.Services
                             }
                         }
 
-                        await db.QueueForResolutionAsync(imdb, season + 1, ep, "tier1");
+                        await db.QueueForResolutionAsync(aioId, season + 1, ep, "tier1");
                         queued++;
                     }
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
-                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {Imdb} S{S:D2}E{E:D2}",
-                            imdb, season + 1, ep);
+                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {AioId} S{S:D2}E{E:D2}",
+                            aioId, season + 1, ep);
                     }
                 }
 
                 if (queued > 0)
                 {
                     _logger.LogInformation(
-                        "[InfiniteDrive] Series cache refresh queued {Count} episodes for {Imdb} S{S:D2}",
-                        queued, imdb, season);
+                        "[InfiniteDrive] Series cache refresh queued {Count} episodes for {AioId} S{S:D2}",
+                        queued, aioId, season);
                 }
             }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex,
-                    "[InfiniteDrive] RefreshSeriesCacheAsync failed for {Imdb} S{S}", imdb, season);
+                    "[InfiniteDrive] RefreshSeriesCacheAsync failed for {AioId} S{S}", aioId, season);
             }
         }
 
         // ── Private: next-episode queue ──────────────────────────────────────────
 
         private async Task QueueNextEpisodesAsync(
-            Data.DatabaseManager db, string imdb, int season, int episode)
+            Data.DatabaseManager db, string aioId, int season, int episode)
         {
             // Resolve the actual episode count for the current season from Emby's library.
             // Fall back to a generous cap (30) if the data isn't indexed yet.
-            int episodesInSeason = GetEpisodeCountForSeason(db, imdb, season);
+            int episodesInSeason = GetEpisodeCountForSeason(db, aioId, season);
 
             var lookahead = Plugin.Instance?.Configuration?.NextUpLookaheadEpisodes ?? 2;
             for (int i = 1; i <= lookahead; i++)
@@ -544,7 +597,7 @@ namespace InfiniteDrive.Services
                 try
                 {
                     // Dedup: skip if next episode already has a fresh, non-aging cache entry.
-                    var existing = await db.GetCachedStreamAsync(imdb, nextSeason, nextEp);
+                    var existing = await db.GetCachedStreamAsync(aioId, nextSeason, nextEp);
                     if (existing != null && existing.Status == "valid")
                     {
                         var cacheLifetime = Plugin.Instance?.Configuration?.CacheLifetimeMinutes ?? 240;
@@ -554,32 +607,32 @@ namespace InfiniteDrive.Services
                             if (ageMinutes <= cacheLifetime * 0.7)
                             {
                                 _logger.LogDebug(
-                                    "[InfiniteDrive] Skipping Tier 1 queue for {Imdb} S{S:D2}E{E:D2} — already fresh ({Age:F0} min old)",
-                                    imdb, nextSeason, nextEp, ageMinutes);
+                                    "[InfiniteDrive] Skipping Tier 1 queue for {AioId} S{S:D2}E{E:D2} — already fresh ({Age:F0} min old)",
+                                    aioId, nextSeason, nextEp, ageMinutes);
                                 continue;
                             }
                         }
                     }
 
-                    await db.QueueForResolutionAsync(imdb, nextSeason, nextEp, "tier1");
+                    await db.QueueForResolutionAsync(aioId, nextSeason, nextEp, "tier1");
                     _logger.LogDebug(
-                        "[InfiniteDrive] Queued Tier 1: {Imdb} S{S:D2}E{E:D2}",
-                        imdb, nextSeason, nextEp);
+                        "[InfiniteDrive] Queued Tier 1: {AioId} S{S:D2}E{E:D2}",
+                        aioId, nextSeason, nextEp);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to queue tier1 for {Imdb} S{S}E{E}",
-                        imdb, nextSeason, nextEp);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to queue tier1 for {AioId} S{S}E{E}",
+                        aioId, nextSeason, nextEp);
                 }
             }
         }
 
         /// <summary>
         /// Queries Emby library for number of episodes in <paramref name="season"/>
-        /// of the series identified by <paramref name="imdbId"/>.  Returns 30 as a safe
+        /// of the series identified by <paramref name="aioId"/>.  Returns 30 as a safe
         /// fallback when the series is not yet indexed or has no episodes.
         /// </summary>
-        private int GetEpisodeCountForSeason(Data.DatabaseManager db, string imdbId, int season)
+        private int GetEpisodeCountForSeason(Data.DatabaseManager db, string aioId, int season)
         {
             const int Fallback = 30;
 
@@ -590,7 +643,7 @@ namespace InfiniteDrive.Services
             }
 
             // Check cache first (6-hour TTL)
-            var cacheKey = $"{imdbId}:S{season}";
+            var cacheKey = $"{aioId}:S{season}";
             if (_episodeCountCache.TryGetValue(cacheKey, out var cached) && cached.expires > DateTime.UtcNow)
             {
                 return cached.count;
@@ -599,11 +652,11 @@ namespace InfiniteDrive.Services
             try
             {
                 // Try IMDB first (existing logic)
-                var count = QueryByProviderId(db, "Imdb", imdbId, season);
+                var count = QueryByProviderId(db, "Imdb", aioId, season);
                 if (count > 0)
                 {
                     // Fallback to anime provider IDs from UniqueIdsJson
-                    var catalogItem = db.GetCatalogItemByAioIdSync(imdbId);
+                    var catalogItem = db.GetCatalogItemByAioIdSync(aioId);
                     if (catalogItem != null)
                     {
                         var uniqueIds = db.ParseUniqueIdsJson(catalogItem.UniqueIdsJson);
@@ -635,7 +688,7 @@ namespace InfiniteDrive.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[InfiniteDrive] Could not query episode count for {Imdb} S{Season}", imdbId, season);
+                _logger.LogDebug(ex, "[InfiniteDrive] Could not query episode count for {AioId} S{Season}", aioId, season);
                 return Fallback;
             }
         }
@@ -674,12 +727,12 @@ namespace InfiniteDrive.Services
             return url.Contains("/InfiniteDrive/", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static (string imdb, int? season, int? episode) ParseStrmUrl(string url)
+        private static (string aioId, int? season, int? episode) ParseStrmUrl(string url)
         {
             var q = url.IndexOf('?');
             if (q < 0) return (string.Empty, null, null);
 
-            string imdb   = string.Empty;
+            string aioId   = string.Empty;
             int?   season  = null;
             int?   episode = null;
 
@@ -692,14 +745,14 @@ namespace InfiniteDrive.Services
                 var val = part.Substring(eq + 1);
 
                 if (key.Equals("imdb",    StringComparison.OrdinalIgnoreCase)
-                    || key.Equals("id", StringComparison.OrdinalIgnoreCase)) imdb = val;
+                    || key.Equals("id", StringComparison.OrdinalIgnoreCase)) aioId = val;
                 else if (key.Equals("season",  StringComparison.OrdinalIgnoreCase)
                     && int.TryParse(val, out var s)) season = s;
                 else if (key.Equals("episode", StringComparison.OrdinalIgnoreCase)
                     && int.TryParse(val, out var ep)) episode = ep;
             }
 
-            return (imdb, season, episode);
+            return (aioId, season, episode);
         }
 
         private static string ExtractClientType(PlaybackStopEventArgs e)

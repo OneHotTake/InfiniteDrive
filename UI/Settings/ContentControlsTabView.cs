@@ -144,13 +144,13 @@ namespace InfiniteDrive.UI.Settings
                 var db = Plugin.Instance.DatabaseManager;
 
                 // Detect ID type
-                string? imdbId = null, tmdbId = null;
+                string? aioId = null, tmdbId = null;
                 var title = input;
                 var mediaType = "movie";
 
                 if (input.StartsWith("tt", StringComparison.OrdinalIgnoreCase) && input.Length >= 3)
                 {
-                    imdbId = input;
+                    aioId = input;
                     title = $"Blocked IMDB: {input}";
                 }
                 else if (int.TryParse(input, out _))
@@ -159,7 +159,7 @@ namespace InfiniteDrive.UI.Settings
                     title = $"Blocked TMDB: {input}";
                 }
 
-                await db.UpsertBlockedItemAsync(imdbId, tmdbId, null, title, mediaType, "admin").ConfigureAwait(false);
+                await db.UpsertBlockedItemAsync(aioId, tmdbId, null, title, mediaType, "admin").ConfigureAwait(false);
 
                 Plugin.Instance.Logger.LogInformation(
                     "[ContentControlsUI] Blocked: {Input}", input);

@@ -11,8 +11,8 @@ namespace InfiniteDrive.Models
         /// <summary>UUID primary key.</summary>
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
-        /// <summary>IMDB ID.</summary>
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>Season number; null for movies.</summary>
         public int? Season { get; set; }

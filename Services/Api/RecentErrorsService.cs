@@ -45,7 +45,7 @@ namespace InfiniteDrive.Services
                 .Where(e => !string.IsNullOrEmpty(e.ErrorMessage))
                 .Select(e => new
                 {
-                    imdb_id    = e.ImdbId,
+                    aio_id     = e.AioId,
                     title      = e.Title,
                     season     = e.Season,
                     episode    = e.Episode,

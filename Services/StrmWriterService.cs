@@ -71,7 +71,7 @@ namespace InfiniteDrive.Services
                 {
                     Directory.CreateDirectory(animeFolder);
                     var animePath = Path.Combine(animeFolder, NamingPolicyService.BuildStrmFileName(item));
-                    WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
+                    WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.AioId, "movie", null, null));
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animePath;
                 }
@@ -80,7 +80,7 @@ namespace InfiniteDrive.Services
                     var animeSeasonDir = Path.Combine(animeFolder, "Season 01");
                     Directory.CreateDirectory(animeSeasonDir);
                     var animeStrmPath = Path.Combine(animeSeasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
-                    WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
+                    WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.AioId, "series", 1, 1));
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animeStrmPath;
                 }
@@ -95,7 +95,7 @@ namespace InfiniteDrive.Services
                 // File basename must match folder name for Emby version stacking
                 var fileName = NamingPolicyService.BuildStrmFileName(item);
                 var path = Path.Combine(folder, fileName);
-                WriteStrmFile(path, BuildSignedStrmUrl(config, item.ImdbId, "movie", null, null));
+                WriteStrmFile(path, BuildSignedStrmUrl(config, item.AioId, "movie", null, null));
                 await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                 return path;
             }
@@ -107,7 +107,7 @@ namespace InfiniteDrive.Services
             var seasonDir = Path.Combine(showDir, "Season 01");
             Directory.CreateDirectory(seasonDir);
             var strmPath = Path.Combine(seasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
-            WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.ImdbId, "series", 1, 1));
+            WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.AioId, "series", 1, 1));
             await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
             return strmPath;
         }
@@ -122,7 +122,7 @@ namespace InfiniteDrive.Services
         {
             if (string.IsNullOrEmpty(seriesItem.StrmPath))
             {
-                _logger.LogWarning("[InfiniteDrive] StrmWriterService: cannot write episode — strm_path is null for {ImdbId}", seriesItem.ImdbId);
+                _logger.LogWarning("[InfiniteDrive] StrmWriterService: cannot write episode — strm_path is null for {AioId}", seriesItem.AioId);
                 return Task.FromResult((string?)null);
             }
 
@@ -135,7 +135,7 @@ namespace InfiniteDrive.Services
             if (File.Exists(filePath))
                 return Task.FromResult((string?)filePath);
 
-            var url = BuildSignedStrmUrl(config, seriesItem.ImdbId, "series", season, episode);
+            var url = BuildSignedStrmUrl(config, seriesItem.AioId, "series", season, episode);
             WriteStrmFile(filePath, url);
 
             _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode {FilePath}", filePath);
@@ -147,7 +147,7 @@ namespace InfiniteDrive.Services
         /// Idempotent — no-op if file already exists.
         /// </summary>
         public Task WriteStrmWithVersionsAsync(
-            string filePath, string imdbId, int season, int episode,
+            string filePath, string aioId, int season, int episode,
             CancellationToken ct)
         {
             if (File.Exists(filePath)) return Task.CompletedTask;
@@ -155,7 +155,7 @@ namespace InfiniteDrive.Services
             var config = Plugin.Instance?.Configuration;
             if (config == null) return Task.CompletedTask;
 
-            var url = BuildSignedStrmUrl(config, imdbId, "series", season, episode);
+            var url = BuildSignedStrmUrl(config, aioId, "series", season, episode);
             WriteStrmFile(filePath, url);
             return Task.CompletedTask;
         }
@@ -304,7 +304,7 @@ namespace InfiniteDrive.Services
         /// </summary>
         public static string BuildSignedStrmUrl(
             PluginConfiguration config,
-            string imdbId,
+            string aioId,
             string mediaType,
             int? season,
             int? episode,
@@ -331,7 +331,7 @@ namespace InfiniteDrive.Services
                 sb.Append("/InfiniteDrive/resolve?");
                 sb.Append("token=").Append(Uri.EscapeDataString(token));
                 sb.Append("&quality=").Append(Uri.EscapeDataString(quality));
-                sb.Append("&id=").Append(Uri.EscapeDataString(imdbId));
+                sb.Append("&id=").Append(Uri.EscapeDataString(aioId));
                 sb.Append("&idType=").Append(Uri.EscapeDataString(mediaType));
 
                 if (season.HasValue)
@@ -409,7 +409,7 @@ namespace InfiniteDrive.Services
 
                     if (!File.Exists(filePath))
                     {
-                        var strmUrl = BuildSignedStrmUrl(config, item.ImdbId ?? item.Id, "series", seasonNum, ep.Episode);
+                        var strmUrl = BuildSignedStrmUrl(config, item.AioId ?? item.Id, "series", seasonNum, ep.Episode);
                         WriteStrmFile(filePath, strmUrl);
                         written++;
                         _logger.LogDebug(

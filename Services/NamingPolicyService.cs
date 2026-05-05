@@ -12,13 +12,13 @@ namespace InfiniteDrive.Services
     {
         /// <summary>
         /// Builds a folder name using Emby auto-match convention:
-        /// <c>{Title} ({Year}) [imdbid-{imdbId}]</c>
-        /// Priority: tt IMDB > TVDB (series/anime) > TMDB > title+year only.
+        /// <c>{Title} ({Year}) [imdbid-{aioId}]</c>
+        /// Priority: tt IMDB > anime provider (kitsu/anilist) > TVDB (series/anime) > TMDB > title+year only.
         /// </summary>
         public static string BuildFolderName(
             string title,
             int? year,
-            string? imdbId,
+            string? aioId,
             string? tmdbId,
             string? tvdbId,
             string mediaType)
@@ -26,10 +26,20 @@ namespace InfiniteDrive.Services
             var sb = new StringBuilder(title);
             if (year.HasValue) sb.Append($" ({year})");
 
-            if (!string.IsNullOrEmpty(imdbId) &&
-                imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrEmpty(aioId) &&
+                aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
             {
-                sb.Append($" [imdbid-{imdbId}]");
+                sb.Append($" [imdbid-{aioId}]");
+            }
+            else if (!string.IsNullOrEmpty(aioId) && aioId.Contains(':'))
+            {
+                // Anime/obscure: emit the native provider tag (e.g. [kitsu=46474], [anilist=12345])
+                var tag = ParseAioIdTag(aioId);
+                if (tag != null) sb.Append($" [{tag}]");
+                else if (!string.IsNullOrEmpty(tvdbId) && (mediaType == "series" || mediaType == "anime"))
+                    sb.Append($" [tvdbid-{tvdbId}]");
+                else if (!string.IsNullOrEmpty(tmdbId))
+                    sb.Append($" [tmdbid-{tmdbId}]");
             }
             else if (!string.IsNullOrEmpty(tvdbId) &&
                      (mediaType == "series" || mediaType == "anime"))
@@ -45,32 +55,57 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Convenience overload for callers with only title/year/imdbId.
+        /// Convenience overload for callers with only title/year/aioId.
         /// </summary>
-        public static string BuildFolderName(string title, int? year, string? imdbId)
-            => BuildFolderName(title, year, imdbId, null, null, "movie");
+        public static string BuildFolderName(string title, int? year, string? aioId)
+            => BuildFolderName(title, year, aioId, null, null, "movie");
 
         /// <summary>
         /// Convenience overload for CatalogItem.
         /// </summary>
         public static string BuildFolderName(CatalogItem item)
-            => BuildFolderName(item.Title, item.Year, item.ImdbId, item.TmdbId, item.TvdbId, item.MediaType);
+            => BuildFolderName(item.Title, item.Year, item.AioId, item.TmdbId, item.TvdbId, item.MediaType);
 
         /// <summary>
         /// Builds ID tags for .strm filenames: <c>[tmdbid=X][imdbid=Y]</c>.
-        /// TMDB first (preferred by Emby scraper), then IMDB. Only non-null IDs included.
+        /// TMDB first (preferred by Emby scraper), then IMDB/anime provider. Only non-null IDs included.
         /// </summary>
-        public static string BuildIdTags(string? tmdbId, string? imdbId, string? tvdbId = null)
+        public static string BuildIdTags(string? tmdbId, string? aioId, string? tvdbId = null)
         {
             var sb = new StringBuilder();
             if (!string.IsNullOrEmpty(tmdbId))
                 sb.Append($"[tmdbid={tmdbId}]");
-            if (!string.IsNullOrEmpty(imdbId) &&
-                imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
-                sb.Append($"[imdbid={imdbId}]");
+            if (!string.IsNullOrEmpty(aioId))
+            {
+                if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    sb.Append($"[imdbid={aioId}]");
+                else if (aioId.Contains(':'))
+                {
+                    var tag = ParseAioIdTag(aioId);
+                    if (tag != null) sb.Append($"[{tag}]");
+                }
+            }
             if (!string.IsNullOrEmpty(tvdbId))
                 sb.Append($"[tvdbid={tvdbId}]");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Parses an AIO ID with format "provider:id" into a tag string like "kitsu=46474".
+        /// Returns null if the format doesn't match.
+        /// </summary>
+        private static string? ParseAioIdTag(string? aioId)
+        {
+            if (string.IsNullOrEmpty(aioId) || !aioId.Contains(':'))
+                return null;
+
+            var sep = aioId.IndexOf(':');
+            var provider = aioId[..sep].ToLowerInvariant();
+            var id = aioId[(sep + 1)..];
+            if (string.IsNullOrEmpty(provider) || string.IsNullOrEmpty(id))
+                return null;
+
+            return $"{provider}={id}";
         }
 
         /// <summary>
@@ -81,7 +116,7 @@ namespace InfiniteDrive.Services
         public static string BuildStrmFileName(CatalogItem item, int? season = null, int? episode = null)
         {
             var sanitised = SanitisePath(item.Title);
-            var idTags = BuildIdTags(item.TmdbId, item.ImdbId, item.TvdbId);
+            var idTags = BuildIdTags(item.TmdbId, item.AioId, item.TvdbId);
 
             if (season.HasValue && episode.HasValue)
             {

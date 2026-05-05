@@ -208,11 +208,11 @@ namespace InfiniteDrive.Services
                                 if (code == 401 || code == 403 || code == 404 || code == 410)
                                 {
                                     await db.MarkStreamStaleAsync(
-                                        entry.ImdbId, entry.Season, entry.Episode);
+                                        entry.AioId, entry.Season, entry.Episode);
                                     staled++;
                                     _logger.LogDebug(
-                                        "[InfiniteDrive] DeadLinkScan: {Imdb} returned {Code} — marked stale",
-                                        entry.ImdbId, code);
+                                        "[InfiniteDrive] DeadLinkScan: {AioId} returned {Code} — marked stale",
+                                        entry.AioId, code);
                                 }
                             }
                             catch { /* network error — leave as valid, playback will handle it */ }

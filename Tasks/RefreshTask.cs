@@ -224,7 +224,7 @@ namespace InfiniteDrive.Tasks
 
             // Get existing catalog items for comparison
             var existingItems = await Plugin.Instance!.DatabaseManager.GetActiveCatalogItemsAsync();
-            var existingByImdb = existingItems.ToLookup(i => i.ImdbId).ToDictionary(g => g.Key, g => g.First());
+            var existingByAio = existingItems.ToLookup(i => i.AioId).ToDictionary(g => g.Key, g => g.First());
 
             // Also collect queued items that don't have .strm files yet
             // This handles the case where CatalogSyncTask has already created items
@@ -248,7 +248,7 @@ namespace InfiniteDrive.Tasks
 
             var seriesNeedingExpansion = existingItems
                 .Where(i => (i.MediaType == "series" || i.MediaType == "anime")
-                         && !string.IsNullOrEmpty(i.ImdbId)
+                         && !string.IsNullOrEmpty(i.AioId)
                          && !string.IsNullOrEmpty(i.StrmPath)
                          && (i.EpisodesExpanded != true
                              || i.LastExpandedAt == null
@@ -270,7 +270,7 @@ namespace InfiniteDrive.Tasks
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                if (existingByImdb.TryGetValue(catalogItem.ImdbId, out var existing))
+                if (existingByAio.TryGetValue(catalogItem.AioId, out var existing))
                 {
                     // Check if changed (title or year)
                     if (existing.Title != catalogItem.Title || existing.Year != catalogItem.Year)
@@ -283,7 +283,7 @@ namespace InfiniteDrive.Tasks
                         // Only add if not already in newItems (from queuedWithoutStrm)
                         if (!newItems.Any(i => i.Id == existing.Id))
                             newItems.Add(existing);
-                        _logger.LogDebug("[InfiniteDrive] Changed item: {ImdbId}", catalogItem.ImdbId);
+                        _logger.LogDebug("[InfiniteDrive] Changed item: {AioId}", catalogItem.AioId);
                     }
                 }
                 else
@@ -292,7 +292,7 @@ namespace InfiniteDrive.Tasks
                     catalogItem.ItemState = ItemState.Queued;
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(catalogItem, cancellationToken);
                     newItems.Add(catalogItem);
-                    _logger.LogDebug("[InfiniteDrive] New item: {ImdbId}", catalogItem.ImdbId);
+                    _logger.LogDebug("[InfiniteDrive] New item: {AioId}", catalogItem.AioId);
                 }
             }
 
@@ -340,7 +340,7 @@ namespace InfiniteDrive.Tasks
             }
 
             // Deduplicate by (imdb_id, source) to prevent INSERT conflicts
-            var deduplicated = items.GroupBy(i => (i.ImdbId, i.Source)).Select(g => g.First()).ToList();
+            var deduplicated = items.GroupBy(i => (i.AioId, i.Source)).Select(g => g.First()).ToList();
             return deduplicated;
         }
 
@@ -363,16 +363,16 @@ namespace InfiniteDrive.Tasks
 
                 foreach (var meta in catalogData.Metas)
                 {
-                    var imdbId = meta.ImdbId ?? meta.Id;
-                    if (string.IsNullOrEmpty(imdbId))
+                    var aioId = meta.ImdbId ?? meta.Id;
+                    if (string.IsNullOrEmpty(aioId))
                         continue;
 
                     var now = DateTime.UtcNow.ToString("o");
                     var year = ParseYear(meta.ReleaseInfo);
                     results.Add(new CatalogItem
                     {
-                        Id = GenerateDeterministicId(imdbId, "aiostreams"),
-                        ImdbId = imdbId,
+                        Id = GenerateDeterministicId(aioId, "aiostreams"),
+                        AioId = aioId,
                         Title = meta.Name ?? string.Empty,
                         Year = year,
                         MediaType = catalogType,
@@ -408,7 +408,7 @@ namespace InfiniteDrive.Tasks
             var series = items.Where(i =>
                 (string.Equals(i.MediaType, "series", StringComparison.OrdinalIgnoreCase) ||
                  string.Equals(i.MediaType, "anime", StringComparison.OrdinalIgnoreCase)) &&
-                !string.IsNullOrEmpty(i.ImdbId)).ToList();
+                !string.IsNullOrEmpty(i.AioId)).ToList();
             var movies = items.Except(series).ToList();
 
             _logger.LogInformation("[Write] Processing {Movies} movies (parallel) + {Series} series (bounded)",
@@ -477,7 +477,7 @@ namespace InfiniteDrive.Tasks
                 Directory.CreateDirectory(folderPath);
 
                 var baseName = Path.GetFileNameWithoutExtension(folderName);
-                var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? "", "imdb", null, null);
+                var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.AioId ?? "", "imdb", null, null);
                 var fileName = baseName + ".strm";
                 var fullPath = Path.Combine(folderPath, fileName);
                 var tmpPath = fullPath + ".tmp";
@@ -501,12 +501,12 @@ namespace InfiniteDrive.Tasks
                 item.UpdatedAt = DateTime.UtcNow.ToString("o");
                 await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 
-                _logger.LogDebug("[Write] Movie {ImdbId} ({Title}) written in {Ms}ms", item.ImdbId, item.Title, itemSw.ElapsedMilliseconds);
+                _logger.LogDebug("[Write] Movie {AioId} ({Title}) written in {Ms}ms", item.AioId, item.Title, itemSw.ElapsedMilliseconds);
                 results.Add((true, item));
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[InfiniteDrive] WriteStep: skipping movie {ImdbId} ({Title})", item.ImdbId, item.Title);
+                _logger.LogWarning(ex, "[InfiniteDrive] WriteStep: skipping movie {AioId} ({Title})", item.AioId, item.Title);
                 results.Add((false, item));
             }
             finally
@@ -529,14 +529,14 @@ namespace InfiniteDrive.Tasks
                 var folderName = NamingPolicyService.BuildFolderName(item);
                 var basePath = GetLibraryPath(config, item.MediaType);
 
-                _logger.LogDebug("[Write] Fetching episodes for {ImdbId} ({Title})", item.ImdbId, item.Title);
+                _logger.LogDebug("[Write] Fetching episodes for {AioId} ({Title})", item.AioId, item.Title);
                 var aioVideos = await FetchAioVideosAsync(item, cancellationToken);
 
                 if (aioVideos == null || aioVideos.Count == 0)
                 {
                     _logger.LogDebug(
-                        "[InfiniteDrive] Series {ImdbId} ({Title}) — no episode metadata, skipping",
-                        item.ImdbId, item.Title);
+                        "[InfiniteDrive] Series {AioId} ({Title}) — no episode metadata, skipping",
+                        item.AioId, item.Title);
                     results.Add((false, item));
                     return;
                 }
@@ -557,15 +557,15 @@ namespace InfiniteDrive.Tasks
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                         _logger.LogDebug(
-                            "[InfiniteDrive] Series {ImdbId} ({Title}) — re-expansion: no new episodes, timestamp updated",
-                            item.ImdbId, item.Title);
+                            "[InfiniteDrive] Series {AioId} ({Title}) — re-expansion: no new episodes, timestamp updated",
+                            item.AioId, item.Title);
                         results.Add((true, item));
                         return;
                     }
 
                     _logger.LogInformation(
-                        "[InfiniteDrive] Series {ImdbId} ({Title}) — re-expansion: {Count} new episodes found",
-                        item.ImdbId, item.Title, diff.AddedEpisodes.Count);
+                        "[InfiniteDrive] Series {AioId} ({Title}) — re-expansion: {Count} new episodes found",
+                        item.AioId, item.Title, diff.AddedEpisodes.Count);
                 }
 
                 var strm = Plugin.Instance?.StrmWriterService;
@@ -590,8 +590,8 @@ namespace InfiniteDrive.Tasks
                     item.UpdatedAt = DateTime.UtcNow.ToString("o");
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                     _logger.LogInformation(
-                        "[InfiniteDrive] Episode expansion for {ImdbId} ({Title}) - {Count} episodes in {Ms}ms",
-                        item.ImdbId, item.Title, episodesWritten, itemSw.ElapsedMilliseconds);
+                        "[InfiniteDrive] Episode expansion for {AioId} ({Title}) - {Count} episodes in {Ms}ms",
+                        item.AioId, item.Title, episodesWritten, itemSw.ElapsedMilliseconds);
                     results.Add((true, item));
                 }
                 else
@@ -601,7 +601,7 @@ namespace InfiniteDrive.Tasks
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[InfiniteDrive] WriteStep: skipping series {ImdbId} ({Title})", item.ImdbId, item.Title);
+                _logger.LogWarning(ex, "[InfiniteDrive] WriteStep: skipping series {AioId} ({Title})", item.AioId, item.Title);
                 results.Add((false, item));
             }
             finally
@@ -642,8 +642,8 @@ namespace InfiniteDrive.Tasks
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "[InfiniteDrive] HintStep: skipping item {ImdbId} ({Title}) due to error",
-                        item.ImdbId, item.Title);
+                        "[InfiniteDrive] HintStep: skipping item {AioId} ({Title}) due to error",
+                        item.AioId, item.Title);
                 }
             }
 
@@ -677,7 +677,7 @@ namespace InfiniteDrive.Tasks
                 row => new CatalogItem
                 {
                     Id = row.GetString(0),
-                    ImdbId = row.IsDBNull(1) ? null : row.GetString(1),
+                    AioId = row.IsDBNull(1) ? null : row.GetString(1),
                     TmdbId = row.IsDBNull(2) ? null : row.GetString(2),
                     Title = row.GetString(3),
                     Year = row.IsDBNull(4) ? (int?)null : row.GetInt(4),
@@ -713,7 +713,7 @@ namespace InfiniteDrive.Tasks
             var requests = noIdItems.Select(ci => new EnrichmentRequest
             {
                 Id = ci.Id,
-                ImdbId = ci.ImdbId,
+                AioId = ci.AioId,
                 Title = ci.Title,
                 Year = ci.Year,
                 RetryCount = ci.RetryCount,
@@ -768,8 +768,8 @@ namespace InfiniteDrive.Tasks
                                            string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
                             if (isSeries && item.EpisodesExpanded != true)
                             {
-                                _logger.LogDebug("[InfiniteDrive] Notify: Skipping {ImdbId} ({Title}) - episodes not fully expanded yet",
-                                    item.ImdbId, item.Title);
+                                _logger.LogDebug("[InfiniteDrive] Notify: Skipping {AioId} ({Title}) - episodes not fully expanded yet",
+                                    item.AioId, item.Title);
                                 continue;
                             }
 
@@ -781,8 +781,8 @@ namespace InfiniteDrive.Tasks
                         catch (Exception ex)
                         {
                             _logger.LogWarning(ex,
-                                "[InfiniteDrive] NotifyStep: skipping item {ImdbId} ({Title}) due to error",
-                                item.ImdbId, item.Title);
+                                "[InfiniteDrive] NotifyStep: skipping item {AioId} ({Title}) due to error",
+                                item.AioId, item.Title);
                         }
                     }
                 }
@@ -825,8 +825,8 @@ namespace InfiniteDrive.Tasks
                                string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
                 if (isSeries && item.EpisodesExpanded != true)
                 {
-                    _logger.LogDebug("[InfiniteDrive] Verify: Skipping {ImdbId} ({Title}) - episodes not fully expanded yet",
-                        item.ImdbId, item.Title);
+                    _logger.LogDebug("[InfiniteDrive] Verify: Skipping {AioId} ({Title}) - episodes not fully expanded yet",
+                        item.AioId, item.Title);
                     continue;
                 }
 
@@ -847,19 +847,19 @@ namespace InfiniteDrive.Tasks
                             item.UpdatedAt = DateTime.UtcNow.ToString("o");
                             await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                             verified++;
-                            _logger.LogDebug("[InfiniteDrive] Verify: Confirmed .strm files for {Imdb}", item.ImdbId);
+                            _logger.LogDebug("[InfiniteDrive] Verify: Confirmed .strm files for {AioId}", item.AioId);
                         }
                         else
                         {
                             // No .strm files found - leave as Notified
                             // Stalled-item promotion will handle items >24h
-                            _logger.LogDebug("[InfiniteDrive] Verify: No .strm files for {Imdb}, remains Notified", item.ImdbId);
+                            _logger.LogDebug("[InfiniteDrive] Verify: No .strm files for {AioId}, remains Notified", item.AioId);
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Verify: Failed to verify {Imdb}", item.ImdbId);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Verify: Failed to verify {AioId}", item.AioId);
                 }
             }
 
@@ -904,7 +904,7 @@ namespace InfiniteDrive.Tasks
 
                 try
                 {
-                    var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.ImdbId ?? "", "imdb", null, null);
+                    var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.AioId ?? "", "imdb", null, null);
                     var fileName = baseName + ".strm";
                     var fullPath = Path.Combine(folderPath, fileName);
                     var tmpPath = fullPath + ".tmp";
@@ -918,11 +918,11 @@ namespace InfiniteDrive.Tasks
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 
                     renewed++;
-                    _logger.LogDebug("[InfiniteDrive] Renew: Refreshed token for {Imdb}", item.ImdbId);
+                    _logger.LogDebug("[InfiniteDrive] Renew: Refreshed token for {AioId}", item.AioId);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Renew: Failed to refresh token for {Imdb}", item.ImdbId);
+                    _logger.LogWarning(ex, "[InfiniteDrive] Renew: Failed to refresh token for {AioId}", item.AioId);
                 }
             }
 
@@ -960,15 +960,15 @@ namespace InfiniteDrive.Tasks
 
                         promoted++;
                         _logger.LogInformation(
-                            "[InfiniteDrive] Stalled: Promoted {Imdb} to NeedsEnrich (Notified >24h)",
-                            item.ImdbId);
+                            "[InfiniteDrive] Stalled: Promoted {AioId} to NeedsEnrich (Notified >24h)",
+                            item.AioId);
                     }
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex,
-                        "[InfiniteDrive] PromoteStalled: skipping item {ImdbId} ({Title}) due to error",
-                        item.ImdbId, item.Title);
+                        "[InfiniteDrive] PromoteStalled: skipping item {AioId} ({Title}) due to error",
+                        item.AioId, item.Title);
                 }
             }
 
@@ -1011,7 +1011,7 @@ namespace InfiniteDrive.Tasks
         private async Task<List<Services.StremioVideo>?> FetchAioVideosAsync(
             CatalogItem item, CancellationToken cancellationToken)
         {
-            var imdbId = item.ImdbId;
+            var aioId = item.AioId;
             var mediaType = item.MediaType;
 
             // Try originating manifest first
@@ -1021,7 +1021,7 @@ namespace InfiniteDrive.Tasks
                 try
                 {
                     client.ActiveCooldownKind = CooldownKind.SeriesMeta;
-                    var metaResponse = await client.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
+                    var metaResponse = await client.GetMetaAsyncTyped(mediaType, aioId, cancellationToken);
                     if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                     {
                         var videos = ConvertAioVideos(metaResponse.Meta.Videos);
@@ -1029,7 +1029,7 @@ namespace InfiniteDrive.Tasks
                         {
                             _logger.LogInformation(
                                 "[InfiniteDrive] Fetched {Count} episodes from originating manifest for {Id}",
-                                videos.Count, imdbId);
+                                videos.Count, aioId);
                             return videos;
                         }
                     }
@@ -1037,7 +1037,7 @@ namespace InfiniteDrive.Tasks
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex,
-                        "[InfiniteDrive] Originating manifest meta failed for {Id}, trying fallbacks", imdbId);
+                        "[InfiniteDrive] Originating manifest meta failed for {Id}, trying fallbacks", aioId);
                 }
             }
 
@@ -1051,7 +1051,7 @@ namespace InfiniteDrive.Tasks
                     try
                     {
                         fallbackClient.ActiveCooldownKind = CooldownKind.SeriesMeta;
-                        var metaResponse = await fallbackClient.GetMetaAsyncTyped(mediaType, imdbId, cancellationToken);
+                        var metaResponse = await fallbackClient.GetMetaAsyncTyped(mediaType, aioId, cancellationToken);
                         if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                         {
                             var videos = ConvertAioVideos(metaResponse.Meta.Videos);
@@ -1059,7 +1059,7 @@ namespace InfiniteDrive.Tasks
                             {
                                 _logger.LogInformation(
                                     "[InfiniteDrive] Fetched {Count} episodes from config-fallback manifest for {Id}",
-                                    videos.Count, imdbId);
+                                    videos.Count, aioId);
                                 return videos;
                             }
                         }
@@ -1067,28 +1067,28 @@ namespace InfiniteDrive.Tasks
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
-                            "[InfiniteDrive] Config-fallback manifest meta failed for {Id}", imdbId);
+                            "[InfiniteDrive] Config-fallback manifest meta failed for {Id}", aioId);
                     }
                 }
             }
 
             // Fallback: Cinemeta for IMDB IDs
-            if (imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+            if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
             {
                 try
                 {
-                    return await FetchCinemetaVideosAsync(imdbId, cancellationToken);
+                    return await FetchCinemetaVideosAsync(aioId, cancellationToken);
                 }
                 catch (Exception ex)
                 {
                     _logger.LogDebug(ex,
-                        "[InfiniteDrive] Cinemeta meta failed for {Id}", imdbId);
+                        "[InfiniteDrive] Cinemeta meta failed for {Id}", aioId);
                 }
             }
 
             _logger.LogInformation(
                 "[InfiniteDrive] No episode metadata available for {Id} ({MediaType})",
-                imdbId, mediaType);
+                aioId, mediaType);
             return null;
         }
 
@@ -1103,9 +1103,9 @@ namespace InfiniteDrive.Tasks
         /// Only used for IMDB IDs. Returns actual episode data — no guessing.
         /// </summary>
         private async Task<List<Services.StremioVideo>?> FetchCinemetaVideosAsync(
-            string imdbId, CancellationToken cancellationToken)
+            string aioId, CancellationToken cancellationToken)
         {
-            var url = $"https://v3-cinemeta.strem.io/meta/series/{Uri.EscapeDataString(imdbId)}.json";
+            var url = $"https://v3-cinemeta.strem.io/meta/series/{Uri.EscapeDataString(aioId)}.json";
             using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             var json = await http.GetStringAsync(url, cancellationToken);
 
@@ -1121,7 +1121,7 @@ namespace InfiniteDrive.Tasks
             {
                 _logger.LogInformation(
                     "[InfiniteDrive] Fetched {Count} episodes from Cinemeta for {Id}",
-                    videos.Count, imdbId);
+                    videos.Count, aioId);
             }
             return videos;
         }
@@ -1194,15 +1194,15 @@ namespace InfiniteDrive.Tasks
         /// This ensures the same item always gets the same ID, preventing
         /// UNIQUE constraint violations during upsert operations.
         /// </summary>
-        private static string GenerateDeterministicId(string imdbId, string source)
+        private static string GenerateDeterministicId(string aioId, string source)
         {
-            // Use a hash of (imdb_id + source) to create a deterministic ID
-            // Format: {first 8 chars of hash}-{imdb_id}
+            // Use a hash of (aio_id + source) to create a deterministic ID
+            // Format: {first 8 chars of hash}-{aio_id}
             using var hash = System.Security.Cryptography.MD5.Create();
-            var input = $"{imdbId}:{source}";
+            var input = $"{aioId}:{source}";
             var hashBytes = hash.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
             var hashString = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 8);
-            return $"{hashString}-{imdbId}";
+            return $"{hashString}-{aioId}";
         }
     }
 }

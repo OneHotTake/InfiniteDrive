@@ -43,7 +43,7 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Replaces all stream_candidates rows for the item identified by the first
-        /// candidate's (imdb_id, season, episode).  Must be called inside a transaction.
+        /// candidate's (aio_id, season, episode).  Must be called inside a transaction.
         /// </summary>
         private void InsertCandidatesCore(IDatabaseConnection c, List<StreamCandidate> candidates)
         {
@@ -52,7 +52,7 @@ namespace InfiniteDrive.Data
             var first = candidates[0];
             using (var delStmt = c.PrepareStatement(CandidateDeleteSql))
             {
-                BindText(delStmt,        "@aio_id",  first.ImdbId);
+                BindText(delStmt,        "@aio_id",  first.AioId);
                 BindNullableInt(delStmt, "@season",  first.Season);
                 BindNullableInt(delStmt, "@episode", first.Episode);
                 while (delStmt.MoveNext()) { }
@@ -62,8 +62,8 @@ namespace InfiniteDrive.Data
             {
                 using var insStmt = c.PrepareStatement(CandidateInsertSql);
                 BindText(insStmt,         "@id",           cand.Id);
-                BindText(insStmt,         "@aio_id",       cand.ImdbId);
-                BindNullableText(insStmt, "@imdb_id",      cand.ImdbId.StartsWith("tt", StringComparison.Ordinal) ? cand.ImdbId : null);
+                BindText(insStmt,         "@aio_id",       cand.AioId);
+                BindNullableText(insStmt, "@imdb_id",      cand.AioId.StartsWith("tt", StringComparison.Ordinal) ? cand.AioId : null);
                 BindNullableInt(insStmt,  "@season",       cand.Season);
                 BindNullableInt(insStmt,  "@episode",      cand.Episode);
                 insStmt.BindParameters["@rank"].Bind(cand.Rank);
@@ -91,7 +91,7 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Atomically replaces all candidate rows for a given (imdb_id, season, episode)
+        /// Atomically replaces all candidate rows for a given (aio_id, season, episode)
         /// with the supplied list.  Runs as a single transaction: delete then bulk-insert.
         /// A no-op when <paramref name="candidates"/> is empty.
         /// </summary>
@@ -132,13 +132,13 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Returns all candidate rows for a given (imdb_id, season, episode),
+        /// Returns all candidate rows for a given (aio_id, season, episode),
         /// ordered by rank ascending (rank 0 = primary).
         /// Excludes candidates with status <c>failed</c>.
         /// Returns an empty list when no candidates have been stored yet.
         /// </summary>
         public async Task<List<StreamCandidate>> GetStreamCandidatesAsync(
-            string imdbId, int? season, int? episode)
+            string aioId, int? season, int? episode)
         {
             const string sql = @"
                 SELECT id, aio_id, season, episode, rank,
@@ -157,7 +157,7 @@ namespace InfiniteDrive.Data
 
             return await QueryListAsync(sql, cmd =>
             {
-                BindText(cmd,        "@aio_id", imdbId);
+                BindText(cmd,        "@aio_id", aioId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
             }, ReadStreamCandidate);
@@ -267,7 +267,7 @@ namespace InfiniteDrive.Data
                 LEFT JOIN media_item_ids tmdb_ids
                     ON tmdb_ids.media_item_id = mi.id AND tmdb_ids.id_type = 'tmdb'
                 INNER JOIN catalog_items ci
-                    ON lower(ci.imdb_id) = lower(ids.id_value)
+                    ON lower(ci.aio_id) = lower(ids.id_value)
                 CROSS JOIN json_each(
                     CASE
                         WHEN ci.videos_json IS NOT NULL AND ci.videos_json != ''
@@ -298,7 +298,7 @@ namespace InfiniteDrive.Data
                 cmd => BindInt(cmd, "@limit", limit / 2),
                 r => new UncachedItem
                 {
-                    ImdbId    = r.GetString(0),
+                    AioId     = r.GetString(0),
                     TmdbId    = r.IsDBNull(1) ? null : r.GetString(1),
                     MediaType = r.GetString(2),
                     Title     = r.IsDBNull(5) ? "" : r.GetString(5),
@@ -314,7 +314,7 @@ namespace InfiniteDrive.Data
                     cmd => BindInt(cmd, "@limit", remaining),
                     r => new UncachedItem
                     {
-                        ImdbId    = r.GetString(0),
+                        AioId     = r.GetString(0),
                         TmdbId    = r.IsDBNull(1) ? null : r.GetString(1),
                         MediaType = r.GetString(2),
                         Season    = r.IsDBNull(3) ? (int?)null : r.GetInt(3),
@@ -329,11 +329,11 @@ namespace InfiniteDrive.Data
 
         /// <summary>
         /// Updates the <c>status</c> of a single candidate row identified by
-        /// (imdb_id, season, episode, rank).  Used to mark a URL as
+        /// (aio_id, season, episode, rank).  Used to mark a URL as
         /// <c>suspect</c> or <c>failed</c> without discarding other ranks.
         /// </summary>
         public async Task UpdateCandidateStatusAsync(
-            string imdbId, int? season, int? episode, int rank, string status, CancellationToken cancellationToken = default)
+            string aioId, int? season, int? episode, int rank, string status, CancellationToken cancellationToken = default)
         {
             const string sql = @"
                 UPDATE stream_resolution_cache
@@ -345,7 +345,7 @@ namespace InfiniteDrive.Data
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd,        "@aio_id", imdbId);
+                BindText(cmd,        "@aio_id", aioId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
                 cmd.BindParameters["@rank"].Bind(rank);
@@ -358,7 +358,7 @@ namespace InfiniteDrive.Data
         /// Called by the background rescrape before writing fresh candidates.
         /// </summary>
         public async Task DeleteStreamCandidatesAsync(
-            string imdbId, int? season, int? episode, CancellationToken cancellationToken = default)
+            string aioId, int? season, int? episode, CancellationToken cancellationToken = default)
         {
             const string sql = @"
                 DELETE FROM stream_resolution_cache
@@ -368,7 +368,7 @@ namespace InfiniteDrive.Data
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd,        "@aio_id", imdbId);
+                BindText(cmd,        "@aio_id", aioId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
             }, cancellationToken);

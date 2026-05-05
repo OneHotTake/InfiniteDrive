@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,22 +47,22 @@ namespace InfiniteDrive.Services
         /// Pipeline: block check → dedup → .strm write → playlist add → pre-cache trigger
         /// </summary>
         public async Task<Guid?> AddItemAsync(
-            string imdbId, string type, string title, int? year,
+            string aioId, string type, string title, int? year,
             string? userId, CancellationToken ct)
         {
             // Step 1: Block list check
-            var isBlocked = await _blockList.IsBlockedAsync(imdbId, null, null);
+            var isBlocked = await _blockList.IsBlockedAsync(aioId, null, null);
             if (isBlocked)
             {
-                _logger.LogWarning("[UnifiedItem] Blocked item skipped: {ImdbId}", imdbId);
+                _logger.LogWarning("[UnifiedItem] Blocked item skipped: {AioId}", aioId);
                 return null;
             }
 
             // Step 2: Dedup — check if already in library
-            var existingItem = FindInLibrary(imdbId, type);
+            var existingItem = FindInLibrary(aioId, type);
             if (existingItem != null)
             {
-                _logger.LogDebug("[UnifiedItem] Already in library: {ImdbId} ({EmbyId})", imdbId, existingItem.Id);
+                _logger.LogDebug("[UnifiedItem] Already in library: {AioId} ({EmbyId})", aioId, existingItem.Id);
                 return existingItem.Id;
             }
 
@@ -86,7 +87,7 @@ namespace InfiniteDrive.Services
             var catalogItem = new CatalogItem
             {
                 Id = Guid.NewGuid().ToString(),
-                ImdbId = imdbId,
+                AioId = aioId,
                 Title = title,
                 Year = year,
                 MediaType = type.ToLowerInvariant(),
@@ -99,7 +100,7 @@ namespace InfiniteDrive.Services
             var strmPath = await _strmWriter.WriteAsync(catalogItem, SourceType.Aio, userId, ct);
             if (strmPath == null)
             {
-                _logger.LogWarning("[UnifiedItem] .strm write failed for {ImdbId}", imdbId);
+                _logger.LogWarning("[UnifiedItem] .strm write failed for {AioId}", aioId);
                 return null;
             }
 
@@ -109,16 +110,16 @@ namespace InfiniteDrive.Services
             catalogItem.LocalSource = "strm";
             await _db.UpsertCatalogItemAsync(catalogItem);
 
-            _logger.LogInformation("[UnifiedItem] Added {ImdbId} ({Title}) to library", imdbId, title);
+            _logger.LogInformation("[UnifiedItem] Added {AioId} ({Title}) to library", aioId, title);
 
             // Step 4: Add to "My InfiniteDrive" playlist (fire-and-forget)
             var playlistService = Plugin.Instance?.PlaylistService;
             if (playlistService != null && !string.IsNullOrEmpty(userId))
             {
-                var embyItem = FindInLibrary(imdbId, type);
+                var embyItem = FindInLibrary(aioId, type);
                 if (embyItem != null)
                 {
-                    _logger.LogDebug("[UnifiedItem] Playlist add deferred to caller for {ImdbId}", imdbId);
+                    _logger.LogDebug("[UnifiedItem] Playlist add deferred to caller for {AioId}", aioId);
                 }
             }
 
@@ -130,34 +131,68 @@ namespace InfiniteDrive.Services
                 {
                     try
                     {
-                        await cacheService.PreCacheSingleAsync(imdbId, type, null, null);
+                        await cacheService.PreCacheSingleAsync(aioId, type, null, null);
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogDebug(ex, "[UnifiedItem] Pre-cache trigger failed for {ImdbId}", imdbId);
+                        _logger.LogDebug(ex, "[UnifiedItem] Pre-cache trigger failed for {AioId}", aioId);
                     }
                 }, CancellationToken.None);
             }
 
-            return FindInLibrary(imdbId, type)?.Id;
+            return FindInLibrary(aioId, type)?.Id;
         }
 
         /// <summary>
-        /// Finds an item in the Emby library by IMDB ID and type.
+        /// Finds an item in the Emby library by trying all provider IDs derived from the AIO ID.
         /// </summary>
-        private BaseItem? FindInLibrary(string imdbId, string type)
+        private BaseItem? FindInLibrary(string aioId, string type)
         {
             try
             {
-                return _libraryManager.GetItemList(
-                    new MediaBrowser.Controller.Entities.InternalItemsQuery
+                var includeTypes = type == "series"
+                    ? new[] { "Series" }
+                    : new[] { "Movie" };
+
+                // Build provider ID pairs to try: direct AIO ID as Imdb, plus parsed providers
+                var providerIds = new List<KeyValuePair<string, string>>();
+
+                // If the AIO ID looks like an IMDB ID (tt-prefixed), try as Imdb
+                if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    providerIds.Add(new KeyValuePair<string, string>("Imdb", aioId));
+
+                // Try parsing as provider:id format (e.g. "kitsu:46474")
+                var colonIdx = aioId.IndexOf(':');
+                if (colonIdx > 0)
+                {
+                    var provider = aioId.Substring(0, colonIdx);
+                    var id = aioId.Substring(colonIdx + 1);
+                    // Normalize provider name: kitsu -> Kitsu, mal -> MAL, anilist -> AniList
+                    var normalizedProvider = provider.ToLowerInvariant() switch
                     {
-                        AnyProviderIdEquals = new[] { new System.Collections.Generic.KeyValuePair<string, string>("Imdb", imdbId) },
-                        IncludeItemTypes = type == "series"
-                            ? new[] { "Series" }
-                            : new[] { "Movie" },
-                        Recursive = true
-                    }).FirstOrDefault();
+                        "mal" => "MAL",
+                        _ => char.ToUpper(provider[0]) + provider[1..]
+                    };
+                    providerIds.Add(new KeyValuePair<string, string>(normalizedProvider, id));
+                }
+
+                // If no specific provider IDs built, try the raw ID as Imdb
+                if (providerIds.Count == 0)
+                    providerIds.Add(new KeyValuePair<string, string>("Imdb", aioId));
+
+                foreach (var pid in providerIds)
+                {
+                    var result = _libraryManager.GetItemList(
+                        new MediaBrowser.Controller.Entities.InternalItemsQuery
+                        {
+                            AnyProviderIdEquals = new[] { pid },
+                            IncludeItemTypes = includeTypes,
+                            Recursive = true
+                        }).FirstOrDefault();
+                    if (result != null) return result;
+                }
+
+                return null;
             }
             catch
             {

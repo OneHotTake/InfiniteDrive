@@ -13,8 +13,8 @@ namespace InfiniteDrive.Models
         /// <summary>tmdb-{tmdbId}-movie | tmdb-{tmdbId}-s{s}e{e} | imdb-{imdbId}-movie (fallback)</summary>
         public string TmdbKey { get; set; } = string.Empty;
 
-        /// <summary>IMDB identifier (tt1234567).</summary>
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>movie | series</summary>
         public string MediaType { get; set; } = string.Empty;
@@ -93,7 +93,7 @@ namespace InfiniteDrive.Models
     /// </summary>
     public class UncachedItem
     {
-        public string ImdbId { get; set; } = string.Empty;
+        public string AioId { get; set; } = string.Empty;
         public string? TmdbId { get; set; }
         public string MediaType { get; set; } = string.Empty;
         public int? Season { get; set; }

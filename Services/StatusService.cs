@@ -299,8 +299,8 @@ namespace InfiniteDrive.Services
     /// <summary>Single playback log row for the dashboard.</summary>
     public class PlaybackLogEntry
     {
-        /// <summary>IMDB ID.</summary>
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>Item title.</summary>
         public string? Title { get; set; }
@@ -580,7 +580,7 @@ namespace InfiniteDrive.Services
                 {
                     response.RecentPlays.Add(new PlaybackLogEntry
                     {
-                        ImdbId         = row.ImdbId,
+                        AioId          = row.AioId,
                         Title          = row.Title,
                         Season         = row.Season,
                         Episode        = row.Episode,

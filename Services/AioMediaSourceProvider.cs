@@ -36,7 +36,7 @@ namespace InfiniteDrive.Services
         private readonly IMediaSourceManager _mediaSourceManager;
         private readonly ILibraryManager _libraryManager;
 
-        // In-memory cache: key = "imdbId" or "imdbId:S{season}E{episode}", value = (sources, expiry)
+        // In-memory cache: key = "aioId" or "aioId:S{season}E{episode}", value = (sources, expiry)
         private static readonly ConcurrentDictionary<string, (List<MediaSourceInfo> Sources, DateTime Expires)> _cache
             = new();
 
@@ -64,11 +64,11 @@ namespace InfiniteDrive.Services
         /// Invalidates the in-memory source cache for an item so the next GetMediaSources
         /// picks up probe data from the DB.
         /// </summary>
-        internal static void InvalidateCache(string imdbId, int? season, int? episode)
+        internal static void InvalidateCache(string aioId, int? season, int? episode)
         {
             var key = season.HasValue
-                ? $"{imdbId}:S{season}E{episode}"
-                : imdbId;
+                ? $"{aioId}:S{season}E{episode}"
+                : aioId;
             _cache.TryRemove(key, out _);
         }
 
@@ -109,10 +109,10 @@ namespace InfiniteDrive.Services
             }
 
             // Identify item
-            var (imdbId, mediaType, season, episode) = IdentifyItem(item);
-            if (string.IsNullOrEmpty(imdbId))
+            var (aioId, mediaType, season, episode) = IdentifyItem(item);
+            if (string.IsNullOrEmpty(aioId))
             {
-                _logger.LogWarning("[AioMediaSourceProvider] No IMDB ID for {Name} (Path={Path}, Providers={Providers})",
+                _logger.LogWarning("[AioMediaSourceProvider] No AIO ID for {Name} (Path={Path}, Providers={Providers})",
                     item.Name, item.Path,
                     item.ProviderIds != null ? string.Join(",", item.ProviderIds.Keys) : "none");
                 return new List<MediaSourceInfo>();
@@ -120,8 +120,8 @@ namespace InfiniteDrive.Services
 
             // In-memory cache check
             var cacheKey = season.HasValue
-                ? $"{imdbId}:S{season}E{episode}"
-                : imdbId;
+                ? $"{aioId}:S{season}E{episode}"
+                : aioId;
 
             if (_cache.TryGetValue(cacheKey, out var cached) && cached.Expires > DateTime.UtcNow)
             {
@@ -138,7 +138,7 @@ namespace InfiniteDrive.Services
                 if (_cache.TryGetValue(cacheKey, out cached) && cached.Expires > DateTime.UtcNow)
                     return cached.Sources;
 
-                return await ResolveWithCacheAsync(cacheKey, imdbId, mediaType, season, episode, config, ct).ConfigureAwait(false);
+                return await ResolveWithCacheAsync(cacheKey, aioId, mediaType, season, episode, config, ct).ConfigureAwait(false);
             }
             finally
             {
@@ -148,7 +148,7 @@ namespace InfiniteDrive.Services
         }
 
         private async Task<List<MediaSourceInfo>> ResolveWithCacheAsync(
-            string cacheKey, string imdbId, string mediaType, int? season, int? episode,
+            string cacheKey, string aioId, string mediaType, int? season, int? episode,
             PluginConfiguration config, CancellationToken ct)
         {
             var db = Plugin.Instance?.DatabaseManager;
@@ -158,13 +158,13 @@ namespace InfiniteDrive.Services
             // ── Pre-cache lookup (cached_streams table) ──────────────────────────
             try
             {
-                var cached = await StreamCache.GetByAioIdAsync(imdbId, season, episode).ConfigureAwait(false);
+                var cached = await StreamCache.GetByAioIdAsync(aioId, season, episode).ConfigureAwait(false);
                 if (cached != null)
                 {
                     var preSources = StreamCache.BuildMediaSources(cached);
                     if (preSources.Count > 0)
                     {
-                        _logger.LogDebug("[AioMediaSourceProvider] Pre-cache hit for {Imdb}", imdbId);
+                        _logger.LogDebug("[AioMediaSourceProvider] Pre-cache hit for {AioId}", aioId);
                         _cache[cacheKey] = (preSources, DateTime.UtcNow.Add(cacheTtl));
                         return preSources;
                     }
@@ -180,7 +180,7 @@ namespace InfiniteDrive.Services
             {
                 try
                 {
-                    var dbCandidates = await db.GetStreamCandidatesAsync(imdbId, season, episode).ConfigureAwait(false);
+                    var dbCandidates = await db.GetStreamCandidatesAsync(aioId, season, episode).ConfigureAwait(false);
 
                     if (dbCandidates?.Count > 0)
                     {
@@ -192,8 +192,8 @@ namespace InfiniteDrive.Services
 
                         if (scored.Count > 0)
                         {
-                            var sources = BuildSourcesFromCandidates(scored, imdbId);
-                            SetOpenTokens(sources, imdbId, scored, mediaType);
+                            var sources = BuildSourcesFromCandidates(scored, aioId);
+                            SetOpenTokens(sources, aioId, scored, mediaType);
 
                             SortByLanguagePreference(sources, config, null);
                             _cache[cacheKey] = (sources, DateTime.UtcNow.Add(cacheTtl));
@@ -208,34 +208,34 @@ namespace InfiniteDrive.Services
             }
 
             // Live resolve: fetch from AIOStreams, rank, dedup, cap
-            _logger.LogInformation("[AioMediaSourceProvider] Live resolve for {ImdbId} ({MediaType}) S{Season}E{Episode}",
-                imdbId, mediaType, season, episode);
-            var candidates = await ResolveFromAioStreams(imdbId, mediaType, season, episode, config).ConfigureAwait(false);
+            _logger.LogInformation("[AioMediaSourceProvider] Live resolve for {AioId} ({MediaType}) S{Season}E{Episode}",
+                aioId, mediaType, season, episode);
+            var candidates = await ResolveFromAioStreams(aioId, mediaType, season, episode, config).ConfigureAwait(false);
             if (candidates.Count == 0)
             {
-                _logger.LogWarning("[AioMediaSourceProvider] Live resolve returned 0 candidates for {ImdbId}", imdbId);
+                _logger.LogWarning("[AioMediaSourceProvider] Live resolve returned 0 candidates for {AioId}", aioId);
                 return new List<MediaSourceInfo>();
             }
 
-            var liveSources = BuildSourcesFromCandidates(candidates, imdbId);
+            var liveSources = BuildSourcesFromCandidates(candidates, aioId);
 
             if (liveSources.Count > 0)
             {
-                SetOpenTokens(liveSources, imdbId, candidates, mediaType);
+                SetOpenTokens(liveSources, aioId, candidates, mediaType);
                 SortByLanguagePreference(liveSources, config, null);
                 _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(cacheTtl));
 
                 // Cache candidates to DB (await to ensure ResolverService can use them immediately)
-                await CacheCandidatesToDbAsync(db, imdbId, season, episode, candidates, cacheTtl).ConfigureAwait(false);
+                await CacheCandidatesToDbAsync(db, aioId, season, episode, candidates, cacheTtl).ConfigureAwait(false);
 
                 // Also write to cached_streams for pre-cache (fire-and-forget)
-                _ = WriteToStreamCacheAsync(imdbId, mediaType, season, episode, candidates);
+                _ = WriteToStreamCacheAsync(aioId, mediaType, season, episode, candidates);
 
                 // Binge prefetch for series
                 if (season.HasValue && episode.HasValue)
                 {
                     _ = BingePrefetchService.PrefetchNextEpisodeAsync(
-                        imdbId, season.Value, episode.Value, _logger);
+                        aioId, season.Value, episode.Value, _logger);
                 }
             }
 
@@ -247,13 +247,13 @@ namespace InfiniteDrive.Services
         // ═══════════════════════════════════════════════════════════════════════════
 
         private async Task<List<StreamCandidate>> ResolveFromAioStreams(
-            string imdbId, string mediaType, int? season, int? episode, PluginConfiguration config)
+            string aioId, string mediaType, int? season, int? episode, PluginConfiguration config)
         {
             var providers = ProviderHelper.GetProviders(config);
             if (providers.Count == 0) return new List<StreamCandidate>();
 
             var response = await AioStreamsClient.FetchAioStreamsAsync(
-                providers, imdbId, mediaType, season, episode,
+                providers, aioId, mediaType, season, episode,
                 _logger, Plugin.Instance?.ResolverHealthTracker,
                 cooldown: null, ct: CancellationToken.None).ConfigureAwait(false);
 
@@ -263,7 +263,7 @@ namespace InfiniteDrive.Services
             // The bucket algorithm in SelectBest handles curation; capping here
             // means all streams from a single-provider setup get cut to 3.
             var ranked = StreamHelpers.RankAndFilterStreams(
-                response, imdbId, season, episode,
+                response, aioId, season, episode,
                 config.ProviderPriorityOrder ?? "",
                 0, // unlimited — let SelectBest's bucket algorithm curate
                 config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
@@ -276,7 +276,7 @@ namespace InfiniteDrive.Services
         // ═══════════════════════════════════════════════════════════════════════════
 
         private List<MediaSourceInfo> BuildSourcesFromCandidates(
-            IEnumerable<StreamCandidate> candidates, string imdbId)
+            IEnumerable<StreamCandidate> candidates, string aioId)
         {
             var config = Plugin.Instance?.Configuration;
             var tierLimits = config != null
@@ -478,7 +478,7 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Serializes all candidates into the OpenToken so OpenMediaSource can failover.
         /// </summary>
-        private void SetOpenTokens(List<MediaSourceInfo> sources, string imdbId,
+        private void SetOpenTokens(List<MediaSourceInfo> sources, string aioId,
             List<StreamCandidate>? originalCandidates = null, string? mediaType = null)
         {
             // Build all candidate entries
@@ -511,7 +511,7 @@ namespace InfiniteDrive.Services
 
                 sources[idx].OpenToken = JsonSerializer.Serialize(new OpenTokenData
                 {
-                    ImdbId = imdbId,
+                    AioId = aioId,
                     MediaType = mediaType,
                     Candidates = ordered,
                 });
@@ -519,7 +519,7 @@ namespace InfiniteDrive.Services
         }
 
         private async Task<MediaSourceInfo> BuildSourceFromCandidateAsync(
-            OpenTokenCandidate cand, string imdbId, CancellationToken ct)
+            OpenTokenCandidate cand, string aioId, CancellationToken ct)
         {
             var name = $"Stream #{cand.Rank + 1}";
             var source = new MediaSourceInfo
@@ -677,7 +677,7 @@ namespace InfiniteDrive.Services
         // ═══════════════════════════════════════════════════════════════════════════
 
         private async Task CacheCandidatesToDbAsync(
-            Data.DatabaseManager? db, string imdbId, int? season, int? episode,
+            Data.DatabaseManager? db, string aioId, int? season, int? episode,
             List<StreamCandidate> candidates, TimeSpan cacheTtl)
         {
             if (db == null || candidates.Count == 0) return;
@@ -687,7 +687,7 @@ namespace InfiniteDrive.Services
                 var now = DateTime.UtcNow;
                 var entry = new ResolutionEntry
                 {
-                    ImdbId = imdbId,
+                    AioId = aioId,
                     Season = season,
                     Episode = episode,
                     StreamUrl = candidates[0].Url,
@@ -702,7 +702,7 @@ namespace InfiniteDrive.Services
                 // Preserve each candidate's QualityTier for ResolverService filtering
                 var candidatesWithTier = candidates.Select((c, i) => new StreamCandidate
                 {
-                    ImdbId = c.ImdbId,
+                    AioId = c.AioId,
                     Season = c.Season,
                     Episode = c.Episode,
                     Rank = c.Rank,
@@ -717,11 +717,11 @@ namespace InfiniteDrive.Services
                 }).ToList();
 
                 await db.UpsertResolutionResultAsync(entry, candidatesWithTier).ConfigureAwait(false);
-                _logger.LogDebug("[AioMediaSourceProvider] Cached {Count} candidates for {Imdb}", candidates.Count, imdbId);
+                _logger.LogDebug("[AioMediaSourceProvider] Cached {Count} candidates for {AioId}", candidates.Count, aioId);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[AioMediaSourceProvider] DB cache write failed for {Id} (non-fatal)", imdbId);
+                _logger.LogDebug(ex, "[AioMediaSourceProvider] DB cache write failed for {Id} (non-fatal)", aioId);
             }
         }
 
@@ -743,43 +743,43 @@ namespace InfiniteDrive.Services
             return paths.Any(p => !string.IsNullOrEmpty(p) && path.StartsWith(p, StringComparison.OrdinalIgnoreCase));
         }
 
-        private (string? imdbId, string mediaType, int? season, int? episode) IdentifyItem(BaseItem item)
+        private (string? aioId, string mediaType, int? season, int? episode) IdentifyItem(BaseItem item)
         {
-            string? imdbId = null;
+            string? aioId = null;
             var mediaType = "movie";
             int? season = null;
             int? episode = null;
 
             // 1. ProviderIds["imdb"] — Emby native
             if (item.ProviderIds != null && item.ProviderIds.TryGetValue("imdb", out var imdb))
-                imdbId = imdb;
+                aioId = imdb;
 
             // 2. Parse from .strm path
-            if (string.IsNullOrEmpty(imdbId) && !string.IsNullOrEmpty(item.Path))
+            if (string.IsNullOrEmpty(aioId) && !string.IsNullOrEmpty(item.Path))
             {
-                imdbId = ParseImdbFromPath(item.Path);
+                aioId = ParseImdbFromPath(item.Path);
             }
 
             // 3. ProviderIds["AIO"] (last resort)
-            if (string.IsNullOrEmpty(imdbId) && item.ProviderIds != null && item.ProviderIds.TryGetValue("AIO", out var aioId))
-                imdbId = aioId;
+            if (string.IsNullOrEmpty(aioId) && item.ProviderIds != null && item.ProviderIds.TryGetValue("AIO", out var aioFromProvider))
+                aioId = aioFromProvider;
 
             // 4. Kitsu/AniList/MAL provider IDs (anime without IMDB)
-            if (string.IsNullOrEmpty(imdbId) && item.ProviderIds != null)
+            if (string.IsNullOrEmpty(aioId) && item.ProviderIds != null)
             {
                 foreach (var kvp in item.ProviderIds)
                 {
                     if (string.Equals(kvp.Key, "Kitsu", StringComparison.OrdinalIgnoreCase))
-                        imdbId = $"kitsu:{kvp.Value}";
+                        aioId = $"kitsu:{kvp.Value}";
                     else if (string.Equals(kvp.Key, "AniList", StringComparison.OrdinalIgnoreCase))
-                        imdbId = $"anilist:{kvp.Value}";
+                        aioId = $"anilist:{kvp.Value}";
                     else if (string.Equals(kvp.Key, "MAL", StringComparison.OrdinalIgnoreCase))
-                        imdbId = $"mal:{kvp.Value}";
-                    if (!string.IsNullOrEmpty(imdbId)) break;
+                        aioId = $"mal:{kvp.Value}";
+                    if (!string.IsNullOrEmpty(aioId)) break;
                 }
             }
 
-            if (string.IsNullOrEmpty(imdbId)) return (null, mediaType, null, null);
+            if (string.IsNullOrEmpty(aioId)) return (null, mediaType, null, null);
 
             // Detect series
             if (item is MediaBrowser.Controller.Entities.TV.Episode ep)
@@ -798,7 +798,7 @@ namespace InfiniteDrive.Services
                 mediaType = "series";
             }
 
-            return (imdbId, mediaType, season, episode);
+            return (aioId, mediaType, season, episode);
         }
 
         private static readonly Regex ImdbRegex = new(@"tt\d{7,8}", RegexOptions.Compiled);
@@ -887,7 +887,7 @@ namespace InfiniteDrive.Services
         /// so future lookups are instant.
         /// </summary>
         private async Task WriteToStreamCacheAsync(
-            string imdbId, string mediaType, int? season, int? episode,
+            string aioId, string mediaType, int? season, int? episode,
             List<StreamCandidate> candidates)
         {
             try
@@ -924,13 +924,13 @@ namespace InfiniteDrive.Services
                 var ttlDays = config.PreCacheTTLDays > 0 ? config.PreCacheTTLDays : 14;
 
                 // Build primary key: prefer TMDB, fallback to IMDB
-                var tmdbId = await cacheService.ResolveTmdbIdForAioIdAsync(imdbId).ConfigureAwait(false);
-                var primaryKey = cacheService.BuildPrimaryKey(tmdbId, imdbId, mediaType, season, episode);
+                var tmdbId = await cacheService.ResolveTmdbIdForAioIdAsync(aioId).ConfigureAwait(false);
+                var primaryKey = cacheService.BuildPrimaryKey(tmdbId, aioId, mediaType, season, episode);
 
                 var entry = new CachedStreamEntry
                 {
                     TmdbKey = primaryKey,
-                    ImdbId = imdbId,
+                    AioId = aioId,
                     MediaType = mediaType,
                     Season = season,
                     Episode = episode,
@@ -944,7 +944,7 @@ namespace InfiniteDrive.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[AioMediaSourceProvider] WriteToStreamCache failed for {Imdb}", imdbId);
+                _logger.LogDebug(ex, "[AioMediaSourceProvider] WriteToStreamCache failed for {AioId}", aioId);
             }
         }
 
@@ -969,7 +969,7 @@ namespace InfiniteDrive.Services
 
     internal class OpenTokenData
     {
-        public string ImdbId { get; set; } = string.Empty;
+        public string AioId { get; set; } = string.Empty;
         public string? MediaType { get; set; }
         public List<OpenTokenCandidate> Candidates { get; set; } = new();
     }

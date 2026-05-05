@@ -24,10 +24,10 @@ namespace InfiniteDrive.Services
         Task StoreAsync(CachedStreamEntry entry);
         List<MediaSourceInfo> BuildMediaSources(CachedStreamEntry entry);
         Task<List<UncachedItem>> GetUncachedAsync(int limit, CancellationToken ct);
-        string BuildPrimaryKey(string? tmdbId, string imdbId, string mediaType, int? season, int? episode);
+        string BuildPrimaryKey(string? tmdbId, string aioId, string mediaType, int? season, int? episode);
         Task<string?> ResolveTmdbIdForAioIdAsync(string aioId);
-        Task InvalidateAsync(string imdbId, int? season, int? episode);
-        Task PreCacheSingleAsync(string imdbId, string mediaType, int? season, int? episode);
+        Task InvalidateAsync(string aioId, int? season, int? episode);
+        Task PreCacheSingleAsync(string aioId, string mediaType, int? season, int? episode);
     }
 
     // Cache stores FULL stream URLs (Sprint 502).
@@ -117,10 +117,10 @@ namespace InfiniteDrive.Services
         }
 
         /// <inheritdoc/>
-        public string BuildPrimaryKey(string? tmdbId, string imdbId, string mediaType, int? season, int? episode)
+        public string BuildPrimaryKey(string? tmdbId, string aioId, string mediaType, int? season, int? episode)
         {
-            // Prefer TMDB when available, fallback to IMDB (always available)
-            var id = !string.IsNullOrEmpty(tmdbId) ? $"tmdb-{tmdbId}" : $"imdb-{imdbId}";
+            // Prefer TMDB when available, fallback to AIO ID (always available)
+            var id = !string.IsNullOrEmpty(tmdbId) ? $"tmdb-{tmdbId}" : $"aio-{aioId}";
             if (mediaType == "series" && season.HasValue && episode.HasValue)
                 return $"{id}-s{season.Value}e{episode.Value}";
             return $"{id}-{mediaType}";
@@ -146,19 +146,19 @@ namespace InfiniteDrive.Services
         /// Marks cached stream entries as expired for a specific item.
         /// Called by EmbyEventHandler on metadata refresh.
         /// </summary>
-        public async Task InvalidateAsync(string imdbId, int? season, int? episode)
+        public async Task InvalidateAsync(string aioId, int? season, int? episode)
         {
             var db = Plugin.Instance?.DatabaseManager;
-            if (db == null || string.IsNullOrEmpty(imdbId)) return;
+            if (db == null || string.IsNullOrEmpty(aioId)) return;
 
             try
             {
-                await db.InvalidateCachedStreamAsync(imdbId, season, episode).ConfigureAwait(false);
-                _logger.LogDebug("[StreamCache] Invalidated cache for {Imdb} S{S}E{E}", imdbId, season, episode);
+                await db.InvalidateCachedStreamAsync(aioId, season, episode).ConfigureAwait(false);
+                _logger.LogDebug("[StreamCache] Invalidated cache for {AioId} S{S}E{E}", aioId, season, episode);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[StreamCache] InvalidateAsync failed for {Imdb}", imdbId);
+                _logger.LogDebug(ex, "[StreamCache] InvalidateAsync failed for {AioId}", aioId);
             }
         }
 
@@ -166,7 +166,7 @@ namespace InfiniteDrive.Services
         /// Lightweight single-item pre-cache refresh. Called by EmbyEventHandler
         /// after invalidation on metadata refresh.
         /// </summary>
-        public async Task PreCacheSingleAsync(string imdbId, string mediaType, int? season, int? episode)
+        public async Task PreCacheSingleAsync(string aioId, string mediaType, int? season, int? episode)
         {
             var config = Plugin.Instance?.Configuration;
             if (config == null || !config.EnablePreCache) return;
@@ -177,7 +177,7 @@ namespace InfiniteDrive.Services
 
             var uncachedItem = new UncachedItem
             {
-                ImdbId = imdbId,
+                AioId = aioId,
                 MediaType = mediaType,
                 Season = season,
                 Episode = episode,
@@ -195,13 +195,13 @@ namespace InfiniteDrive.Services
                 {
                     await StoreAsync(entry).ConfigureAwait(false);
                     _logger.LogInformation(
-                        "[PreCache] Single item refresh completed for {Imdb} S{S}E{E}",
-                        imdbId, season, episode);
+                        "[PreCache] Single item refresh completed for {AioId} S{S}E{E}",
+                        aioId, season, episode);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[StreamCache] PreCacheSingleAsync failed for {Imdb}", imdbId);
+                _logger.LogDebug(ex, "[StreamCache] PreCacheSingleAsync failed for {AioId}", aioId);
             }
         }
 
@@ -241,7 +241,7 @@ namespace InfiniteDrive.Services
                 // Stable ID from infoHash:fileIdx or position-based
                 var stableId = !string.IsNullOrEmpty(v.InfoHash) && v.FileIdx.HasValue
                     ? $"{v.InfoHash}:{v.FileIdx.Value}".GetHashCode().ToString("x8")
-                    : $"precache-{entry.ImdbId}-{idx}";
+                    : $"precache-{entry.AioId}-{idx}";
 
                 var source = new MediaSourceInfo
                 {
@@ -296,7 +296,7 @@ namespace InfiniteDrive.Services
             {
                 InfoHash = v.InfoHash,
                 FileIdx = v.FileIdx,
-                ImdbId = entry.ImdbId,
+                AioId = entry.AioId,
                 Season = entry.Season,
                 Episode = entry.Episode,
                 MediaType = entry.MediaType,
@@ -420,7 +420,7 @@ namespace InfiniteDrive.Services
         public string TokenType { get; set; } = "cached";
         public string? InfoHash { get; set; }
         public int? FileIdx { get; set; }
-        public string ImdbId { get; set; } = string.Empty;
+        public string AioId { get; set; } = string.Empty;
         public int? Season { get; set; }
         public int? Episode { get; set; }
         public string? MediaType { get; set; }

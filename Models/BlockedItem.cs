@@ -4,7 +4,7 @@ namespace InfiniteDrive.Models
     public class BlockedItem
     {
         public long Id { get; set; }
-        public string? ImdbId { get; set; }
+        public string? AioId { get; set; }
         public string? TmdbId { get; set; }
         public string? AnilistId { get; set; }
         public string Title { get; set; } = string.Empty;

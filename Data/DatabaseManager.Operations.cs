@@ -126,7 +126,7 @@ namespace InfiniteDrive.Data
         // ── Sprint 142: NFO status methods ─────────────────────────────────────
 
         public async Task UpdateNfoStatusAsync(
-            string imdbId,
+            string aioId,
             string source,
             string nfoStatus,
             int? retryCount,
@@ -138,7 +138,7 @@ namespace InfiniteDrive.Data
                 SET nfo_status = @nfo_status,
                     retry_count = COALESCE(@retry_count, retry_count + 1),
                     next_retry_at = @next_retry_at
-                WHERE imdb_id = @imdb_id AND source = @source;";
+                WHERE aio_id = @aio_id AND source = @source;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -151,7 +151,7 @@ namespace InfiniteDrive.Data
                     BindText(cmd, "@next_retry_at", nextRetryAt);
                 else
                     cmd.BindParameters["@next_retry_at"].BindNull();
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", aioId);
                 BindText(cmd, "@source", source);
             }, ct);
         }
@@ -317,12 +317,12 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 INSERT INTO playback_log
-                    (id, imdb_id, title, season, episode,
+                    (id, aio_id, title, season, episode,
                      resolution_mode, quality_served, client_type, proxy_mode,
                      latency_ms, bitrate_sustained, quality_downgrade,
                      error_message, played_at)
                 VALUES
-                    (@id, @imdb_id, @title, @season, @episode,
+                    (@id, @aio_id, @title, @season, @episode,
                      @resolution_mode, @quality_served, @client_type, @proxy_mode,
                      @latency_ms, @bitrate_sustained, @quality_downgrade,
                      @error_message, @played_at);";
@@ -330,7 +330,7 @@ namespace InfiniteDrive.Data
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@id",               entry.Id);
-                BindText(cmd, "@imdb_id",          entry.ImdbId);
+                BindText(cmd, "@aio_id",          entry.AioId);
                 BindNullableText(cmd, "@title",           entry.Title);
                 BindNullableInt(cmd,  "@season",          entry.Season);
                 BindNullableInt(cmd,  "@episode",         entry.Episode);
@@ -354,7 +354,7 @@ namespace InfiniteDrive.Data
         public async Task<List<PlaybackEntry>> GetRecentPlaybackAsync(int limit)
         {
             const string sql = @"
-                SELECT id, imdb_id, title, season, episode,
+                SELECT id, aio_id, title, season, episode,
                        resolution_mode, quality_served, client_type, proxy_mode,
                        latency_ms, bitrate_sustained, quality_downgrade,
                        error_message, played_at
@@ -779,7 +779,7 @@ namespace InfiniteDrive.Data
         /// Marks existing entries as stale for re-resolution.
         /// </summary>
         public async Task QueueForResolutionAsync(
-            string imdbId, int? season, int? episode, string tier, CancellationToken cancellationToken = default)
+            string aioId, int? season, int? episode, string tier, CancellationToken cancellationToken = default)
         {
             const string sql = @"
                 UPDATE stream_resolution_cache
@@ -792,7 +792,7 @@ namespace InfiniteDrive.Data
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd, "@aio_id", imdbId);
+                BindText(cmd, "@aio_id", aioId);
                 BindNullableInt(cmd, "@season",  season);
                 BindNullableInt(cmd, "@episode", episode);
             }, cancellationToken);
@@ -931,28 +931,28 @@ namespace InfiniteDrive.Data
         {
             // Three correlated subqueries — fast enough for catalogs up to ~5 000 items.
             const string totalSql = @"
-                SELECT COUNT(DISTINCT imdb_id)
+                SELECT COUNT(DISTINCT aio_id)
                 FROM catalog_items
                 WHERE removed_at IS NULL AND local_source = 'strm';";
 
             const string validSql = @"
-                SELECT COUNT(DISTINCT ci.imdb_id)
+                SELECT COUNT(DISTINCT ci.aio_id)
                 FROM catalog_items ci
                 WHERE ci.removed_at IS NULL AND ci.local_source = 'strm'
                   AND EXISTS (
                       SELECT 1 FROM stream_resolution_cache rc
-                      WHERE rc.aio_id    = ci.imdb_id
+                      WHERE rc.aio_id    = ci.aio_id
                         AND rc.status     = 'valid'
                         AND rc.expires_at > datetime('now')
                   );";
 
             const string uncachedSql = @"
-                SELECT COUNT(DISTINCT ci.imdb_id)
+                SELECT COUNT(DISTINCT ci.aio_id)
                 FROM catalog_items ci
                 WHERE ci.removed_at IS NULL AND ci.local_source = 'strm'
                   AND NOT EXISTS (
                       SELECT 1 FROM stream_resolution_cache rc
-                      WHERE rc.aio_id = ci.imdb_id
+                      WHERE rc.aio_id = ci.aio_id
                   );";
 
             static int RunScalar(IDatabaseConnection conn, string sql)
@@ -1003,14 +1003,14 @@ namespace InfiniteDrive.Data
         /// as "unavailable".  Joined to catalog_items to supply title and media type.
         /// Capped at <paramref name="limit"/> rows ordered by most recently failed first.
         /// </summary>
-        public Task<List<(string ImdbId, string Title, int? Season, int? Episode, string ExpiresAt)>>
+        public Task<List<(string AioId, string Title, int? Season, int? Episode, string ExpiresAt)>>
             GetFailedItemsAsync(int limit = 50)
         {
             const string sql = @"
                 SELECT rc.aio_id, COALESCE(ci.title, rc.aio_id), rc.season, rc.episode, rc.expires_at
                 FROM stream_resolution_cache rc
                 LEFT JOIN catalog_items ci
-                       ON ci.imdb_id = rc.aio_id AND ci.removed_at IS NULL
+                       ON ci.aio_id = rc.aio_id AND ci.removed_at IS NULL
                 WHERE rc.status = 'failed'
                   AND rc.expires_at > datetime('now')
                 ORDER BY rc.expires_at DESC

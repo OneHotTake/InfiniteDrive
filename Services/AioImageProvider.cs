@@ -289,7 +289,7 @@ namespace InfiniteDrive.Services
 
                 var catalogItem = new CatalogItem
                 {
-                    ImdbId = meta.ImdbId ?? meta.Id ?? "",
+                    AioId = meta.ImdbId ?? meta.Id ?? "",
                     Title = meta.Name ?? item.Name,
                     MediaType = meta.Type == AioMetaType.Movie ? "movie" : "series",
                     Source = "image_live_fetch",

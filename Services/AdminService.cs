@@ -48,7 +48,7 @@ namespace InfiniteDrive.Services
     public class BlockedItemDto
     {
         public string Id { get; set; } = string.Empty;
-        public string? ImdbId { get; set; }
+        public string? AioId { get; set; }
         public string Title { get; set; } = string.Empty;
         public int? Year { get; set; }
         public string MediaType { get; set; } = string.Empty;
@@ -94,8 +94,8 @@ namespace InfiniteDrive.Services
         Summary = "Clear no_streams sentinel for an item, allowing fresh resolution")]
     public class ClearSentinelRequest : IReturn<ClearSentinelResponse>
     {
-        [ApiMember(Name = "imdbId", Description = "IMDb ID to clear", DataType = "string", ParameterType = "query")]
-        public string ImdbId { get; set; } = "";
+        [ApiMember(Name = "aioId", Description = "AIOStreams ID to clear", DataType = "string", ParameterType = "query")]
+        public string AioId { get; set; } = "";
     }
 
     public class ClearSentinelResponse
@@ -149,7 +149,7 @@ namespace InfiniteDrive.Services
                     Items = items.Select(i => new BlockedItemDto
                     {
                         Id        = i.Id.ToString(),
-                        ImdbId    = i.ImdbId,
+                        AioId     = i.AioId,
                         Title     = i.Title,
                         MediaType = i.MediaType,
                         BlockedAt = i.BlockedAt,
@@ -340,22 +340,22 @@ namespace InfiniteDrive.Services
             var deny = AdminGuard.RequireAdmin(_authCtx, Request);
             if (deny != null) return deny;
 
-            if (string.IsNullOrWhiteSpace(req.ImdbId))
-                return new ClearSentinelResponse { Success = false, Message = "imdbId is required" };
+            if (string.IsNullOrWhiteSpace(req.AioId))
+                return new ClearSentinelResponse { Success = false, Message = "aioId is required" };
 
             try
             {
-                var deleted = await _db.ClearFailedSentinelAsync(req.ImdbId);
+                var deleted = await _db.ClearFailedSentinelAsync(req.AioId);
 
                 if (deleted == 0)
-                    return new ClearSentinelResponse { Success = false, Message = "No failed sentinel found for " + req.ImdbId };
+                    return new ClearSentinelResponse { Success = false, Message = "No failed sentinel found for " + req.AioId };
 
-                _logger.LogInformation("[AdminService] Cleared failed sentinel for {ImdbId}", req.ImdbId);
+                _logger.LogInformation("[AdminService] Cleared failed sentinel for {AioId}", req.AioId);
                 return new ClearSentinelResponse { Success = true, Message = $"Cleared {deleted} failed sentinel(s)" };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[AdminService] Failed to clear sentinel for {ImdbId}", req.ImdbId);
+                _logger.LogError(ex, "[AdminService] Failed to clear sentinel for {AioId}", req.AioId);
                 return new ClearSentinelResponse { Success = false, Message = ex.Message };
             }
         }

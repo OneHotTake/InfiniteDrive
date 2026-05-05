@@ -16,7 +16,7 @@ namespace InfiniteDrive.Services
         private static readonly TimeSpan DefaultTtl = TimeSpan.FromMinutes(90);
 
         public static async Task PrefetchNextEpisodeAsync(
-            string imdbId,
+            string aioId,
             int season,
             int episode,
             Microsoft.Extensions.Logging.ILogger logger)
@@ -42,7 +42,7 @@ namespace InfiniteDrive.Services
                     {
                         using var client = AioStreamsClientFactory.CreateForProvider(provider, logger);
 
-                        var response = await client.GetSeriesStreamsAsync(imdbId, season, episode + 1);
+                        var response = await client.GetSeriesStreamsAsync(aioId, season, episode + 1);
 
                         var streams = response?.Streams;
                         if (streams == null || streams.Count == 0) continue;
@@ -61,7 +61,7 @@ namespace InfiniteDrive.Services
 
                         var entry = new ResolutionEntry
                         {
-                            ImdbId = imdbId,
+                            AioId = aioId,
                             Season = season,
                             Episode = episode + 1,
                             StreamUrl = stream.Url,
@@ -75,7 +75,7 @@ namespace InfiniteDrive.Services
 
                         var candidate = new StreamCandidate
                         {
-                            ImdbId = imdbId,
+                            AioId = aioId,
                             Season = season,
                             Episode = episode + 1,
                             Rank = 0,
@@ -92,8 +92,8 @@ namespace InfiniteDrive.Services
                         await db.UpsertResolutionResultAsync(entry, new List<StreamCandidate> { candidate });
 
                         logger.LogInformation(
-                            "[Binge] Prefetched S{Season}E{Episode} for {ImdbId} (TTL: {Ttl}min)",
-                            season, episode + 1, imdbId, (int)ttl.TotalMinutes);
+                            "[Binge] Prefetched S{Season}E{Episode} for {AioId} (TTL: {Ttl}min)",
+                            season, episode + 1, aioId, (int)ttl.TotalMinutes);
 
                         return; // Success — stop trying providers
                     }
@@ -102,17 +102,17 @@ namespace InfiniteDrive.Services
                         if (healthTracker != null)
                             healthTracker.RecordFailure(provider.DisplayName);
                         logger.LogDebug(ex,
-                            "[Binge] Provider {Name} failed prefetch for {ImdbId} S{S}E{E}",
-                            provider.DisplayName, imdbId, season, episode + 1);
+                            "[Binge] Provider {Name} failed prefetch for {AioId} S{S}E{E}",
+                            provider.DisplayName, aioId, season, episode + 1);
                     }
                 }
 
-                logger.LogDebug("[Binge] No streams found for {ImdbId} S{S}E{E} — prefetch skipped",
-                    imdbId, season, episode + 1);
+                logger.LogDebug("[Binge] No streams found for {AioId} S{S}E{E} — prefetch skipped",
+                    aioId, season, episode + 1);
             }
             catch (Exception ex)
             {
-                logger.LogDebug(ex, "[Binge] Prefetch failed for {ImdbId} (non-fatal)", imdbId);
+                logger.LogDebug(ex, "[Binge] Prefetch failed for {AioId} (non-fatal)", aioId);
             }
         }
     }
