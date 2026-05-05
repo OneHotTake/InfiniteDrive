@@ -76,7 +76,7 @@ namespace InfiniteDrive.Services
     }
 
     [Route("/InfiniteDrive/Admin/BlockItems", "POST",
-        Summary = "Blocks items by internal ID or IMDB ID: deletes .strm/.nfo, clears user saves, triggers scan")]
+        Summary = "Blocks items by internal ID or IMDB ID: deletes .strm, clears user saves, triggers scan")]
     public class BlockItemsRequest : IReturn<BlockItemsResponse>
     {
         public List<string>? ItemIds { get; set; }   // internal UUIDs (preferred)
@@ -200,7 +200,7 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Handles <c>POST /InfiniteDrive/Admin/UnblockItems</c>.
-        /// Clears blocked_at/blocked_by and resets nfo_status to NeedsEnrich.
+        /// Clears blocked_at/blocked_by and resets enrichment_status to NeedsEnrich.
         /// </summary>
         public async Task<object> Post(UnblockItemsRequest req)
         {
@@ -234,7 +234,7 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Handles <c>POST /InfiniteDrive/Admin/BlockItems</c>.
-        /// Blocks items by internal ID or IMDB ID: sets blocked flag, deletes .strm/.nfo, clears user saves, triggers scan.
+        /// Blocks items by internal ID or IMDB ID: sets blocked flag, deletes .strm, clears user saves, triggers scan.
         /// Supports both ItemIds (internal UUIDs, preferred) and ImdbIds (legacy).
         /// </summary>
         public async Task<object> Post(BlockItemsRequest req)
@@ -286,7 +286,7 @@ namespace InfiniteDrive.Services
                         // 2. Block in catalog_items using primary ID (IMDB value from PrimaryId)
                         await _db.BlockCatalogItemByAioIdAsync(mediaItem.PrimaryId.Value, "admin", ct);
 
-                        // 3. Delete .strm/.nfo + version variants
+                        // 3. Delete .strm + version variants
                         var catalogItem = await _db.GetCatalogItemByAioIdAsync(mediaItem.PrimaryId.Value);
                         if (catalogItem != null)
                         {

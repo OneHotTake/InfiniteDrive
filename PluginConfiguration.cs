@@ -577,7 +577,7 @@ namespace InfiniteDrive
         /// <c>[{"type":"AddSlot","slotKey":"4k_hdr"}, ...]</c>
         ///
         /// Consumed by the <c>RehydrationTask</c> on next execution to add, remove,
-        /// or rename .strm/.nfo file pairs across the catalog.
+        /// or rename .strm files across the catalog.
         /// </summary>
         [DataMember]
         public List<string> PendingRehydrationOperations { get; set; } = new();

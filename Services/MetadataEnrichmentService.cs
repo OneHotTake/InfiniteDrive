@@ -93,7 +93,7 @@ namespace InfiniteDrive.Services
                     {
                         // ── Success ────────────────────────────────────
                         // NFO writing removed — metadata now served via IRemoteMetadataProvider
-                        await db.SetNfoStatusAsync(item.Id, "Enriched", cancellationToken);
+                        await db.SetEnrichmentStatusAsync(item.Id, "Enriched", cancellationToken);
                         await db.UpdateItemRetryInfoAsync(item.Id, 0, null, cancellationToken);
 
                         enrichedCount++;
@@ -113,7 +113,7 @@ namespace InfiniteDrive.Services
 
                         if (item.RetryCount >= 3)
                         {
-                            await db.SetNfoStatusAsync(item.Id, "Blocked", cancellationToken);
+                            await db.SetEnrichmentStatusAsync(item.Id, "Blocked", cancellationToken);
                             blockedCount++;
                             logger.LogWarning("[InfiniteDrive] Enrichment blocked for {Id} after 3 retries", item.AioId ?? item.Title);
                         }

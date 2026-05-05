@@ -627,15 +627,15 @@ namespace InfiniteDrive.Tasks
                                 || string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase);
                     if (isSeries && !string.IsNullOrEmpty(item.StrmPath))
                     {
-                        item.NfoStatus = "Expanded";
+                        item.EnrichmentStatus = "Expanded";
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                         hinted++;
                         continue;
                     }
 
                     // NFO no longer needed — folder name provides ID hints to Emby
-                    // Update NFO status
-                    item.NfoStatus = "Hinted";
+                    // Update enrichment status
+                    item.EnrichmentStatus = "Hinted";
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                     hinted++;
                 }
@@ -660,10 +660,10 @@ namespace InfiniteDrive.Tasks
         {
             var db = Plugin.Instance!.DatabaseManager;
 
-            // Query no-ID items from this run only (added_at >= runStartedAt AND nfo_status = 'NeedsEnrich')
+            // Query no-ID items from this run only (added_at >= runStartedAt AND enrichment_status = 'NeedsEnrich')
             var noIdItemsQuery = @"
                 SELECT * FROM catalog_items
-                WHERE nfo_status = 'NeedsEnrich'
+                WHERE enrichment_status = 'NeedsEnrich'
                 AND added_at >= @runStartedAt
                 AND (aio_id IS NULL OR aio_id = '')
                 AND (tmdb_id IS NULL OR tmdb_id = '')
@@ -695,7 +695,7 @@ namespace InfiniteDrive.Tasks
                     PinSource = row.IsDBNull(17) ? null : row.GetString(17),
                     PinnedAt = row.IsDBNull(18) ? null : row.GetString(18),
                     UniqueIdsJson = row.IsDBNull(19) ? null : row.GetString(19),
-                    NfoStatus = row.IsDBNull(20) ? null : row.GetString(20),
+                    EnrichmentStatus = row.IsDBNull(20) ? null : row.GetString(20),
                     RetryCount = row.GetInt(21),
                     NextRetryAt = row.IsDBNull(22) ? (long?)null : row.GetInt64(22),
                 });
@@ -954,7 +954,7 @@ namespace InfiniteDrive.Tasks
                     {
                         // Promote to NeedsEnrich
                         item.ItemState = ItemState.NeedsEnrich;
-                        item.NfoStatus = "NeedsEnrich";
+                        item.EnrichmentStatus = "NeedsEnrich";
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
 

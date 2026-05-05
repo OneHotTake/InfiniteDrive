@@ -18,7 +18,7 @@ namespace InfiniteDrive.Services
     /// Unified service for writing .strm files to disk.
     /// Replaces the public static WriteStrmFileForItemPublicAsync method
     /// from CatalogSyncTask, ensuring all .strm writes go through one
-    /// code path with consistent attribution and NFO generation.
+    /// code path with consistent attribution.
     /// </summary>
     public class StrmWriterService
     {
@@ -114,7 +114,7 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Full episode write: derives path from seriesItem.StrmPath, writes
-        /// .strm + NFO. The authoritative method for gap repair and rehydration.
+        /// .strm. The authoritative method for gap repair and rehydration.
         /// </summary>
         public Task<string?> WriteEpisodeAsync(
             CatalogItem seriesItem, int season, int episode,
@@ -210,7 +210,7 @@ namespace InfiniteDrive.Services
         // ── Public: centralized delete helpers (FIX-353-01) ────────────────────
 
         /// <summary>
-        /// Deletes a .strm file, its .nfo, all version slot variants, and cleans
+        /// Deletes a .strm file, all version slot variants, and cleans
         /// empty parent directories. Null-safe — no-op if path is null or missing.
         /// </summary>
         public static void DeleteWithVersions(string? strmPath)
@@ -222,16 +222,12 @@ namespace InfiniteDrive.Services
                 var dir = Path.GetDirectoryName(strmPath);
                 var baseName = Path.GetFileNameWithoutExtension(strmPath);
 
-                // Base .strm + .nfo
                 SafeDelete(strmPath);
-                SafeDelete(Path.ChangeExtension(strmPath, ".nfo"));
 
                 if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
 
-                // Versioned variants: "basename - suffix.strm" / "basename - suffix.nfo"
+                // Versioned variants: "basename - suffix.strm"
                 foreach (var f in Directory.GetFiles(dir, $"{baseName} - *.strm"))
-                    SafeDelete(f);
-                foreach (var f in Directory.GetFiles(dir, $"{baseName} - *.nfo"))
                     SafeDelete(f);
 
                 // Clean empty directories up two levels (season → show → library)
@@ -243,7 +239,7 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Deletes episode .strm + .nfo files (base + version variants) for the
+        /// Deletes episode .strm files (base + version variants) for the
         /// given episodes, then cleans empty season and show directories.
         /// </summary>
         public static void DeleteEpisodesWithVersions(
@@ -264,8 +260,6 @@ namespace InfiniteDrive.Services
                 var epPattern = $"{sanitisedTitle} S{season:D2}E{episode:D2}*";
 
                 foreach (var f in Directory.GetFiles(seasonDir, $"{epPattern}.strm"))
-                    SafeDelete(f);
-                foreach (var f in Directory.GetFiles(seasonDir, $"{epPattern}.nfo"))
                     SafeDelete(f);
 
                 emptySeasonDirs.Add(seasonDir);

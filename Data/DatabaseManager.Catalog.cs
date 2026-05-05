@@ -368,9 +368,8 @@ namespace InfiniteDrive.Data
                 EmbyItemId = r.GetString(18),
                 EmbyIndexedAt = r.IsDBNull(19) ? null : DateTimeOffset.Parse(r.GetString(19)),
                 StrmPath = r.GetString(20),
-                NfoPath = r.GetString(21),
-                WatchProgressPct = r.GetInt(22),
-                Favorited = r.GetInt(23) == 1
+                WatchProgressPct = r.GetInt(21),
+                Favorited = r.GetInt(22) == 1
             };
         }
 
@@ -420,7 +419,7 @@ namespace InfiniteDrive.Data
                        status, failure_reason, saved, saved_at,
                        blocked, blocked_at, created_at, updated_at, grace_started_at,
                        superseded, superseded_conflict, superseded_at,
-                       emby_item_id, emby_indexed_at, strm_path, nfo_path,
+                       emby_item_id, emby_indexed_at, strm_path,
                        watch_progress_pct, favorited
                 FROM media_items;";
 
@@ -809,12 +808,12 @@ namespace InfiniteDrive.Data
 
         public Task<int> GetNeedsEnrichCountAsync(CancellationToken ct = default)
             => QueryScalarIntAsync(
-                "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'NeedsEnrich' AND removed_at IS NULL;",
+                "SELECT COUNT(*) FROM catalog_items WHERE enrichment_status = 'NeedsEnrich' AND removed_at IS NULL;",
                 ct);
 
         public Task<int> GetBlockedCountAsync(CancellationToken ct = default)
             => QueryScalarIntAsync(
-                "SELECT COUNT(*) FROM catalog_items WHERE nfo_status = 'Blocked' AND removed_at IS NULL;",
+                "SELECT COUNT(*) FROM catalog_items WHERE enrichment_status = 'Blocked' AND removed_at IS NULL;",
                 ct);
     }
 }

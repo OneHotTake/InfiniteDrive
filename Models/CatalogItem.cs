@@ -141,8 +141,8 @@ namespace InfiniteDrive.Models
 
         // ── Sprint 142: Refresh Lifecycle Properties ─────────────────────────────
 
-        /// <summary>NFO enrichment status for Refresh lifecycle.</summary>
-        public string? NfoStatus { get; set; }
+        /// <summary>Enrichment status for metadata lifecycle.</summary>
+        public string? EnrichmentStatus { get; set; }
 
         /// <summary>Number of enrichment retries attempted.</summary>
         public int RetryCount { get; set; }

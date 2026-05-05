@@ -15,7 +15,7 @@ namespace InfiniteDrive.Models
         /// <summary>Failed to fetch metadata from Cinemeta/AIOMetadata.</summary>
         MetadataFetchFailed,
 
-        /// <summary>Error writing .strm or .nfo file to filesystem.</summary>
+        /// <summary>Error writing .strm file to filesystem.</summary>
         FileWriteError,
 
         /// <summary>Timeout waiting for Emby to index the item.</summary>
@@ -61,7 +61,7 @@ namespace InfiniteDrive.Models
                 FailureReason.None                  => "No failure occurred.",
                 FailureReason.NoStreamsFound         => "No stream URLs were found from the upstream provider.",
                 FailureReason.MetadataFetchFailed    => "Failed to fetch metadata from the metadata provider.",
-                FailureReason.FileWriteError         => "An error occurred while writing the .strm or .nfo file.",
+                FailureReason.FileWriteError         => "An error occurred while writing the .strm file.",
                 FailureReason.EmbyIndexTimeout      => "Timed out waiting for Emby to index the item.",
                 FailureReason.DigitalReleaseGate     => "The item is not yet available (digital release gate).",
                 FailureReason.Blocked                => "The item has been blocked by a user or admin.",
