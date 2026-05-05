@@ -527,6 +527,7 @@ namespace InfiniteDrive.Data
                     media_type      = @media_type,
                     item_id         = @item_id,
                     variants_json   = @variants,
+                    subtitles_json  = @subtitles_json,
                     expires_at      = @expires_at,
                     status          = @status,
                     manifest_source = @manifest_source,
@@ -545,6 +546,7 @@ namespace InfiniteDrive.Data
                 BindNullableInt(cmd, "@episode", entry.Episode);
                 BindNullableText(cmd, "@item_id", entry.ItemId);
                 BindText(cmd, "@variants", entry.VariantsJson);
+                BindNullableText(cmd, "@subtitles_json", entry.SubtitlesJson);
                 BindText(cmd, "@cached_at", entry.CachedAt);
                 BindText(cmd, "@expires_at", entry.ExpiresAt);
                 BindText(cmd, "@status", entry.Status);
@@ -602,6 +604,7 @@ namespace InfiniteDrive.Data
                       WHERE cs.aio_id = ids.id_value
                         AND cs.media_type = 'movie'
                         AND cs.status = 'valid'
+                        AND cs.expires_at > datetime('now')
                   )
                 ORDER BY mi.created_at DESC
                 LIMIT @limit";
@@ -643,6 +646,7 @@ namespace InfiniteDrive.Data
                         AND cs.season = season_num
                         AND cs.episode = episode_num
                         AND cs.status = 'valid'
+                        AND cs.expires_at > datetime('now')
                   )
                 ORDER BY mi.created_at DESC
                 LIMIT @limit";

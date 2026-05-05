@@ -2,8 +2,8 @@ SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working s
 
 ---
 status: complete
-task: Sprint 518 — Remaining Tech Debt (Post-517)
-last_updated: 2026-05-04
+task: Stream Cache Polish + Subtitle Extraction
+last_updated: 2026-05-05
 
 ## Summary
 - Fixed default page (was Advanced, now Providers via CreateDefaultPageView)
@@ -76,3 +76,6 @@ Sprint 516 (MED):  God class internals — DiagnosticsEndpoints split, StreamHel
 
 ## Technical Debt Reduction Post-516 (2026-05-04)
 COMPLETE: BUG-01 (ResolverService rate-limit return null→continue), H-01 (MarvinTask SELECT * → explicit columns), H-03 (11 dead DatabaseManager methods deleted), H-04 (5 dead AioMediaSourceProvider members deleted), H-05 (3 dead CatalogSyncTask methods deleted), M-01 (GetNeedsEnrichCountAsync/GetBlockedCountAsync added to DB; StatusService+MarvinTask use them), M-03 (RefreshTask GetEmbyBaseUrl dupe deleted; inlined), M-04 (TriggerService lazy HousekeepingService singleton), M-06 (UseRequiresOpening hardcode removed from Validate(); danger comment added), M-09 (ParsePort dead copy in RawStreamsService deleted), M-10 (duplicate HDR check fixed), L-01 (22 silent catch blocks fixed with LogDebug), L-02 (no-op static constructor deleted from Plugin.cs), L-03 (IsSaved/IsBlocked passthrough aliases deleted from MediaItem), L-04 (LEGACY label removed from PluginConfiguration), L-06 (redundant stub assignments removed from HealthService). Build: 0 errors, 0 warnings.
+
+## Stream Cache Polish + Subtitle Extraction (2026-05-05)
+COMPLETE: Part 1 — 6 cache pipeline bugs fixed. Bug 1+2: GetUncachedItemsAsync NOT EXISTS now checks expires_at, expired/stale entries picked up for re-resolution. Bug 3+4: Removed dead PreCacheIntervalHours and CacheRefreshIntervalDays from config+UI. Bug 5: Batch order randomized for jitter. Bug 6: Post-loop dead-link probe on 5 recent entries. Part 2 — Full subtitle support via ISubtitleProvider. AioStreamsSubtitle enhanced with title/langCode/fromTrusted/aiTranslated. FetchSubtitlesAsync added to AioStreamsClient with provider iteration. PreCache fetches + scores subtitles via Jaccard matching. AioSubtitleProvider implements ISubtitleProvider (cache-first, live fallback). Live resolve path also decorates subtitles. New: Services/AioSubtitleProvider.cs, GetRecentCachedEntries/GetCachedSubtitlesAsync in DatabaseManager.StreamCache.cs. Modified: 11 files. Build: 0 errors, 0 warnings.

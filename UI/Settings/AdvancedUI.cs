@@ -55,20 +55,9 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem CacheStatus { get; set; } = new StatusItem("Cache", "Idle", ItemStatus.None);
 
-        // ── Section 2: Cache Settings ───────────────────────────────────────────
+        // ── Section 2: Maintenance & Reset ──────────────────────────────────────
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionCache { get; set; } = new CaptionItem("Cache Settings");
-
-        [DisplayName("Cache Refresh Interval (days)")]
-        [Description(
-            "Marvin will automatically refresh the full stream URLs stored in the SQLite database after this many days. " +
-            "Enable proxy mode on your AIOStreams instance (highly recommended) for best results.")]
-        public int CacheRefreshIntervalDays { get; set; } = 30;
-
-        // ── Section 3: Maintenance & Reset ──────────────────────────────────────
-
-        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
         public CaptionItem CaptionMaintenance { get; set; } = new CaptionItem("Maintenance & Reset");
 
         public ButtonItem ResetAllDataButton { get; set; } = new ButtonItem("Reset All InfiniteDrive Data")

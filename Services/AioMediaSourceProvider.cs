@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
+using InfiniteDrive.Tasks;
 
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -939,6 +940,25 @@ namespace InfiniteDrive.Services
                     ExpiresAt = DateTime.UtcNow.AddDays(ttlDays).ToString("o"),
                     Status = "valid",
                 };
+
+                // Fetch subtitles alongside live-resolved streams
+                try
+                {
+                    var providers = ProviderHelper.GetProviders(config);
+                    var subs = await AioStreamsClient.FetchSubtitlesAsync(
+                        providers, aioId, mediaType, season, episode,
+                        _logger, Plugin.Instance?.ResolverHealthTracker, CancellationToken.None).ConfigureAwait(false);
+                    if (subs != null && subs.Count > 0)
+                    {
+                        var releaseName = candidates.FirstOrDefault()?.FileName ?? candidates.FirstOrDefault()?.StreamKey;
+                        var scored = PreCacheAioStreamsTask.ScoreAndRankSubtitles(subs, releaseName, 10);
+                        entry.SubtitlesJson = System.Text.Json.JsonSerializer.Serialize(scored);
+                    }
+                }
+                catch (Exception subEx)
+                {
+                    _logger.LogDebug(subEx, "[AioMediaSourceProvider] Subtitle fetch failed for {AioId}", aioId);
+                }
 
                 await cacheService.StoreAsync(entry).ConfigureAwait(false);
             }

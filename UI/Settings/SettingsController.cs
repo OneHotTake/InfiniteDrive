@@ -156,7 +156,6 @@ namespace InfiniteDrive.UI.Settings
             return new AdvancedUI
             {
                 PluginLogLevel = c.PluginLogLevel ?? "Info",
-                CacheRefreshIntervalDays = c.CacheRefreshIntervalDays,
             };
         }
 

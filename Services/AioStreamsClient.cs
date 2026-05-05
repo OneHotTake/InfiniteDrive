@@ -400,6 +400,51 @@ namespace InfiniteDrive.Services
             return null;
         }
 
+        // ── Subtitle fetch ──────────────────────────────────────────────────
+
+        /// <summary>
+        /// Fetches subtitles from the AIOStreams /subtitles/ endpoint using the
+        /// same provider-iteration pattern as <see cref="FetchAioStreamsAsync"/>.
+        /// Returns the first non-empty subtitle list found, or null.
+        /// </summary>
+        internal static async Task<List<AioStreamsSubtitle>?> FetchSubtitlesAsync(
+            IReadOnlyList<ProviderInfo> providers,
+            string aioId, string mediaType, int? season, int? episode,
+            ILogger logger,
+            ResolverHealthTracker? healthTracker,
+            CancellationToken ct)
+        {
+            foreach (var provider in providers)
+            {
+                if (healthTracker != null && healthTracker.ShouldSkip(provider.DisplayName))
+                    continue;
+
+                try
+                {
+                    using var client = new AioStreamsClient(provider.Url, provider.Uuid, provider.Token, logger);
+                    var id = mediaType == "series" && season.HasValue && episode.HasValue
+                        ? $"{aioId}:{season.Value}:{episode.Value}"
+                        : aioId;
+                    var path = $"/subtitles/{mediaType}/{Uri.EscapeDataString(id)}.json";
+                    var result = await client.GetJsonWithFallbackAsync<AioStreamsSubtitleResponse>(path, ct).ConfigureAwait(false);
+
+                    if (result?.Subtitles != null && result.Subtitles.Count > 0)
+                    {
+                        logger.LogDebug("[InfiniteDrive] Got {Count} subtitles for {Id} from {Provider}",
+                            result.Subtitles.Count, aioId, provider.DisplayName);
+                        return result.Subtitles;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logger.LogDebug(ex, "[InfiniteDrive] Subtitle fetch failed from {Name} for {Id}",
+                        provider.DisplayName, aioId);
+                }
+            }
+
+            return null;
+        }
+
         // ── Error stub detection (Sprint 100A-05) ────────────────────────
 
         /// <summary>
