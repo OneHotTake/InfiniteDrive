@@ -52,7 +52,7 @@ namespace InfiniteDrive.Services
                 count = items.Count,
                 items = items.Select(i => new
                 {
-                    imdb_id    = i.ImdbId,
+                    aio_id     = i.AioId,
                     title      = i.Title,
                     season     = i.Season,
                     episode    = i.Episode,

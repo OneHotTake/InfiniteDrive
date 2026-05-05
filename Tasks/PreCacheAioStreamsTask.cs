@@ -116,8 +116,8 @@ namespace InfiniteDrive.Tasks
                         await cacheService.StoreAsync(entry).ConfigureAwait(false);
                         resolved++;
                         backoffConsecutiveHits = 0; // reset backoff on success
-                        _logger.LogDebug("[PreCache] Cached {Imdb} S{S}E{E} ({Count} variants)",
-                            item.ImdbId, item.Season, item.Episode,
+                        _logger.LogDebug("[PreCache] Cached {AioId} S{S}E{E} ({Count} variants)",
+                            item.AioId, item.Season, item.Episode,
                             JsonSerializer.Deserialize<List<StreamVariant>>(entry.VariantsJson)?.Count ?? 0);
                     }
                     else
@@ -131,15 +131,15 @@ namespace InfiniteDrive.Tasks
                     rateLimited++;
                     backoffConsecutiveHits++;
                     var backoffSeconds = StreamHelpers.ExponentialBackoffSeconds(backoffConsecutiveHits);
-                    _logger.LogWarning("[PreCache] AIO rate limit hit — backing off {Seconds}s (consecutive: {Hits}) for {Imdb}",
-                        backoffSeconds, backoffConsecutiveHits, item.ImdbId);
+                    _logger.LogWarning("[PreCache] AIO rate limit hit — backing off {Seconds}s (consecutive: {Hits}) for {AioId}",
+                        backoffSeconds, backoffConsecutiveHits, item.AioId);
                     await Task.Delay(TimeSpan.FromSeconds(backoffSeconds), cancellationToken).ConfigureAwait(false);
                     // Don't count as failed — the item can be retried next run
                 }
                 catch (Exception ex)
                 {
                     failed++;
-                    _logger.LogDebug(ex, "[PreCache] Failed {Imdb}", item.ImdbId);
+                    _logger.LogDebug(ex, "[PreCache] Failed {AioId}", item.AioId);
                 }
                 finally
                 {
@@ -165,14 +165,14 @@ namespace InfiniteDrive.Tasks
             if (item.MediaType != "movie" && item.MediaType != "series") return null;
 
             var response = await AioStreamsClient.FetchAioStreamsAsync(
-                providers, item.ImdbId, item.MediaType, item.Season, item.Episode,
+                providers, item.AioId, item.MediaType, item.Season, item.Episode,
                 _logger, Plugin.Instance?.ResolverHealthTracker,
                 Plugin.Instance?.CooldownGate, ct).ConfigureAwait(false);
 
             if (response == null) return null;
 
             var ranked = StreamHelpers.RankAndFilterStreams(
-                response, item.ImdbId, item.Season, item.Episode,
+                response, item.AioId, item.Season, item.Episode,
                 config.ProviderPriorityOrder ?? "",
                 0, // unlimited — let SelectBest's bucket algorithm curate per tier
                 config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
@@ -181,13 +181,13 @@ namespace InfiniteDrive.Tasks
             if (best.Count == 0) return null;
 
             var variants = best.Take(MaxVariantsPerItem).Select(MapToVariant).ToList();
-            var tmdbId = item.TmdbId ?? await cacheService.ResolveTmdbIdForAioIdAsync(item.ImdbId).ConfigureAwait(false);
-            var primaryKey = cacheService.BuildPrimaryKey(tmdbId, item.ImdbId, item.MediaType, item.Season, item.Episode);
+            var tmdbId = item.TmdbId ?? await cacheService.ResolveTmdbIdForAioIdAsync(item.AioId).ConfigureAwait(false);
+            var primaryKey = cacheService.BuildPrimaryKey(tmdbId, item.AioId, item.MediaType, item.Season, item.Episode);
 
             return new CachedStreamEntry
             {
                 TmdbKey = primaryKey,
-                ImdbId = item.ImdbId,
+                AioId = item.AioId,
                 MediaType = item.MediaType,
                 Season = item.Season,
                 Episode = item.Episode,

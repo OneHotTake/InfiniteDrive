@@ -7,7 +7,7 @@ namespace InfiniteDrive.Repositories.Interfaces
     /// <summary>
     /// Repository interface for stream URL caching.
     /// Provides cached stream URL storage and invalidation for playback service.
-    /// One row per (imdb_id, season, episode) in resolution_cache table.
+    /// One row per (aio_id, season, episode) in resolution_cache table.
     /// Implemented by DatabaseManager (delegates to resolution cache methods).
     /// </summary>
     public interface IResolutionCacheRepository
@@ -17,7 +17,7 @@ namespace InfiniteDrive.Repositories.Interfaces
         /// Returns null if no cached entry exists or URL is expired.
         /// </summary>
         Task<string?> GetCachedUrlAsync(
-            string imdbId,
+            string aioId,
             int? season,
             int episode,
             CancellationToken ct = default);
@@ -27,7 +27,7 @@ namespace InfiniteDrive.Repositories.Interfaces
         /// Used by LinkResolverTask (tiered pre-resolution) and PlaybackService (cache hit).
         /// </summary>
         Task SetCachedUrlAsync(
-            string imdbId,
+            string aioId,
             int? season,
             int episode,
             string resolvedUrl,
@@ -40,7 +40,7 @@ namespace InfiniteDrive.Repositories.Interfaces
         /// Triggers re-resolution in next LinkResolverTask run.
         /// </summary>
         Task InvalidateAsync(
-            string imdbId,
+            string aioId,
             CancellationToken ct = default);
 
         /// <summary>

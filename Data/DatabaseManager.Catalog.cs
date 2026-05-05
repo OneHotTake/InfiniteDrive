@@ -453,7 +453,7 @@ namespace InfiniteDrive.Data
         /// Resolves the TMDB ID for an IMDB ID by joining media_item_ids.
         /// Returns null if no TMDB ID is found.
         /// </summary>
-        public async Task<string?> GetTmdbIdForAioIdAsync(string imdbId)
+        public async Task<string?> GetTmdbIdForAioIdAsync(string aioId)
         {
             const string sql = @"
                 SELECT tmdb_ids.id_value
@@ -462,11 +462,11 @@ namespace InfiniteDrive.Data
                     ON tmdb_ids.media_item_id = imdb_ids.media_item_id
                     AND tmdb_ids.id_type = 'tmdb'
                 WHERE lower(imdb_ids.id_type) = 'imdb'
-                  AND lower(imdb_ids.id_value) = lower(@imdb_id)
+                  AND lower(imdb_ids.id_value) = lower(@aio_id)
                 LIMIT 1";
 
             return await QuerySingleAsync(sql,
-                cmd => BindText(cmd, "@imdb_id", imdbId),
+                cmd => BindText(cmd, "@aio_id", aioId),
                 r => r.GetString(0)).ConfigureAwait(false);
         }
 
@@ -496,7 +496,7 @@ namespace InfiniteDrive.Data
         /// Fallback when TMDB key is not known.
         /// </summary>
         public async Task<CachedStreamEntry?> GetCachedStreamsByAioIdAsync(
-            string imdbId, int? season, int? episode)
+            string aioId, int? season, int? episode)
         {
             const string sql = @"
                 SELECT tmdb_key, aio_id, media_type, season, episode, item_id,
@@ -512,7 +512,7 @@ namespace InfiniteDrive.Data
 
             return await QuerySingleAsync(sql, cmd =>
             {
-                BindText(cmd, "@aio_id", imdbId);
+                BindText(cmd, "@aio_id", aioId);
                 BindNullableInt(cmd, "@season", season);
                 BindNullableInt(cmd, "@episode", episode);
             }, ReadCachedStreamEntry).ConfigureAwait(false);
@@ -539,7 +539,7 @@ namespace InfiniteDrive.Data
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@tmdb_key", entry.TmdbKey);
-                BindText(cmd, "@aio_id", entry.ImdbId);
+                BindText(cmd, "@aio_id", entry.AioId);
                 BindText(cmd, "@media_type", entry.MediaType);
                 BindNullableInt(cmd, "@season", entry.Season);
                 BindNullableInt(cmd, "@episode", entry.Episode);
@@ -556,7 +556,7 @@ namespace InfiniteDrive.Data
         /// Marks cached_streams entries as expired for a specific item.
         /// Used by smart refresh when Emby metadata is updated.
         /// </summary>
-        public async Task InvalidateCachedStreamAsync(string imdbId, int? season, int? episode)
+        public async Task InvalidateCachedStreamAsync(string aioId, int? season, int? episode)
         {
             const string sql = @"
                 UPDATE stream_resolution_cache
@@ -567,7 +567,7 @@ namespace InfiniteDrive.Data
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd, "@id", imdbId);
+                BindText(cmd, "@id", aioId);
                 BindNullableInt(cmd, "@season", season);
                 BindNullableInt(cmd, "@episode", episode);
             }).ConfigureAwait(false);
@@ -621,7 +621,7 @@ namespace InfiniteDrive.Data
                 LEFT JOIN media_item_ids tmdb_ids
                     ON tmdb_ids.media_item_id = mi.id AND tmdb_ids.id_type = 'tmdb'
                 INNER JOIN catalog_items ci
-                    ON lower(ci.imdb_id) = lower(ids.id_value)
+                    ON lower(ci.aio_id) = lower(ids.id_value)
                 CROSS JOIN json_each(
                     CASE
                         WHEN ci.videos_json IS NOT NULL AND ci.videos_json != ''
@@ -654,7 +654,7 @@ namespace InfiniteDrive.Data
                 cmd => BindInt(cmd, "@limit", limit / 2),
                 r => new UncachedItem
                 {
-                    ImdbId = r.GetString(0),
+                    AioId = r.GetString(0),
                     TmdbId = r.IsDBNull(1) ? null : r.GetString(1),
                     MediaType = r.GetString(2),
                     Title = r.IsDBNull(5) ? "" : r.GetString(5),
@@ -671,7 +671,7 @@ namespace InfiniteDrive.Data
                     cmd => BindInt(cmd, "@limit", remaining),
                     r => new UncachedItem
                     {
-                        ImdbId = r.GetString(0),
+                        AioId = r.GetString(0),
                         TmdbId = r.IsDBNull(1) ? null : r.GetString(1),
                         MediaType = r.GetString(2),
                         Season = r.IsDBNull(3) ? (int?)null : r.GetInt(3),
@@ -689,7 +689,7 @@ namespace InfiniteDrive.Data
             return new CachedStreamEntry
             {
                 TmdbKey = r.IsDBNull(0) ? "" : r.GetString(0),
-                ImdbId = r.GetString(1),
+                AioId = r.GetString(1),
                 MediaType = r.IsDBNull(2) ? "movie" : r.GetString(2),
                 Season = r.IsDBNull(3) ? (int?)null : r.GetInt(3),
                 Episode = r.IsDBNull(4) ? (int?)null : r.GetInt(4),
@@ -710,11 +710,11 @@ namespace InfiniteDrive.Data
         /// Checks if an item is blocked by any of its IDs (OR match).
         /// Null IDs are skipped. Only checks active blocks (unblocked_at IS NULL).
         /// </summary>
-        public Task<bool> IsBlockedAsync(string? imdbId, string? tmdbId, string? anilistId)
+        public Task<bool> IsBlockedAsync(string? aioId, string? tmdbId, string? anilistId)
         {
             var conditions = new List<string>();
-            if (!string.IsNullOrEmpty(imdbId))
-                conditions.Add("lower(imdb_id) = lower(@imdb_id)");
+            if (!string.IsNullOrEmpty(aioId))
+                conditions.Add("lower(aio_id) = lower(@aio_id)");
             if (!string.IsNullOrEmpty(tmdbId))
                 conditions.Add("lower(tmdb_id) = lower(@tmdb_id)");
             if (!string.IsNullOrEmpty(anilistId))
@@ -727,7 +727,7 @@ namespace InfiniteDrive.Data
 
             using var conn = OpenConnection();
             using var stmt = conn.PrepareStatement(sql);
-            if (!string.IsNullOrEmpty(imdbId)) BindText(stmt, "@imdb_id", imdbId);
+            if (!string.IsNullOrEmpty(aioId)) BindText(stmt, "@aio_id", aioId);
             if (!string.IsNullOrEmpty(tmdbId)) BindText(stmt, "@tmdb_id", tmdbId);
             if (!string.IsNullOrEmpty(anilistId)) BindText(stmt, "@anilist_id", anilistId);
 
@@ -739,16 +739,16 @@ namespace InfiniteDrive.Data
 
         /// <summary>Inserts or updates a blocked item.</summary>
         public async Task UpsertBlockedItemAsync(
-            string? imdbId, string? tmdbId, string? anilistId,
+            string? aioId, string? tmdbId, string? anilistId,
             string title, string mediaType, string blockedBy)
         {
             const string sql = @"
-                INSERT INTO blocked_items (imdb_id, tmdb_id, anilist_id, title, media_type, blocked_at, blocked_by)
-                VALUES (@imdb_id, @tmdb_id, @anilist_id, @title, @media_type, datetime('now'), @blocked_by)";
+                INSERT INTO blocked_items (aio_id, tmdb_id, anilist_id, title, media_type, blocked_at, blocked_by)
+                VALUES (@aio_id, @tmdb_id, @anilist_id, @title, @media_type, datetime('now'), @blocked_by)";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindNullableText(cmd, "@imdb_id", imdbId);
+                BindNullableText(cmd, "@aio_id", aioId);
                 BindNullableText(cmd, "@tmdb_id", tmdbId);
                 BindNullableText(cmd, "@anilist_id", anilistId);
                 BindText(cmd, "@title", title);
@@ -777,7 +777,7 @@ namespace InfiniteDrive.Data
         public async Task<List<BlockedItem>> GetBlockedItemsAsync(int skip, int limit)
         {
             const string sql = @"
-                SELECT id, imdb_id, tmdb_id, anilist_id, title, media_type,
+                SELECT id, aio_id, tmdb_id, anilist_id, title, media_type,
                        blocked_at, blocked_by, unblocked_at, unblocked_by
                 FROM blocked_items
                 WHERE unblocked_at IS NULL
@@ -791,7 +791,7 @@ namespace InfiniteDrive.Data
             }, r => new BlockedItem
             {
                 Id = r.GetInt(0),
-                ImdbId = r.IsDBNull(1) ? null : r.GetString(1),
+                AioId = r.IsDBNull(1) ? null : r.GetString(1),
                 TmdbId = r.IsDBNull(2) ? null : r.GetString(2),
                 AnilistId = r.IsDBNull(3) ? null : r.GetString(3),
                 Title = r.GetString(4),

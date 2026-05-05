@@ -118,7 +118,7 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionBlocked { get; set; } = new CaptionItem("Blocked Content Management");
 
         [DisplayName("Block by Title or ID")]
-        [Description("Enter a movie/show title, IMDB ID (tt1234567), or TMDB ID to block. Then click 'Add to Block List'.")]
+        [Description("Enter a movie/show title, IMDB ID (tt1234567), TMDB ID, Kitsu ID, or AniList ID to block. Then click 'Add to Block List'.")]
         public string BlockListInput { get; set; } = string.Empty;
 
         public ButtonItem AddToBlockListButton { get; set; } = new ButtonItem("Add to Block List")

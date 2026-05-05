@@ -27,23 +27,23 @@ namespace InfiniteDrive.Services
         /// Checks if an item is blocked by any of its IDs.
         /// Any non-null ID is checked; nulls are skipped.
         /// </summary>
-        public Task<bool> IsBlockedAsync(string? imdbId, string? tmdbId, string? anilistId)
+        public Task<bool> IsBlockedAsync(string? aioId, string? tmdbId, string? anilistId)
         {
-            return _db.IsBlockedAsync(imdbId, tmdbId, anilistId);
+            return _db.IsBlockedAsync(aioId, tmdbId, anilistId);
         }
 
         /// <summary>
         /// Blocks an item. Sets blocked_at and blocked_by.
         /// </summary>
         public Task BlockItemAsync(
-            string? imdbId, string? tmdbId, string? anilistId,
+            string? aioId, string? tmdbId, string? anilistId,
             string title, string mediaType, Guid adminUserId)
         {
             _logger.LogInformation("[BlockList] Blocking '{Title}' ({MediaType}) by admin {AdminId}",
                 title, mediaType, adminUserId);
 
             return _db.UpsertBlockedItemAsync(
-                imdbId, tmdbId, anilistId,
+                aioId, tmdbId, anilistId,
                 title, mediaType, adminUserId.ToString());
         }
 

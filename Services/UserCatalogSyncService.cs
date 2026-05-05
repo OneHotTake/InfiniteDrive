@@ -23,7 +23,7 @@ namespace InfiniteDrive.Services
         public int Added         { get; set; }
         public int Updated       { get; set; }
         public int Removed       { get; set; }
-        public int SkippedNoImdb { get; set; }
+        public int SkippedNoAioId { get; set; }
         public long ElapsedMs    { get; set; }
         public string? Error     { get; set; }
     }
@@ -106,23 +106,23 @@ namespace InfiniteDrive.Services
             foreach (var item in items)
             {
                 if (ct.IsCancellationRequested) break;
-                if (string.IsNullOrEmpty(item.ImdbId)) { skippedNoImdb++; continue; }
+                if (string.IsNullOrEmpty(item.AioId)) { skippedNoImdb++; continue; }
 
                 // Resolve non-tt IDs through IdResolverService (tmdb_, mal:, etc.)
-                var resolvedId = item.ImdbId;
-                if (_idResolver != null && !item.ImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                var resolvedId = item.AioId;
+                if (_idResolver != null && !item.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
                 {
                     try
                     {
                         var resolved = await _idResolver.ResolveAsync(
-                            item.ImdbId, string.Empty, item.MediaType ?? "movie", ct);
+                            item.AioId, string.Empty, item.MediaType ?? "movie", ct);
                         resolvedId = resolved.CanonicalId;
                     }
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
                             "[UserCatalogSync] IdResolver failed for {RawId}, using native ID",
-                            item.ImdbId);
+                            item.AioId);
                     }
                 }
 
@@ -134,7 +134,7 @@ namespace InfiniteDrive.Services
                 var catalogItem = existing ?? new CatalogItem
                 {
                     Id        = Guid.NewGuid().ToString(),
-                    ImdbId    = resolvedId,
+                    AioId     = resolvedId,
                     MediaType = item.MediaType ?? "movie",
                     Source    = "external_list",
                 };
@@ -169,14 +169,14 @@ namespace InfiniteDrive.Services
                 Fetched      = items.Count,
                 Added        = added,
                 Updated      = updated,
-                SkippedNoImdb = skippedNoImdb,
+                SkippedNoAioId = skippedNoImdb,
                 ElapsedMs    = sw.ElapsedMilliseconds,
             };
 
             _logger.LogInformation(
                 "[UserCatalogSync] {CatalogId} ({Name}): fetched={Fetched} added={Added} updated={Updated} skipped={Skip} elapsed={Ms}ms",
                 catalogId, catalog.DisplayName,
-                result.Fetched, result.Added, result.Updated, result.SkippedNoImdb, result.ElapsedMs);
+                result.Fetched, result.Added, result.Updated, result.SkippedNoAioId, result.ElapsedMs);
 
             return result;
         }

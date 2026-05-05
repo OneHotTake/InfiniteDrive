@@ -295,8 +295,8 @@ namespace InfiniteDrive.Tasks
                             item.UpdatedAt = DateTime.UtcNow.ToString("o");
                             await db.UpsertCatalogItemAsync(item, cancellationToken);
                             _logger.LogWarning(
-                                "[InfiniteDrive] Integrity fail: {Imdb} .strm folder missing, reset to Queued",
-                                item.ImdbId);
+                                "[InfiniteDrive] Integrity fail: {AioId} .strm folder missing, reset to Queued",
+                                item.AioId);
                         }
                     }
                 }
@@ -308,8 +308,8 @@ namespace InfiniteDrive.Tasks
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
                         await db.UpsertCatalogItemAsync(item, cancellationToken);
                         _logger.LogInformation(
-                            "[InfiniteDrive] Resurrection: {Imdb} real file missing, reset to Queued",
-                            item.ImdbId);
+                            "[InfiniteDrive] Resurrection: {AioId} real file missing, reset to Queued",
+                            item.AioId);
                     }
                 }
             }
@@ -412,7 +412,7 @@ namespace InfiniteDrive.Tasks
                 row => new EnrichmentRequest
                 {
                     Id = row.GetString(0),
-                    ImdbId = row.IsDBNull(1) ? null : row.GetString(1),
+                    AioId = row.IsDBNull(1) ? null : row.GetString(1),
                     Title = row.GetString(2),
                     Year = row.IsDBNull(3) ? (int?)null : row.GetInt(3),
                     RetryCount = row.GetInt(4),
@@ -427,7 +427,7 @@ namespace InfiniteDrive.Tasks
 
             var result = await MetadataEnrichmentService.EnrichBatchAsync(
                 needsEnrichItems,
-                (req, ct) => aioClient.FetchAsync(req.ImdbId, req.Year, ct),
+                (req, ct) => aioClient.FetchAsync(req.AioId, req.Year, ct),
                 db, _logger, cancellationToken);
 
             _logger.LogInformation(

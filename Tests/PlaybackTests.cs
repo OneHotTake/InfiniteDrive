@@ -98,7 +98,7 @@ namespace InfiniteDrive.Tests
                 var candidate = new StreamCandidate
                 {
                     Id = Guid.NewGuid().ToString("N"),
-                    ImdbId = mediaId,
+                    AioId = mediaId,
                     Season = null,
                     Episode = null,
                     Rank = 0,
@@ -154,7 +154,7 @@ namespace InfiniteDrive.Tests
                 var candidate = new StreamCandidate
                 {
                     Id = Guid.NewGuid().ToString("N"),
-                    ImdbId = mediaId,
+                    AioId = mediaId,
                     Season = null,
                     Episode = null,
                     Rank = 0,

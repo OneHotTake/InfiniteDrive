@@ -489,12 +489,12 @@ namespace InfiniteDrive.Tasks
         /// Currently includes IMDB and TMDB; future sprints can add
         /// Kitsu, AniList, MAL after implementing Haglund API integration.
         /// </summary>
-        private static string? BuildUniqueIdsJson(string imdbId, string? tmdbId, JsonElement? meta)
+        private static string? BuildUniqueIdsJson(string aioId, string? tmdbId, JsonElement? meta)
         {
             var ids = new List<System.Text.Json.Nodes.JsonNode>();
 
-            if (!string.IsNullOrEmpty(imdbId))
-                ids.Add(CreateProviderId("imdb", imdbId));
+            if (!string.IsNullOrEmpty(aioId))
+                ids.Add(CreateProviderId("imdb", aioId));
 
             if (!string.IsNullOrEmpty(tmdbId))
                 ids.Add(CreateProviderId("tmdb", tmdbId));
@@ -533,11 +533,11 @@ namespace InfiniteDrive.Tasks
 
             // Resolve IMDB ID — AIOStreams may use the IMDB ID directly as 'id'
             // or put it in a separate imdb_id field.
-            var imdbId = ResolveImdbId(meta.ImdbId ?? meta.Id);
+            var aioId = ResolveImdbId(meta.ImdbId ?? meta.Id);
 
             // For anime catalogs, accept non-IMDB IDs (kitsu:XXXXX, anilist:XXXXX, etc.)
             // when no IMDB cross-reference exists.
-            var primaryId = imdbId;
+            var primaryId = aioId;
             if (string.IsNullOrEmpty(primaryId) && isAnimeCatalog && !string.IsNullOrEmpty(meta.Id))
             {
                 primaryId = meta.Id; // e.g. "kitsu:46474"
@@ -615,7 +615,7 @@ namespace InfiniteDrive.Tasks
             return new CatalogItem
             {
                 Id          = GenerateDeterministicId(primaryId, "aiostreams"),
-                ImdbId       = primaryId,
+                AioId       = aioId,
                 TmdbId       = tmdbId,
                 UniqueIdsJson = BuildUniqueIdsJson(primaryId, tmdbId, null),
                 Title        = meta.Name ?? "Unknown",
@@ -667,15 +667,15 @@ namespace InfiniteDrive.Tasks
         /// This ensures the same item always gets the same ID, preventing
         /// UNIQUE constraint violations during upsert operations.
         /// </summary>
-        internal static string GenerateDeterministicId(string imdbId, string source)
+        internal static string GenerateDeterministicId(string aioId, string source)
         {
-            // Use a hash of (imdb_id + source) to create a deterministic ID
-            // Format: {first 8 chars of hash}-{imdb_id}
+            // Use a hash of (aio_id + source) to create a deterministic ID
+            // Format: {first 8 chars of hash}-{aio_id}
             using var hash = System.Security.Cryptography.MD5.Create();
-            var input = $"{imdbId}:{source}";
+            var input = $"{aioId}:{source}";
             var hashBytes = hash.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
             var hashString = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 8);
-            return $"{hashString}-{imdbId}";
+            return $"{hashString}-{aioId}";
         }
 
         /// <summary>

@@ -12,12 +12,11 @@ namespace InfiniteDrive.Models
         public string Id { get; set; } = Guid.NewGuid().ToString();
 
         /// <summary>
-        /// Canonical primary ID. May be a tt-prefixed IMDb ID when resolved,
-        /// or a native provider ID (e.g., tmdb_260192) when resolution failed.
-        /// Used as the deduplication key despite the column name.
-        /// Updated in Sprint 160 to clarify it's not always an IMDb ID.
+        /// AIOStreams primary ID. May be a tt-prefixed IMDb ID, a Kitsu ID (e.g. kitsu:46474),
+        /// or another provider-native ID depending on the catalog source.
+        /// Used as the deduplication key.
         /// </summary>
-        public string ImdbId { get; set; } = string.Empty;
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>TMDB numeric ID as string, or null if unknown.</summary>
         public string? TmdbId { get; set; }

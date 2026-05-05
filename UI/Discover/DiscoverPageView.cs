@@ -88,7 +88,7 @@ namespace InfiniteDrive.UI.Discover
                 {
                     ui.BlockedItems.Add(new GenericListItem
                     {
-                        PrimaryText = item.Title.Length > 0 ? item.Title : (item.ImdbId ?? item.Id.ToString()),
+                        PrimaryText = item.Title.Length > 0 ? item.Title : (item.AioId ?? item.Id.ToString()),
                         SecondaryText = $"Blocked on {item.BlockedAt}",
                         Icon = IconNames.block,
                         IconMode = ItemListIconMode.SmallRegular,

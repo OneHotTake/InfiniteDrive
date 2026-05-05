@@ -288,25 +288,25 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Blocks a catalog item by its IMDB ID.
+        /// Blocks a catalog item by its AIO ID.
         /// Sets blocked_at and blocked_by, clearing nfo_status.
         /// </summary>
-        public async Task BlockCatalogItemByAioIdAsync(string imdbId, string blockedBy, CancellationToken ct = default)
+        public async Task BlockCatalogItemByAioIdAsync(string aioId, string blockedBy, CancellationToken ct = default)
         {
             const string sql = @"
                 UPDATE catalog_items
                 SET blocked_at  = datetime('now'),
                     blocked_by  = @blocked_by,
                     updated_at  = datetime('now')
-                WHERE imdb_id = @imdb_id;";
+                WHERE aio_id = @aio_id;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", aioId);
                 BindText(cmd, "@blocked_by", blockedBy);
             }, ct);
 
-            _logger.LogInformation("[DatabaseManager] Blocked catalog item {ImdbId}", imdbId);
+            _logger.LogInformation("[DatabaseManager] Blocked catalog item {AioId}", aioId);
         }
 
         /// <summary>

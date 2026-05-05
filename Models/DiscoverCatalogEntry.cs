@@ -7,7 +7,7 @@ namespace InfiniteDrive.Models
     public class DiscoverCatalogEntry
     {
         public string Id { get; set; } = string.Empty;                    // Unique ID (aio:{type}:{imdbid})
-        public string ImdbId { get; set; } = string.Empty;                // IMDb ID (tt...)
+        public string AioId { get; set; } = string.Empty;                 // AIOStreams primary ID
         public string Title { get; set; } = string.Empty;
         public int? Year { get; set; }
         public string MediaType { get; set; } = "movie";                  // "movie" or "series"

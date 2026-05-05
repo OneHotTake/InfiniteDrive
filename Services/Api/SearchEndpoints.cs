@@ -29,8 +29,8 @@ namespace InfiniteDrive.Services
     /// <summary>One search result row.</summary>
     public class SearchResultItem
     {
-        /// <summary>IMDB ID.</summary>
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>Title.</summary>
         public string Title { get; set; } = string.Empty;
@@ -108,10 +108,10 @@ namespace InfiniteDrive.Services
                 var results = new List<SearchResultItem>(items.Count);
                 foreach (var item in items)
                 {
-                    var cached = await db.GetCachedStreamAsync(item.ImdbId, null, null);
+                    var cached = await db.GetCachedStreamAsync(item.AioId, null, null);
                     results.Add(new SearchResultItem
                     {
-                        ImdbId       = item.ImdbId,
+                        AioId        = item.AioId,
                         Title        = item.Title,
                         Year         = item.Year,
                         MediaType    = item.MediaType,

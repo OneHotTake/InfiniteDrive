@@ -15,7 +15,7 @@ namespace InfiniteDrive.Services
     /// </summary>
     public sealed record ListItem(
         string Title,
-        string? ImdbId,
+        string? AioId,
         int? Year,
         string? MediaType);
 

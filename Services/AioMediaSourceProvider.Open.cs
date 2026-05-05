@@ -29,8 +29,8 @@ namespace InfiniteDrive.Services
             try
             {
                 tokenData = JsonSerializer.Deserialize<OpenTokenData>(openToken);
-                _logger.LogInformation("[AioMediaSourceProvider] OpenTokenData parsed: ImdbId={ImdbId}, MediaType={MediaType}, CandidateCount={Count}",
-                    tokenData?.ImdbId, tokenData?.MediaType, tokenData?.Candidates?.Count ?? 0);
+                _logger.LogInformation("[AioMediaSourceProvider] OpenTokenData parsed: AioId={AioId}, MediaType={MediaType}, CandidateCount={Count}",
+                    tokenData?.AioId, tokenData?.MediaType, tokenData?.Candidates?.Count ?? 0);
                 if (tokenData?.Candidates != null && tokenData.Candidates.Count > 0)
                     _logger.LogInformation("[AioMediaSourceProvider] First 3 candidates: Ranks=[{Ranks}], Providers=[{Providers}]",
                         string.Join(", ", tokenData.Candidates.Take(3).Select(c => c.Rank)),
@@ -61,8 +61,8 @@ namespace InfiniteDrive.Services
 
             // Try candidates in rank order — Open() is the health check, no HEAD pre-filter
             // (CDN returns 405 for HEAD, so HEAD is useless as a pre-check)
-            _logger.LogInformation("[AioMediaSourceProvider] Starting candidate loop for {ImdbId}, {Count} candidates",
-                tokenData.ImdbId, tokenData.Candidates.Count);
+            _logger.LogInformation("[AioMediaSourceProvider] Starting candidate loop for {AioId}, {Count} candidates",
+                tokenData.AioId, tokenData.Candidates.Count);
             for (var i = 0; i < tokenData.Candidates.Count; i++)
             {
                 var cand = tokenData.Candidates[i];
@@ -72,12 +72,12 @@ namespace InfiniteDrive.Services
 
                 try
                 {
-                    var source = await BuildSourceFromCandidateAsync(cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
+                    var source = await BuildSourceFromCandidateAsync(cand, tokenData.AioId, cancellationToken).ConfigureAwait(false);
                     var liveStream = new InfiniteDriveLiveStream(source, _logger);
                     await liveStream.Open(cancellationToken).ConfigureAwait(false);
                     _logger.LogInformation(
-                        "[AioMediaSourceProvider] Opened rank {Rank} for {ImdbId} via {Provider}",
-                        cand.Rank, tokenData.ImdbId, cand.ProviderKey);
+                        "[AioMediaSourceProvider] Opened rank {Rank} for {AioId} via {Provider}",
+                        cand.Rank, tokenData.AioId, cand.ProviderKey);
                     return liveStream;
                 }
                 catch (Exception ex)
@@ -90,12 +90,12 @@ namespace InfiniteDrive.Services
                         try
                         {
                             var freshUrl = await TryRefreshCandidateUrlAsync(
-                                cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
+                                cand, tokenData.AioId, cancellationToken).ConfigureAwait(false);
                             if (!string.IsNullOrEmpty(freshUrl))
                             {
                                 cand.Url = freshUrl;
                                 var refreshedSource = await BuildSourceFromCandidateAsync(
-                                    cand, tokenData.ImdbId, cancellationToken).ConfigureAwait(false);
+                                    cand, tokenData.AioId, cancellationToken).ConfigureAwait(false);
                                 var refreshedStream = new InfiniteDriveLiveStream(refreshedSource, _logger);
                                 await refreshedStream.Open(cancellationToken).ConfigureAwait(false);
                                 _logger.LogInformation("[AioMediaSourceProvider] Refreshed rank {Rank}", cand.Rank);
@@ -111,18 +111,18 @@ namespace InfiniteDrive.Services
                     // Mark failed in DB
                     var failedDb = Plugin.Instance?.DatabaseManager;
                     if (failedDb != null)
-                        _ = failedDb.UpdateCandidateStatusAsync(tokenData.ImdbId, null, null, cand.Rank, "failed");
+                        _ = failedDb.UpdateCandidateStatusAsync(tokenData.AioId, null, null, cand.Rank, "failed");
 
                     continue;
                 }
             }
 
             // All candidates exhausted — attempt fresh resolve before giving up
-            _logger.LogWarning("[AioMediaSourceProvider] All {Count} candidates failed for {Imdb}, attempting fresh resolve",
-                tokenData.Candidates.Count, tokenData.ImdbId);
+            _logger.LogWarning("[AioMediaSourceProvider] All {Count} candidates failed for {AioId}, attempting fresh resolve",
+                tokenData.Candidates.Count, tokenData.AioId);
 
             var freshStreamResult = await TryFreshResolveAsync(
-                tokenData.ImdbId, tokenData.MediaType ?? "movie", null, null, cancellationToken).ConfigureAwait(false);
+                tokenData.AioId, tokenData.MediaType ?? "movie", null, null, cancellationToken).ConfigureAwait(false);
             if (freshStreamResult != null) return freshStreamResult;
 
             throw new InvalidOperationException("All candidates failed and fresh resolve returned no results");
@@ -185,7 +185,7 @@ namespace InfiniteDrive.Services
                                     var json = SerializeProbeStreams(probed);
                                     var db = Plugin.Instance?.DatabaseManager;
                                     if (db != null) _ = db.SaveProbeJsonAsync(sk, json);
-                                    InvalidateCache(token.ImdbId, token.Season, token.Episode);
+                                    InvalidateCache(token.AioId, token.Season, token.Episode);
                                 }
                             }
                         }
@@ -200,7 +200,7 @@ namespace InfiniteDrive.Services
 
                     var liveStream = new InfiniteDriveLiveStream(source, _logger);
                     await liveStream.Open(cancellationToken).ConfigureAwait(false);
-                    _logger.LogInformation("[AioMediaSourceProvider] Opened cached URL for {Imdb}", token.ImdbId);
+                    _logger.LogInformation("[AioMediaSourceProvider] Opened cached URL for {AioId}", token.AioId);
                     return liveStream;
                 }
                 catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "cached URL expired, falling through to fresh resolve"); }
@@ -209,13 +209,13 @@ namespace InfiniteDrive.Services
             // Fresh resolve via AIOStreams using infoHash+fileIdx or filename match
             var providers = ProviderHelper.GetProviders(config);
             var response = await AioStreamsClient.FetchAioStreamsAsync(
-                providers, token.ImdbId, token.MediaType ?? "movie",
+                providers, token.AioId, token.MediaType ?? "movie",
                 token.Season, token.Episode,
                 _logger, Plugin.Instance?.ResolverHealthTracker,
                 cooldown: null, cancellationToken).ConfigureAwait(false);
 
             if (response?.Streams == null)
-                throw new InvalidOperationException($"Could not resolve stream for {token.ImdbId}");
+                throw new InvalidOperationException($"Could not resolve stream for {token.AioId}");
 
             // Find the stream matching our infoHash+fileIdx, or by filename
             var match = !string.IsNullOrEmpty(token.InfoHash)
@@ -236,7 +236,7 @@ namespace InfiniteDrive.Services
                 match = response.Streams.FirstOrDefault(s => !string.IsNullOrEmpty(s.Url));
 
             if (match == null || string.IsNullOrEmpty(match.Url))
-                throw new InvalidOperationException($"No usable stream URL for {token.ImdbId}");
+                throw new InvalidOperationException($"No usable stream URL for {token.AioId}");
 
             var freshSource = new MediaSourceInfo
             {
@@ -280,7 +280,7 @@ namespace InfiniteDrive.Services
                             var json = SerializeProbeStreams(probed);
                             var db = Plugin.Instance?.DatabaseManager;
                             if (db != null) _ = db.SaveProbeJsonAsync(sk, json);
-                            InvalidateCache(token.ImdbId, token.Season, token.Episode);
+                            InvalidateCache(token.AioId, token.Season, token.Episode);
                         }
                     }
                 }
@@ -295,11 +295,11 @@ namespace InfiniteDrive.Services
 
             var freshLiveStream = new InfiniteDriveLiveStream(freshSource, _logger);
             await freshLiveStream.Open(cancellationToken).ConfigureAwait(false);
-            _logger.LogInformation("[AioMediaSourceProvider] Opened fresh CDN for {Imdb} via infoHash", token.ImdbId);
+            _logger.LogInformation("[AioMediaSourceProvider] Opened fresh CDN for {AioId} via infoHash", token.AioId);
             return freshLiveStream;
         }
         private async Task<string?> TryRefreshCandidateUrlAsync(
-            OpenTokenCandidate cand, string imdbId, CancellationToken ct)
+            OpenTokenCandidate cand, string aioId, CancellationToken ct)
         {
             var config = Plugin.Instance?.Configuration;
             if (config == null) return null;
@@ -314,7 +314,7 @@ namespace InfiniteDrive.Services
                     using var client = AioStreamsClientFactory.CreateForProvider(provider, _logger);
 
                     AioStreamsStreamResponse? response;
-                    response = await client.GetMovieStreamsAsync(imdbId, ct).ConfigureAwait(false);
+                    response = await client.GetMovieStreamsAsync(aioId, ct).ConfigureAwait(false);
 
                     if (response?.Streams == null || response.Streams.Count == 0) continue;
 
@@ -338,7 +338,7 @@ namespace InfiniteDrive.Services
                     {
                         // infoHash absent from response — mark failed
                         if (db != null)
-                            _ = db.UpdateCandidateStatusAsync(imdbId, null, null, cand.Rank, "failed");
+                            _ = db.UpdateCandidateStatusAsync(aioId, null, null, cand.Rank, "failed");
                         continue;
                     }
 
@@ -368,14 +368,14 @@ namespace InfiniteDrive.Services
         /// Reuses the live scoring pipeline (AIOStreams → RankAndFilter → SelectBest).
         /// </summary>
         private async Task<ILiveStream?> TryFreshResolveAsync(
-            string imdbId, string mediaType, int? season, int? episode, CancellationToken ct)
+            string aioId, string mediaType, int? season, int? episode, CancellationToken ct)
         {
             var config = Plugin.Instance?.Configuration;
             if (config == null) return null;
 
             try
             {
-                var candidates = await ResolveFromAioStreams(imdbId, mediaType, season, episode, config).ConfigureAwait(false);
+                var candidates = await ResolveFromAioStreams(aioId, mediaType, season, episode, config).ConfigureAwait(false);
                 var best = candidates.FirstOrDefault(c => !string.IsNullOrEmpty(c.Url));
                 if (best == null) return null;
 
@@ -417,7 +417,7 @@ namespace InfiniteDrive.Services
                                 var json = SerializeProbeStreams(probed);
                                 var db = Plugin.Instance?.DatabaseManager;
                                 if (db != null) _ = db.SaveProbeJsonAsync(best.StreamKey, json);
-                                InvalidateCache(imdbId, season, episode);
+                                InvalidateCache(aioId, season, episode);
                             }
                         }
                     }
@@ -428,7 +428,7 @@ namespace InfiniteDrive.Services
 
                 var liveStream = new InfiniteDriveLiveStream(source, _logger);
                 await liveStream.Open(ct).ConfigureAwait(false);
-                _logger.LogInformation("[AioMediaSourceProvider] Fresh resolve succeeded for {Imdb}", imdbId);
+                _logger.LogInformation("[AioMediaSourceProvider] Fresh resolve succeeded for {AioId}", aioId);
                 return liveStream;
             }
             catch (Exception ex) { _logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "TryFreshResolveAsync failed"); return null; }

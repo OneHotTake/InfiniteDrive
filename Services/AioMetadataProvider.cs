@@ -108,7 +108,7 @@ namespace InfiniteDrive.Services
         }
 
         private static readonly Regex IdTagPattern = new(
-            @"[[{](imdbid|tmdbid|tvdbid)[=-](.+?)[\]}}]",
+            @"[[{](imdbid|tmdbid|tvdbid|kitsu|anilist|mal|anidb|simkl)[=-](.+?)[\]}}]",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         private static async Task<CatalogItem?> ResolveFromPathNameAsync(string path, HashSet<string> enabledTypes)
@@ -186,12 +186,15 @@ namespace InfiniteDrive.Services
                 return await FindInDb("IMDB", idValue).ConfigureAwait(false);
             }
 
-            // Kitsu: kitsu:XXXXX
-            if (idValue.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase))
+            // Prefixed schemes: kitsu:XXXXX, mal:XXXXX, anilist:XXXXX, tmdb:XXXXX, tvdb:XXXXX, anidb:XXXXX, simkl:XXXXX
+            if (idValue.Contains(':'))
             {
-                var kitsuId = idValue["kitsu:".Length..];
-                if (!enabledTypes.Contains("Kitsu")) return null;
-                return await FindInDb("Kitsu", kitsuId).ConfigureAwait(false);
+                var sep = idValue.IndexOf(':');
+                var provider = idValue[..sep];
+                var providerId = idValue[(sep + 1)..];
+                var normalizedKey = char.ToUpper(provider[0]) + provider[1..].ToLowerInvariant();
+                if (!enabledTypes.Contains(normalizedKey)) return null;
+                return await FindInDb(normalizedKey, providerId).ConfigureAwait(false);
             }
 
             // Numeric: try as TMDB
@@ -293,8 +296,8 @@ namespace InfiniteDrive.Services
 
         private static void SetProviderIds(BaseItem item, CatalogItem catalogItem)
         {
-            if (!string.IsNullOrWhiteSpace(catalogItem.ImdbId))
-                item.SetProviderId("IMDB", catalogItem.ImdbId);
+            if (!string.IsNullOrWhiteSpace(catalogItem.AioId) && catalogItem.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                item.SetProviderId("IMDB", catalogItem.AioId);
             if (!string.IsNullOrWhiteSpace(catalogItem.TmdbId))
                 item.SetProviderId("TMDB", catalogItem.TmdbId);
             if (!string.IsNullOrWhiteSpace(catalogItem.TvdbId))

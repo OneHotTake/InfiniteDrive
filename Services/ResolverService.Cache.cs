@@ -99,7 +99,7 @@ namespace InfiniteDrive.Services
                     .Where(v => !string.IsNullOrEmpty(v.Url))
                     .Select((v, i) => new StreamCandidate
                     {
-                        ImdbId = req.Id,
+                        AioId = req.Id,
                         Season = req.Season,
                         Episode = req.Episode,
                         Rank = i,
@@ -205,7 +205,7 @@ namespace InfiniteDrive.Services
             if (match != null)
             {
                 _logger.LogDebug("[Resolve] Preferring language-matched candidate ({Lang}) for {Id}",
-                    userLang, match.ImdbId);
+                    userLang, match.AioId);
                 return match;
             }
 
@@ -227,7 +227,7 @@ namespace InfiniteDrive.Services
 
                 var entry = new ResolutionEntry
                 {
-                    ImdbId = req.Id,
+                    AioId = req.Id,
                     Season = req.Season,
                     Episode = req.Episode,
                     StreamUrl = resolved.PlaybackUrl,
@@ -241,7 +241,7 @@ namespace InfiniteDrive.Services
 
                 var candidate = new StreamCandidate
                 {
-                    ImdbId = req.Id,
+                    AioId = req.Id,
                     Season = req.Season,
                     Episode = req.Episode,
                     Rank = 0,

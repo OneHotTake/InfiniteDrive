@@ -303,22 +303,22 @@ namespace InfiniteDrive.Services
         /// AIOStreams returns streams sorted by user preference; always use index 0.
         /// </summary>
         public Task<AioStreamsStreamResponse?> GetMovieStreamsAsync(
-            string imdbId,
+            string aioId,
             CancellationToken cancellationToken = default,
             string? sel = null)
-            => GetStreamsCoreAsync("movie", imdbId, "GetMovieStreamsAsync", sel, cancellationToken);
+            => GetStreamsCoreAsync("movie", aioId, "GetMovieStreamsAsync", sel, cancellationToken);
 
         /// <summary>
         /// Fetches streams for a TV episode.
         /// AIOStreams returns streams sorted by user preference; always use index 0.
         /// </summary>
         public Task<AioStreamsStreamResponse?> GetSeriesStreamsAsync(
-            string imdbId,
+            string aioId,
             int season,
             int episode,
             CancellationToken cancellationToken = default,
             string? sel = null)
-            => GetStreamsCoreAsync("series", $"{imdbId}:{season}:{episode}", "GetSeriesStreamsAsync", sel, cancellationToken);
+            => GetStreamsCoreAsync("series", $"{aioId}:{season}:{episode}", "GetSeriesStreamsAsync", sel, cancellationToken);
 
         private async Task<AioStreamsStreamResponse?> GetStreamsCoreAsync(
             string type, string id, string label, string? sel, CancellationToken ct)
@@ -354,7 +354,7 @@ namespace InfiniteDrive.Services
         /// </summary>
         internal static async Task<AioStreamsStreamResponse?> FetchAioStreamsAsync(
             IReadOnlyList<ProviderInfo> providers,
-            string imdbId, string mediaType, int? season, int? episode,
+            string aioId, string mediaType, int? season, int? episode,
             ILogger logger,
             ResolverHealthTracker? healthTracker,
             CooldownGate? cooldown,
@@ -375,25 +375,25 @@ namespace InfiniteDrive.Services
 
                     AioStreamsStreamResponse? response;
                     if (mediaType == "series" && season.HasValue && episode.HasValue)
-                        response = await client.GetSeriesStreamsAsync(imdbId, season.Value, episode.Value, ct).ConfigureAwait(false);
+                        response = await client.GetSeriesStreamsAsync(aioId, season.Value, episode.Value, ct).ConfigureAwait(false);
                     else
-                        response = await client.GetMovieStreamsAsync(imdbId, ct).ConfigureAwait(false);
+                        response = await client.GetMovieStreamsAsync(aioId, ct).ConfigureAwait(false);
 
                     if (response?.Streams == null || response.Streams.Count == 0)
                     {
-                        logger.LogDebug("[InfiniteDrive] No streams from {Name} for {Id}", provider.DisplayName, imdbId);
+                        logger.LogDebug("[InfiniteDrive] No streams from {Name} for {Id}", provider.DisplayName, aioId);
                         continue;
                     }
 
                     if (healthTracker != null) healthTracker.RecordSuccess(provider.DisplayName);
                     logger.LogInformation("[InfiniteDrive] Got {Count} streams for {Id} from {Provider}",
-                        response.Streams.Count, imdbId, provider.DisplayName);
+                        response.Streams.Count, aioId, provider.DisplayName);
                     return response;
                 }
                 catch (Exception ex)
                 {
                     if (healthTracker != null) healthTracker.RecordFailure(provider.DisplayName);
-                    logger.LogWarning(ex, "[InfiniteDrive] Provider {Name} failed for {Id}", provider.DisplayName, imdbId);
+                    logger.LogWarning(ex, "[InfiniteDrive] Provider {Name} failed for {Id}", provider.DisplayName, aioId);
                 }
             }
 
@@ -530,14 +530,14 @@ namespace InfiniteDrive.Services
         /// Returns the stream URL for a movie without making an HTTP call.
         /// Useful for building .strm file content and debug logging.
         /// </summary>
-        public string GetMovieStreamUrl(string imdbId)
-            => $"{_stremioBase}/stream/movie/{Uri.EscapeDataString(imdbId)}.json";
+        public string GetMovieStreamUrl(string aioId)
+            => $"{_stremioBase}/stream/movie/{Uri.EscapeDataString(aioId)}.json";
 
         /// <summary>
         /// Returns the stream URL for a TV episode without making an HTTP call.
         /// </summary>
-        public string GetSeriesStreamUrl(string imdbId, int season, int episode)
-            => $"{_stremioBase}/stream/series/{Uri.EscapeDataString($"{imdbId}:{season}:{episode}")}.json";
+        public string GetSeriesStreamUrl(string aioId, int season, int episode)
+            => $"{_stremioBase}/stream/series/{Uri.EscapeDataString($"{aioId}:{season}:{episode}")}.json";
 
         /// <summary>
         /// ── FIX-100B-05: Kitsu/AniList absolute episode numbering ────

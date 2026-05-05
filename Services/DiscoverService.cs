@@ -27,8 +27,8 @@ namespace InfiniteDrive.Services
     public class DiscoverTestStreamResolutionRequest : IReturn<DiscoverTestStreamResolutionResponse>
     {
         /// <summary>IMDb ID of the item to resolve (required).</summary>
-        [ApiMember(Name = "imdb", Description = "IMDb ID (e.g., tt0133093)", DataType = "string", ParameterType = "query")]
-        public string ImdbId { get; set; } = "";
+        [ApiMember(Name = "aioId", Description = "AIOStreams ID", DataType = "string", ParameterType = "query")]
+        public string AioId { get; set; } = "";
 
         /// <summary>Season number (for TV series).</summary>
         [ApiMember(Name = "season", Description = "Season number", DataType = "int", ParameterType = "query")]
@@ -130,9 +130,9 @@ namespace InfiniteDrive.Services
         Summary = "Get detailed metadata for a Discover item")]
     public class DiscoverDetailRequest : IReturn<DiscoverDetailResponse>
     {
-        /// <summary>IMDB ID, e.g. <c>tt1160419</c>.</summary>
-        [ApiMember(Name = "imdbId", Description = "IMDB ID", IsRequired = true, DataType = "string", ParameterType = "query")]
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        [ApiMember(Name = "aioId", Description = "AIOStreams ID", IsRequired = true, DataType = "string", ParameterType = "query")]
+        public string AioId { get; set; } = string.Empty;
     }
 
     /// <summary>Response from <c>GET /InfiniteDrive/Discover/Detail</c>.</summary>
@@ -150,9 +150,9 @@ namespace InfiniteDrive.Services
         Summary = "Add a Discover item to the user's library")]
     public class DiscoverAddToLibraryRequest : IReturn<DiscoverAddToLibraryResponse>
     {
-        /// <summary>IMDB ID of the item to add.</summary>
-        [ApiMember(Name = "imdbId", Description = "IMDB ID", IsRequired = true, DataType = "string", ParameterType = "query")]
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        [ApiMember(Name = "aioId", Description = "AIOStreams ID", IsRequired = true, DataType = "string", ParameterType = "query")]
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>Media type: <c>movie</c> or <c>series</c>.</summary>
         [ApiMember(Name = "type", Description = "Media type", IsRequired = true, DataType = "string", ParameterType = "query")]
@@ -188,9 +188,9 @@ namespace InfiniteDrive.Services
         Summary = "Remove item from current user's saved library")]
     public class DiscoverRemoveFromLibraryRequest : IReturn<DiscoverRemoveFromLibraryResponse>
     {
-        /// <summary>IMDB ID of the item to remove.</summary>
-        [ApiMember(Name = "imdbId", Description = "IMDB ID", IsRequired = true, DataType = "string", ParameterType = "query")]
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        [ApiMember(Name = "aioId", Description = "AIOStreams ID", IsRequired = true, DataType = "string", ParameterType = "query")]
+        public string AioId { get; set; } = string.Empty;
     }
 
     /// <summary>Response from <c>POST /InfiniteDrive/Discover/RemoveFromLibrary</c>.</summary>
@@ -209,8 +209,8 @@ namespace InfiniteDrive.Services
     /// </summary>
     public class DiscoverItem
     {
-        /// <summary>IMDB ID.</summary>
-        public string ImdbId { get; set; } = string.Empty;
+        /// <summary>AIOStreams primary ID.</summary>
+        public string AioId { get; set; } = string.Empty;
 
         /// <summary>Display title.</summary>
         public string Title { get; set; } = string.Empty;
@@ -393,7 +393,7 @@ namespace InfiniteDrive.Services
 
                 // Deduplicate by IMDB ID
                 var deduped = items
-                    .GroupBy(i => i.ImdbId, StringComparer.OrdinalIgnoreCase)
+                    .GroupBy(i => i.AioId, StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.First())
                     .OrderBy(x => x.InLibrary ? 0 : 1)
                     .Take(50)
@@ -519,15 +519,15 @@ namespace InfiniteDrive.Services
                             if (string.IsNullOrWhiteSpace(meta.Id) && string.IsNullOrWhiteSpace(meta.ImdbId))
                                 continue;
 
-                            var imdbId = meta.ImdbId ?? meta.Id ?? "";
-                            if (string.IsNullOrWhiteSpace(imdbId))
+                            var aioId = meta.ImdbId ?? meta.Id ?? "";
+                            if (string.IsNullOrWhiteSpace(aioId))
                                 continue;
 
-                            if (!liveResults.ContainsKey(imdbId))
+                            if (!liveResults.ContainsKey(aioId))
                             {
                                 var item = new DiscoverItem
                                 {
-                                    ImdbId = imdbId,
+                                    AioId = aioId,
                                     Title = meta.Name ?? "",
                                     Year = ParseYear(meta.ReleaseInfo),
                                     MediaType = meta.Type ?? catalogDef.Type ?? "movie",
@@ -539,8 +539,8 @@ namespace InfiniteDrive.Services
                                     InLibrary = false,
                                     CatalogSource = $"search:{query}"
                                 };
-                                liveResults[imdbId] = (item, catalogDef.Id!);
-                                _ = CacheLiveSearchResultAsync(imdbId, meta, catalogDef);
+                                liveResults[aioId] = (item, catalogDef.Id!);
+                                _ = CacheLiveSearchResultAsync(aioId, meta, catalogDef);
                             }
                         }
                     }
@@ -558,14 +558,14 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Caches a live search result to the database for future queries.
         /// </summary>
-        private async Task CacheLiveSearchResultAsync(string imdbId, AioStreamsMeta meta, AioStreamsCatalogDef catalogDef)
+        private async Task CacheLiveSearchResultAsync(string aioId, AioStreamsMeta meta, AioStreamsCatalogDef catalogDef)
         {
             try
             {
                 var entry = new DiscoverCatalogEntry
                 {
-                    Id = $"aio:{catalogDef.Type}:{imdbId}",
-                    ImdbId = imdbId,
+                    Id = $"aio:{catalogDef.Type}:{aioId}",
+                    AioId = aioId,
                     Title = meta.Name ?? "",
                     Year = ParseYear(meta.ReleaseInfo),
                     MediaType = meta.Type ?? catalogDef.Type ?? "movie",
@@ -582,7 +582,7 @@ namespace InfiniteDrive.Services
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "Failed to cache live search result for {ImdbId}", imdbId);
+                _logger.LogDebug(ex, "Failed to cache live search result for {AioId}", aioId);
             }
         }
 
@@ -699,12 +699,12 @@ namespace InfiniteDrive.Services
 
             try
             {
-                if (string.IsNullOrWhiteSpace(req.ImdbId))
+                if (string.IsNullOrWhiteSpace(req.AioId))
                 {
                     return new DiscoverDetailResponse { Item = null };
                 }
 
-                var entry = await _db.GetDiscoverCatalogEntryByAioIdAsync(req.ImdbId);
+                var entry = await _db.GetDiscoverCatalogEntryByAioIdAsync(req.AioId);
                 if (entry == null)
                 {
                     return new DiscoverDetailResponse { Item = null };
@@ -740,19 +740,19 @@ namespace InfiniteDrive.Services
             try
             {
                 // Validate inputs
-                if (string.IsNullOrWhiteSpace(req.ImdbId) ||
+                if (string.IsNullOrWhiteSpace(req.AioId) ||
                     string.IsNullOrWhiteSpace(req.Type) ||
                     string.IsNullOrWhiteSpace(req.Title))
                 {
                     return new DiscoverAddToLibraryResponse
                     {
                         Ok = false,
-                        Error = "ImdbId, Type, and Title are required"
+                        Error = "AioId, Type, and Title are required"
                     };
                 }
 
                 // Check if already in library
-                var existing = await _db.GetCatalogItemByAioIdAsync(req.ImdbId);
+                var existing = await _db.GetCatalogItemByAioIdAsync(req.AioId);
                 if (existing != null)
                 {
                     return new DiscoverAddToLibraryResponse
@@ -799,7 +799,7 @@ namespace InfiniteDrive.Services
                 var catalogItem = new CatalogItem
                 {
                     Id = Guid.NewGuid().ToString(),
-                    ImdbId = req.ImdbId,
+                    AioId = req.AioId,
                     Title = req.Title,
                     Year = req.Year,
                     MediaType = req.Type.ToLowerInvariant(),
@@ -832,12 +832,13 @@ namespace InfiniteDrive.Services
                 await _db.UpsertCatalogItemAsync(catalogItem);
 
                 // Update discover_catalog to mark as in library
-                await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.ImdbId, true);
+                await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.AioId, true);
 
-                // Per-user save: resolve IMDB ID → media_item, then save for calling user
+                // Per-user save: resolve AIO ID → media_item, then save for calling user
                 if (!string.IsNullOrEmpty(callerUserId))
                 {
-                    var mediaItem = await _db.FindMediaItemByProviderIdAsync("imdb", req.ImdbId, ct);
+                    var (providerKey, providerValue) = ParseAioIdForProvider(req.AioId);
+                    var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, ct);
                     if (mediaItem != null)
                     {
                         await _db.UpsertUserSaveAsync(callerUserId, mediaItem.Id, "explicit", null, ct);
@@ -846,11 +847,11 @@ namespace InfiniteDrive.Services
                     }
                     else
                     {
-                        _logger.LogDebug("Media item not yet indexed for IMDB {ImdbId}, per-user save deferred to SyncTask", req.ImdbId);
+                        _logger.LogDebug("Media item not yet indexed for AIO ID {AioId}, per-user save deferred to SyncTask", req.AioId);
                     }
                 }
 
-                _logger.LogInformation("Added {ImdbId} to library", req.ImdbId);
+                _logger.LogInformation("Added {AioId} to library", req.AioId);
 
                 // Auto-trigger library refresh in background (fire-and-forget)
                 // This ensures that new .strm file is indexed automatically without user action
@@ -864,7 +865,7 @@ namespace InfiniteDrive.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error adding item to library: {ImdbId}", req.ImdbId);
+                _logger.LogError(ex, "Error adding item to library: {AioId}", req.AioId);
                 return new DiscoverAddToLibraryResponse
                 {
                     Ok = false,
@@ -884,12 +885,12 @@ namespace InfiniteDrive.Services
 
             try
             {
-                if (string.IsNullOrWhiteSpace(req.ImdbId))
+                if (string.IsNullOrWhiteSpace(req.AioId))
                 {
                     return new DiscoverRemoveFromLibraryResponse
                     {
                         Ok = false,
-                        Error = "ImdbId is required"
+                        Error = "AioId is required"
                     };
                 }
 
@@ -903,7 +904,8 @@ namespace InfiniteDrive.Services
                     };
                 }
 
-                var mediaItem = await _db.FindMediaItemByProviderIdAsync("imdb", req.ImdbId, ct);
+                var (providerKey, providerValue) = ParseAioIdForProvider(req.AioId);
+                var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, ct);
                 if (mediaItem == null)
                 {
                     return new DiscoverRemoveFromLibraryResponse
@@ -915,15 +917,15 @@ namespace InfiniteDrive.Services
 
                 await _db.DeleteUserSaveAsync(callerUserId, mediaItem.Id, ct);
                 await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
-                await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.ImdbId, false);
+                await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.AioId, false);
 
-                _logger.LogInformation("Removed {ImdbId} from library for user {UserId}", req.ImdbId, callerUserId);
+                _logger.LogInformation("Removed {AioId} from library for user {UserId}", req.AioId, callerUserId);
 
                 return new DiscoverRemoveFromLibraryResponse { Ok = true };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error removing item from library: {ImdbId}", req.ImdbId);
+                _logger.LogError(ex, "Error removing item from library: {AioId}", req.AioId);
                 return new DiscoverRemoveFromLibraryResponse
                 {
                     Ok = false,
@@ -988,18 +990,19 @@ namespace InfiniteDrive.Services
         /// </summary>
         private async Task<DiscoverItem> MapMetaToDiscoverItemAsync(AioStreamsMeta meta)
         {
-            var imdbId = meta.ImdbId ?? meta.Id ?? "";
+            var aioId = meta.ImdbId ?? meta.Id ?? "";
             string? embyItemId = null;
             var inLibrary = false;
 
-            if (!string.IsNullOrWhiteSpace(imdbId))
+            if (!string.IsNullOrWhiteSpace(aioId))
             {
                 try
                 {
+                    var providerIds = BuildProviderIdPairs(aioId);
                     var match = _libraryManager.GetItemList(
                         new MediaBrowser.Controller.Entities.InternalItemsQuery
                         {
-                            AnyProviderIdEquals = new[] { new KeyValuePair<string, string>("Imdb", imdbId) },
+                            AnyProviderIdEquals = providerIds,
                             IncludeItemTypes = meta.Type == "series"
                                 ? new[] { "Series" }
                                 : new[] { "Movie" },
@@ -1016,7 +1019,7 @@ namespace InfiniteDrive.Services
 
             return await Task.FromResult(new DiscoverItem
             {
-                ImdbId = imdbId,
+                AioId = aioId,
                 Title = meta.Name ?? "",
                 Year = ParseYear(meta.ReleaseInfo),
                 MediaType = meta.Type ?? "movie",
@@ -1039,20 +1042,19 @@ namespace InfiniteDrive.Services
         private async Task<DiscoverItem> MapToDiscoverItemAsync(DiscoverCatalogEntry entry, HashSet<string>? userPinnedImdbIds = null)
         {
             var inLibrary = userPinnedImdbIds != null
-                ? (!string.IsNullOrEmpty(entry.ImdbId) && userPinnedImdbIds.Contains(entry.ImdbId))
+                ? (!string.IsNullOrEmpty(entry.AioId) && userPinnedImdbIds.Contains(entry.AioId))
                 : entry.IsInUserLibrary;
 
             string? embyItemId = null;
-            if (inLibrary && !string.IsNullOrWhiteSpace(entry.ImdbId))
+            if (inLibrary && !string.IsNullOrWhiteSpace(entry.AioId))
             {
                 try
                 {
+                    var providerIds = BuildProviderIdPairs(entry.AioId);
                     var match = _libraryManager.GetItemList(
                         new MediaBrowser.Controller.Entities.InternalItemsQuery
                         {
-                            AnyProviderIdEquals = new[] {
-                                new KeyValuePair<string, string>("Imdb", entry.ImdbId)
-                            },
+                            AnyProviderIdEquals = providerIds,
                             IncludeItemTypes = entry.MediaType == "series"
                                 ? new[] { "Series" }
                                 : new[] { "Movie" },
@@ -1064,13 +1066,13 @@ namespace InfiniteDrive.Services
                 catch (Exception ex)
                 {
                     // Non-critical failure to look up Emby item - log and continue
-                    _logger.LogDebug(ex, "[InfiniteDrive] DiscoverService: Failed to look up Emby item for {ImdbId}", entry.ImdbId);
+                    _logger.LogDebug(ex, "[InfiniteDrive] DiscoverService: Failed to look up Emby item for {AioId}", entry.AioId);
                 }
             }
 
             return new DiscoverItem
             {
-                ImdbId = entry.ImdbId,
+                AioId = entry.AioId,
                 Title = entry.Title,
                 Year = entry.Year,
                 MediaType = entry.MediaType,
@@ -1083,15 +1085,15 @@ namespace InfiniteDrive.Services
                 InLibrary = inLibrary,
                 EmbyItemId = embyItemId,
                 CatalogSource = entry.CatalogSource,
-                AudioLanguages = await GetAudioLanguagesAsync(entry.ImdbId),
+                AudioLanguages = await GetAudioLanguagesAsync(entry.AioId),
             };
         }
 
-        private async Task<string?> GetAudioLanguagesAsync(string imdbId)
+        private async Task<string?> GetAudioLanguagesAsync(string aioId)
         {
             try
             {
-                var candidates = await _db.GetStreamCandidatesAsync(imdbId, null, null);
+                var candidates = await _db.GetStreamCandidatesAsync(aioId, null, null);
                 var langs = candidates?
                     .Where(c => c.Status == "valid" && !string.IsNullOrEmpty(c.Languages))
                     .Select(c => c.Languages)
@@ -1144,18 +1146,18 @@ namespace InfiniteDrive.Services
 
             try
             {
-                if (string.IsNullOrWhiteSpace(req.ImdbId))
+                if (string.IsNullOrWhiteSpace(req.AioId))
                 {
                     return new DiscoverTestStreamResolutionResponse
                     {
                         Success = false,
-                        Error = "ImdbId is required",
+                        Error = "AioId is required",
                         ProxyToken = null,
                         StreamUrl = null
                     };
                 }
 
-                _logger.LogInformation("[Discover] Testing stream resolution for {ImdbId}", req.ImdbId);
+                _logger.LogInformation("[Discover] Testing stream resolution for {AioId}", req.AioId);
 
                 var config = Plugin.Instance?.Configuration;
                 var db = Plugin.Instance?.DatabaseManager;
@@ -1171,9 +1173,9 @@ namespace InfiniteDrive.Services
                 }
 
                 // Check cache first
-                var cached = await db.GetCachedStreamAsync(req.ImdbId, req.Season, req.Episode);
+                var cached = await db.GetCachedStreamAsync(req.AioId, req.Season, req.Episode);
                 var candidates = cached != null
-                    ? await db.GetStreamCandidatesAsync(req.ImdbId, req.Season, req.Episode)
+                    ? await db.GetStreamCandidatesAsync(req.AioId, req.Season, req.Episode)
                     : new List<StreamCandidate>();
 
                 // If valid cache hit, use it
@@ -1183,7 +1185,7 @@ namespace InfiniteDrive.Services
                     // Cache miss or stale - sync resolve
                     var playReq = new PlayRequest
                     {
-                        Imdb = req.ImdbId,
+                        AioId = req.AioId,
                         Season = req.Season,
                         Episode = req.Episode
                     };
@@ -1191,7 +1193,7 @@ namespace InfiniteDrive.Services
                         playReq, config, db, _logger, Plugin.Instance?.ResolverHealthTracker, CancellationToken.None);
                     if (resolved.Status == ResolutionStatus.Success && resolved.Entry != null)
                     {
-                        candidates = await db.GetStreamCandidatesAsync(req.ImdbId, req.Season, req.Episode);
+                        candidates = await db.GetStreamCandidatesAsync(req.AioId, req.Season, req.Episode);
                         cached = resolved.Entry;
                     }
                 }
@@ -1211,19 +1213,19 @@ namespace InfiniteDrive.Services
                 var streamUrl = cached.StreamUrl;
                 var port = ParsePort(config.EmbyBaseUrl) ?? 8096;
 
-                _logger.LogInformation("[Discover] Stream resolution successful for {ImdbId}", req.ImdbId);
+                _logger.LogInformation("[Discover] Stream resolution successful for {AioId}", req.AioId);
 
                 return new DiscoverTestStreamResolutionResponse
                 {
                     Success = true,
                     ProxyToken = null,
                     StreamUrl = streamUrl,
-                    EmbyUrl = $"http://127.0.0.1:{port}/web/#/details/{req.ImdbId}"
+                    EmbyUrl = $"http://127.0.0.1:{port}/web/#/details/{req.AioId}"
                 };
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[Discover] Error testing stream resolution for {ImdbId}", req.ImdbId ?? "null");
+                _logger.LogError(ex, "[Discover] Error testing stream resolution for {AioId}", req.AioId ?? "null");
                 return new DiscoverTestStreamResolutionResponse
                 {
                     Success = false,
@@ -1232,6 +1234,47 @@ namespace InfiniteDrive.Services
                     StreamUrl = null
                 };
             }
+        }
+
+        /// <summary>
+        /// Parses an AIO ID to determine the appropriate provider key/value for Emby library lookup.
+        /// </summary>
+        private static (string key, string value) ParseAioIdForProvider(string aioId)
+        {
+            if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                return ("imdb", aioId);
+            if (aioId.Contains(':'))
+            {
+                var parts = aioId.Split(':');
+                if (parts.Length == 2)
+                    return (parts[0].ToLowerInvariant(), parts[1]);
+            }
+            return ("imdb", aioId);
+        }
+
+        /// <summary>
+        /// Builds an array of provider ID pairs for Emby library AnyProviderIdEquals queries.
+        /// </summary>
+        private static KeyValuePair<string, string>[] BuildProviderIdPairs(string aioId)
+        {
+            var pairs = new List<KeyValuePair<string, string>>();
+            if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                pairs.Add(new KeyValuePair<string, string>("Imdb", aioId));
+            else if (aioId.Contains(':'))
+            {
+                var parts = aioId.Split(':');
+                if (parts.Length == 2)
+                {
+                    // e.g. "kitsu:46474" → try provider key "kitsu" with value "46474"
+                    pairs.Add(new KeyValuePair<string, string>(parts[0], parts[1]));
+                    // Also try the raw value with common keys
+                    pairs.Add(new KeyValuePair<string, string>(parts[0].ToLowerInvariant(), parts[1]));
+                }
+            }
+            else
+                pairs.Add(new KeyValuePair<string, string>("Imdb", aioId));
+
+            return pairs.ToArray();
         }
 
         // ── Parental Filter Helpers ───────────────────────────────────────────────────────

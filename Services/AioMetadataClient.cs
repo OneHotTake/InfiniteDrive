@@ -51,11 +51,11 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Fetches metadata for the given IMDB ID.
+        /// Fetches metadata for the given AIO ID.
         /// Returns null on failure (caller handles retry).
         /// 10-second hard timeout, rate-limited by caller to 1 call per 2 seconds.
         /// </summary>
-        public async Task<EnrichedMetadata?> FetchAsync(string imdbId, int? year, CancellationToken cancellationToken = default)
+        public async Task<EnrichedMetadata?> FetchAsync(string aioId, int? year, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(_config?.AioMetadataBaseUrl))
             {
@@ -69,9 +69,9 @@ namespace InfiniteDrive.Services
             string lookupId;
             string lookupType;
 
-            if (imdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+            if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
             {
-                lookupId = imdbId;
+                lookupId = aioId;
                 lookupType = "movie"; // AIOMetadata uses 'movie' for both movies and series
             }
             else
@@ -80,12 +80,12 @@ namespace InfiniteDrive.Services
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db != null)
                 {
-                    var catalogItem = await db.GetCatalogItemByAioIdAsync(imdbId);
-                    lookupId = catalogItem?.TmdbId ?? imdbId;
+                    var catalogItem = await db.GetCatalogItemByAioIdAsync(aioId);
+                    lookupId = catalogItem?.TmdbId ?? aioId;
                 }
                 else
                 {
-                    lookupId = imdbId;
+                    lookupId = aioId;
                 }
                 lookupType = "tmdb";
             }
@@ -112,7 +112,7 @@ namespace InfiniteDrive.Services
                         response.Headers.Contains("Retry-After")
                             ? response.Headers.RetryAfter?.ToString()
                             : null));
-                    _logger.LogWarning("[AioMetadata] 429 rate limited for {ImdbId}", imdbId);
+                    _logger.LogWarning("[AioMetadata] 429 rate limited for {AioId}", aioId);
                     return null;
                 }
 
@@ -121,28 +121,28 @@ namespace InfiniteDrive.Services
                 var json = await response.Content.ReadAsStringAsync();
 
                 // Parse JSON response
-                var meta = ParseAioMetadataResponse(json, imdbId);
+                var meta = ParseAioMetadataResponse(json, aioId);
                 return meta;
             }
             catch (HttpRequestException ex) when (ex.StatusCode != null)
             {
-                _logger.LogWarning(ex, "[AioMetadata] HTTP error fetching metadata for {ImdbId}", imdbId);
+                _logger.LogWarning(ex, "[AioMetadata] HTTP error fetching metadata for {AioId}", aioId);
                 return null;
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogWarning(ex, "[AioMetadata] HTTP {Status} error fetching metadata for {ImdbId}",
-                    ex.StatusCode, imdbId);
+                _logger.LogWarning(ex, "[AioMetadata] HTTP {Status} error fetching metadata for {AioId}",
+                    ex.StatusCode, aioId);
                 return null;
             }
             catch (TaskCanceledException)
             {
-                _logger.LogWarning("[AioMetadata] Timeout fetching metadata for {ImdbId}", imdbId);
+                _logger.LogWarning("[AioMetadata] Timeout fetching metadata for {AioId}", aioId);
                 return null;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "[AioMetadata] Error fetching metadata for {ImdbId}", imdbId);
+                _logger.LogError(ex, "[AioMetadata] Error fetching metadata for {AioId}", aioId);
                 return null;
             }
         }

@@ -65,7 +65,7 @@ namespace InfiniteDrive.Services
         /// Returns dictionary mapping IMDB ID to certification.
         /// </summary>
         public async Task<Dictionary<string, string>> FetchCertificationsBatchAsync(
-            List<(string ImdbId, string? TmdbId)> items,
+            List<(string AioId, string? TmdbId)> items,
             CancellationToken ct = default)
         {
             var result = new Dictionary<string, string>();
@@ -76,7 +76,7 @@ namespace InfiniteDrive.Services
 
             var batch = items;
 
-            foreach (var (imdbId, tmdbId) in batch)
+            foreach (var (aioId, tmdbId) in batch)
             {
                 if (ct.IsCancellationRequested)
                     break;
@@ -91,7 +91,7 @@ namespace InfiniteDrive.Services
                     if (DateTimeOffset.UtcNow - cached.CachedAt < TimeSpan.FromHours(CacheTtlHours))
                     {
                         if (cached.Cert != null)
-                            result[imdbId] = cached.Cert;
+                            result[aioId] = cached.Cert;
                         continue;
                     }
                 }
@@ -103,7 +103,7 @@ namespace InfiniteDrive.Services
                     _cache[tmdbId] = (cert, DateTimeOffset.UtcNow);
 
                     if (cert != null)
-                        result[imdbId] = cert;
+                        result[aioId] = cert;
 
                     // TMDB free tier rate limit — minimal pacing
                     await Task.Delay(25, ct);

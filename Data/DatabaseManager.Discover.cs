@@ -17,15 +17,15 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
 INSERT OR REPLACE INTO discover_catalog
-    (id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+    (id, aio_id, title, year, media_type, poster_url, backdrop_url, overview,
      genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at, updated_at)
 VALUES
-    (@id, @imdb_id, @title, @year, @media_type, @poster_url, @backdrop_url, @overview,
+    (@id, @aio_id, @title, @year, @media_type, @poster_url, @backdrop_url, @overview,
      @genres, @imdb_rating, @certification, @catalog_source, @in_library, @added_at, datetime('now'))";
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@id", entry.Id);
-                BindText(cmd, "@imdb_id", entry.ImdbId);
+                BindText(cmd, "@aio_id", entry.AioId);
                 BindText(cmd, "@title", entry.Title);
                 BindNullableInt(cmd, "@year", entry.Year);
                 BindText(cmd, "@media_type", entry.MediaType);
@@ -52,11 +52,11 @@ VALUES
         public async Task<List<DiscoverCatalogEntry>> GetDiscoverCatalogAsync(int limit, int offset, string? mediaType = null, string? sortBy = null)
         {
             var sql = @"
-SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+SELECT id, aio_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE NOT EXISTS (
-    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = discover_catalog.imdb_id AND ci.blocked_at IS NOT NULL
+    SELECT 1 FROM catalog_items ci WHERE ci.aio_id = discover_catalog.aio_id AND ci.blocked_at IS NOT NULL
 )";
 
             if (mediaType != null)
@@ -85,7 +85,7 @@ WHERE NOT EXISTS (
         public async Task<List<DiscoverCatalogEntry>> GetDiscoverCatalogBySourceAsync(
             string catalogSource, string? genre = null, int limit = 42, int offset = 0)
         {
-            var sql = @"SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+            var sql = @"SELECT id, aio_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE catalog_source = @source
@@ -123,7 +123,7 @@ WHERE catalog_source = @source
         {
             var sql = @"SELECT COUNT(*) FROM discover_catalog
 WHERE NOT EXISTS (
-    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = discover_catalog.imdb_id AND ci.blocked_at IS NOT NULL
+    SELECT 1 FROM catalog_items ci WHERE ci.aio_id = discover_catalog.aio_id AND ci.blocked_at IS NOT NULL
 )";
             if (mediaType != null)
             {
@@ -149,13 +149,13 @@ WHERE NOT EXISTS (
             var ftsQuery = "\"" + query.Replace("\"", "\"\"") + "\"";
 
             var sql = @"
-SELECT dc.id, dc.imdb_id, dc.title, dc.year, dc.media_type, dc.poster_url, dc.backdrop_url, dc.overview,
+SELECT dc.id, dc.aio_id, dc.title, dc.year, dc.media_type, dc.poster_url, dc.backdrop_url, dc.overview,
        dc.genres, dc.imdb_rating, dc.certification, dc.catalog_source, dc.is_in_user_library, dc.added_at
 FROM discover_catalog dc
 JOIN discover_catalog_fts fts ON dc.rowid = fts.rowid
 WHERE discover_catalog_fts MATCH @query
   AND NOT EXISTS (
-    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = dc.imdb_id AND ci.blocked_at IS NOT NULL
+    SELECT 1 FROM catalog_items ci WHERE ci.aio_id = dc.aio_id AND ci.blocked_at IS NOT NULL
   )";
             if (mediaType != null)
                 sql += " AND dc.media_type = @media_type";
@@ -168,33 +168,33 @@ WHERE discover_catalog_fts MATCH @query
             }, ReadDiscoverCatalogEntry);
         }
 
-        public async Task<DiscoverCatalogEntry?> GetDiscoverCatalogEntryByAioIdAsync(string imdbId)
+        public async Task<DiscoverCatalogEntry?> GetDiscoverCatalogEntryByAioIdAsync(string aioId)
         {
             const string sql = @"
-SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+SELECT id, aio_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
-WHERE imdb_id = @imdb_id
+WHERE aio_id = @aio_id
   AND NOT EXISTS (
-    SELECT 1 FROM catalog_items ci WHERE ci.imdb_id = @imdb_id AND ci.blocked_at IS NOT NULL
+    SELECT 1 FROM catalog_items ci WHERE ci.aio_id = @aio_id AND ci.blocked_at IS NOT NULL
   )
 LIMIT 1";
             return await QuerySingleAsync(sql, cmd =>
             {
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", aioId);
             }, ReadDiscoverCatalogEntry);
         }
 
-        public async Task UpdateDiscoverCatalogLibraryStatusAsync(string imdbId, bool isInLibrary, CancellationToken cancellationToken = default)
+        public async Task UpdateDiscoverCatalogLibraryStatusAsync(string aioId, bool isInLibrary, CancellationToken cancellationToken = default)
         {
             const string sql = @"
 UPDATE discover_catalog
 SET is_in_user_library = @in_library, updated_at = datetime('now')
-WHERE imdb_id = @imdb_id";
+WHERE aio_id = @aio_id";
             await ExecuteWriteAsync(sql, cmd =>
             {
                 cmd.BindParameters["@in_library"].Bind(isInLibrary ? 1 : 0);
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", aioId);
             }, cancellationToken);
         }
 
@@ -214,30 +214,30 @@ WHERE imdb_id = @imdb_id";
         /// Updates the certification (MPAA/TV rating) for a specific discover catalog item.
         /// Sprint 209: Used when fetching certifications from TMDB.
         /// </summary>
-        public async Task UpdateDiscoverCertificationAsync(string imdbId, string? certification, CancellationToken cancellationToken = default)
+        public async Task UpdateDiscoverCertificationAsync(string aioId, string? certification, CancellationToken cancellationToken = default)
         {
             const string sql = @"
 UPDATE discover_catalog
 SET certification = @certification, updated_at = datetime('now')
-WHERE imdb_id = @imdb_id";
+WHERE aio_id = @aio_id";
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindNullableText(cmd, "@certification", certification);
-                BindText(cmd, "@imdb_id", imdbId);
+                BindText(cmd, "@aio_id", aioId);
             }, cancellationToken);
         }
 
         /// <summary>
         /// Gets discover catalog items that need certification fetched (certification IS NULL).
-        /// Returns list of (imdb_id, tmdb_id) tuples.
+        /// Returns list of (aio_id, tmdb_id) tuples.
         /// Sprint 209: Used to batch-fetch certifications from TMDB.
         /// </summary>
-        public async Task<List<(string ImdbId, string? TmdbId)>> GetDiscoverCatalogNeedingCertificationAsync(int limit, CancellationToken cancellationToken = default)
+        public async Task<List<(string AioId, string? TmdbId)>> GetDiscoverCatalogNeedingCertificationAsync(int limit, CancellationToken cancellationToken = default)
         {
             const string sql = @"
-SELECT dc.imdb_id, ci.tmdb_id
+SELECT dc.aio_id, ci.tmdb_id
 FROM discover_catalog dc
-LEFT JOIN catalog_items ci ON dc.imdb_id = ci.imdb_id
+LEFT JOIN catalog_items ci ON dc.aio_id = ci.aio_id
 WHERE dc.certification IS NULL
 LIMIT @limit";
 
@@ -248,9 +248,9 @@ LIMIT @limit";
 
             foreach (var row in cmd.AsRows())
             {
-                var imdbId = row.GetString(0);
+                var aioId = row.GetString(0);
                 var tmdbId = row.IsDBNull(1) ? null : row.GetString(1);
-                results.Add((imdbId, tmdbId));
+                results.Add((aioId, tmdbId));
             }
 
             return await Task.FromResult(results);
@@ -266,7 +266,7 @@ LIMIT @limit";
             var items = new List<object>();
             using var conn = OpenConnection();
             var sql = @"
-SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+SELECT id, aio_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE media_type = 'movie'
@@ -295,7 +295,7 @@ LIMIT @limit OFFSET @offset";
             var items = new List<object>();
             using var conn = OpenConnection();
             var sql = @"
-SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+SELECT id, aio_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE media_type = 'series'
@@ -352,7 +352,7 @@ LIMIT @limit OFFSET @offset";
         public object? GetDiscoverCatalogItem(string id)
         {
             const string sql = @"
-SELECT id, imdb_id, title, year, media_type, poster_url, backdrop_url, overview,
+SELECT id, aio_id, title, year, media_type, poster_url, backdrop_url, overview,
        genres, imdb_rating, certification, catalog_source, is_in_user_library, added_at
 FROM discover_catalog
 WHERE id = @id
@@ -378,14 +378,14 @@ LIMIT 1";
         {
             // Return a simple anonymous object that Emby can understand
             // ChannelItemInfo might not be available in the Data project
-            _logger.LogInformation("[Database] Mapping item: {Title} ({ImdbId})", entry.Title, entry.ImdbId);
+            _logger.LogInformation("[Database] Mapping item: {Title} ({AioId})", entry.Title, entry.AioId);
 
             // For media items, use null or omit the Type property
             // Only folders should specify ChannelItemType.Folder
             return new
             {
                 Name = entry.Title,
-                Id = $"discover:{entry.ImdbId}",
+                Id = $"discover:{entry.AioId}",
                 // Type = ChannelItemType.Media,  // Don't set type for media items
                 ImageUrl = entry.PosterUrl,
                 Overview = entry.Overview,
@@ -396,7 +396,7 @@ LIMIT 1";
                 Tags = new List<string> { "InfiniteDrive" },
                 ProviderIds = new Dictionary<string, string>
                 {
-                    ["imdb"] = entry.ImdbId
+                    ["imdb"] = entry.AioId
                 }
             };
         }

@@ -108,7 +108,7 @@ namespace InfiniteDrive.Services
         public List<StremioVideo>? Videos { get; set; }
 
         [JsonPropertyName("imdb_id")]
-        public string? ImdbId { get; set; }
+        public string? AioId { get; set; }
 
         /// <summary>TMDB numeric ID. Written to NFO as &lt;tmdbid&gt;.</summary>
         [JsonPropertyName("tmdb_id")]
