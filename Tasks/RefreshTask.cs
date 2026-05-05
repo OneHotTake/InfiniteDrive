@@ -665,7 +665,7 @@ namespace InfiniteDrive.Tasks
                 SELECT * FROM catalog_items
                 WHERE nfo_status = 'NeedsEnrich'
                 AND added_at >= @runStartedAt
-                AND (imdb_id IS NULL OR imdb_id = '')
+                AND (aio_id IS NULL OR aio_id = '')
                 AND (tmdb_id IS NULL OR tmdb_id = '')
                 AND removed_at IS NULL
                 ORDER BY added_at ASC
