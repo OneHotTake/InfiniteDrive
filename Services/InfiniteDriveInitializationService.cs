@@ -4,9 +4,12 @@ using InfiniteDrive.Logging;
 using InfiniteDrive.Services;
 using InfiniteDrive.Repositories;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Notifications;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Plugins;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Globalization;
+using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
 
@@ -24,17 +27,26 @@ namespace InfiniteDrive.Services
         private readonly ILibraryManager _libraryManager;
         private readonly IPlaylistManager _playlistManager;
         private readonly ILocalizationManager _localizationManager;
+        private readonly IProviderManager _providerManager;
+        private readonly IFileSystem _fileSystem;
+        private readonly INotificationManager _notificationManager;
 
         public InfiniteDriveInitializationService(
             ILogManager logManager,
             ILibraryManager libraryManager,
             IPlaylistManager playlistManager,
-            ILocalizationManager localizationManager)
+            ILocalizationManager localizationManager,
+            IProviderManager providerManager,
+            IFileSystem fileSystem,
+            INotificationManager notificationManager)
         {
             _logManager = logManager;
             _libraryManager = libraryManager;
             _playlistManager = playlistManager;
             _localizationManager = localizationManager;
+            _providerManager = providerManager;
+            _fileSystem = fileSystem;
+            _notificationManager = notificationManager;
             _logger = new EmbyLoggerAdapter<InfiniteDriveInitializationService>(
                 logManager.GetLogger("InfiniteDrive"));
         }
@@ -58,6 +70,13 @@ namespace InfiniteDrive.Services
 
                 // Store localization manager for UI dropdowns
                 instance.LocalizationManager = _localizationManager;
+
+                // Store ProviderManager + FileSystem for targeted metadata refresh
+                instance.ProviderManager = _providerManager;
+                instance.FileSystem = _fileSystem;
+
+                // Initialize notification service
+                NotificationService.Initialize(_notificationManager);
 
                 // Initialize database — ApplicationPaths guaranteed settled here
                 instance.InitialiseDatabaseManager();
