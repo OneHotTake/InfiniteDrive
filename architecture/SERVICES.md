@@ -1,6 +1,6 @@
 # InfiniteDrive — Service Inventory
 
-> Last reconciled: 2026-05-04 (post-Sprint 516)
+> Last reconciled: 2026-05-05 (post-Sprint 519)
 
 ## Decomposed API Endpoints (Services/Api/)
 
@@ -240,6 +240,11 @@ Returns `ResolutionResult` with structured failure modes (Success/Throttled/Cont
 ### CertificationResolver
 
 **Purpose:** Fetches MPAA/TV certifications from TMDB for discover catalog items. Uses `PluginConfiguration.MetadataCountryCode` (default `"US"`).
+
+### AioSubtitleProvider
+
+**File:** `Services/AioSubtitleProvider.cs`
+**Purpose:** Emby `ISubtitleProvider` implementation backed by AIOStreams `/subtitles/` endpoint. Cache-first search reads pre-decorated `subtitles_json` from `stream_resolution_cache`; falls back to live API call on cache miss. Downloads subtitle files on demand via base64-encoded URL.
 
 ### ListFetcher
 

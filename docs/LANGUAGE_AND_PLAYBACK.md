@@ -42,6 +42,21 @@ To configure per-library language:
 
 The audio languages and subtitles available for each stream come from the actual file content provided by AIOStreams. This is parsed from the stream metadata and cannot be controlled by InfiniteDrive settings.
 
+## External Subtitles via AIOStreams
+
+InfiniteDrive also fetches external subtitles from the AIOStreams `/subtitles/` endpoint and registers as an Emby `ISubtitleProvider`. Subtitles appear in Emby's native subtitle picker.
+
+### How it works:
+
+1. **Pre-cache decoration:** During PreCache, subtitles are fetched alongside streams, scored by Jaccard similarity against the release name, and stored in the `subtitles_json` cache column.
+2. **Live resolve decoration:** When a cache miss occurs during playback, subtitles are also fetched and cached.
+3. **Subtitle picker:** When you open the subtitle picker in Emby, InfiniteDrive reads from cache first (instant). On cache miss, it falls back to a live AIOStreams API call.
+4. **Download:** Selecting a subtitle downloads it on demand from the subtitle URL. Formats supported: SRT, VTT, ASS.
+
+### No configuration needed:
+
+Subtitle fetching is automatic — no settings to enable. Subtitles are fetched from the same AIOStreams providers configured for stream resolution.
+
 ## How the Version Picker Uses Language
 
 When you see multiple versions of a movie or episode:

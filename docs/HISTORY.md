@@ -281,7 +281,7 @@ Major settings UI overhaul: Migrated 7 configuration tabs to the modern IHasUIPa
 - **[-] Cloud Sync:** User libraries don't sync across multiple Emby instances
 - **[-] Authentication System:** Emby already provides auth; we don't duplicate
 - **[-] DRM Protection:** We stream debrid sources only; no DRM-protected sources
-- **[-] Subtitles Management:** Delegated to Emby's native subtitle handling
+- **[✓] Subtitles Management:** AioSubtitleProvider (ISubtitleProvider) fetches external subtitles from AIOStreams `/subtitles/` endpoint, scores via Jaccard matching, serves through Emby's native subtitle picker
 - **[-] Anime-Specific Logic:** Treated as series; no special casing
 
 ---

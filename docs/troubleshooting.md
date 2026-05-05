@@ -617,9 +617,7 @@ grep "\[PreCache\]" /var/log/emby/embyserver.txt | tail -20
 
 **Fix 1:** Reduce `PreCacheBatchSize` (default 42, range 1-500).
 
-**Fix 2:** Increase `PreCacheIntervalHours` (default 6, range 1-48) to run less frequently.
-
-**Fix 3:** Increase `ApiDailyBudget` if you have room.
+**Fix 2:** Increase `ApiDailyBudget` if you have room.
 
 ---
 

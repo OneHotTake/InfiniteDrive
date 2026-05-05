@@ -33,8 +33,9 @@ InfiniteDrive bridges your AIOStreams manifest to Emby:
 1. **Catalog Sync** — pulls movie/series/anime catalogs from your AIOStreams manifest and writes `.strm` files into Emby libraries
 2. **Stream Resolution** — resolves `.strm` playback requests against AIOStreams in real time, selecting the best debrid link
 3. **Stream Probing** — quickly checks if candidate streams actually respond before serving them to your player
-4. **ID Normalization** — resolves IMDb/TMDB/TVDB IDs from source addons so Emby can identify your content
-5. **NFO Decoration** — writes Emby-native NFO files with proper scanner hints so Emby does its own metadata job
+4. **Subtitle Fetching** — fetches external subtitles from AIOStreams and registers as an Emby `ISubtitleProvider` for the native subtitle picker
+5. **ID Normalization** — resolves IMDb/TMDB/TVDB IDs from source addons so Emby can identify your content
+6. **NFO Decoration** — writes Emby-native NFO files with proper scanner hints so Emby does its own metadata job
 
 ---
 

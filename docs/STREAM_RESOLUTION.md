@@ -110,14 +110,16 @@ All resolution attempts return a `ResolutionResult` object (never null):
 
 ## 9. Pre-Cache Background Task
 
-`PreCacheAioStreamsTask` runs inside MarvinTask on a configurable interval:
+`PreCacheAioStreamsTask` runs inside every Marvin cycle (10-minute interval):
 
-* **Interval:** `PreCacheIntervalHours` (default 6h, range 1-48h)
 * **Batch size:** `PreCacheBatchSize` (default 42, range 1-500)
 * **TTL:** `PreCacheTTLDays` (default 14 days, range 1-90)
+* **Jitter:** batch order is randomized to spread API calls across the cycle
+* **Dead-link probe:** after each batch, probes 5 recent entries with HEAD+Range, marks stale on failure
 * Budget-gated: checks `IsBudgetExhaustedAsync()` before each item
 * Rate-limit aware: respects CooldownGate on 429 responses
 * Provider failover: tries all configured providers per item via `ResolverHealthTracker`
+* Subtitle decoration: fetches subtitles from AIOStreams `/subtitles/` endpoint, scores via Jaccard matching against release name, stores in `subtitles_json` column
 
 ## 10. Language-Aware Resolution
 

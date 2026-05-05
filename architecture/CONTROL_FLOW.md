@@ -1,6 +1,6 @@
 # InfiniteDrive — Control Flow
 
-> Last reconciled: 2026-05-04 (post-Sprint 516)
+> Last reconciled: 2026-05-05 (post-Sprint 519)
 
 ## 1. Playback Resolution Flow
 

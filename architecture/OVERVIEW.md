@@ -1,6 +1,6 @@
 # InfiniteDrive — Architecture Overview
 
-> Last reconciled: 2026-05-04 (post-Sprint 516)
+> Last reconciled: 2026-05-05 (post-Sprint 519)
 
 ## System Purpose
 
@@ -58,6 +58,7 @@ The system uses a registry of domain-specific services stitched together by a si
 |  CandidateNormalizer    StrmWriterService           DiscoverService  |
 |  SavedService           ManifestFetcher             CollectionService|
 |  SeriesPreExpansion     EpisodeDiffService          GracePeriodPolicy|
+|  AioSubtitleProvider    NamingPolicyService                          |
 |  MetadataEnrichmentService  NamingPolicyService     NfoWriterService |
 |  AioStreamsClientFactory  CertificationResolver      ListFetcher      |
 +----------------------------------------------------------------------+

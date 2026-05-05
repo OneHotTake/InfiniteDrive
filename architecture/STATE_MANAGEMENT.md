@@ -1,6 +1,6 @@
 # InfiniteDrive — State Management
 
-> Last reconciled: 2026-05-04 (post-Sprint 516)
+> Last reconciled: 2026-05-05 (post-Sprint 519)
 
 ## 1. Database Layer
 
@@ -12,7 +12,7 @@
 | `DatabaseManager.cs` | 2341 | SQLite core, connection management, DDL |
 | `DatabaseManager.MediaItems.cs` | 1022 | media_items, sources, memberships |
 | `DatabaseManager.Catalog.cs` | 972 | catalog CRUD, user catalogs |
-| `DatabaseManager.StreamCache.cs` | 403 | stream resolution cache |
+| `DatabaseManager.StreamCache.cs` | 460 | stream resolution cache, subtitle cache, dead-link probe |
 | `DatabaseManager.Operations.cs` | 1028 | ingestion, playback log, API budget |
 | `DatabaseManager.Discover.cs` | 404 | discover catalog CRUD |
 
