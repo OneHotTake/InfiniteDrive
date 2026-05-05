@@ -166,7 +166,6 @@ namespace InfiniteDrive.UI.Settings
                 cfg.MaxConcurrentProxyStreams = 5;
                 cfg.EnablePreCache = true;
                 cfg.PreCacheBatchSize = 42;
-                cfg.PreCacheIntervalHours = 6;
                 cfg.PreCacheTTLDays = 14;
                 cfg.InMemoryCacheTtlMinutes = 360;
                 cfg.PluginSecret = string.Empty;
@@ -209,7 +208,6 @@ namespace InfiniteDrive.UI.Settings
                 cfg.StreamResolutionBatchSize = 42;
                 cfg.MarvinActionsPerHour = 360;
                 cfg.PluginLogLevel = "Info";
-                cfg.CacheRefreshIntervalDays = 30;
                 cfg.RespectPlaylistsWhenPruning = true;
                 cfg.AutoDeduplicatePhysicalMedia = true;
                 Plugin.Instance.SaveConfiguration();
@@ -234,7 +232,6 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             cfg.PluginLogLevel = UI.PluginLogLevel ?? "Info";
-            cfg.CacheRefreshIntervalDays = UI.CacheRefreshIntervalDays;
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
             return base.OnSaveCommand(itemId, commandId, data);

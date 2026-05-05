@@ -473,13 +473,25 @@ namespace InfiniteDrive.Services
     }
 
     /// <summary>
-    /// Subtitle entry inside a stream object.
+    /// Subtitle entry inside a stream object or from the /subtitles/ endpoint.
     /// </summary>
     public class AioStreamsSubtitle
     {
-        [JsonPropertyName("id")]   public string? Id   { get; set; }
-        [JsonPropertyName("url")]  public string? Url  { get; set; }
-        [JsonPropertyName("lang")] public string? Lang { get; set; }
+        [JsonPropertyName("id")]           public string? Id           { get; set; }
+        [JsonPropertyName("url")]          public string? Url          { get; set; }
+        [JsonPropertyName("lang")]         public string? Lang         { get; set; }
+        [JsonPropertyName("title")]        public string? Title        { get; set; }
+        [JsonPropertyName("langCode")]     public string? LangCode     { get; set; }
+        [JsonPropertyName("fromTrusted")]  public bool?   FromTrusted  { get; set; }
+        [JsonPropertyName("aiTranslated")] public bool?   AiTranslated { get; set; }
+    }
+
+    /// <summary>
+    /// Response wrapper for the AIOStreams /subtitles/ endpoint.
+    /// </summary>
+    public class AioStreamsSubtitleResponse
+    {
+        [JsonPropertyName("subtitles")] public List<AioStreamsSubtitle>? Subtitles { get; set; }
     }
 
     /// <summary>

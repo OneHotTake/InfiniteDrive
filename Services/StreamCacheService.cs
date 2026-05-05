@@ -32,7 +32,7 @@ namespace InfiniteDrive.Services
 
     // Cache stores FULL stream URLs (Sprint 502).
     // Proxy mode on AIOStreams = effectively infinite life.
-    // Otherwise, Marvin refreshes after CacheRefreshIntervalDays.
+    // Otherwise, Marvin refreshes after PreCacheTTLDays.
 
     /// <summary>
     /// Singleton service for reading/writing the <c>cached_streams</c> table

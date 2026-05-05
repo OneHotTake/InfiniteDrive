@@ -365,10 +365,6 @@ namespace InfiniteDrive
         [DataMember]
         public int PreCacheBatchSize { get; set; } = 42;
 
-        /// <summary>Hours between automatic pre-cache runs. Default: 6.</summary>
-        [DataMember]
-        public int PreCacheIntervalHours { get; set; } = 6;
-
         /// <summary>Days before a pre-cached entry expires and needs re-resolution. Default: 14.</summary>
         [DataMember]
         public int PreCacheTTLDays { get; set; } = 14;
@@ -806,14 +802,6 @@ namespace InfiniteDrive
         [DataMember]
         public string PluginLogLevel { get; set; } = "Info";
 
-        /// <summary>
-        /// Days before a cached stream entry is refreshed by Marvin.
-        /// In AIOStreams proxy mode, cached URLs have effectively infinite life.
-        /// Default: 30.
-        /// </summary>
-        [DataMember]
-        public int CacheRefreshIntervalDays { get; set; } = 30;
-
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  INSTANCE TYPE DETECTION                                             ║
         // ╚══════════════════════════════════════════════════════════════════════╝
@@ -900,7 +888,6 @@ namespace InfiniteDrive
             CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     24);     // 1 h – 24 h
             MaxConcurrentProxyStreams  = Clamp(MaxConcurrentProxyStreams, 1,     20);
             PreCacheBatchSize          = Clamp(PreCacheBatchSize,         1,     500);
-            PreCacheIntervalHours      = Clamp(PreCacheIntervalHours,     1,     48);
             PreCacheTTLDays            = Clamp(PreCacheTTLDays,           1,     90);
             InMemoryCacheTtlMinutes    = Clamp(InMemoryCacheTtlMinutes,   10,    1_440);
             SyncResolveTimeoutSeconds = Clamp(SyncResolveTimeoutSeconds, 5,     300);
@@ -918,7 +905,6 @@ namespace InfiniteDrive
             if (MarvinProcessIntervalMinutes < 1) MarvinProcessIntervalMinutes = 10;
             if (StreamResolutionBatchSize < 1) StreamResolutionBatchSize = 42;
             if (MarvinActionsPerHour < 1) MarvinActionsPerHour = 360;
-            if (CacheRefreshIntervalDays < 1) CacheRefreshIntervalDays = 30;
             if (MaxListsPerUser < 0) MaxListsPerUser = 10;
 
             // Recompute instance type from manifest URL

@@ -40,6 +40,9 @@ namespace InfiniteDrive.Models
         /// <summary>valid | expired | error</summary>
         public string Status { get; set; } = "valid";
 
+        /// <summary>JSON array of <see cref="AioStreamsSubtitle"/> for this item's resolved streams.</summary>
+        public string? SubtitlesJson { get; set; }
+
         /// <summary>primary | secondary — which AIOStreams manifest provided this cache entry.</summary>
         public string? ManifestSource { get; set; }
     }

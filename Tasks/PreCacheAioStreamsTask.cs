@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using InfiniteDrive.Data;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using InfiniteDrive.Services;
@@ -18,7 +19,7 @@ namespace InfiniteDrive.Tasks
     /// <c>cached_streams</c> table.  When users browse pre-cached items, the
     /// version picker appears instantly instead of requiring a 20-40s live resolve.
     ///
-    /// Default schedule: interval based on <see cref="PluginConfiguration.PreCacheIntervalHours"/>.
+    /// Default schedule: runs every Marvin cycle (10 min interval).
     /// </summary>
     internal class PreCacheAioStreamsTask
     {
@@ -83,6 +84,9 @@ namespace InfiniteDrive.Tasks
                 _logger.LogWarning("[PreCache] No providers configured — aborting");
                 return;
             }
+
+            // Randomize batch order to spread API calls across the 10-minute window
+            items = items.OrderBy(_ => Random.Shared.Next()).ToList();
 
             var semaphore = new SemaphoreSlim(config.MaxConcurrentResolutions, config.MaxConcurrentResolutions);
             int resolved = 0, failed = 0, throttled = 0, rateLimited = 0;
@@ -151,7 +155,62 @@ namespace InfiniteDrive.Tasks
                 "[PreCache] Complete — {Resolved} resolved, {Failed} failed, {Throttled} throttled, {RateLimited} rate-limited",
                 resolved, failed, throttled, rateLimited);
 
+            // Post-loop: probe recent entries for dead links
+            await ProbeRecentEntriesAsync(db, cacheService, 5, cancellationToken).ConfigureAwait(false);
+
             progress.Report(100);
+        }
+
+        /// <summary>
+        /// Probes the most recently updated cache entries with a lightweight HEAD request.
+        /// Marks stale on failure so the next PreCache run re-resolves them.
+        /// </summary>
+        private async Task ProbeRecentEntriesAsync(
+            DatabaseManager db, IStreamCacheService cacheService, int count, CancellationToken ct)
+        {
+            List<(string AioId, int? Season, int? Episode, string Url)> entries;
+            try
+            {
+                entries = db.GetRecentCachedEntries(count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[PreCache] Dead-link probe query failed");
+                return;
+            }
+
+            if (entries.Count == 0) return;
+
+            using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            int probed = 0, dead = 0;
+
+            foreach (var (aioId, season, episode, url) in entries)
+            {
+                if (ct.IsCancellationRequested) break;
+                try
+                {
+                    probed++;
+                    var req = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.Head, url);
+                    req.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(0, 0);
+                    using var resp = await http.SendAsync(req, System.Net.Http.HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                    if (!resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.RequestedRangeNotSatisfiable)
+                    {
+                        dead++;
+                        await db.QueueForResolutionAsync(aioId, season, episode, "best_available", ct).ConfigureAwait(false);
+                        _logger.LogInformation("[PreCache] Dead link detected for {AioId} — marked stale", aioId);
+                    }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    dead++;
+                    await db.QueueForResolutionAsync(aioId, season, episode, "best_available", ct).ConfigureAwait(false);
+                    _logger.LogDebug(ex, "[PreCache] Dead link probe failed for {AioId} — marked stale", aioId);
+                }
+            }
+
+            if (probed > 0)
+                _logger.LogInformation("[PreCache] Dead-link probe: {Probed} checked, {Dead} stale", probed, dead);
         }
 
         internal async Task<CachedStreamEntry?> ResolveItemAsync(
@@ -184,6 +243,26 @@ namespace InfiniteDrive.Tasks
             var tmdbId = item.TmdbId ?? await cacheService.ResolveTmdbIdForAioIdAsync(item.AioId).ConfigureAwait(false);
             var primaryKey = cacheService.BuildPrimaryKey(tmdbId, item.AioId, item.MediaType, item.Season, item.Episode);
 
+            // Fetch and score subtitles from AIOStreams /subtitles/ endpoint
+            string? subtitlesJson = null;
+            try
+            {
+                var subs = await AioStreamsClient.FetchSubtitlesAsync(
+                    providers, item.AioId, item.MediaType, item.Season, item.Episode,
+                    _logger, Plugin.Instance?.ResolverHealthTracker, ct).ConfigureAwait(false);
+
+                if (subs != null && subs.Count > 0)
+                {
+                    var releaseName = best[0].FileName ?? best[0].StreamKey;
+                    var scored = ScoreAndRankSubtitles(subs, releaseName, 10);
+                    subtitlesJson = JsonSerializer.Serialize(scored);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[PreCache] Subtitle fetch failed for {AioId}", item.AioId);
+            }
+
             return new CachedStreamEntry
             {
                 TmdbKey = primaryKey,
@@ -192,6 +271,7 @@ namespace InfiniteDrive.Tasks
                 Season = item.Season,
                 Episode = item.Episode,
                 VariantsJson = JsonSerializer.Serialize(variants),
+                SubtitlesJson = subtitlesJson,
                 CachedAt = DateTime.UtcNow.ToString("o"),
                 ExpiresAt = DateTime.UtcNow.AddDays(ttlDays).ToString("o"),
                 Status = "valid",
@@ -247,6 +327,71 @@ namespace InfiniteDrive.Tasks
                 Url = c.Url,
                 HeadersJson = c.HeadersJson,
             };
+        }
+
+        // ── Subtitle scoring helpers ────────────────────────────────────────
+
+        /// <summary>
+        /// Tokenizes a release name into lowercase word tokens for Jaccard matching.
+        /// Strips common separators and file extensions.
+        /// </summary>
+        private static HashSet<string> TokenizeReleaseName(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Remove file extension and common separators
+            var tokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var span = name.AsSpan();
+            // Trim extension
+            var dotIdx = span.LastIndexOf('.');
+            if (dotIdx > 0) span = span[..dotIdx];
+
+            foreach (var part in span.ToString().Split(new[] { '.', '-', '_', ' ', '(', ')' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (part.Length >= 2)
+                    tokens.Add(part.ToLowerInvariant());
+            }
+            return tokens;
+        }
+
+        /// <summary>
+        /// Computes Jaccard similarity: |intersection| / |union| between two token sets.
+        /// </summary>
+        private static double JaccardSimilarity(HashSet<string> a, HashSet<string> b)
+        {
+            if (a.Count == 0 && b.Count == 0) return 1.0;
+            if (a.Count == 0 || b.Count == 0) return 0.0;
+
+            var intersection = 0;
+            foreach (var t in a)
+            {
+                if (b.Contains(t)) intersection++;
+            }
+            return (double)intersection / (a.Count + b.Count - intersection);
+        }
+
+        /// <summary>
+        /// Scores and ranks subtitles by Jaccard similarity against the release name.
+        /// Caps output at <paramref name="maxCount"/> entries.
+        /// </summary>
+        internal static List<AioStreamsSubtitle> ScoreAndRankSubtitles(
+            List<AioStreamsSubtitle> subs, string? releaseName, int maxCount)
+        {
+            var releaseTokens = TokenizeReleaseName(releaseName);
+
+            return subs
+                .Select(s =>
+                {
+                    var subTokens = TokenizeReleaseName(s.Title ?? s.Lang);
+                    var score = JaccardSimilarity(releaseTokens, subTokens);
+                    return (Sub: s, Score: score);
+                })
+                .OrderByDescending(x => x.Score)
+                .ThenByDescending(x => x.Sub.FromTrusted ?? false)
+                .Take(maxCount)
+                .Select(x => x.Sub)
+                .ToList();
         }
 
     }

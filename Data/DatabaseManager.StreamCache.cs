@@ -399,5 +399,58 @@ namespace InfiniteDrive.Data
             }
             return Task.FromResult(result);
         }
+
+        /// <summary>
+        /// Returns the most recently updated cache entries for dead-link probing.
+        /// Returns tuples of (aio_id, season, episode, url).
+        /// </summary>
+        public List<(string AioId, int? Season, int? Episode, string Url)> GetRecentCachedEntries(int count)
+        {
+            const string sql = @"
+                SELECT aio_id, season, episode, url
+                FROM stream_resolution_cache
+                WHERE status = 'valid'
+                  AND expires_at > datetime('now')
+                  AND url IS NOT NULL AND url != ''
+                ORDER BY updated_at DESC
+                LIMIT ?";
+
+            var results = new List<(string, int?, int?, string)>();
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            stmt.BindParameters[0].Bind(count);
+            foreach (var row in stmt.AsRows())
+            {
+                var aioId = row.GetString(0);
+                var season = row.IsDBNull(1) ? (int?)null : row.GetInt(1);
+                var episode = row.IsDBNull(2) ? (int?)null : row.GetInt(2);
+                var url = row.GetString(3);
+                results.Add((aioId, season, episode, url));
+            }
+            return results;
+        }
+
+        /// <summary>
+        /// Returns the subtitles_json stored alongside a cached stream entry.
+        /// Returns null when no subtitles have been cached for this item.
+        /// </summary>
+        public async Task<string?> GetCachedSubtitlesAsync(string aioId, int? season, int? episode)
+        {
+            const string sql = @"
+                SELECT subtitles_json FROM stream_resolution_cache
+                WHERE aio_id = @aio_id
+                  AND (season  IS @season  OR (season  IS NULL AND @season  IS NULL))
+                  AND (episode IS @episode OR (episode IS NULL AND @episode IS NULL))
+                  AND status = 'valid'
+                  AND subtitles_json IS NOT NULL
+                LIMIT 1";
+
+            return await QuerySingleAsync(sql, cmd =>
+            {
+                BindText(cmd, "@aio_id", aioId);
+                BindNullableInt(cmd, "@season", season);
+                BindNullableInt(cmd, "@episode", episode);
+            }, r => r.GetString(0)).ConfigureAwait(false);
+        }
     }
 }
