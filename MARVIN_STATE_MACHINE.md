@@ -1,6 +1,6 @@
 # Marvin State Machine (Post-Sprint 500)
 
-> **Sprint 502 backend plumbing:** PluginConfiguration overhauled. Marvin triggered after every settings save. Cache stores full stream URLs. CacheRefreshIntervalDays controls expiry (default 30 days).
+> **Sprint 502 backend plumbing:** PluginConfiguration overhauled. Marvin triggered after every settings save. Cache stores full stream URLs. PreCacheTTLDays controls entry expiry (default 14 days).
 
 ## Core Rule
 Marvin is the single orchestrator. There are no other scheduled tasks visible to Emby.

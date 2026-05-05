@@ -115,7 +115,7 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 ## Sprint 420 Complete (2026-04-27)
 - Stream pre-cache system: background task resolves AIO streams before users browse, version picker appears instantly
 - New: Models/CachedStreamEntry.cs (CachedStreamEntry, StreamVariant, UncachedItem), Services/StreamCacheService.cs (IStreamCacheService), Tasks/PreCacheAioStreamsTask.cs
-- Modified: Plugin.cs (StreamCacheService singleton), PluginConfiguration.cs (EnablePreCache, PreCacheBatchSize, PreCacheIntervalHours, PreCacheTTLDays)
+- Modified: Plugin.cs (StreamCacheService singleton), PluginConfiguration.cs (EnablePreCache, PreCacheBatchSize, PreCacheTTLDays)
 - Modified: Data/DatabaseManager.cs (cached_streams table + 5 query methods), Services/AioMediaSourceProvider.cs (pre-cache check + write-through), Services/TriggerService.cs (precache trigger)
 
 ## Sprint 515 Complete (2026-05-04)
@@ -144,3 +144,9 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - M-05: AioStreamsClientFactory.CreateForProvider + TryCreateForManifest; 9 call sites routed through factory
 - AioImageProvider: deleted duplicate GetConfiguredProviders, now uses ProviderHelper.GetProviders
 - Net: -34 lines across 17 files + 1 new file (Models/GracePeriodPolicy.cs)
+
+## Sprint 519 Complete (2026-05-05)
+- Stream cache pipeline: 6 bug fixes (expires_at check in GetUncachedItemsAsync, stale re-resolution, removed dead PreCacheIntervalHours/CacheRefreshIntervalDays config, batch jitter, dead-link probe)
+- Subtitle provider: AioSubtitleProvider (ISubtitleProvider) with cache-first search + live AIOStreams fallback
+- New: Services/AioSubtitleProvider.cs
+- Modified: DatabaseManager.Catalog.cs (expires_at fix), DatabaseManager.StreamCache.cs (GetRecentCachedEntries, GetCachedSubtitlesAsync), AioStreamsClient.cs (FetchSubtitlesAsync), PreCacheAioStreamsTask.cs (jitter + probe + subtitle decoration), AioMediaSourceProvider.cs (live subtitle decoration), CachedStreamEntry.cs (SubtitlesJson), AioStreams.cs (enhanced subtitle DTO), PluginConfiguration.cs (removed 2 dead configs), UI settings (removed dead fields)

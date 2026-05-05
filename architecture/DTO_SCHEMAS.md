@@ -1,15 +1,15 @@
 # InfiniteDrive — DTO Schemas
 
-> Last reconciled: 2026-05-04 (post-Sprint 516)
+> Last reconciled: 2026-05-05 (post-Sprint 519)
 
 All types are defined in the `InfiniteDrive` namespace unless otherwise noted.
 
 ## AIOStreams DTOs (Models/AioStreams.cs)
 
-**File:** `Models/AioStreams.cs` (535 lines)
-**Purpose:** 18 DTOs + exception types extracted from AioStreamsClient. Central DTO file for all AIOStreams API interactions.
+**File:** `Models/AioStreams.cs` (545 lines)
+**Purpose:** 20 DTOs + exception types extracted from AioStreamsClient. Central DTO file for all AIOStreams API interactions.
 
-Contains request/response types for AIOStreams manifest, catalog, meta, and stream endpoints.
+Contains request/response types for AIOStreams manifest, catalog, meta, stream, and subtitle endpoints. `AioStreamsSubtitle` includes `Title`, `LangCode`, `FromTrusted`, `AiTranslated` fields for Jaccard-based scoring. `AioStreamsSubtitleResponse` wraps the `/subtitles/` endpoint response.
 
 ## Cache Entry DTOs
 
@@ -48,7 +48,7 @@ Contains request/response types for AIOStreams manifest, catalog, meta, and stre
 ### CachedStreamEntry
 
 **File:** `Models/CachedStreamEntry.cs`
-**Purpose:** Cache entry representation. `TmdbKey` stores a compound key (naming legacy — not always TMDB).
+**Purpose:** Cache entry representation. `TmdbKey` stores a compound key (naming legacy — not always TMDB). `SubtitlesJson` stores scored subtitles from AIOStreams `/subtitles/` endpoint (serialized `List<AioStreamsSubtitle>`).
 
 ## Item DTOs
 

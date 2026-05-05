@@ -1,6 +1,6 @@
 # InfiniteDrive — Background Tasks Reference
 
-> Last reconciled: 2026-05-04 (post-Sprint 516)
+> Last reconciled: 2026-05-05 (post-Sprint 519)
 
 ## Task Architecture
 
@@ -88,12 +88,17 @@ These tasks do NOT implement `IScheduledTask`. They are plain classes invoked by
 
 ### PreCacheAioStreamsTask
 
-**Purpose:** Pre-caches AIOStreams stream data for items in the catalog. Runs as an internal helper triggered by MarvinTask.
+**Purpose:** Pre-caches AIOStreams stream data and subtitles for items in the catalog. Runs as an internal helper triggered by every Marvin cycle (10 min).
+
+**Behavior:**
+- Randomizes batch order for API jitter
+- Fetches streams + subtitles from AIOStreams (Jaccard-scored against release name)
+- After main loop: probes 5 recent cache entries with HEAD+Range for dead-link detection
+- Marks stale on probe failure → next cycle re-resolves
 
 **Config defaults:**
 - EnablePreCache = true
 - PreCacheBatchSize = 42
-- PreCacheIntervalHours = 6
 - PreCacheTTLDays = 14
 
 ---

@@ -196,11 +196,6 @@ Real-Debrid CDN URLs typically expire server-side at 4–6 hours. The plugin add
 
 > Setting this lower than 60 minutes will cause very frequent re-resolution and high API usage.
 
-### `CacheRefreshIntervalDays`
-**Type:** int · **Range:** 1–365 · **Default:** `30`
-
-Number of days after which cached stream entries are considered stale and eligible for re-resolution during background maintenance cycles.
-
 ### `ApiDailyBudget`
 **Type:** int · **Range:** 1–100,000 · **Default:** `2000`
 
@@ -280,13 +275,6 @@ When disabled, all items require live resolution when browsed (20-40s delay for 
 Maximum number of items to resolve per pre-cache task run. Each item may trigger multiple AIO provider calls (one per configured provider until a hit is found).
 
 Lower values reduce API consumption; higher values warm the cache faster. 42 is a good balance for most catalogs.
-
-### `PreCacheIntervalHours`
-**Type:** int · **Range:** 1–48 · **Default:** `6`
-
-Hours between automatic pre-cache task runs. The task runs as part of the MarvinTask scheduled task.
-
-For large catalogs (>5000 items), consider 4-6 hours to keep the cache warm. For small catalogs, 12-24 hours is sufficient.
 
 ### `PreCacheTTLDays`
 **Type:** int · **Range:** 1–90 · **Default:** `14`
@@ -477,7 +465,6 @@ These fields are populated automatically by the plugin and should not be edited 
 | Field | Min | Max |
 |-------|-----|-----|
 | `CacheLifetimeMinutes` | 30 | 1440 |
-| `CacheRefreshIntervalDays` | 1 | 365 |
 | `ApiDailyBudget` | 1 | 100000 |
 | `MaxConcurrentResolutions` | 1 | 20 |
 | `CatalogSyncIntervalHours` | 1 | 168 |
@@ -486,7 +473,6 @@ These fields are populated automatically by the plugin and should not be edited 
 | `NextUpLookaheadEpisodes` | 0 | 10 |
 | `SyncScheduleHour` | -1 or 0 | 23 |
 | `PreCacheBatchSize` | 1 | 500 |
-| `PreCacheIntervalHours` | 1 | 48 |
 | `PreCacheTTLDays` | 1 | 90 |
 | `MarvinProcessIntervalMinutes` | 1 | 1440 |
 | `StreamResolutionBatchSize` | 1 | 500 |

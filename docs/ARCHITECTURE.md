@@ -28,7 +28,7 @@ InfiniteDrive is built on the principle of **Immediate Availability**. We do not
 
 * **CatalogSyncTask** — internal helper that ingests catalogs from AIOStreams, Trakt, MDBList, and custom addons into the `catalog_items` table.
 * **RefreshTask** — internal helper that validates library state, processes membership changes, and triggers metadata refreshes.
-* **PreCacheAioStreamsTask** — internal helper that proactively resolves stream metadata for uncached library items.
+* **PreCacheAioStreamsTask** — internal helper that proactively resolves stream metadata and subtitles for uncached library items. Includes batch jitter and post-loop dead-link probing.
 
 All three helpers are invoked by MarvinTask on its configurable interval. They are not registered as independent `IScheduledTask` implementations.
 

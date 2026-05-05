@@ -125,12 +125,7 @@ Dynamic table using GenericItemList:
 - Error / Warning / Info / Debug / Trace (default = Info)
 **Clear all caches** button (calls existing cache-clear logic)
 
-### Section 2: Cache Settings
-
-**Cache Refresh Interval (days)** (CacheRefreshIntervalDays) — number field, default 30
-- Help text: "Marvin will automatically refresh the full stream URLs stored in the SQLite database after this many days. Enable proxy mode on your AIOStreams instance (highly recommended) for best results."
-
-### Section 3: Maintenance & Reset
+### Section 2: Maintenance & Reset
 
 - **Reset All InfiniteDrive Data** (button with big red warning confirmation)
 - **Rebuild Libraries from Scratch** (button)
