@@ -232,6 +232,15 @@ namespace InfiniteDrive.Services
         {
             var item = result.Item;
 
+            // Always lock the Name field to prevent Emby's ffprobe / media-info extraction
+            // from overwriting it with MKV-embedded metadata (raw torrent filenames).
+            var locked = item.LockedFields?.ToList() ?? new List<MetadataFields>();
+            if (!locked.Contains(MetadataFields.Name))
+            {
+                locked.Add(MetadataFields.Name);
+                item.LockedFields = locked.ToArray();
+            }
+
             if (!string.IsNullOrWhiteSpace(meta.Name))
                 item.Name = meta.Name;
 

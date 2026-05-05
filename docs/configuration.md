@@ -241,10 +241,20 @@ Comma-separated provider priority order. Within the same quality tier, InfiniteD
 
 Quality tier **always** overrides provider priority: a 4K TorBox stream beats a 1080p Real-Debrid stream regardless of this setting.
 
-### `PreferredQualityTiers`
-**Type:** List\<string\> · **Default:** empty (all tiers accepted)
+### Per-Tier Source Limits
 
-Ordered list of preferred quality tiers. Streams matching higher-listed tiers are ranked above lower ones. Leave empty to accept all tiers and rely on natural ordering.
+Six properties control how many streams each quality tier contributes to the version picker:
+
+| Property | Tier | Default |
+|---|---|---|
+| `MaxStreams4k51` | 4K 5.1 / DTS | 2 |
+| `MaxStreams4kAny` | 4K (any) | 2 |
+| `MaxStreams1080p51` | 1080p 5.1 | 2 |
+| `MaxStreams1080pAny` | 1080p (any) | 2 |
+| `MaxStreams720p` | 720p | 2 |
+| `MaxStreamsSd` | SD / Unknown / Low-bandwidth | 2 |
+
+**Type:** int · **Range:** 0–5 · Set to 0 to exclude a tier entirely.
 
 ### `DefaultQualityTier`
 **Type:** string · **Default:** `1080p (any)`

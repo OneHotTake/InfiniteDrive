@@ -66,7 +66,7 @@ If the primary candidate fails during `OpenMediaSource`:
 
 Streams are ranked by:
 
-1. **Quality tier** — 4K > 1080p > 720p > SD (configurable via `PreferredQualityTiers` and `DefaultQualityTier`).
+1. **Quality tier** — 4K > 1080p > 720p > SD. Per-tier source limits (`MaxStreams*`) cap how many streams each tier contributes; `DefaultQualityTier` sets the fallback.
 2. **Provider priority** — within the same tier, earlier providers in `ProviderPriorityOrder` win.
 3. **Language match** — audio language matching the user's `PreferredMetadataLanguage` is preferred.
 

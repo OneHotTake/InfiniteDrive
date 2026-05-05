@@ -42,8 +42,8 @@ namespace InfiniteDrive.UI.Settings
         [Browsable(false)]
         public IEnumerable<EditorSelectOption> LogLevelOptions { get; set; } = new List<EditorSelectOption>
         {
-            new() { Value = "Info", Name = "Info" },
-            new() { Value = "Debug", Name = "Debug" },
+            new() { Value = "Info", Name = "Info", IsEnabled = true },
+            new() { Value = "Debug", Name = "Debug", IsEnabled = true },
         };
 
         public ButtonItem ClearCacheButton { get; set; } = new ButtonItem("Clear All Caches")

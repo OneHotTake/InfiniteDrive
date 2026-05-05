@@ -60,6 +60,18 @@ namespace InfiniteDrive.Services
             _libraryManager = libraryManager;
         }
 
+        /// <summary>
+        /// Invalidates the in-memory source cache for an item so the next GetMediaSources
+        /// picks up probe data from the DB.
+        /// </summary>
+        internal static void InvalidateCache(string imdbId, int? season, int? episode)
+        {
+            var key = season.HasValue
+                ? $"{imdbId}:S{season}E{episode}"
+                : imdbId;
+            _cache.TryRemove(key, out _);
+        }
+
         public Task<List<MediaSourceInfo>> GetMediaSources(BaseItem item, CancellationToken cancellationToken)
         {
             try
@@ -266,12 +278,53 @@ namespace InfiniteDrive.Services
         private List<MediaSourceInfo> BuildSourcesFromCandidates(
             IEnumerable<StreamCandidate> candidates, string imdbId)
         {
-            return candidates
+            var config = Plugin.Instance?.Configuration;
+            var tierLimits = config != null
+                ? BuildTierLimits(config)
+                : new Dictionary<string, int>();
+
+            // Group candidates by UI tier, cap per tier, preserve rank order
+            var capped = candidates
+                .GroupBy(c => MapCandidateToUiTier(c))
+                .SelectMany(g => tierLimits.TryGetValue(g.Key, out var limit) && limit > 0
+                    ? g.Take(limit)
+                    : limit == 0 ? Enumerable.Empty<StreamCandidate>() : g)
+                .OrderBy(c => c.Rank)
+                .ToList();
+
+            return capped
                 .Select(c => MapCandidateToSource(c))
                 .Where(s => s != null)
                 .Cast<MediaSourceInfo>()
                 .ToList();
         }
+
+        /// <summary>Maps a candidate's QualityTier + filename audio to a UI tier name.</summary>
+        private static string MapCandidateToUiTier(StreamCandidate c)
+        {
+            var fn = (c.FileName ?? "").ToUpperInvariant();
+            var has51 = fn.Contains("5.1") || fn.Contains("7.1") || fn.Contains("6CH") || fn.Contains("8CH")
+                     || fn.Contains("DTS") || fn.Contains("TRUEHD") || fn.Contains("ATMOS")
+                     || fn.Contains("DOLBY") && !fn.Contains("DOLBY DIGITAL"); // DTS/Atmos = 5.1+
+
+            return c.QualityTier switch
+            {
+                "2160p" => has51 ? "4K 5.1 / DTS" : "4K (any)",
+                "1080p" => has51 ? "1080p 5.1" : "1080p (any)",
+                "720p"  => "720p",
+                _       => "SD / Unknown / Low-bandwidth" // 480p, unknown, etc.
+            };
+        }
+
+        private static Dictionary<string, int> BuildTierLimits(PluginConfiguration cfg) => new()
+        {
+            { "4K 5.1 / DTS",                cfg.MaxStreams4k51 },
+            { "4K (any)",                     cfg.MaxStreams4kAny },
+            { "1080p 5.1",                    cfg.MaxStreams1080p51 },
+            { "1080p (any)",                  cfg.MaxStreams1080pAny },
+            { "720p",                         cfg.MaxStreams720p },
+            { "SD / Unknown / Low-bandwidth", cfg.MaxStreamsSd },
+        };
 
         private MediaSourceInfo? MapCandidateToSource(StreamCandidate candidate)
         {
@@ -318,7 +371,7 @@ namespace InfiniteDrive.Services
                 catch { /* non-fatal */ }
             }
 
-            // Load cached ffprobe data for dropdown display
+            // MediaStreams: prefer actual ffprobe data, fall back to filename/metadata parsing
             if (!string.IsNullOrEmpty(candidate.ProbeJson))
             {
                 try
@@ -329,6 +382,10 @@ namespace InfiniteDrive.Services
                 }
                 catch { /* non-fatal */ }
             }
+
+            // Fallback: build streams from candidate metadata (filename parsing, raw AioStreams data)
+            if (source.MediaStreams == null || source.MediaStreams.Count == 0)
+                source.MediaStreams = BuildRichMediaStreams(candidate);
 
             return source;
         }

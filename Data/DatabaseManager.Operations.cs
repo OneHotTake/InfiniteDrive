@@ -63,8 +63,8 @@ namespace InfiniteDrive.Data
             CancellationToken ct = default)
         {
             const string sql = @"
-                INSERT INTO refresh_run_log (worker, step, status)
-                VALUES (@worker, @step, 'started');";
+                INSERT INTO refresh_run_log (run_at, worker, step, status)
+                VALUES (datetime('now'), @worker, @step, 'started');";
 
             using var conn = OpenConnection();
             using var stmt = conn.PrepareStatement(sql);

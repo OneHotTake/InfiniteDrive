@@ -134,11 +134,12 @@ namespace InfiniteDrive.Data
         public async Task UpsertUserSaveAsync(string userId, string mediaItemId, string? saveReason, int? savedSeason, CancellationToken cancellationToken = default)
         {
             const string sql = @"
-                INSERT OR IGNORE INTO user_item_saves (user_id, media_item_id, save_reason, saved_season)
-                VALUES (@UserId, @MediaItemId, @SaveReason, @SavedSeason);";
+                INSERT OR IGNORE INTO user_item_saves (id, user_id, media_item_id, save_reason, saved_season, saved_at)
+                VALUES (@Id, @UserId, @MediaItemId, @SaveReason, @SavedSeason, datetime('now'));";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
+                BindText(cmd, "@Id", Guid.NewGuid().ToString("N").Substring(0, 8));
                 BindText(cmd, "@UserId", userId);
                 BindText(cmd, "@MediaItemId", mediaItemId);
                 BindNullableText(cmd, "@SaveReason", saveReason);

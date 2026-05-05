@@ -743,8 +743,8 @@ namespace InfiniteDrive.Data
             string title, string mediaType, string blockedBy)
         {
             const string sql = @"
-                INSERT INTO blocked_items (imdb_id, tmdb_id, anilist_id, title, media_type, blocked_by)
-                VALUES (@imdb_id, @tmdb_id, @anilist_id, @title, @media_type, @blocked_by)";
+                INSERT INTO blocked_items (imdb_id, tmdb_id, anilist_id, title, media_type, blocked_at, blocked_by)
+                VALUES (@imdb_id, @tmdb_id, @anilist_id, @title, @media_type, datetime('now'), @blocked_by)";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
