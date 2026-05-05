@@ -281,14 +281,8 @@ namespace InfiniteDrive.Services
                     catch { /* non-fatal */ }
                 }
 
-                // Minimal MediaStreams — Emby probes the CDN URL via SupportsProbing.
-                // For pre-cache sources, we don't have background probe support (no logger).
-                // The AioMediaSourceProvider live/DB paths use ApplyProbes for caching.
-                source.MediaStreams = new List<MediaStream>
-                {
-                    new MediaStream { Type = MediaStreamType.Video, Index = -1 },
-                    new MediaStream { Type = MediaStreamType.Audio, Index = -1 },
-                };
+                // Build MediaStreams from variant metadata (codec, resolution, audio, subtitles)
+                source.MediaStreams = BuildMediaStreamsFromVariant(v);
 
                 sources.Add(source);
             }
@@ -317,6 +311,78 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Builds a human-readable display name like "1080p · HEVC · English".
         /// </summary>
+        private static List<MediaStream> BuildMediaStreamsFromVariant(StreamVariant v)
+        {
+            var streams = new List<MediaStream>();
+            var (w, h) = StreamHelpers.ResolutionToPixels(v.Resolution ?? v.QualityTier);
+
+            // Video stream
+            streams.Add(new MediaStream
+            {
+                Type = MediaStreamType.Video,
+                Index = 0,
+                Codec = v.VideoCodec ?? "h264",
+                Width = w,
+                Height = h,
+                Language = "und",
+                IsDefault = true,
+                BitRate = (v.Bitrate ?? 0) * 1000,
+            });
+
+            // Audio streams from structured data
+            if (v.AudioStreams?.Count > 0)
+            {
+                for (int i = 0; i < v.AudioStreams.Count; i++)
+                {
+                    var a = v.AudioStreams[i];
+                    var title = !string.IsNullOrEmpty(a.Codec) && a.Channels > 0
+                        ? $"{a.Codec.ToUpperInvariant()} {(a.Channels >= 6 ? "5.1" : a.Channels == 2 ? "Stereo" : "")}".Trim()
+                        : a.Codec?.ToUpperInvariant() ?? "";
+                    streams.Add(new MediaStream
+                    {
+                        Type = MediaStreamType.Audio,
+                        Index = streams.Count,
+                        Codec = a.Codec ?? "",
+                        Language = a.Language ?? "und",
+                        Channels = a.Channels ?? 0,
+                        Title = title,
+                        DisplayTitle = title,
+                        IsDefault = a.IsDefault || i == 0,
+                    });
+                }
+            }
+            else
+            {
+                streams.Add(new MediaStream
+                {
+                    Type = MediaStreamType.Audio,
+                    Index = streams.Count,
+                    Codec = "",
+                    Language = "und",
+                    IsDefault = true,
+                });
+            }
+
+            // Subtitle streams
+            if (v.SubtitleStreams?.Count > 0)
+            {
+                foreach (var s in v.SubtitleStreams)
+                {
+                    streams.Add(new MediaStream
+                    {
+                        Type = MediaStreamType.Subtitle,
+                        Index = streams.Count,
+                        Language = s.Language ?? "und",
+                        Title = s.Language ?? "und",
+                        DisplayTitle = s.Language ?? "und",
+                        IsDefault = s.IsDefault,
+                    });
+                }
+            }
+
+            return streams;
+        }
+
         private static string FormatVariantName(StreamVariant v, int fallbackIndex)
         {
             var tier = v.Resolution ?? v.QualityTier ?? "";

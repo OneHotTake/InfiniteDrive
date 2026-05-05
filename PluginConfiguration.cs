@@ -737,22 +737,13 @@ namespace InfiniteDrive
         // ║  CONTENT CONTROLS TAB (Sprint 502)                                   ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
-        /// <summary>
-        /// Ordered list of quality tier labels shown in the Playback tab.
-        /// Marvin picks the highest matching tier when resolving streams.
-        /// </summary>
-        [DataMember]
-        public List<string> PreferredQualityTiers { get; set; } = new()
-        {
-            "4K REMUX / HDR / Atmos",
-            "4K 5.1 / DTS",
-            "4K (any)",
-            "1080p Atmos / TrueHD",
-            "1080p 5.1",
-            "1080p (any)",
-            "720p",
-            "SD / Unknown / Low-bandwidth"
-        };
+        /// <summary>Max streams shown in dropdown per quality tier. 0 = tier disabled.</summary>
+        [DataMember] public int MaxStreams4k51 { get; set; } = 2;
+        [DataMember] public int MaxStreams4kAny { get; set; } = 2;
+        [DataMember] public int MaxStreams1080p51 { get; set; } = 2;
+        [DataMember] public int MaxStreams1080pAny { get; set; } = 2;
+        [DataMember] public int MaxStreams720p { get; set; } = 2;
+        [DataMember] public int MaxStreamsSd { get; set; } = 2;
 
         /// <summary>Default quality tier selected when no user preference is set. Default: "1080p (any)".</summary>
         [DataMember]

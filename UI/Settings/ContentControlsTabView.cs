@@ -13,18 +13,6 @@ namespace InfiniteDrive.UI.Settings
 {
     public class ContentControlsTabView : PluginPageView
     {
-        private static readonly string[] AllQualityTiers =
-        {
-            "4K REMUX / HDR / Atmos",
-            "4K 5.1 / DTS",
-            "4K (any)",
-            "1080p Atmos / TrueHD",
-            "1080p 5.1",
-            "1080p (any)",
-            "720p",
-            "SD / Unknown / Low-bandwidth",
-        };
-
         public ContentControlsTabView(string pluginId, ContentControlsUI ui)
             : base(pluginId)
         {
@@ -44,10 +32,6 @@ namespace InfiniteDrive.UI.Settings
 
             switch (cmd)
             {
-                case ContentControlsUI.ToggleTierCommand:
-                    await ToggleTierAsync(data);
-                    return this;
-
                 case ContentControlsUI.AddToBlockListCommand:
                     await AddToBlockListAsync();
                     return this;
@@ -73,33 +57,18 @@ namespace InfiniteDrive.UI.Settings
         private void LoadQualityTiers()
         {
             var cfg = Plugin.Instance.Configuration;
-            var preferred = cfg.PreferredQualityTiers?.ToHashSet() ?? new HashSet<string>(AllQualityTiers);
-            var defaultTier = cfg.DefaultQualityTier ?? "1080p (any)";
-
-            UI.UseRemuxForAutoSelection = cfg.UseRemuxForAutoSelection;
-            UI.QualityTierList.Clear();
-
-            foreach (var tier in AllQualityTiers)
+            var limits = new Dictionary<string, int>
             {
-                var isEnabled = preferred.Contains(tier);
-                var isDefault = tier == defaultTier;
+                { "4K 5.1 / DTS",                cfg.MaxStreams4k51 },
+                { "4K (any)",                     cfg.MaxStreams4kAny },
+                { "1080p 5.1",                    cfg.MaxStreams1080p51 },
+                { "1080p (any)",                  cfg.MaxStreams1080pAny },
+                { "720p",                         cfg.MaxStreams720p },
+                { "SD / Unknown / Low-bandwidth", cfg.MaxStreamsSd },
+            };
 
-                UI.QualityTierList.Add(new GenericListItem
-                {
-                    PrimaryText = tier + (isDefault ? " (default)" : ""),
-                    Icon = isEnabled ? IconNames.check_circle : IconNames.radio_button_unchecked,
-                    IconMode = ItemListIconMode.SmallRegular,
-                    Status = isEnabled ? ItemStatus.Succeeded : ItemStatus.Unavailable,
-                    Toggle = new ToggleButtonItem
-                    {
-                        IsChecked = isEnabled,
-                        Caption = isDefault ? "Default" : "Enabled",
-                        Data1 = tier,
-                        CommandId = ContentControlsUI.ToggleTierCommand,
-                    },
-                });
-            }
-
+            UI.SetTierLimits(limits);
+            UI.UseRemuxForAutoSelection = cfg.UseRemuxForAutoSelection;
             RaiseUIViewInfoChanged();
         }
 
@@ -126,7 +95,6 @@ namespace InfiniteDrive.UI.Settings
 
                 foreach (var item in items)
                 {
-                    var id = item.ImdbId ?? item.TmdbId ?? item.AnilistId ?? "—";
                     var details = $"{item.MediaType} · blocked {FormatTimeAgo(item.BlockedAt)}";
 
                     UI.BlockedItemList.Add(new GenericListItem
@@ -159,43 +127,6 @@ namespace InfiniteDrive.UI.Settings
         // ═══════════════════════════════════════════════════════════════
         // Commands
         // ═══════════════════════════════════════════════════════════════
-
-        private Task ToggleTierAsync(string tierName)
-        {
-            try
-            {
-                var cfg = Plugin.Instance.Configuration;
-                var preferred = cfg.PreferredQualityTiers?.ToList() ?? new List<string>(AllQualityTiers);
-
-                if (preferred.Contains(tierName))
-                {
-                    if (preferred.Count <= 1)
-                    {
-                        UI.BlockListStatus.StatusText = "Cannot disable the last enabled tier";
-                        UI.BlockListStatus.Status = ItemStatus.Warning;
-                        RaiseUIViewInfoChanged();
-                        return Task.CompletedTask;
-                    }
-                    preferred.Remove(tierName);
-                }
-                else
-                {
-                    preferred.Add(tierName);
-                }
-
-                cfg.PreferredQualityTiers = preferred;
-                Plugin.Instance.SaveConfiguration();
-                Plugin.Instance.TriggerBackgroundSync();
-
-                LoadQualityTiers();
-            }
-            catch (Exception ex)
-            {
-                Plugin.Instance.Logger.LogWarning(ex, "[ContentControlsUI] Failed to toggle tier");
-            }
-
-            return Task.CompletedTask;
-        }
 
         private async Task AddToBlockListAsync()
         {
@@ -282,6 +213,15 @@ namespace InfiniteDrive.UI.Settings
             cfg.DefaultQualityTier = UI.DefaultQualityTier ?? "1080p (any)";
             cfg.UseRemuxForAutoSelection = UI.UseRemuxForAutoSelection;
             cfg.HideUnratedContent = UI.HideUnratedContent;
+
+            // Save per-tier limits from dropdowns
+            var limits = UI.GetTierLimits();
+            cfg.MaxStreams4k51 = limits.GetValueOrDefault("4K 5.1 / DTS", 2);
+            cfg.MaxStreams4kAny = limits.GetValueOrDefault("4K (any)", 2);
+            cfg.MaxStreams1080p51 = limits.GetValueOrDefault("1080p 5.1", 2);
+            cfg.MaxStreams1080pAny = limits.GetValueOrDefault("1080p (any)", 2);
+            cfg.MaxStreams720p = limits.GetValueOrDefault("720p", 2);
+            cfg.MaxStreamsSd = limits.GetValueOrDefault("SD / Unknown / Low-bandwidth", 2);
 
             // Sync DefaultSlotKey from UI tier selection so .strm files use the chosen quality
             if (ResolverService.UiTierNameToKey.TryGetValue(cfg.DefaultQualityTier, out var tierKey))

@@ -72,16 +72,14 @@
 
 ### Section 1: Quality & Resolution Preferences
 
-**Preferred Quality Tiers** (PreferredQualityTiers)
-- Multi-select checkboxes — exactly these 8 items, all checked by default:
-  - 4K REMUX / HDR / Atmos
-  - 4K 5.1 / DTS
-  - 4K (any)
-  - 1080p Atmos / TrueHD
-  - 1080p 5.1
-  - 1080p (any)
-  - 720p
-  - SD / Unknown / Low-bandwidth
+**Per-Tier Source Limits** (dropdowns, 0–5)
+- Six dropdowns controlling max streams per quality tier (default: 2 each):
+  - 4K 5.1 / DTS (`MaxStreams4k51`)
+  - 4K (any) (`MaxStreams4kAny`)
+  - 1080p 5.1 (`MaxStreams1080p51`)
+  - 1080p (any) (`MaxStreams1080pAny`)
+  - 720p (`MaxStreams720p`)
+  - SD / Unknown / Low-bandwidth (`MaxStreamsSd`)
 
 **Default Quality Tier** (DefaultQualityTier)
 - Single dropdown (required). Default value: "1080p (any)"

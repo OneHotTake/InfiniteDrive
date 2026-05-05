@@ -233,53 +233,158 @@ namespace InfiniteDrive.Services
             }
         }
 
-        // ── Private: playback-started handler (BINGE-PREWARM) ───────────────────
+        // ── Private: playback-started handler (BINGE-PREWARM + TITLE RESTORATION) ─
 
         /// <summary>
-        /// Fires when any item begins playing.  For InfiniteDrive episodes, queues
-        /// the next two episodes for Tier 1 resolution immediately so the full
-        /// episode runtime is available as the pre-warm window.
+        /// Fires when any item begins playing.  For InfiniteDrive items:
+        /// (1) Restores the correct catalog title if Emby overwrote it with
+        ///     MKV-embedded metadata (raw torrent filenames).
+        /// (2) For series episodes, queues the next two episodes for Tier 1
+        ///     resolution immediately so the full episode runtime is available
+        ///     as the pre-warm window.
         /// </summary>
         private void OnPlaybackStarted(object? sender, PlaybackProgressEventArgs e)
         {
             var item = e.Item;
-            if (item?.Path == null) return;
-            if (!item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)) return;
+            if (item == null) return;
 
-            _ = Task.Run(() => HandlePlaybackStartedAsync(item.Path, e));
+            // Detect InfiniteDrive items by provider ID (covers version picker playback)
+            var isInfiniteDrive = item.ProviderIds != null &&
+                item.ProviderIds.ContainsKey("INFINITEDRIVE");
+
+            // Also detect by .strm path (legacy fallback)
+            if (!isInfiniteDrive && item.Path != null &&
+                item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+            {
+                isInfiniteDrive = true;
+            }
+
+            if (!isInfiniteDrive) return;
+
+            _ = Task.Run(() => HandlePlaybackStartedAsync(item, e));
         }
 
-        private async Task HandlePlaybackStartedAsync(string strmPath, PlaybackProgressEventArgs e)
+        private async Task HandlePlaybackStartedAsync(BaseItem item, PlaybackProgressEventArgs e)
         {
             try
             {
-                if (!File.Exists(strmPath)) return;
+                // Extract IMDB ID from provider IDs
+                string? imdbId = null;
+                if (item.ProviderIds != null &&
+                    item.ProviderIds.TryGetValue("Imdb", out var providerImdb))
+                {
+                    imdbId = providerImdb;
+                }
 
-                var strmUrl = File.ReadAllText(strmPath).Trim();
-                var (imdb, season, episode) = ParseStrmUrl(strmUrl);
+                // Fallback: try to extract from .strm path
+                if (string.IsNullOrEmpty(imdbId) && item.Path != null &&
+                    item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+                {
+                    (imdbId, _, _) = await ExtractInfoFromStrmAsync(item.Path).ConfigureAwait(false);
+                }
 
-                if (string.IsNullOrEmpty(imdb)) return;
-                if (!IsInfiniteDriveUrl(strmUrl)) return;
+                if (string.IsNullOrEmpty(imdbId)) return;
 
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null) return;
 
-                // Only pre-warm for series episodes
+                // ── Title restoration: correct MKV-embedded title overwrite ────────
+                await RestoreTitleAsync(item, imdbId).ConfigureAwait(false);
+
+                // ── Binge pre-warm (series only) ───────────────────────────────────
+                int? season = null, episode = null;
+
+                if (item is Episode ep)
+                {
+                    season = ep.ParentIndexNumber;
+                    episode = ep.IndexNumber;
+                }
+                else if (item.Path != null && item.Path.Contains("Season ", StringComparison.OrdinalIgnoreCase))
+                {
+                    (season, episode) = ParseSeasonEpisodeFromPath(item.Path);
+                }
+
                 if (!season.HasValue || !episode.HasValue) return;
 
                 _logger.LogInformation(
                     "[InfiniteDrive] Binge pre-warm triggered: {Imdb} S{S}E{E} — queuing next episodes",
-                    imdb, season, episode);
+                    imdbId, season, episode);
 
-                await QueueNextEpisodesAsync(db, imdb, season.Value, episode.Value);
+                await QueueNextEpisodesAsync(db, imdbId, season.Value, episode.Value);
 
                 // Refresh remaining season episodes in background
-                _ = Task.Run(() => RefreshSeriesCacheAsync(db, imdb, season.Value, episode.Value));
+                _ = Task.Run(() => RefreshSeriesCacheAsync(db, imdbId, season.Value, episode.Value));
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[InfiniteDrive] HandlePlaybackStartedAsync failed for {Path}", strmPath);
+                _logger.LogDebug(ex, "[InfiniteDrive] HandlePlaybackStartedAsync failed for {Name}", item.Name);
             }
+        }
+
+        /// <summary>
+        /// Restores the correct catalog title if Emby overwrote it with
+        /// MKV-embedded metadata (raw torrent filenames) during playback.
+        /// </summary>
+        private async Task RestoreTitleAsync(BaseItem item, string imdbId)
+        {
+            try
+            {
+                var catalogItem = await Plugin.Instance.DatabaseManager
+                    .GetCatalogItemByAioIdAsync(imdbId)
+                    .ConfigureAwait(false);
+
+                if (catalogItem == null || string.IsNullOrEmpty(catalogItem.Title)) return;
+
+                // Check if the current item name differs from the catalog title
+                if (string.Equals(item.Name, catalogItem.Title, StringComparison.Ordinal)) return;
+
+                _logger.LogInformation(
+                    "[InfiniteDrive] Title correction: restoring '{Correct}' (was '{Wrong}') for {Imdb}",
+                    catalogItem.Title, item.Name, imdbId);
+
+                // Update in-memory item
+                item.Name = catalogItem.Title;
+
+                // Persist to Emby database
+                _libraryManager.UpdateItem(item, item.GetParent(), ItemUpdateType.MetadataEdit);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[InfiniteDrive] RestoreTitleAsync failed for {Imdb}", imdbId);
+            }
+        }
+
+        /// <summary>
+        /// Extracts IMDB ID, season, and episode from a .strm file URL.
+        /// </summary>
+        private static async Task<(string imdb, int? season, int? episode)> ExtractInfoFromStrmAsync(string strmPath)
+        {
+            try
+            {
+                if (!File.Exists(strmPath)) return (string.Empty, null, null);
+                var strmUrl = await File.ReadAllTextAsync(strmPath).ConfigureAwait(false);
+                return ParseStrmUrl(strmUrl.Trim());
+            }
+            catch
+            {
+                return (string.Empty, null, null);
+            }
+        }
+
+        private static (int? season, int? episode) ParseSeasonEpisodeFromPath(string path)
+        {
+            var seasonIdx = path.IndexOf("Season ", StringComparison.OrdinalIgnoreCase);
+            if (seasonIdx < 0) return (null, null);
+
+            var afterSeason = path.Substring(seasonIdx + 7);
+            var epIdx = afterSeason.IndexOf("\\", StringComparison.OrdinalIgnoreCase);
+            if (epIdx < 0) epIdx = afterSeason.IndexOf("/", StringComparison.OrdinalIgnoreCase);
+            if (epIdx < 0) return (null, null);
+
+            if (!int.TryParse(afterSeason.Substring(0, epIdx), out var season)) return (null, null);
+
+            // Episode number from filename is unreliable; provider IDs are preferred
+            return (season, null);
         }
 
         // ── Private: playback-stopped handler ───────────────────────────────────

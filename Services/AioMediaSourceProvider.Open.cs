@@ -185,6 +185,7 @@ namespace InfiniteDrive.Services
                                     var json = SerializeProbeStreams(probed);
                                     var db = Plugin.Instance?.DatabaseManager;
                                     if (db != null) _ = db.SaveProbeJsonAsync(sk, json);
+                                    InvalidateCache(token.ImdbId, token.Season, token.Episode);
                                 }
                             }
                         }
@@ -279,6 +280,7 @@ namespace InfiniteDrive.Services
                             var json = SerializeProbeStreams(probed);
                             var db = Plugin.Instance?.DatabaseManager;
                             if (db != null) _ = db.SaveProbeJsonAsync(sk, json);
+                            InvalidateCache(token.ImdbId, token.Season, token.Episode);
                         }
                     }
                 }
@@ -415,6 +417,7 @@ namespace InfiniteDrive.Services
                                 var json = SerializeProbeStreams(probed);
                                 var db = Plugin.Instance?.DatabaseManager;
                                 if (db != null) _ = db.SaveProbeJsonAsync(best.StreamKey, json);
+                                InvalidateCache(imdbId, season, episode);
                             }
                         }
                     }
