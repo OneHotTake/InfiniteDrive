@@ -1,10 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
 using Emby.Web.GenericEdit.Elements.List;
-using InfiniteDrive.Services;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
 using Microsoft.Extensions.Logging;
@@ -46,8 +44,17 @@ namespace InfiniteDrive.UI.Settings
                     return this;
 
                 case ContentControlsUI.RemoveBucketCommand:
-                    RemoveBucket(itemId);
+                    RemoveBucket(data);
                     return this;
+
+                default:
+                    if (cmd.StartsWith(ContentControlsUI.RemoveBucketCommand + "_"))
+                    {
+                        var idx = cmd.Substring(ContentControlsUI.RemoveBucketCommand.Length + 1);
+                        RemoveBucket(idx);
+                        return this;
+                    }
+                    break;
             }
 
             return await base.RunCommand(itemId, commandId, data);
@@ -68,8 +75,6 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             UI.UseRemuxForAutoSelection = cfg.UseRemuxForAutoSelection;
-            UI.DefaultQualityTier = cfg.DefaultQualityTier ?? "1080p (any)";
-            UI.MaxVersionsPerItem = cfg.MaxVersionsPerItem;
             RaiseUIViewInfoChanged();
         }
 
@@ -108,8 +113,7 @@ namespace InfiniteDrive.UI.Settings
                     Button1 = new ButtonItem("Remove")
                     {
                         Icon = IconNames.delete,
-                        Data1 = i.ToString(),
-                        CommandId = ContentControlsUI.RemoveBucketCommand,
+                        CommandId = $"{ContentControlsUI.RemoveBucketCommand}_{i}",
                         ConfirmationPrompt = $"Remove bucket: {b.Count}x {res} · {audio}?",
                     },
                 });
@@ -124,7 +128,6 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             var buckets = cfg.DesiredVersions ?? new();
             var total = buckets.Sum(b => b.Count);
-            var max = UI.MaxVersionsPerItem;
 
             if (buckets.Count == 0)
             {
@@ -133,8 +136,10 @@ namespace InfiniteDrive.UI.Settings
                 return;
             }
 
-            UI.BucketStatus.StatusText = $"Total across all buckets: {total} / {max} max versions";
-            UI.BucketStatus.Status = total > max ? ItemStatus.Warning : ItemStatus.Succeeded;
+            UI.BucketStatus.StatusText = total > 8
+                ? $"Total across all buckets: {total} — exceeds hardcoded max of 8"
+                : $"Total across all buckets: {total} / 8 max versions";
+            UI.BucketStatus.Status = total > 8 ? ItemStatus.Warning : ItemStatus.Succeeded;
         }
 
         private async Task LoadBlockedItemsAsync()
@@ -203,9 +208,9 @@ namespace InfiniteDrive.UI.Settings
             var count = int.TryParse(UI.NewBucketCount, out var c) ? c : 1;
 
             var total = buckets.Sum(b => b.Count) + count;
-            if (total > UI.MaxVersionsPerItem)
+            if (total > 8)
             {
-                UI.BucketStatus.StatusText = $"Cannot add: total would be {total}, exceeding max {UI.MaxVersionsPerItem}";
+                UI.BucketStatus.StatusText = $"Cannot add: total would be {total}, exceeding max of 8";
                 UI.BucketStatus.Status = ItemStatus.Warning;
                 RaiseUIViewInfoChanged();
                 return;
@@ -232,13 +237,12 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             var buckets = cfg.DesiredVersions ?? new();
 
-            var indexStr = data;
-            if (data.Contains(':'))
-                indexStr = data.Split(':').Last();
+            // Data1 format: "RemoveBucketCommand:0"
+            var indexStr = data.Contains(':') ? data.Split(':').Last() : data;
 
             if (!int.TryParse(indexStr, out var index) || index < 0 || index >= buckets.Count)
             {
-                UI.BucketStatus.StatusText = "Invalid bucket index";
+                UI.BucketStatus.StatusText = $"Invalid bucket index (data='{data}')";
                 UI.BucketStatus.Status = ItemStatus.Warning;
                 RaiseUIViewInfoChanged();
                 return;
@@ -343,14 +347,8 @@ namespace InfiniteDrive.UI.Settings
         public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
         {
             var cfg = Plugin.Instance.Configuration;
-            cfg.DefaultQualityTier = UI.DefaultQualityTier ?? "1080p (any)";
             cfg.UseRemuxForAutoSelection = UI.UseRemuxForAutoSelection;
             cfg.HideUnratedContent = UI.HideUnratedContent;
-            cfg.MaxVersionsPerItem = UI.MaxVersionsPerItem;
-
-            // Sync DefaultSlotKey from UI tier selection so .strm files use the chosen quality
-            if (ResolverService.UiTierNameToKey.TryGetValue(cfg.DefaultQualityTier, out var tierKey))
-                cfg.DefaultSlotKey = tierKey;
             // Note: DesiredVersions bucket list is saved immediately on Add/Remove
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();

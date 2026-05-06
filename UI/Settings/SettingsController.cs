@@ -131,10 +131,8 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new ContentControlsUI
             {
-                DefaultQualityTier = c.DefaultQualityTier ?? "1080p (any)",
                 UseRemuxForAutoSelection = c.UseRemuxForAutoSelection,
                 HideUnratedContent = c.HideUnratedContent,
-                MaxVersionsPerItem = c.MaxVersionsPerItem,
             };
         }
 
