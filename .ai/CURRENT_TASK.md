@@ -2,8 +2,16 @@ SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working s
 
 ---
 status: complete
-task: Stream Cache Polish + Subtitle Extraction
-last_updated: 2026-05-05
+task: Multi-Version STRM Prewriting
+last_updated: 2026-05-06
+
+## Summary
+- Branch: feature/multi-version-strm-prewrite
+- New: StreamParser, VersionSelectorService, StrmFileManager services
+- New: DesiredVersionBucket, ParsedStream, SelectedVersion, StoredVersion models
+- Modified: RefreshTask (multi-version write), MarvinTask (Phase 3b version refresh), DatabaseManager (selected_versions_json columns)
+- Deprecated: AioMediaSourceProvider.GetMediaSources/OpenMediaSource, ResolverService, BuildSignedStrmUrl
+- Build: `dotnet publish -c Release` — 0 errors, 0 warnings
 
 ## Summary
 - Fixed default page (was Advanced, now Providers via CreateDefaultPageView)

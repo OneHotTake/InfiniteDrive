@@ -474,35 +474,96 @@ namespace InfiniteDrive.Tasks
                 var basePath = GetLibraryPath(config, item.MediaType);
                 var folderPath = Path.Combine(basePath, folderName);
 
-                Directory.CreateDirectory(folderPath);
+                // ── Multi-version STRM prewriting ─────────────────────────────
+                List<SelectedVersion>? versions = null;
 
-                var baseName = Path.GetFileNameWithoutExtension(folderName);
-                var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.AioId ?? "", "imdb", null, null);
-                var fileName = baseName + ".strm";
-                var fullPath = Path.Combine(folderPath, fileName);
-                var tmpPath = fullPath + ".tmp";
-
+                // Attempt to fetch live streams from AIOStreams
                 try
                 {
-                    await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
-                    File.Move(tmpPath, fullPath, overwrite: true);
+                    using var client = AioStreamsClientFactory.Create(_logger);
+                    client.Cooldown = Plugin.Instance?.CooldownGate;
+                    if (client.IsConfigured)
+                    {
+                        var response = await client.GetMovieStreamsAsync(
+                            item.AioId ?? "", cancellationToken).ConfigureAwait(false);
+
+                        if (response?.Streams?.Count > 0)
+                        {
+                            var parsed = StreamParser.ParseAll(response.Streams);
+                            if (parsed.Count > 0)
+                            {
+                                versions = VersionSelectorService.SelectBestVersions(
+                                    parsed,
+                                    config.DesiredVersions,
+                                    config.MaxVersionsPerItem);
+                            }
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .strm: {Path}", fullPath);
-                    if (File.Exists(tmpPath)) File.Delete(tmpPath);
+                    _logger.LogDebug(ex, "[Write] Stream fetch failed for {AioId}, falling back to resolve URL", item.AioId);
                 }
 
-                item.ItemState = ItemState.Written;
-                item.StrmPath = folderPath;
-                item.LocalPath = folderPath;
-                item.LocalSource = "strm";
-                item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(config.SignatureValidityDays).ToUnixTimeSeconds();
-                item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                var fileManager = Plugin.Instance?.StrmFileManager;
+                var folderBareName = Path.GetFileName(folderName);
+                var written = 0;
 
-                _logger.LogDebug("[Write] Movie {AioId} ({Title}) written in {Ms}ms", item.AioId, item.Title, itemSw.ElapsedMilliseconds);
-                results.Add((true, item));
+                if (versions != null && versions.Count > 0 && fileManager != null)
+                {
+                    // Write multi-version .strm files with direct CDN URLs
+                    written = await fileManager.WriteOrReplaceStrmFilesAsync(
+                        folderPath, folderBareName, versions, cancellationToken);
+
+                    item.SelectedVersionsJson = StrmFileManager.SerializeVersions(versions);
+                    item.LastVersionRefreshAt = DateTime.UtcNow.ToString("o");
+                }
+
+                // Fallback: if no streams fetched, write legacy resolve URL
+                if (written == 0)
+                {
+                    Directory.CreateDirectory(folderPath);
+
+                    var baseName = Path.GetFileNameWithoutExtension(folderName);
+#pragma warning disable CS0618 // BuildSignedStrmUrl is deprecated but used as fallback
+                    var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.AioId ?? "", "imdb", null, null);
+#pragma warning restore CS0618
+                    var fileName = baseName + ".strm";
+                    var fullPath = Path.Combine(folderPath, fileName);
+                    var tmpPath = fullPath + ".tmp";
+
+                    try
+                    {
+                        await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
+                        File.Move(tmpPath, fullPath, overwrite: true);
+                        written = 1;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .strm: {Path}", fullPath);
+                        if (File.Exists(tmpPath)) File.Delete(tmpPath);
+                    }
+                }
+
+                if (written > 0)
+                {
+                    item.ItemState = ItemState.Written;
+                    item.StrmPath = folderPath;
+                    item.LocalPath = folderPath;
+                    item.LocalSource = "strm";
+                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(config.SignatureValidityDays).ToUnixTimeSeconds();
+                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+
+                    _logger.LogDebug("[Write] Movie {AioId} ({Title}) written {Versions} versions in {Ms}ms",
+                        item.AioId, item.Title, written, itemSw.ElapsedMilliseconds);
+                    results.Add((true, item));
+                }
+                else
+                {
+                    _logger.LogDebug("[Write] Movie {AioId} ({Title}) skipped — no streams available", item.AioId, item.Title);
+                    results.Add((false, item));
+                }
             }
             catch (Exception ex)
             {
@@ -904,7 +965,9 @@ namespace InfiniteDrive.Tasks
 
                 try
                 {
+#pragma warning disable CS0618 // BuildSignedStrmUrl is deprecated but used for token renewal
                     var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.AioId ?? "", "imdb", null, null);
+#pragma warning restore CS0618
                     var fileName = baseName + ".strm";
                     var fullPath = Path.Combine(folderPath, fileName);
                     var tmpPath = fullPath + ".tmp";

@@ -21,6 +21,7 @@ namespace InfiniteDrive.Services
     {
         // ── OpenMediaSource flow ────────────────────────────────────────────────
 
+        [Obsolete("Multi-version STRM prewriting replaces runtime resolution. OpenMediaSource failover path will be removed in a future release.")]
         public async Task<ILiveStream> OpenMediaSource(
             string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {

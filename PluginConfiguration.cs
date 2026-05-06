@@ -570,6 +570,29 @@ namespace InfiniteDrive
         [DataMember]
         public string DefaultSlotKey { get; set; } = "hd_broad";
 
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  MULTI-VERSION STRM PREWRITING                                       ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// Desired quality buckets for multi-version .strm selection.
+        /// Buckets are matched in order — earlier buckets get priority.
+        /// Default: up to 3x 1080p surround + 2x 4K (any audio).
+        /// </summary>
+        [DataMember]
+        public List<Models.DesiredVersionBucket> DesiredVersions { get; set; } = new()
+        {
+            new() { Resolution = "1080p", Audio = "5.1/7.1 (Surround)", Count = 3 },
+            new() { Resolution = "4K", Audio = "Any Audio", Count = 2 },
+        };
+
+        /// <summary>
+        /// Maximum number of .strm versions per media item. Default: 8.
+        /// After bucket matching, remaining slots are filled with next-best streams.
+        /// </summary>
+        [DataMember]
+        public int MaxVersionsPerItem { get; set; } = 8;
+
         /// <summary>
         /// Queue of pending rehydration operations serialised as JSON.
         ///

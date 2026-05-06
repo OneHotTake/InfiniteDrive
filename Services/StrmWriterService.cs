@@ -296,6 +296,7 @@ namespace InfiniteDrive.Services
         /// Uses the old /InfiniteDrive/resolve endpoint for compatibility.
         /// TODO: Migrate to new AioMediaSourceProvider path (requires .strm rewrite).
         /// </summary>
+        [Obsolete("Legacy resolve URL builder. Multi-version STRM prewriting writes direct CDN URLs instead. Kept as fallback for items without cached streams.")]
         public static string BuildSignedStrmUrl(
             PluginConfiguration config,
             string aioId,

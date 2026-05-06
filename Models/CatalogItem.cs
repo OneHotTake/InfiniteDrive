@@ -199,5 +199,20 @@ namespace InfiniteDrive.Models
         /// Null for items migrated before this field was added.
         /// </summary>
         public string? SourceManifestUrl { get; set; }
+
+        // ── Multi-Version STRM Prewriting ───────────────────────────────────
+
+        /// <summary>
+        /// JSON-serialised list of <see cref="StoredVersion"/> objects representing
+        /// the currently written .strm versions. Used for comparison during Marvin
+        /// refresh cycles to detect when better streams are available.
+        /// </summary>
+        public string? SelectedVersionsJson { get; set; }
+
+        /// <summary>
+        /// ISO 8601 timestamp of the last multi-version refresh.
+        /// Used to throttle version refreshes in Marvin cycles.
+        /// </summary>
+        public string? LastVersionRefreshAt { get; set; }
     }
 }

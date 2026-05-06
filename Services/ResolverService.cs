@@ -15,7 +15,11 @@ namespace InfiniteDrive.Services
     /// <summary>
     /// Resolve endpoint: queries AIOStreams with SEL, caches the playback URL,
     /// and returns a 302 redirect to the binary proxy (/Stream).
+    ///
+    /// DEPRECATED: Multi-version STRM prewriting replaces runtime resolution.
+    /// This service will be removed in a future release.
     /// </summary>
+    [Obsolete("Multi-version STRM prewriting replaces runtime resolution. This endpoint will be removed.")]
     public partial class ResolverService : IService, IRequiresRequest
     {
         private readonly ILogger<ResolverService> _logger;
