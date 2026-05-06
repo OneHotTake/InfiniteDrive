@@ -366,46 +366,37 @@ namespace InfiniteDrive.Tasks
                     return (false, false);
 
                 // Fetch fresh streams
-                Services.AioStreamsStreamResponse? response;
+                List<SelectedVersion> newVersions;
+
                 if (item.MediaType == "series" || item.MediaType == "anime")
                 {
-                    // For series, fetch S01E01 as representative quality indicator
-                    response = await client.GetSeriesStreamsAsync(
-                        item.AioId, 1, 1, ct).ConfigureAwait(false);
+                    // For series: fetch streams per actual episode and write versioned .strm for each
+                    newVersions = await RefreshSeriesVersionsAsync(
+                        item, client, fileManager, config, ct);
                 }
                 else
                 {
-                    response = await client.GetMovieStreamsAsync(
+                    // Movies: single fetch
+                    var response = await client.GetMovieStreamsAsync(
                         item.AioId, ct).ConfigureAwait(false);
+
+                    if (response?.Streams == null || response.Streams.Count == 0)
+                        return (true, false);
+
+                    var parsed = Services.StreamParser.ParseAll(response.Streams);
+                    if (parsed.Count == 0) return (true, false);
+
+                    newVersions = Services.VersionSelectorService.SelectBestVersions(
+                        parsed, config.DesiredVersions, config.MaxVersionsPerItem);
                 }
 
-                if (response?.Streams == null || response.Streams.Count == 0)
+                if (newVersions.Count == 0)
                     return (true, false);
 
-                // Parse and select versions
-                var parsed = Services.StreamParser.ParseAll(response.Streams);
-                if (parsed.Count == 0) return (true, false);
-
-                var newVersions = Services.VersionSelectorService.SelectBestVersions(
-                    parsed, config.DesiredVersions, config.MaxVersionsPerItem);
-
-                // Compare against stored versions
+                // Compare against stored versions — clean direct comparison, no reconstruction
                 var storedVersions = Services.StrmFileManager.DeserializeVersions(item.SelectedVersionsJson);
-                var currentVersions = storedVersions.Select(sv => new SelectedVersion
-                {
-                    Stream = new ParsedStream
-                    {
-                        Url = sv.Url,
-                        Resolution = sv.Resolution,
-                        AudioPretty = sv.AudioPretty,
-                        RankScore = sv.RankScore,
-                        StreamKey = sv.StreamKey,
-                    },
-                    SelectedScore = sv.RankScore,
-                    VersionLabel = sv.VersionLabel ?? "",
-                }).ToList();
 
-                if (!Services.VersionSelectorService.ShouldReplace(currentVersions, newVersions))
+                if (!Services.VersionSelectorService.ShouldReplace(storedVersions, newVersions))
                     return (true, false);
 
                 // Upgrade: write new version files
@@ -440,6 +431,99 @@ namespace InfiniteDrive.Tasks
             {
                 gate.Release();
             }
+        }
+
+        /// <summary>
+        /// Refreshes multi-version .strm files for series/anime by fetching streams
+        /// for the most recent episode and writing versioned files into each season dir.
+        /// Uses actual episode metadata from VideosJson, not S01E01 guessing.
+        /// </summary>
+        private async Task<List<SelectedVersion>> RefreshSeriesVersionsAsync(
+            CatalogItem item,
+            Services.AioStreamsClient client,
+            Services.StrmFileManager fileManager,
+            PluginConfiguration config,
+            CancellationToken ct)
+        {
+            // Parse actual episodes from stored VideosJson
+            var episodeKeys = Services.EpisodeDiffService.ParseVideoKeys(item.VideosJson);
+            if (episodeKeys.Count == 0)
+                return new();
+
+            // Pick the latest episode as the quality representative
+            // (newest eps are most likely to have fresh, high-quality sources)
+            var latestEp = episodeKeys
+                .OrderByDescending(e => e.Season)
+                .ThenByDescending(e => e.Episode)
+                .First();
+
+            var response = await client.GetSeriesStreamsAsync(
+                item.AioId, latestEp.Season, latestEp.Episode, ct).ConfigureAwait(false);
+
+            if (response?.Streams == null || response.Streams.Count == 0)
+                return new();
+
+            var parsed = Services.StreamParser.ParseAll(response.Streams);
+            if (parsed.Count == 0)
+                return new();
+
+            var versions = Services.VersionSelectorService.SelectBestVersions(
+                parsed, config.DesiredVersions, config.MaxVersionsPerItem);
+
+            if (versions.Count == 0)
+                return versions;
+
+            // Write versioned .strm files for every episode in every season
+            var folderName = Services.NamingPolicyService.BuildFolderName(item);
+            var basePath = string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase)
+                ? config.SyncPathAnime
+                : config.SyncPathShows;
+            if (string.IsNullOrEmpty(basePath) || string.IsNullOrEmpty(item.StrmPath))
+                return versions;
+
+            var seasonGroups = episodeKeys.GroupBy(e => e.Season);
+            foreach (var seasonGroup in seasonGroups)
+            {
+                var seasonNum = seasonGroup.Key;
+                var seasonDir = System.IO.Path.Combine(item.StrmPath, $"Season {seasonNum:D2}");
+
+                // Write multi-version .strm for each episode in this season
+                foreach (var ep in seasonGroup)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    // Fetch streams for this specific episode
+                    Services.AioStreamsStreamResponse? epResponse;
+                    try
+                    {
+                        epResponse = await client.GetSeriesStreamsAsync(
+                            item.AioId, seasonNum, ep.Episode, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[VersionRefresh] Failed to fetch S{S:D2}E{E:D2} for {AioId}, skipping",
+                            seasonNum, ep.Episode, item.AioId);
+                        continue;
+                    }
+
+                    if (epResponse?.Streams == null || epResponse.Streams.Count == 0)
+                        continue;
+
+                    var epParsed = Services.StreamParser.ParseAll(epResponse.Streams);
+                    if (epParsed.Count == 0) continue;
+
+                    var epVersions = Services.VersionSelectorService.SelectBestVersions(
+                        epParsed, config.DesiredVersions, config.MaxVersionsPerItem);
+                    if (epVersions.Count == 0) continue;
+
+                    var epBaseName = Services.NamingPolicyService.BuildStrmFileName(item, seasonNum, ep.Episode);
+                    var epBaseNameNoExt = System.IO.Path.GetFileNameWithoutExtension(epBaseName);
+                    await fileManager.WriteOrReplaceStrmFilesAsync(
+                        seasonDir, epBaseNameNoExt, epVersions, ct);
+                }
+            }
+
+            return versions;
         }
 
         private async Task ValidationPassAsync(CancellationToken cancellationToken)
