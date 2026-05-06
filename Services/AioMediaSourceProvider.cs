@@ -753,39 +753,65 @@ namespace InfiniteDrive.Services
                 var versions = db.GetStoredVersions(aioId);
                 if (versions == null || versions.Count == 0) return null;
 
-                var sources = new List<MediaSourceInfo>(versions.Count);
-                foreach (var v in versions)
+                // Determine which version this .strm file corresponds to
+                StoredVersion? match = null;
+                if (!string.IsNullOrEmpty(itemPath) && itemPath.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
                 {
-                    var token = new VersionedOpenToken
+                    var fileName = Path.GetFileNameWithoutExtension(itemPath);
+                    var folderName = Path.GetFileName(Path.GetDirectoryName(itemPath));
+                    var baseName = Path.GetFileNameWithoutExtension(folderName ?? "");
+
+                    // Default .strm (no suffix) = first version
+                    if (fileName.Equals(baseName, StringComparison.OrdinalIgnoreCase))
                     {
-                        PrimaryUrl = v.Url,
-                        SecondaryUrl = v.SecondaryUrl,
-                        AioId = aioId,
-                        StrmPath = itemPath,
-                        VersionLabel = v.VersionLabel,
-                        StreamKey = v.StreamKey,
-                    };
-
-                    var source = new MediaSourceInfo
+                        match = versions[0];
+                    }
+                    else
                     {
-                        Id = Guid.NewGuid().ToString("N"),
-                        Name = string.IsNullOrEmpty(v.VersionLabel) ? "Stream" : v.VersionLabel,
-                        Path = v.Url,
-                        Protocol = MediaProtocol.Http,
-                        SupportsDirectPlay = true,
-                        SupportsDirectStream = true,
-                        RequiresOpening = false,
-                    };
-
-                    // Safety net: serialize token so OpenMediaSource can failover if direct play fails
-                    source.OpenToken = JsonSerializer.Serialize(token);
-
-                    sources.Add(source);
+                        // Extract version label from filename: "BaseName - Label" → "Label"
+                        var prefix = baseName + " - ";
+                        if (fileName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            var label = fileName.Substring(prefix.Length);
+                            match = versions.FirstOrDefault(v =>
+                                string.Equals(v.VersionLabel, label, StringComparison.OrdinalIgnoreCase));
+                        }
+                    }
                 }
 
-                _logger.LogDebug("[AioMediaSourceProvider] Serving {Count} versioned sources for {AioId}",
-                    sources.Count, aioId);
-                return sources;
+                // Fallback: if we can't match, return nothing — let .strm play natively
+                if (match == null)
+                {
+                    _logger.LogDebug("[AioMediaSourceProvider] No versioned match for {Path}, letting .strm play natively", itemPath);
+                    return null;
+                }
+
+                var token = new VersionedOpenToken
+                {
+                    PrimaryUrl = match.Url,
+                    SecondaryUrl = match.SecondaryUrl,
+                    AioId = aioId,
+                    StrmPath = itemPath,
+                    VersionLabel = match.VersionLabel,
+                    StreamKey = match.StreamKey,
+                };
+
+                var source = new MediaSourceInfo
+                {
+                    Id = Guid.NewGuid().ToString("N"),
+                    Name = string.IsNullOrEmpty(match.VersionLabel) ? "Stream" : match.VersionLabel,
+                    Path = match.Url,
+                    Protocol = MediaProtocol.Http,
+                    SupportsDirectPlay = true,
+                    SupportsDirectStream = true,
+                    RequiresOpening = false,
+                };
+
+                source.OpenToken = JsonSerializer.Serialize(token);
+
+                _logger.LogDebug("[AioMediaSourceProvider] Serving 1 versioned source for {AioId} ({Label})",
+                    aioId, match.VersionLabel);
+                return new List<MediaSourceInfo> { source };
             }
             catch (Exception ex)
             {
