@@ -120,6 +120,14 @@ namespace InfiniteDrive.Services
                 return new List<MediaSourceInfo>();
             }
 
+            // If this item is a .strm file in a configured path, let Emby play it natively.
+            // The .strm files contain direct CDN URLs — no need to inject MediaSourceInfo.
+            if (!string.IsNullOrEmpty(item.Path) && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("[AioMediaSourceProvider] Skipping .strm item {Name} — plays natively", item.Name);
+                return new List<MediaSourceInfo>();
+            }
+
             // In-memory cache check
             var cacheKey = season.HasValue
                 ? $"{aioId}:S{season}E{episode}"
