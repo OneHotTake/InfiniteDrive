@@ -496,6 +496,7 @@ namespace InfiniteDrive.Tasks
                                     parsed,
                                     config.DesiredVersions,
                                     config.MaxVersionsPerItem);
+                                VersionSelectorService.AssignSecondaryUrls(versions, parsed);
                             }
                         }
                     }

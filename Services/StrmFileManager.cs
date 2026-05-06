@@ -165,6 +165,7 @@ namespace InfiniteDrive.Services
             var dto = versions.Select(v => new StoredVersion
             {
                 Url = v.Stream.Url,
+                SecondaryUrl = v.SecondaryUrl,
                 Resolution = v.Stream.Resolution,
                 AudioPretty = v.Stream.AudioPretty,
                 SourceTag = v.Stream.SourceTag,
@@ -185,6 +186,38 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrWhiteSpace(json)) return new();
             try { return JsonSerializer.Deserialize<List<StoredVersion>>(json) ?? new(); }
             catch { return new(); }
+        }
+
+        /// <summary>
+        /// Atomically rewrites a single .strm file with a new URL.
+        /// Validates that the target path is inside a configured library root.
+        /// </summary>
+        /// <param name="strmPath">Full path to the .strm file</param>
+        /// <param name="newUrl">New CDN URL to write</param>
+        /// <exception cref="InvalidOperationException">Path is outside configured library roots</exception>
+        public bool RewriteSingleStrmFile(string strmPath, string newUrl)
+        {
+            ValidateLibraryPath(strmPath);
+            return AtomicWrite(strmPath, newUrl);
+        }
+
+        /// <summary>
+        /// Validates that a file path is inside a configured library root.
+        /// Throws <see cref="InvalidOperationException"/> if not.
+        /// </summary>
+        public static void ValidateLibraryPath(string path)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) throw new InvalidOperationException("Plugin not configured");
+
+            var roots = new[] { config.SyncPathMovies, config.SyncPathShows, config.SyncPathAnime }
+                .Where(p => !string.IsNullOrEmpty(p))
+                .ToList();
+
+            if (roots.Count == 0) throw new InvalidOperationException("No library paths configured");
+
+            if (!roots.Any(root => path.StartsWith(root, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException($"Path '{path}' is outside configured library roots");
         }
 
         // ── Atomic write ──────────────────────────────────────────────────────

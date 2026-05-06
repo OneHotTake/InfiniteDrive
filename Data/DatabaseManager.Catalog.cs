@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using SQLitePCL.pretty;
 using Microsoft.Extensions.Logging;
 
@@ -815,5 +817,100 @@ namespace InfiniteDrive.Data
             => QueryScalarIntAsync(
                 "SELECT COUNT(*) FROM catalog_items WHERE enrichment_status = 'Blocked' AND removed_at IS NULL;",
                 ct);
+
+        /// <summary>
+        /// Reads stored versions JSON for a given aio_id and returns deserialized list.
+        /// Returns null if no versions are stored.
+        /// </summary>
+        public List<StoredVersion>? GetStoredVersions(string aioId)
+        {
+            const string sql = @"
+                SELECT selected_versions_json
+                FROM catalog_items
+                WHERE aio_id = @aio_id
+                LIMIT 1;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@aio_id", aioId);
+
+            foreach (var row in stmt.AsRows())
+            {
+                var json = row.IsDBNull(0) ? null : row.GetString(0);
+                var versions = StrmFileManager.DeserializeVersions(json);
+                return versions.Count > 0 ? versions : null;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Updates the Url and SecondaryUrl of a single stored version identified by streamKey
+        /// within the selected_versions_json column. Used by CDN failover self-healing.
+        /// </summary>
+        public async Task UpdateStoredVersionUrlAsync(
+            string aioId, string streamKey, string newUrl, string? newSecondaryUrl,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(streamKey) || string.IsNullOrEmpty(newUrl)) return;
+
+            // Read current JSON
+            const string readSql = @"
+                SELECT selected_versions_json
+                FROM catalog_items
+                WHERE aio_id = @aio_id
+                LIMIT 1;";
+
+            string? currentJson = null;
+            using (var conn = OpenConnection())
+            using (var stmt = conn.PrepareStatement(readSql))
+            {
+                BindText(stmt, "@aio_id", aioId);
+                foreach (var row in stmt.AsRows())
+                    currentJson = row.IsDBNull(0) ? null : row.GetString(0);
+            }
+
+            if (string.IsNullOrEmpty(currentJson)) return;
+
+            var versions = StrmFileManager.DeserializeVersions(currentJson);
+            var updated = false;
+
+            foreach (var v in versions)
+            {
+                if (string.Equals(v.StreamKey, streamKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    v.Url = newUrl;
+                    v.SecondaryUrl = newSecondaryUrl;
+                    updated = true;
+                    break;
+                }
+            }
+
+            if (!updated) return;
+
+            var newJson = JsonSerializer.Serialize(versions);
+            const string writeSql = @"
+                UPDATE catalog_items
+                SET selected_versions_json = @json,
+                    updated_at = datetime('now')
+                WHERE aio_id = @aio_id;";
+
+            await _dbWriteGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                using var conn = OpenConnection();
+                conn.RunInTransaction(c =>
+                {
+                    using var stmt = c.PrepareStatement(writeSql);
+                    BindText(stmt, "@json", newJson);
+                    BindText(stmt, "@aio_id", aioId);
+                    while (stmt.MoveNext()) { }
+                });
+            }
+            finally
+            {
+                _dbWriteGate.Release();
+            }
+        }
     }
 }

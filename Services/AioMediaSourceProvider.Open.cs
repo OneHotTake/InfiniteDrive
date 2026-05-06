@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,10 +22,24 @@ namespace InfiniteDrive.Services
     {
         // ── OpenMediaSource flow ────────────────────────────────────────────────
 
-        [Obsolete("Multi-version STRM prewriting replaces runtime resolution. OpenMediaSource failover path will be removed in a future release.")]
+        [Obsolete("Legacy resolution path. Versioned multi-CDN flow is preferred.")]
         public async Task<ILiveStream> OpenMediaSource(
             string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {
+            // ── Versioned failover path (VersionedOpenToken) ─────────────────────
+            VersionedOpenToken? versionedToken = null;
+            try
+            {
+                versionedToken = JsonSerializer.Deserialize<VersionedOpenToken>(openToken);
+                // Distinguish from OpenTokenData/CachedStreamOpenToken by checking for PrimaryUrl
+                if (versionedToken == null || string.IsNullOrEmpty(versionedToken.PrimaryUrl))
+                    versionedToken = null;
+            }
+            catch { /* Not a VersionedOpenToken — fall through */ }
+
+            if (versionedToken != null)
+                return await HandleVersionedFailoverAsync(versionedToken, cancellationToken).ConfigureAwait(false);
+
             // ── Try OpenTokenData first (has Candidates array) ───────────────────
             OpenTokenData? tokenData = null;
             try
@@ -127,6 +142,191 @@ namespace InfiniteDrive.Services
             if (freshStreamResult != null) return freshStreamResult;
 
             throw new InvalidOperationException("All candidates failed and fresh resolve returned no results");
+        }
+
+        // ── Versioned failover handler ────────────────────────────────────────────
+
+        /// <summary>
+        /// Handles playback for versioned multi-CDN sources.
+        /// 1. Try primary URL (fast path).
+        /// 2. On transient failure → try secondary URL instantly.
+        /// 3. On permanent failure (404/410/403) → fresh AIOStreams resolve + rewrite .strm + update DB.
+        /// 4. On secondary success → persist the fix (rewrite .strm + update DB).
+        /// </summary>
+        private async Task<ILiveStream> HandleVersionedFailoverAsync(
+            VersionedOpenToken token, CancellationToken ct)
+        {
+            _logger.LogInformation("[Failover] Attempting primary URL for {AioId} ({Label})",
+                token.AioId, token.VersionLabel);
+
+            // ── Try primary ────────────────────────────────────────────────────
+            var primaryEx = await TryGetAsync(token.PrimaryUrl, ct).ConfigureAwait(false);
+            if (primaryEx == null)
+            {
+                // Primary succeeded
+                return BuildLiveStream(token.PrimaryUrl, token.VersionLabel);
+            }
+
+            _logger.LogWarning(primaryEx, "[Failover] Primary failed for {AioId} ({Label})",
+                token.AioId, token.VersionLabel);
+
+            // ── Classify error ──────────────────────────────────────────────────
+            if (IsTransientFailure(primaryEx))
+            {
+                // Transient → try secondary instantly
+                if (!string.IsNullOrEmpty(token.SecondaryUrl))
+                {
+                    _logger.LogInformation("[Failover] Transient failure, trying secondary for {AioId}", token.AioId);
+                    var secondaryEx = await TryGetAsync(token.SecondaryUrl, ct).ConfigureAwait(false);
+                    if (secondaryEx == null)
+                    {
+                        // Secondary worked → persist: swap primary = secondary, find new secondary
+                        await PersistSecondaryPromotionAsync(token).ConfigureAwait(false);
+                        return BuildLiveStream(token.SecondaryUrl, token.VersionLabel);
+                    }
+
+                    _logger.LogWarning(secondaryEx, "[Failover] Secondary also failed for {AioId}", token.AioId);
+                }
+            }
+            else if (IsPermanentDeletion(primaryEx))
+            {
+                // Permanent (404/410/403) → fresh AIOStreams resolve + rewrite
+                _logger.LogInformation("[Failover] Permanent failure, fresh resolving for {AioId}", token.AioId);
+                var freshUrl = await FreshResolveAndRewriteAsync(token, ct).ConfigureAwait(false);
+                if (freshUrl != null)
+                    return BuildLiveStream(freshUrl, token.VersionLabel);
+            }
+
+            // All failover paths exhausted — throw
+            throw new InvalidOperationException(
+                $"CDN failover exhausted for {token.AioId} ({token.VersionLabel}): {primaryEx.Message}");
+        }
+
+        /// <summary>
+        /// Issues a lightweight GET to verify a CDN URL is alive.
+        /// Returns null on success, or the exception on failure.
+        /// </summary>
+        private static async Task<Exception?> TryGetAsync(string url, CancellationToken ct)
+        {
+            try
+            {
+                using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+                using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                return null;
+            }
+            catch (Exception ex)
+            {
+                return ex;
+            }
+        }
+
+        private static bool IsTransientFailure(Exception ex)
+        {
+            return ex is TaskCanceledException
+                || ex is HttpRequestException
+                || (ex is System.Net.Http.HttpRequestException)
+                || (ex.Message.Contains("5") && ex.Message.Length < 200); // Crude 5xx catch
+        }
+
+        private static bool IsPermanentDeletion(Exception ex)
+        {
+            return ex.Message.Contains("404")
+                || ex.Message.Contains("410")
+                || ex.Message.Contains("403");
+        }
+
+        private ILiveStream BuildLiveStream(string url, string label)
+        {
+            var source = new MediaSourceInfo
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = string.IsNullOrEmpty(label) ? "Stream" : label,
+                Path = url,
+                Protocol = MediaProtocol.Http,
+                SupportsDirectPlay = true,
+                SupportsDirectStream = true,
+                RequiresOpening = false,
+            };
+            return new InfiniteDriveLiveStream(source, _logger);
+        }
+
+        /// <summary>
+        /// Promotes secondary to primary after successful failover.
+        /// Rewrites the .strm file and updates DB.
+        /// </summary>
+        private async Task PersistSecondaryPromotionAsync(VersionedOpenToken token)
+        {
+            try
+            {
+                _logger.LogInformation("[Failover] Promoting secondary to primary for {AioId}", token.AioId);
+
+                var db = Plugin.Instance?.DatabaseManager;
+                var fileManager = Plugin.Instance?.StrmFileManager;
+                if (db == null || fileManager == null || string.IsNullOrEmpty(token.StreamKey)) return;
+
+                // Rewrite .strm file with the secondary URL
+                if (!string.IsNullOrEmpty(token.StrmPath))
+                {
+                    fileManager.RewriteSingleStrmFile(token.StrmPath, token.SecondaryUrl!);
+                }
+
+                // Update DB: secondary becomes primary, clear secondary
+                await db.UpdateStoredVersionUrlAsync(
+                    token.AioId, token.StreamKey, token.SecondaryUrl!, null).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Failover] Non-fatal: failed to persist secondary promotion for {AioId}", token.AioId);
+            }
+        }
+
+        /// <summary>
+        /// Fresh-resolves a new URL from AIOStreams, rewrites the .strm file, and updates DB.
+        /// Returns the new URL, or null if resolution failed.
+        /// </summary>
+        private async Task<string?> FreshResolveAndRewriteAsync(VersionedOpenToken token, CancellationToken ct)
+        {
+            try
+            {
+                var config = Plugin.Instance?.Configuration;
+                var db = Plugin.Instance?.DatabaseManager;
+                var fileManager = Plugin.Instance?.StrmFileManager;
+                if (config == null || db == null || fileManager == null) return null;
+
+                var providers = ProviderHelper.GetProviders(config);
+                var response = await AioStreamsClient.FetchAioStreamsAsync(
+                    providers, token.AioId, "movie", null, null,
+                    _logger, Plugin.Instance?.ResolverHealthTracker,
+                    cooldown: null, ct).ConfigureAwait(false);
+
+                if (response?.Streams == null || response.Streams.Count == 0) return null;
+
+                var best = response.Streams.FirstOrDefault(s => !string.IsNullOrEmpty(s.Url));
+                if (best == null) return null;
+
+                var newUrl = best.Url;
+
+                // Rewrite .strm
+                if (!string.IsNullOrEmpty(token.StrmPath))
+                    fileManager.RewriteSingleStrmFile(token.StrmPath, newUrl);
+
+                // Update DB
+                if (!string.IsNullOrEmpty(token.StreamKey))
+                {
+                    await db.UpdateStoredVersionUrlAsync(
+                        token.AioId, token.StreamKey, newUrl, null).ConfigureAwait(false);
+                }
+
+                _logger.LogInformation("[Failover] Fresh resolve + rewrite for {AioId}: {Url}",
+                    token.AioId, newUrl!.Substring(0, Math.Min(80, newUrl.Length)));
+                return newUrl;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Failover] Fresh resolve failed for {AioId}", token.AioId);
+                return null;
+            }
         }
         private async Task<ILiveStream> OpenFromCachedTokenAsync(
             CachedStreamOpenToken token, CancellationToken cancellationToken)

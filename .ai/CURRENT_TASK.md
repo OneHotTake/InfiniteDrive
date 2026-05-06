@@ -2,15 +2,17 @@ SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working s
 
 ---
 status: complete
-task: Multi-Version STRM Prewriting
+task: CDN URL Failover + Self-Healing System
 last_updated: 2026-05-06
 
 ## Summary
 - Branch: feature/multi-version-strm-prewrite
-- New: StreamParser, VersionSelectorService, StrmFileManager services
-- New: DesiredVersionBucket, ParsedStream, SelectedVersion, StoredVersion models
-- Modified: RefreshTask (multi-version write), MarvinTask (Phase 3b version refresh), DatabaseManager (selected_versions_json columns)
-- Deprecated: AioMediaSourceProvider.GetMediaSources/OpenMediaSource, ResolverService, BuildSignedStrmUrl
+- CDN URL failover: primary→secondary→fresh-resolve pipeline in OpenMediaSource
+- Self-healing: Marvin stream list comparison promotes secondary on dead primary
+- SecondaryUrl on StoredVersion/SelectedVersion, assigned by AssignSecondaryUrls
+- Versioned GetMediaSources: serves direct-play sources from stored versions with failover tokens
+- StrmFileManager.RewriteSingleStrmFile for atomic single-file URL replacement
+- DatabaseManager.UpdateStoredVersionUrlAsync for targeted JSON column updates
 - Build: `dotnet publish -c Release` — 0 errors, 0 warnings
 
 ## Summary

@@ -46,6 +46,12 @@ namespace InfiniteDrive.Models
         public ParsedStream Stream { get; set; } = new();
 
         /// <summary>
+        /// Pre-cached secondary CDN URL for instant failover when primary dies.
+        /// Assigned by <see cref="VersionSelectorService.AssignSecondaryUrls"/>.
+        /// </summary>
+        public string? SecondaryUrl { get; set; }
+
+        /// <summary>
         /// Emby-compliant version filename (without .strm extension).
         /// Format: "{Resolution} - {AudioPretty} - {SizeGiB:F1}GiB"
         /// </summary>
@@ -66,6 +72,7 @@ namespace InfiniteDrive.Models
     public class StoredVersion
     {
         public string Url { get; set; } = string.Empty;
+        public string? SecondaryUrl { get; set; }
         public string Resolution { get; set; } = "Unknown";
         public string AudioPretty { get; set; } = "Unknown Audio";
         public string SourceTag { get; set; } = "Unknown";
