@@ -145,6 +145,7 @@ namespace InfiniteDrive.UI.Settings
                 MarvinProcessIntervalMinutes = c.MarvinProcessIntervalMinutes,
                 StreamResolutionBatchSize = c.StreamResolutionBatchSize,
                 MarvinActionsPerHour = c.MarvinActionsPerHour,
+                MaxVersionsPerItem = c.MaxVersionsPerItem,
                 RespectPlaylistsWhenPruning = c.RespectPlaylistsWhenPruning,
                 AutoDeduplicatePhysicalMedia = c.AutoDeduplicatePhysicalMedia,
             };

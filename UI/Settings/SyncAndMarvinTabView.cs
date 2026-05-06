@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
 using InfiniteDrive.UI;
@@ -47,6 +48,21 @@ namespace InfiniteDrive.UI.Settings
                 $"Interval: {cfg.MarvinProcessIntervalMinutes}m · Batch: {cfg.StreamResolutionBatchSize} · " +
                 $"Rate limit: {cfg.MarvinActionsPerHour}/hr";
             ui.MarvinStatus.Status = ItemStatus.Succeeded;
+
+            // Show actual bucket config
+            var buckets = cfg.DesiredVersions;
+            if (buckets != null && buckets.Count > 0)
+            {
+                var bucketDesc = string.Join(" + ", buckets.Select(b =>
+                {
+                    var res = string.IsNullOrEmpty(b.Resolution) ? "Any" : b.Resolution;
+                    var audio = string.IsNullOrEmpty(b.Audio) || b.Audio == "Any Audio" ? "" : $" {b.Audio}";
+                    return $"{b.Count}x {res}{audio}";
+                }));
+                ui.VersionBucketsSummary = new Emby.Web.GenericEdit.Elements.LabelItem(
+                    $"Quality buckets: {bucketDesc}. Remaining slots fill with next-best streams.");
+            }
+
             RaiseUIViewInfoChanged();
         }
 
@@ -86,6 +102,7 @@ namespace InfiniteDrive.UI.Settings
             cfg.MarvinProcessIntervalMinutes = UI.MarvinProcessIntervalMinutes;
             cfg.StreamResolutionBatchSize = UI.StreamResolutionBatchSize;
             cfg.MarvinActionsPerHour = UI.MarvinActionsPerHour;
+            cfg.MaxVersionsPerItem = UI.MaxVersionsPerItem;
             cfg.RespectPlaylistsWhenPruning = UI.RespectPlaylistsWhenPruning;
             cfg.AutoDeduplicatePhysicalMedia = UI.AutoDeduplicatePhysicalMedia;
             Plugin.Instance.SaveConfiguration();

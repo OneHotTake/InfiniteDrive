@@ -38,7 +38,21 @@ namespace InfiniteDrive.UI.Settings
         public StatusItem MarvinStatus { get; set; } = new StatusItem("Marvin", "Idle", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
-        // Section 2: Pruning & Deduplication
+        // Section 2: Multi-Version STRM
+        // ═══════════════════════════════════════════════════════════════
+
+        public SpacerItem SpacerVersion { get; set; } = new SpacerItem();
+        public CaptionItem CaptionVersions { get; set; } = new CaptionItem("Multi-Version STRM");
+
+        [DisplayName("Max Versions Per Item")]
+        [Description("Maximum .strm versions per movie/episode. Default: 8. After bucket matching, remaining slots fill with next-best streams.")]
+        public int MaxVersionsPerItem { get; set; } = 8;
+
+        public LabelItem VersionBucketsSummary { get; set; } = new LabelItem(
+            "Default buckets: 3x 1080p Surround + 2x 4K (any audio). Remaining slots fill with next-best streams.");
+
+        // ═══════════════════════════════════════════════════════════════
+        // Section 3: Pruning & Deduplication
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
