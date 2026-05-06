@@ -46,7 +46,7 @@ namespace InfiniteDrive.UI.Settings
                     return this;
 
                 case ContentControlsUI.RemoveBucketCommand:
-                    RemoveBucket(data);
+                    RemoveBucket(itemId);
                     return this;
             }
 
