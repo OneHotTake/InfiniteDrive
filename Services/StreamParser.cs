@@ -51,10 +51,10 @@ namespace InfiniteDrive.Services
             // Use CandidateNormalizer for structured metadata
             var tech = CandidateNormalizer.ParseTechnicalMetadata(raw);
 
-            var resolution = NormaliseResolution(tech.Resolution);
+            var resolution = NormaliseResolution(tech.Resolution, raw);
             var audioGroup = ClassifyAudioGroup(tech.AudioCodec, tech.AudioChannels, raw);
             var audioPretty = BuildAudioPretty(tech.AudioCodec, tech.AudioChannels, raw);
-            var sourceTag = NormaliseSourceTag(tech.SourceType);
+            var sourceTag = NormaliseSourceTag(tech.SourceType, raw);
             var sizeGiB = ExtractSizeGiB(raw);
             var qualityTier = StreamHelpers.ParseQualityTier(
                 !string.IsNullOrEmpty(raw.ParsedFile?.Resolution)
@@ -88,7 +88,40 @@ namespace InfiniteDrive.Services
 
         // ── Resolution normalisation ──────────────────────────────────────────
 
-        private static string NormaliseResolution(string? raw)
+        private static string NormaliseResolution(string? raw, AioStreamsStream stream)
+        {
+            // Try tech data first
+            var result = NormaliseResolutionString(raw);
+            if (result != "Unknown") return result;
+
+            // Fallback: bingeGroup (e.g. "provider|720p|BluRay")
+            var binge = stream.BehaviorHints?.BingeGroup;
+            if (!string.IsNullOrEmpty(binge))
+            {
+                result = NormaliseResolutionString(binge);
+                if (result != "Unknown") return result;
+            }
+
+            // Fallback: filename (e.g. "Movie.2007.720p.BrRip.x264.mp4")
+            var filename = stream.BehaviorHints?.Filename;
+            if (!string.IsNullOrEmpty(filename))
+            {
+                result = NormaliseResolutionString(filename);
+                if (result != "Unknown") return result;
+            }
+
+            // Fallback: description (e.g. "▫ 720p")
+            var desc = stream.Description;
+            if (!string.IsNullOrEmpty(desc))
+            {
+                result = NormaliseResolutionString(desc);
+                if (result != "Unknown") return result;
+            }
+
+            return "Unknown";
+        }
+
+        private static string NormaliseResolutionString(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "Unknown";
             var r = raw.Trim();
@@ -180,7 +213,40 @@ namespace InfiniteDrive.Services
 
         // ── Source tag normalisation ──────────────────────────────────────────
 
-        private static string NormaliseSourceTag(string? raw)
+        private static string NormaliseSourceTag(string? raw, AioStreamsStream stream)
+        {
+            // Try tech data first
+            var result = NormaliseSourceTagString(raw);
+            if (result != "Unknown") return result;
+
+            // Fallback: bingeGroup (e.g. "provider|720p|BluRay")
+            var binge = stream.BehaviorHints?.BingeGroup;
+            if (!string.IsNullOrEmpty(binge))
+            {
+                result = NormaliseSourceTagString(binge);
+                if (result != "Unknown") return result;
+            }
+
+            // Fallback: filename
+            var filename = stream.BehaviorHints?.Filename;
+            if (!string.IsNullOrEmpty(filename))
+            {
+                result = NormaliseSourceTagString(filename);
+                if (result != "Unknown") return result;
+            }
+
+            // Fallback: description
+            var desc = stream.Description;
+            if (!string.IsNullOrEmpty(desc))
+            {
+                result = NormaliseSourceTagString(desc);
+                if (result != "Unknown") return result;
+            }
+
+            return "Unknown";
+        }
+
+        private static string NormaliseSourceTagString(string? raw)
         {
             if (string.IsNullOrWhiteSpace(raw)) return "Unknown";
             var s = raw.Trim().ToLowerInvariant();
@@ -193,7 +259,7 @@ namespace InfiniteDrive.Services
             if (s.Contains("dvdrip") || s.Contains("dvd")) return "DVDRip";
             if (s.Contains("hdtv")) return "HDTV";
             if (s.Contains("cam") || s.Contains("ts")) return "CAM/TS";
-            return char.ToUpper(s[0]) + s[1..];
+            return "Unknown";
         }
 
         // ── Size extraction ───────────────────────────────────────────────────
