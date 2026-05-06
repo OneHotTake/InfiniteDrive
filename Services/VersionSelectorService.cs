@@ -202,8 +202,9 @@ namespace InfiniteDrive.Services
                 ? ""
                 : stream.AudioPretty;
             var resPart = stream.Resolution == "Unknown" ? "" : stream.Resolution;
+            var sourcePart = stream.SourceTag == "Unknown" ? "" : stream.SourceTag;
 
-            var parts = new[] { resPart, audioPart, sizePart }
+            var parts = new[] { resPart, sourcePart, audioPart, sizePart }
                 .Where(p => !string.IsNullOrEmpty(p));
             var label = string.Join(" - ", parts);
 
