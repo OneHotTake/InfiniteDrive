@@ -8,6 +8,7 @@ using InfiniteDrive.Services;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
 using Microsoft.Extensions.Logging;
+using DesiredVersionBucket = InfiniteDrive.Models.DesiredVersionBucket;
 
 namespace InfiniteDrive.UI.Settings
 {
@@ -39,6 +40,14 @@ namespace InfiniteDrive.UI.Settings
                 case ContentControlsUI.UnblockItemCommand:
                     await UnblockItemAsync(itemId);
                     return this;
+
+                case ContentControlsUI.AddBucketCommand:
+                    AddBucket();
+                    return this;
+
+                case ContentControlsUI.RemoveBucketCommand:
+                    RemoveBucket(data);
+                    return this;
             }
 
             return await base.RunCommand(itemId, commandId, data);
@@ -50,26 +59,82 @@ namespace InfiniteDrive.UI.Settings
 
         private async Task LoadAllAsync()
         {
-            LoadQualityTiers();
+            LoadQualitySettings();
+            LoadBuckets();
             await LoadBlockedItemsAsync();
         }
 
-        private void LoadQualityTiers()
+        private void LoadQualitySettings()
         {
             var cfg = Plugin.Instance.Configuration;
-            var limits = new Dictionary<string, int>
-            {
-                { "4K 5.1 / DTS",                cfg.MaxStreams4k51 },
-                { "4K (any)",                     cfg.MaxStreams4kAny },
-                { "1080p 5.1",                    cfg.MaxStreams1080p51 },
-                { "1080p (any)",                  cfg.MaxStreams1080pAny },
-                { "720p",                         cfg.MaxStreams720p },
-                { "SD / Unknown / Low-bandwidth", cfg.MaxStreamsSd },
-            };
-
-            UI.SetTierLimits(limits);
             UI.UseRemuxForAutoSelection = cfg.UseRemuxForAutoSelection;
+            UI.DefaultQualityTier = cfg.DefaultQualityTier ?? "1080p (any)";
+            UI.MaxVersionsPerItem = cfg.MaxVersionsPerItem;
             RaiseUIViewInfoChanged();
+        }
+
+        private void LoadBuckets()
+        {
+            var cfg = Plugin.Instance.Configuration;
+            var buckets = cfg.DesiredVersions ?? new();
+            UI.BucketList.Clear();
+
+            if (buckets.Count == 0)
+            {
+                UI.BucketList.Add(new GenericListItem
+                {
+                    PrimaryText = "No quality buckets configured — all versions fill from next-best streams",
+                    Icon = IconNames.info,
+                    IconMode = ItemListIconMode.SmallRegular,
+                });
+                UpdateBucketStatus();
+                RaiseUIViewInfoChanged();
+                return;
+            }
+
+            for (int i = 0; i < buckets.Count; i++)
+            {
+                var b = buckets[i];
+                var res = string.IsNullOrEmpty(b.Resolution) ? "Any" : b.Resolution;
+                var audio = string.IsNullOrEmpty(b.Audio) || b.Audio == "Any Audio" ? "Any Audio" : b.Audio;
+
+                UI.BucketList.Add(new GenericListItem
+                {
+                    PrimaryText = $"{b.Count}x {res} · {audio}",
+                    SecondaryText = $"Bucket #{i + 1} — priority {i + 1}",
+                    Icon = IconNames.tune,
+                    IconMode = ItemListIconMode.SmallRegular,
+                    Status = ItemStatus.Succeeded,
+                    Button1 = new ButtonItem("Remove")
+                    {
+                        Icon = IconNames.delete,
+                        Data1 = i.ToString(),
+                        CommandId = ContentControlsUI.RemoveBucketCommand,
+                        ConfirmationPrompt = $"Remove bucket: {b.Count}x {res} · {audio}?",
+                    },
+                });
+            }
+
+            UpdateBucketStatus();
+            RaiseUIViewInfoChanged();
+        }
+
+        private void UpdateBucketStatus()
+        {
+            var cfg = Plugin.Instance.Configuration;
+            var buckets = cfg.DesiredVersions ?? new();
+            var total = buckets.Sum(b => b.Count);
+            var max = UI.MaxVersionsPerItem;
+
+            if (buckets.Count == 0)
+            {
+                UI.BucketStatus.StatusText = "No buckets. All versions fill from next-best streams.";
+                UI.BucketStatus.Status = ItemStatus.None;
+                return;
+            }
+
+            UI.BucketStatus.StatusText = $"Total across all buckets: {total} / {max} max versions";
+            UI.BucketStatus.Status = total > max ? ItemStatus.Warning : ItemStatus.Succeeded;
         }
 
         private async Task LoadBlockedItemsAsync()
@@ -125,7 +190,76 @@ namespace InfiniteDrive.UI.Settings
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // Commands
+        // Bucket Commands
+        // ═══════════════════════════════════════════════════════════════
+
+        private void AddBucket()
+        {
+            var cfg = Plugin.Instance.Configuration;
+            var buckets = cfg.DesiredVersions ?? new();
+
+            var resolution = UI.NewBucketResolution ?? "1080p";
+            var audio = string.IsNullOrEmpty(UI.NewBucketAudio) ? "Any Audio" : UI.NewBucketAudio;
+            var count = int.TryParse(UI.NewBucketCount, out var c) ? c : 1;
+
+            var total = buckets.Sum(b => b.Count) + count;
+            if (total > UI.MaxVersionsPerItem)
+            {
+                UI.BucketStatus.StatusText = $"Cannot add: total would be {total}, exceeding max {UI.MaxVersionsPerItem}";
+                UI.BucketStatus.Status = ItemStatus.Warning;
+                RaiseUIViewInfoChanged();
+                return;
+            }
+
+            buckets.Add(new DesiredVersionBucket
+            {
+                Resolution = resolution,
+                Audio = audio,
+                Count = count,
+            });
+
+            cfg.DesiredVersions = buckets;
+            Plugin.Instance.SaveConfiguration();
+
+            UI.BucketStatus.StatusText = $"Added: {count}x {resolution} · {audio}";
+            UI.BucketStatus.Status = ItemStatus.Succeeded;
+
+            LoadBuckets();
+        }
+
+        private void RemoveBucket(string data)
+        {
+            var cfg = Plugin.Instance.Configuration;
+            var buckets = cfg.DesiredVersions ?? new();
+
+            var indexStr = data;
+            if (data.Contains(':'))
+                indexStr = data.Split(':').Last();
+
+            if (!int.TryParse(indexStr, out var index) || index < 0 || index >= buckets.Count)
+            {
+                UI.BucketStatus.StatusText = "Invalid bucket index";
+                UI.BucketStatus.Status = ItemStatus.Warning;
+                RaiseUIViewInfoChanged();
+                return;
+            }
+
+            var removed = buckets[index];
+            buckets.RemoveAt(index);
+
+            cfg.DesiredVersions = buckets;
+            Plugin.Instance.SaveConfiguration();
+
+            var res = string.IsNullOrEmpty(removed.Resolution) ? "Any" : removed.Resolution;
+            var audio = string.IsNullOrEmpty(removed.Audio) || removed.Audio == "Any Audio" ? "Any Audio" : removed.Audio;
+            UI.BucketStatus.StatusText = $"Removed: {removed.Count}x {res} · {audio}";
+            UI.BucketStatus.Status = ItemStatus.Succeeded;
+
+            LoadBuckets();
+        }
+
+        // ═══════════════════════════════════════════════════════════════
+        // Block List Commands
         // ═══════════════════════════════════════════════════════════════
 
         private async Task AddToBlockListAsync()
@@ -143,7 +277,6 @@ namespace InfiniteDrive.UI.Settings
             {
                 var db = Plugin.Instance.DatabaseManager;
 
-                // Detect ID type
                 string? aioId = null, tmdbId = null;
                 var title = input;
                 var mediaType = "movie";
@@ -213,19 +346,12 @@ namespace InfiniteDrive.UI.Settings
             cfg.DefaultQualityTier = UI.DefaultQualityTier ?? "1080p (any)";
             cfg.UseRemuxForAutoSelection = UI.UseRemuxForAutoSelection;
             cfg.HideUnratedContent = UI.HideUnratedContent;
-
-            // Save per-tier limits from dropdowns
-            var limits = UI.GetTierLimits();
-            cfg.MaxStreams4k51 = limits.GetValueOrDefault("4K 5.1 / DTS", 2);
-            cfg.MaxStreams4kAny = limits.GetValueOrDefault("4K (any)", 2);
-            cfg.MaxStreams1080p51 = limits.GetValueOrDefault("1080p 5.1", 2);
-            cfg.MaxStreams1080pAny = limits.GetValueOrDefault("1080p (any)", 2);
-            cfg.MaxStreams720p = limits.GetValueOrDefault("720p", 2);
-            cfg.MaxStreamsSd = limits.GetValueOrDefault("SD / Unknown / Low-bandwidth", 2);
+            cfg.MaxVersionsPerItem = UI.MaxVersionsPerItem;
 
             // Sync DefaultSlotKey from UI tier selection so .strm files use the chosen quality
             if (ResolverService.UiTierNameToKey.TryGetValue(cfg.DefaultQualityTier, out var tierKey))
                 cfg.DefaultSlotKey = tierKey;
+            // Note: DesiredVersions bucket list is saved immediately on Add/Remove
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
             return base.OnSaveCommand(itemId, commandId, data);

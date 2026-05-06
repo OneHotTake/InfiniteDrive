@@ -134,6 +134,7 @@ namespace InfiniteDrive.UI.Settings
                 DefaultQualityTier = c.DefaultQualityTier ?? "1080p (any)",
                 UseRemuxForAutoSelection = c.UseRemuxForAutoSelection,
                 HideUnratedContent = c.HideUnratedContent,
+                MaxVersionsPerItem = c.MaxVersionsPerItem,
             };
         }
 
@@ -145,7 +146,6 @@ namespace InfiniteDrive.UI.Settings
                 MarvinProcessIntervalMinutes = c.MarvinProcessIntervalMinutes,
                 StreamResolutionBatchSize = c.StreamResolutionBatchSize,
                 MarvinActionsPerHour = c.MarvinActionsPerHour,
-                MaxVersionsPerItem = c.MaxVersionsPerItem,
                 RespectPlaylistsWhenPruning = c.RespectPlaylistsWhenPruning,
                 AutoDeduplicatePhysicalMedia = c.AutoDeduplicatePhysicalMedia,
             };
