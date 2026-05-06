@@ -105,6 +105,11 @@ namespace InfiniteDrive
         public Services.StrmWriterService StrmWriterService { get; private set; } = null!;
 
         /// <summary>
+        /// StrmFileManager — multi-version .strm file I/O for pre-written CDN URLs.
+        /// </summary>
+        public Services.StrmFileManager StrmFileManager { get; private set; } = null!;
+
+        /// <summary>
         /// Resolution cache repository interface for stream URL caching.
         /// Delegates to DatabaseManager (Sprint 104A-04).
         /// </summary>
@@ -378,6 +383,10 @@ namespace InfiniteDrive
                 // Initialise StrmWriterService (Sprint 156: Unified Write Path)
                 StrmWriterService = new Services.StrmWriterService(_logManager, DatabaseManager);
                 _logger.LogInformation("[InfiniteDrive] StrmWriterService initialised");
+
+                // Initialise StrmFileManager (multi-version .strm prewriting)
+                StrmFileManager = new Services.StrmFileManager(_logManager);
+                _logger.LogInformation("[InfiniteDrive] StrmFileManager initialised");
 
                 // Initialise StreamProbeService (Sprint 159: Stream Availability Probe)
                 StreamProbeService = new Services.StreamProbeService(

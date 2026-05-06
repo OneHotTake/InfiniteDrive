@@ -107,7 +107,7 @@ namespace InfiniteDrive.Data
                  enrichment_status, retry_count, next_retry_at,
                  blocked_at, blocked_by, first_added_by_user_id,
                  tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_expanded_at, last_verified_at,
-                 source_manifest_url)
+                 source_manifest_url, selected_versions_json, last_version_refresh_at)
             VALUES
                 (@id, @aio_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                  @source, @source_list_id, @seasons_json, @strm_path,
@@ -116,7 +116,7 @@ namespace InfiniteDrive.Data
                  @enrichment_status, @retry_count, @next_retry_at,
                  @blocked_at, @blocked_by, @first_added_by_user_id,
                  @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_expanded_at, @last_verified_at,
-                 @source_manifest_url)
+                 @source_manifest_url, @selected_versions_json, @last_version_refresh_at)
             ON CONFLICT(aio_id, source) DO UPDATE SET
                 tmdb_id       = excluded.tmdb_id,
                 unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -144,7 +144,9 @@ namespace InfiniteDrive.Data
                 episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded),
                 last_expanded_at = COALESCE(excluded.last_expanded_at, catalog_items.last_expanded_at),
                 last_verified_at = excluded.last_verified_at,
-                source_manifest_url = COALESCE(excluded.source_manifest_url, catalog_items.source_manifest_url);";
+                source_manifest_url = COALESCE(excluded.source_manifest_url, catalog_items.source_manifest_url),
+                selected_versions_json = COALESCE(excluded.selected_versions_json, catalog_items.selected_versions_json),
+                last_version_refresh_at = COALESCE(excluded.last_version_refresh_at, catalog_items.last_version_refresh_at);";
 
         private void BindCatalogItemParams(IStatement cmd, CatalogItem item)
         {
@@ -194,6 +196,8 @@ namespace InfiniteDrive.Data
             else
                 cmd.BindParameters["@last_verified_at"].BindNull();
             BindNullableText(cmd, "@source_manifest_url", item.SourceManifestUrl);
+            BindNullableText(cmd, "@selected_versions_json", item.SelectedVersionsJson);
+            BindNullableText(cmd, "@last_version_refresh_at", item.LastVersionRefreshAt);
         }
 
         public async Task UpsertCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken = default)
@@ -1188,6 +1192,8 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     last_expanded_at        INTEGER,
     last_verified_at        INTEGER,
     source_manifest_url     TEXT,
+    selected_versions_json  TEXT,
+    last_version_refresh_at TEXT,
     UNIQUE(aio_id, source)
 );
 CREATE INDEX IF NOT EXISTS idx_catalog_aio ON catalog_items(aio_id);
@@ -1850,6 +1856,8 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 LastExpandedAt    = GetLong(m, r, "last_expanded_at"),
                 LastVerifiedAt    = GetLong(m, r, "last_verified_at"),
                 SourceManifestUrl = GetStr(m, r, "source_manifest_url"),
+                SelectedVersionsJson = GetStr(m, r, "selected_versions_json"),
+                LastVersionRefreshAt = GetStr(m, r, "last_version_refresh_at"),
             };
         }
 

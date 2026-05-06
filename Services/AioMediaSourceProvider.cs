@@ -73,6 +73,7 @@ namespace InfiniteDrive.Services
             _cache.TryRemove(key, out _);
         }
 
+        [Obsolete("Multi-version STRM prewriting replaces runtime resolution. GetMediaSources will return minimal results in a future release.")]
         public Task<List<MediaSourceInfo>> GetMediaSources(BaseItem item, CancellationToken cancellationToken)
         {
             try

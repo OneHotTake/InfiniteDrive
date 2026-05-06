@@ -181,7 +181,16 @@ namespace InfiniteDrive.Tasks
 
                 progress?.Report(0.80);
 
-                // ── Phase 4: Repair (80-100%) ────────────────────────────────
+                // ── Phase 3b: Version Refresh (80-85%) ──────────────────────
+                Plugin.Pipeline.SetPhase("Marvin", "VersionRefresh");
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 3b: Multi-Version Refresh");
+                phaseSw.Restart();
+                await VersionRefreshPassAsync(cancellationToken);
+                _logger.LogDebug("[Marvin] Phase 3b (VersionRefresh) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+
+                progress?.Report(0.85);
+
+                // ── Phase 4: Repair (85-100%) ────────────────────────────────
                 Plugin.Pipeline.SetPhase("Marvin", "Repair");
                 _logger.LogInformation("[InfiniteDrive] Marvin Phase 4: Repair");
 
@@ -282,6 +291,154 @@ namespace InfiniteDrive.Tasks
             catch
             {
                 // Primary still down — no action needed
+            }
+        }
+
+        // ── Phase 3b: Multi-Version Refresh ──────────────────────────────────
+
+        /// <summary>
+        /// Re-fetches streams for items with stale version selections and upgrades
+        /// .strm files when better alternatives are available. This enables the
+        /// "new releases improve over time" behaviour as more/better streams appear.
+        /// </summary>
+        private async Task VersionRefreshPassAsync(CancellationToken cancellationToken)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+            var config = Plugin.Instance?.Configuration;
+            var fileManager = Plugin.Instance?.StrmFileManager;
+            if (db == null || config == null || fileManager == null) return;
+
+            // Get all Written items that have version data (or are eligible for first versioning)
+            var activeItems = await db.GetActiveCatalogItemsAsync();
+            var candidates = activeItems
+                .Where(i => i.ItemState == ItemState.Written
+                         && !string.IsNullOrEmpty(i.StrmPath)
+                         && !string.IsNullOrEmpty(i.AioId))
+                .ToList();
+
+            if (candidates.Count == 0) return;
+
+            _logger.LogInformation("[VersionRefresh] Checking {Count} items for version upgrades", candidates.Count);
+
+            var upgraded = 0;
+            var checked_ = 0;
+
+            using var client = Services.AioStreamsClientFactory.Create(_logger);
+            client.Cooldown = Plugin.Instance?.CooldownGate;
+            if (!client.IsConfigured) return;
+
+            // Process in small batches to avoid API rate limits
+            using var gate = new SemaphoreSlim(2);
+            var tasks = candidates.Select(item => RefreshItemVersionsAsync(
+                item, client, fileManager, config, db, gate, cancellationToken));
+
+            var results = await Task.WhenAll(tasks);
+            foreach (var (wasChecked, wasUpgraded) in results)
+            {
+                if (wasChecked) checked_++;
+                if (wasUpgraded) upgraded++;
+            }
+
+            if (upgraded > 0)
+                _logger.LogInformation("[VersionRefresh] Upgraded {Upgraded}/{Checked} items", upgraded, checked_);
+            else
+                _logger.LogDebug("[VersionRefresh] No upgrades needed across {Checked} items", checked_);
+        }
+
+        private async Task<(bool checked_, bool upgraded)> RefreshItemVersionsAsync(
+            CatalogItem item,
+            Services.AioStreamsClient client,
+            Services.StrmFileManager fileManager,
+            PluginConfiguration config,
+            Data.DatabaseManager db,
+            SemaphoreSlim gate,
+            CancellationToken ct)
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Throttle: only refresh items older than 1 hour since last refresh
+                if (!string.IsNullOrEmpty(item.LastVersionRefreshAt)
+                    && DateTime.TryParse(item.LastVersionRefreshAt, out var lastRefresh)
+                    && (DateTime.UtcNow - lastRefresh) < TimeSpan.FromHours(1))
+                    return (false, false);
+
+                // Fetch fresh streams
+                Services.AioStreamsStreamResponse? response;
+                if (item.MediaType == "series" || item.MediaType == "anime")
+                {
+                    // For series, fetch S01E01 as representative quality indicator
+                    response = await client.GetSeriesStreamsAsync(
+                        item.AioId, 1, 1, ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    response = await client.GetMovieStreamsAsync(
+                        item.AioId, ct).ConfigureAwait(false);
+                }
+
+                if (response?.Streams == null || response.Streams.Count == 0)
+                    return (true, false);
+
+                // Parse and select versions
+                var parsed = Services.StreamParser.ParseAll(response.Streams);
+                if (parsed.Count == 0) return (true, false);
+
+                var newVersions = Services.VersionSelectorService.SelectBestVersions(
+                    parsed, config.DesiredVersions, config.MaxVersionsPerItem);
+
+                // Compare against stored versions
+                var storedVersions = Services.StrmFileManager.DeserializeVersions(item.SelectedVersionsJson);
+                var currentVersions = storedVersions.Select(sv => new SelectedVersion
+                {
+                    Stream = new ParsedStream
+                    {
+                        Url = sv.Url,
+                        Resolution = sv.Resolution,
+                        AudioPretty = sv.AudioPretty,
+                        RankScore = sv.RankScore,
+                        StreamKey = sv.StreamKey,
+                    },
+                    SelectedScore = sv.RankScore,
+                    VersionLabel = sv.VersionLabel ?? "",
+                }).ToList();
+
+                if (!Services.VersionSelectorService.ShouldReplace(currentVersions, newVersions))
+                    return (true, false);
+
+                // Upgrade: write new version files
+                var folderName = Services.NamingPolicyService.BuildFolderName(item);
+                var folderPath = item.StrmPath!;
+                var folderBareName = System.IO.Path.GetFileName(folderName);
+
+                var written = await fileManager.WriteOrReplaceStrmFilesAsync(
+                    folderPath, folderBareName, newVersions, ct);
+
+                if (written > 0)
+                {
+                    item.SelectedVersionsJson = Services.StrmFileManager.SerializeVersions(newVersions);
+                    item.LastVersionRefreshAt = DateTime.UtcNow.ToString("o");
+                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    await db.UpsertCatalogItemAsync(item, ct);
+
+                    _logger.LogInformation(
+                        "[VersionRefresh] Upgraded {AioId} ({Title}): {Count} versions",
+                        item.AioId, item.Title, written);
+                    return (true, true);
+                }
+
+                return (true, false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[VersionRefresh] Non-fatal error for {AioId}", item.AioId);
+                return (false, false);
+            }
+            finally
+            {
+                gate.Release();
             }
         }
 
