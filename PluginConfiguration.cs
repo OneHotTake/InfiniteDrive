@@ -577,14 +577,10 @@ namespace InfiniteDrive
         /// <summary>
         /// Desired quality buckets for multi-version .strm selection.
         /// Buckets are matched in order — earlier buckets get priority.
-        /// Default: up to 3x 1080p surround + 2x 4K (any audio).
+        /// Empty by default — users configure buckets via the Content Controls UI.
         /// </summary>
         [DataMember]
-        public List<Models.DesiredVersionBucket> DesiredVersions { get; set; } = new()
-        {
-            new() { Resolution = "1080p", Audio = "5.1/7.1 (Surround)", Count = 3 },
-            new() { Resolution = "4K", Audio = "Any Audio", Count = 2 },
-        };
+        public List<Models.DesiredVersionBucket> DesiredVersions { get; set; } = new();
 
         /// <summary>
         /// Maximum number of .strm versions per media item. Default: 8.
