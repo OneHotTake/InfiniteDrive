@@ -65,28 +65,37 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Compares two selections and returns true if the new one is meaningfully
-        /// different (different stream keys or higher total score).
+        /// Compares stored versions against a newly proposed selection.
+        /// Works directly with <see cref="StoredVersion"/> from the database —
+        /// no reconstruction needed.
         /// </summary>
         public static bool ShouldReplace(
-            List<SelectedVersion> current, List<SelectedVersion> incoming)
+            List<StoredVersion> current,
+            List<SelectedVersion> proposed)
         {
-            if (current.Count == 0) return incoming.Count > 0;
-            if (incoming.Count == 0) return false;
+            if (proposed == null || proposed.Count == 0) return false;
+            if (current == null || current.Count == 0) return true;
 
-            // Different stream set → replace
+            // More versions available → upgrade
+            if (proposed.Count > current.Count) return true;
+
+            // Different stream set → upgrade (new sources found)
             var currentKeys = new HashSet<string?>(
-                current.Select(v => v.Stream.StreamKey), StringComparer.OrdinalIgnoreCase);
-            var incomingKeys = new HashSet<string?>(
-                incoming.Select(v => v.Stream.StreamKey), StringComparer.OrdinalIgnoreCase);
-
-            if (!currentKeys.SetEquals(incomingKeys))
+                current.Select(v => v.StreamKey), StringComparer.OrdinalIgnoreCase);
+            var proposedKeys = new HashSet<string?>(
+                proposed.Select(v => v.Stream.StreamKey), StringComparer.OrdinalIgnoreCase);
+            if (!currentKeys.SetEquals(proposedKeys))
                 return true;
 
-            // Same set but higher total score → replace
-            var currentScore = current.Sum(v => v.SelectedScore);
-            var incomingScore = incoming.Sum(v => v.SelectedScore);
-            return incomingScore > currentScore;
+            // 15% total score improvement threshold
+            var currentTotalScore = current.Sum(v => v.RankScore);
+            var proposedTotalScore = proposed.Sum(v => v.SelectedScore);
+            if (proposedTotalScore > currentTotalScore * 1.15) return true;
+
+            // 10% better top version
+            var bestCurrent = current.Max(v => v.RankScore);
+            var bestProposed = proposed.Max(v => v.SelectedScore);
+            return bestProposed > bestCurrent * 1.10;
         }
 
         // ── Bucket matching ────────────────────────────────────────────────────
