@@ -65,6 +65,38 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
+        /// Assigns a secondary CDN URL to each selected version from the unclaimed stream pool.
+        /// Prefers streams matching the same resolution + audio group for relevance.
+        /// </summary>
+        public static void AssignSecondaryUrls(List<SelectedVersion> selected, List<ParsedStream> allStreams)
+        {
+            if (selected.Count == 0 || allStreams.Count == 0) return;
+
+            // Track which URLs are already claimed as primary or secondary
+            var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var v in selected)
+                claimed.Add(v.Stream.Url);
+
+            // Try to assign same-resolution + same-audio-group first, then any unclaimed
+            foreach (var version in selected)
+            {
+                var best = allStreams.FirstOrDefault(s =>
+                    !claimed.Contains(s.Url)
+                    && ResolutionMatches(s.Resolution, version.Stream.Resolution)
+                    && AudioMatches(s.AudioGroup, version.Stream.AudioGroup));
+
+                if (best == null)
+                    best = allStreams.FirstOrDefault(s => !claimed.Contains(s.Url));
+
+                if (best != null)
+                {
+                    version.SecondaryUrl = best.Url;
+                    claimed.Add(best.Url);
+                }
+            }
+        }
+
+        /// <summary>
         /// Compares stored versions against a newly proposed selection.
         /// Works directly with <see cref="StoredVersion"/> from the database —
         /// no reconstruction needed.

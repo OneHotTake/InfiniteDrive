@@ -73,7 +73,7 @@ namespace InfiniteDrive.Services
             _cache.TryRemove(key, out _);
         }
 
-        [Obsolete("Multi-version STRM prewriting replaces runtime resolution. GetMediaSources will return minimal results in a future release.")]
+        [Obsolete("Legacy resolution path. Versioned multi-CDN flow is preferred.")]
         public Task<List<MediaSourceInfo>> GetMediaSources(BaseItem item, CancellationToken cancellationToken)
         {
             try
@@ -119,6 +119,11 @@ namespace InfiniteDrive.Services
                     item.ProviderIds != null ? string.Join(",", item.ProviderIds.Keys) : "none");
                 return new List<MediaSourceInfo>();
             }
+
+            // ── Versioned primary path: serve from pre-written .strm data ─────────
+            var versionedSources = TryGetVersionedSources(aioId, item.Path);
+            if (versionedSources != null)
+                return versionedSources;
 
             // In-memory cache check
             var cacheKey = season.HasValue
@@ -729,6 +734,68 @@ namespace InfiniteDrive.Services
 
 
         // ═══════════════════════════════════════════════════════════════════════════
+        //  Versioned multi-CDN sources
+        // ═══════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Looks up stored multi-version data and returns direct-play MediaSourceInfo
+        /// for each version. Returns null if no stored versions exist (fall through
+        /// to legacy resolution).
+        /// </summary>
+        private List<MediaSourceInfo>? TryGetVersionedSources(string aioId, string itemPath)
+        {
+            try
+            {
+                var db = Plugin.Instance?.DatabaseManager;
+                if (db == null) return null;
+
+                // Quick lookup — read only the JSON column
+                var versions = db.GetStoredVersions(aioId);
+                if (versions == null || versions.Count == 0) return null;
+
+                var sources = new List<MediaSourceInfo>(versions.Count);
+                foreach (var v in versions)
+                {
+                    var token = new VersionedOpenToken
+                    {
+                        PrimaryUrl = v.Url,
+                        SecondaryUrl = v.SecondaryUrl,
+                        AioId = aioId,
+                        StrmPath = itemPath,
+                        VersionLabel = v.VersionLabel,
+                        StreamKey = v.StreamKey,
+                    };
+
+                    var source = new MediaSourceInfo
+                    {
+                        Id = Guid.NewGuid().ToString("N"),
+                        Name = string.IsNullOrEmpty(v.VersionLabel) ? "Stream" : v.VersionLabel,
+                        Path = v.Url,
+                        Protocol = MediaProtocol.Http,
+                        SupportsDirectPlay = true,
+                        SupportsDirectStream = true,
+                        RequiresOpening = false,
+                    };
+
+                    // Safety net: serialize token so OpenMediaSource can failover if direct play fails
+                    source.OpenToken = JsonSerializer.Serialize(token);
+
+                    sources.Add(source);
+                }
+
+                _logger.LogDebug("[AioMediaSourceProvider] Serving {Count} versioned sources for {AioId}",
+                    sources.Count, aioId);
+                return sources;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[AioMediaSourceProvider] Versioned sources lookup failed for {AioId}", aioId);
+                return null; // Fall through to legacy
+            }
+        }
+
+
+        // ═══════════════════════════════════════════════════════════════════════════
         //  Item identification (unchanged)
         // ═══════════════════════════════════════════════════════════════════════════
 
@@ -987,6 +1054,20 @@ namespace InfiniteDrive.Services
     }
 
     // ── Open token DTOs (shared between GetMediaSources and OpenMediaSource) ──
+
+    /// <summary>
+    /// Token for versioned multi-CDN playback. Carries primary + secondary URLs
+    /// so OpenMediaSource can failover instantly without re-resolving.
+    /// </summary>
+    internal class VersionedOpenToken
+    {
+        public string PrimaryUrl { get; set; } = string.Empty;
+        public string? SecondaryUrl { get; set; }
+        public string AioId { get; set; } = string.Empty;
+        public string StrmPath { get; set; } = string.Empty;
+        public string VersionLabel { get; set; } = string.Empty;
+        public string? StreamKey { get; set; }
+    }
 
     internal class OpenTokenData
     {
