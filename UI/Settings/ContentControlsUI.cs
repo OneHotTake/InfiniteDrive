@@ -101,34 +101,8 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem BucketStatus { get; set; } = new StatusItem("Buckets", "Idle", ItemStatus.None);
 
-        [DisplayName("Max Versions Per Item")]
-        [Description("Maximum .strm versions per movie/episode. Total across all buckets should not exceed this. Default: 8.")]
-        public int MaxVersionsPerItem { get; set; } = 8;
-
         // ═══════════════════════════════════════════════════════════════
-        // Section 3: Default Quality Tier
-        // ═══════════════════════════════════════════════════════════════
-
-        public SpacerItem Spacer1_5 { get; set; } = new SpacerItem();
-
-        [Browsable(false)]
-        public IEnumerable<EditorSelectOption> DefaultQualityTierOptions { get; set; } = new List<EditorSelectOption>
-        {
-            new() { Value = "4K 5.1 / DTS",          Name = "4K 5.1 / DTS", IsEnabled = true },
-            new() { Value = "4K (any)",              Name = "4K (any)", IsEnabled = true },
-            new() { Value = "1080p 5.1",             Name = "1080p 5.1", IsEnabled = true },
-            new() { Value = "1080p (any)",           Name = "1080p (any)", IsEnabled = true },
-            new() { Value = "720p",                  Name = "720p", IsEnabled = true },
-            new() { Value = "SD / Unknown / Low-bandwidth", Name = "SD / Unknown / Low-bandwidth", IsEnabled = true },
-        };
-
-        [DisplayName("Default Quality Tier")]
-        [Description("Quality tier that plays automatically when multiple streams are available.")]
-        [SelectItemsSource(nameof(DefaultQualityTierOptions))]
-        public string DefaultQualityTier { get; set; } = "1080p (any)";
-
-        // ═══════════════════════════════════════════════════════════════
-        // Section 4: Parental Controls (Discover-only)
+        // Section 3: Parental Controls (Discover-only)
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer2 { get; set; } = new SpacerItem();
@@ -141,7 +115,7 @@ namespace InfiniteDrive.UI.Settings
         public bool HideUnratedContent { get; set; } = false;
 
         // ═══════════════════════════════════════════════════════════════
-        // Section 5: Blocked Content Management
+        // Section 4: Blocked Content Management
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer3 { get; set; } = new SpacerItem();
