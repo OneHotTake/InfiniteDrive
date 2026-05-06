@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -23,6 +24,9 @@ namespace InfiniteDrive.Services
     {
         private readonly ILogger<StrmFileManager> _logger;
         private readonly ILibraryMonitor? _libraryMonitor;
+
+        // Per-path lock to prevent concurrent rewrites of the same .strm file
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _rewriteLocks = new();
 
         public StrmFileManager(ILogManager logManager, ILibraryMonitor? libraryMonitor = null)
         {
@@ -198,7 +202,17 @@ namespace InfiniteDrive.Services
         public bool RewriteSingleStrmFile(string strmPath, string newUrl)
         {
             ValidateLibraryPath(strmPath);
-            return AtomicWrite(strmPath, newUrl);
+
+            var slim = _rewriteLocks.GetOrAdd(strmPath, _ => new SemaphoreSlim(1, 1));
+            slim.Wait();
+            try
+            {
+                return AtomicWrite(strmPath, newUrl);
+            }
+            finally
+            {
+                slim.Release();
+            }
         }
 
         /// <summary>

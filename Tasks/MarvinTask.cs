@@ -413,14 +413,37 @@ namespace InfiniteDrive.Tasks
 
                         if (!primaryAlive && secondaryAlive)
                         {
-                            // Swap: secondary → primary, find new secondary from fresh set
+                            // Swap: secondary → primary
                             var oldSecondary = sv.SecondaryUrl;
                             sv.Url = oldSecondary!;
                             sv.SecondaryUrl = null;
+
+                            // Try to find a new secondary from the fresh URL pool
+                            // (prefer same resolution, exclude all currently-used URLs)
+                            var claimedUrls = new HashSet<string>(
+                                storedVersions.Where(v => !string.IsNullOrEmpty(v.Url)).Select(v => v.Url!),
+                                StringComparer.OrdinalIgnoreCase);
+                            claimedUrls.Add(sv.Url);
+                            foreach (var v in storedVersions)
+                                if (!string.IsNullOrEmpty(v.SecondaryUrl)) claimedUrls.Add(v.SecondaryUrl);
+
+                            var newSecondary = newVersions.FirstOrDefault(nv =>
+                                !claimedUrls.Contains(nv.Stream.Url))?.Stream.Url;
+                            if (newSecondary != null)
+                            {
+                                sv.SecondaryUrl = newSecondary;
+                                _logger.LogInformation(
+                                    "[VersionRefresh] Healed {AioId}: promoted secondary → primary, assigned new secondary ({StreamKey})",
+                                    item.AioId, sv.StreamKey);
+                            }
+                            else
+                            {
+                                _logger.LogInformation(
+                                    "[VersionRefresh] Healed {AioId}: promoted secondary → primary, no new secondary available ({StreamKey})",
+                                    item.AioId, sv.StreamKey);
+                            }
+
                             healed = true;
-                            _logger.LogInformation(
-                                "[VersionRefresh] Healed {AioId}: promoted secondary to primary ({StreamKey})",
-                                item.AioId, sv.StreamKey);
 
                             // Rewrite .strm file
                             if (!string.IsNullOrEmpty(item.StrmPath) && !string.IsNullOrEmpty(sv.StreamKey))
