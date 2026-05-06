@@ -156,6 +156,17 @@ namespace InfiniteDrive.Services
         private async Task<ILiveStream> HandleVersionedFailoverAsync(
             VersionedOpenToken token, CancellationToken ct)
         {
+            // Scoping: only process InfiniteDrive-managed content
+            if (!string.IsNullOrEmpty(token.StrmPath))
+            {
+                try { StrmFileManager.ValidateLibraryPath(token.StrmPath); }
+                catch (InvalidOperationException)
+                {
+                    _logger.LogWarning("[Failover] Rejected — path outside library roots: {Path}", token.StrmPath);
+                    throw;
+                }
+            }
+
             _logger.LogInformation("[Failover] Attempting primary URL for {AioId} ({Label})",
                 token.AioId, token.VersionLabel);
 
@@ -180,12 +191,16 @@ namespace InfiniteDrive.Services
                     var secondaryEx = await TryGetAsync(token.SecondaryUrl, ct).ConfigureAwait(false);
                     if (secondaryEx == null)
                     {
-                        // Secondary worked → persist: swap primary = secondary, find new secondary
+                        _logger.LogInformation("[Failover] Secondary succeeded for {AioId}, persisting promotion", token.AioId);
                         await PersistSecondaryPromotionAsync(token).ConfigureAwait(false);
                         return BuildLiveStream(token.SecondaryUrl, token.VersionLabel);
                     }
 
                     _logger.LogWarning(secondaryEx, "[Failover] Secondary also failed for {AioId}", token.AioId);
+                }
+                else
+                {
+                    _logger.LogWarning("[Failover] No secondary available for {AioId} — cannot failover", token.AioId);
                 }
             }
             else if (IsPermanentDeletion(primaryEx))
@@ -194,7 +209,10 @@ namespace InfiniteDrive.Services
                 _logger.LogInformation("[Failover] Permanent failure, fresh resolving for {AioId}", token.AioId);
                 var freshUrl = await FreshResolveAndRewriteAsync(token, ct).ConfigureAwait(false);
                 if (freshUrl != null)
+                {
+                    _logger.LogInformation("[Failover] Re-resolve succeeded for {AioId}, rewrote .strm", token.AioId);
                     return BuildLiveStream(freshUrl, token.VersionLabel);
+                }
             }
 
             // All failover paths exhausted — throw
@@ -225,15 +243,32 @@ namespace InfiniteDrive.Services
         {
             return ex is TaskCanceledException
                 || ex is HttpRequestException
-                || (ex is System.Net.Http.HttpRequestException)
-                || (ex.Message.Contains("5") && ex.Message.Length < 200); // Crude 5xx catch
+                || ContainsStatus(ex, 429, 500, 502, 503, 504);
         }
 
         private static bool IsPermanentDeletion(Exception ex)
         {
-            return ex.Message.Contains("404")
-                || ex.Message.Contains("410")
-                || ex.Message.Contains("403");
+            return ContainsStatus(ex, 404, 410, 403);
+        }
+
+        /// <summary>
+        /// Checks if an exception message contains any of the given HTTP status codes.
+        /// Avoids false positives by matching " {code} " or "{code}\r" or start/end patterns.
+        /// </summary>
+        private static bool ContainsStatus(Exception ex, params int[] codes)
+        {
+            var msg = ex.Message;
+            if (string.IsNullOrEmpty(msg)) return false;
+            foreach (var code in codes)
+            {
+                var s = code.ToString();
+                // Match "429", "(429)", "429 " etc. but not "14293"
+                if (msg.Contains($" {s}") || msg.Contains($"({s}") || msg.Contains($"{s}\r") || msg.Contains($"{s}\n"))
+                    return true;
+                // Exact match for short messages like "429"
+                if (msg.Length < 10 && msg.Contains(s)) return true;
+            }
+            return false;
         }
 
         private ILiveStream BuildLiveStream(string url, string label)
