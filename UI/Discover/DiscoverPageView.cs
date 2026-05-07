@@ -126,8 +126,10 @@ namespace InfiniteDrive.UI.Discover
         public override async Task<IPluginUIView> RunCommand(string itemId, string commandId, string data)
         {
             var ui = UI;
-            // Handle button click (Data1 carries the command name)
-            var effectiveCommand = data?.Split(':')[0] ?? commandId;
+            // commandId is primary; fall back to Data1 prefix for list-item buttons
+            var effectiveCommand = commandId;
+            if (string.IsNullOrEmpty(effectiveCommand) && !string.IsNullOrEmpty(data))
+                effectiveCommand = data.Split(':')[0];
             switch (effectiveCommand)
             {
                 case DiscoverUI.SearchCommand:
