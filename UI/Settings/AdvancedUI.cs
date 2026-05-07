@@ -10,7 +10,6 @@ namespace InfiniteDrive.UI.Settings
 {
     public class AdvancedUI : EditableOptionsBase
     {
-        public const string ShowAdvancedCommand = nameof(ShowAdvancedCommand);
         public const string ClearCacheCommand = nameof(ClearCacheCommand);
         public const string ResetAllDataCommand = nameof(ResetAllDataCommand);
         public const string RebuildLibrariesCommand = nameof(RebuildLibrariesCommand);
@@ -20,68 +19,85 @@ namespace InfiniteDrive.UI.Settings
         public override string EditorDescription =>
             "Power-user and maintenance options. You don't need to touch this unless you have a specific reason.";
 
-        // ── DON'T PANIC Header ────────────────────────────────────────────────
+        // ── Section 1: Logging ───────────────────────────────────────────────
 
-        public CaptionItem DontPanicHeader { get; set; } = new CaptionItem("DON'T PANIC");
-
-        // ── Toggle ──────────────────────────────────────────────────────────────
-
-        [DisplayName("Show advanced settings")]
-        [Description("Enable to reveal logging, cache, and maintenance options below.")]
-        public bool ShowAdvanced { get; set; } = false;
-
-        // ── Section 1: Logging & Debugging ──────────────────────────────────────
-
-        public CaptionItem CaptionLogging { get; set; } = new CaptionItem("Logging & Debugging");
+        public CaptionItem CaptionLogging { get; set; } = new CaptionItem("Logging");
 
         [DisplayName("Log Level")]
-        [Description("Minimum log verbosity level for InfiniteDrive. Default: Info.")]
+        [Description("Minimum log verbosity for InfiniteDrive entries in the Emby server log. Use Debug when diagnosing a problem; Info for normal operation.")]
         [SelectItemsSource(nameof(LogLevelOptions))]
         public string PluginLogLevel { get; set; } = "Info";
 
         [Browsable(false)]
         public IEnumerable<EditorSelectOption> LogLevelOptions { get; set; } = new List<EditorSelectOption>
         {
-            new() { Value = "Info", Name = "Info", IsEnabled = true },
-            new() { Value = "Debug", Name = "Debug", IsEnabled = true },
+            new() { Value = "Info",  Name = "Info (normal)",  IsEnabled = true },
+            new() { Value = "Debug", Name = "Debug (verbose)", IsEnabled = true },
         };
 
-        public ButtonItem ClearCacheButton { get; set; } = new ButtonItem("Clear All Caches")
+        // ── Section 2: Cache ─────────────────────────────────────────────────
+
+        public SpacerItem Spacer0 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionCache { get; set; } = new CaptionItem("Cache");
+
+        public LabelItem ClearCacheHelp { get; set; } = new LabelItem(
+            "Wipes cached stream URL lookups from the database. " +
+            "Marvin will re-resolve all streams on its next cycle. " +
+            "Safe to run at any time — no content is deleted.");
+
+        public ButtonItem ClearCacheButton { get; set; } = new ButtonItem("Clear Stream Resolution Cache")
         {
             Icon = IconNames.delete_sweep,
             Data1 = ClearCacheCommand,
-            ConfirmationPrompt = "Clear the resolution cache and vacuum the database?",
+            ConfirmationPrompt = "Clear all cached stream URL lookups? Marvin will re-resolve streams on its next run.",
         };
 
-        public StatusItem CacheStatus { get; set; } = new StatusItem("Cache", "Idle", ItemStatus.None);
-
-        // ── Section 2: Maintenance & Reset ──────────────────────────────────────
+        // ── Section 3: Reset ─────────────────────────────────────────────────
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionMaintenance { get; set; } = new CaptionItem("Maintenance & Reset");
+        public CaptionItem CaptionReset { get; set; } = new CaptionItem("Reset");
+
+        public LabelItem RebuildHelp { get; set; } = new LabelItem(
+            "REBUILD LIBRARIES: Triggers a full Marvin sync to re-populate your Emby libraries from scratch. " +
+            "No data or settings are deleted — this is a safe re-index operation. " +
+            "Use this if your libraries look stale or items are missing.");
+
+        public ButtonItem RebuildLibrariesButton { get; set; } = new ButtonItem("Rebuild Libraries")
+        {
+            Icon = IconNames.refresh,
+            Data1 = RebuildLibrariesCommand,
+            ConfirmationPrompt = "Trigger a full library rebuild? No data is deleted — Marvin will re-sync all catalogs and recreate .strm files.",
+        };
+
+        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
+
+        public LabelItem ResetDataHelp { get; set; } = new LabelItem(
+            "RESET ALL DATA: Deletes every catalog item, .strm file, and cached stream URL from disk and the database. " +
+            "Your settings (manifest URLs, library paths, quality tiers) are preserved. " +
+            "Use this to start completely fresh while keeping your configuration.");
 
         public ButtonItem ResetAllDataButton { get; set; } = new ButtonItem("Reset All InfiniteDrive Data")
         {
             Icon = IconNames.warning,
             Data1 = ResetAllDataCommand,
-            ConfirmationPrompt = "WARNING: This will delete all catalog items, stream candidates, and cached data. Your .strm files will also be removed. This cannot be undone. Continue?",
+            ConfirmationPrompt = "WARNING: Deletes all catalog items, .strm files, and cached stream data. Your settings are kept. This cannot be undone. Continue?",
         };
 
-        public ButtonItem RebuildLibrariesButton { get; set; } = new ButtonItem("Rebuild Libraries from Scratch")
-        {
-            Icon = IconNames.refresh,
-            Data1 = RebuildLibrariesCommand,
-            ConfirmationPrompt = "Rebuild all libraries from scratch? This will clear existing data and trigger a full catalog sync.",
-        };
+        public SpacerItem Spacer3 { get; set; } = new SpacerItem();
 
-        public ButtonItem ResetFactoryDefaultsButton { get; set; } = new ButtonItem("Reset to Factory Defaults")
+        public LabelItem FactoryHelp { get; set; } = new LabelItem(
+            "FACTORY RESET: Wipes ALL settings AND all data back to the out-of-box state — " +
+            "as if you had just installed the plugin. " +
+            "Manifest URLs, library paths, quality tiers, API keys — everything is cleared. " +
+            "Use this only as a last resort.");
+
+        public ButtonItem ResetFactoryDefaultsButton { get; set; } = new ButtonItem("Factory Reset")
         {
             Icon = IconNames.restore,
             Data1 = ResetFactoryDefaultsCommand,
-            ConfirmationPrompt = "Reset all InfiniteDrive settings to factory defaults? This will clear all configuration and data. This cannot be undone. Continue?",
+            ConfirmationPrompt = "FACTORY RESET: Wipes all settings AND all data. The plugin will need to be fully reconfigured. This cannot be undone. Continue?",
         };
 
-        public StatusItem MaintenanceStatus { get; set; } = new StatusItem("Maintenance", "Idle", ItemStatus.None);
-
+        public StatusItem ActionStatus { get; set; } = new StatusItem("Last Action", "None", ItemStatus.None);
     }
 }

@@ -126,9 +126,12 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrWhiteSpace(raw)) return "Unknown";
             var r = raw.Trim();
             if (r.Contains("2160") || r.Contains("4K", StringComparison.OrdinalIgnoreCase)) return "4K";
+            if (r.Contains("1440")) return "1440p";
             if (r.Contains("1080")) return "1080p";
             if (r.Contains("720")) return "720p";
-            if (r.Contains("480") || r.Contains("SD", StringComparison.OrdinalIgnoreCase)) return "SD";
+            if (r.Contains("576") || r.Contains("480") || r.Contains("360")
+                || r.Contains("240") || r.Contains("144")
+                || r.Contains("SD", StringComparison.OrdinalIgnoreCase)) return "SD";
             return "Unknown";
         }
 
@@ -141,13 +144,15 @@ namespace InfiniteDrive.Services
             var ch = raw.ParsedFile?.Channels ?? channels;
 
             // Check for lossless/premium codecs
-            if (HasAny(audioTags, "flac", "truehd", "atmos", "dts-hd", "dtshd", "ma"))
+            // Note: "atmos" alone is NOT lossless — Atmos over DD+ is lossy.
+            // Only TrueHD, FLAC, DTS-HD MA, DTS:X codecs indicate actual lossless/premium.
+            if (HasAny(audioTags, "flac", "truehd", "dts-hd", "dtshd", "ma", "dts:x"))
                 return "Lossless/Premium";
 
             // Check channels for surround
             if (!string.IsNullOrEmpty(ch))
             {
-                if (ch.Contains("7.1") || ch.Contains("5.1"))
+                if (ch.Contains("7.1") || ch.Contains("6.1") || ch.Contains("5.1"))
                     return HasAny(audioTags, "dd", "dts", "dd+", "ddp")
                         ? "DD/DTS (Compressed)"
                         : "5.1/7.1 (Surround)";
@@ -157,9 +162,9 @@ namespace InfiniteDrive.Services
 
             // Fallback: parse description/filename for audio hints
             var desc = (raw.Description ?? raw.Title ?? raw.Name ?? "").ToLowerInvariant();
-            if (desc.Contains("atmos") || desc.Contains("truehd") || desc.Contains("dts-hd ma") || desc.Contains("flac"))
+            if (desc.Contains("truehd") || desc.Contains("dts-hd ma") || desc.Contains("flac") || desc.Contains("dts:x"))
                 return "Lossless/Premium";
-            if (desc.Contains("5.1") || desc.Contains("7.1"))
+            if (desc.Contains("5.1") || desc.Contains("6.1") || desc.Contains("7.1"))
                 return desc.Contains("dd+") || desc.Contains("ddp") || desc.Contains("dts")
                     ? "DD/DTS (Compressed)"
                     : "5.1/7.1 (Surround)";
@@ -175,6 +180,7 @@ namespace InfiniteDrive.Services
 
             // Channel config
             if (ch.Contains("7.1")) parts.Add("7.1");
+            else if (ch.Contains("6.1")) parts.Add("6.1");
             else if (ch.Contains("5.1")) parts.Add("5.1");
 
             // Codec from tags
@@ -185,6 +191,8 @@ namespace InfiniteDrive.Services
                 if (t.Equals("truehd", StringComparison.OrdinalIgnoreCase)) { parts.Add("TrueHD"); continue; }
                 if (t.Contains("dts-hd", StringComparison.OrdinalIgnoreCase) &&
                     t.Contains("ma", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS-HD MA"); continue; }
+                if (t.Contains("dts:x", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS:X"); continue; }
+                if (t.Contains("dts-es", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS-ES"); continue; }
                 if (t.Contains("dts-hd", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS-HD"); continue; }
                 if (t.Contains("dts", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS"); continue; }
                 if (t.Contains("dd+", StringComparison.OrdinalIgnoreCase) ||
@@ -202,6 +210,8 @@ namespace InfiniteDrive.Services
                 if (desc.Contains("atmos")) parts.Add("Atmos");
                 if (desc.Contains("truehd")) parts.Add("TrueHD");
                 else if (desc.Contains("dts-hd ma")) parts.Add("DTS-HD MA");
+                else if (desc.Contains("dts:x")) parts.Add("DTS:X");
+                else if (desc.Contains("dts-es")) parts.Add("DTS-ES");
                 else if (desc.Contains("dts-hd")) parts.Add("DTS-HD");
                 else if (desc.Contains("dts")) parts.Add("DTS");
                 if (desc.Contains("dd+") || desc.Contains("ddp")) parts.Add("DD+");

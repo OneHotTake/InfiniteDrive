@@ -491,15 +491,7 @@ namespace InfiniteDrive.Services
                 _logger.LogDebug(ex, "[InfiniteDrive] InspectService: candidates query failed");
             }
 
-            // ── .strm play URL ────────────────────────────────────────────────────
-
-            if (!string.IsNullOrEmpty(config.EmbyBaseUrl))
-            {
-                var port = ParsePort(config.EmbyBaseUrl) ?? 8096;
-                response.StrmPlayUrl = request.Season.HasValue
-                    ? $"http://127.0.0.1:{port}/InfiniteDrive/GetStream?imdb={imdb}&season={request.Season}&episode={request.Episode}"
-                    : $"http://127.0.0.1:{port}/InfiniteDrive/GetStream?imdb={imdb}";
-            }
+            // ── .strm play URL — EmbyBaseUrl removed; .strm files play natively ────
 
             return response;
         }

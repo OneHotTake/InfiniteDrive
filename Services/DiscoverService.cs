@@ -734,9 +734,6 @@ namespace InfiniteDrive.Services
             var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
 
-            // Ensure PluginSecret is initialized before accessing Configuration
-            Plugin.Instance?.EnsureInitialization();
-
             try
             {
                 // Validate inputs
@@ -1209,9 +1206,8 @@ namespace InfiniteDrive.Services
                     };
                 }
 
-                // Use direct stream URL (proxy tokens removed in Sprint 137)
+                // Use direct stream URL
                 var streamUrl = cached.StreamUrl;
-                var port = ParsePort(config.EmbyBaseUrl) ?? 8096;
 
                 _logger.LogInformation("[Discover] Stream resolution successful for {AioId}", req.AioId);
 
@@ -1220,7 +1216,7 @@ namespace InfiniteDrive.Services
                     Success = true,
                     ProxyToken = null,
                     StreamUrl = streamUrl,
-                    EmbyUrl = $"http://127.0.0.1:{port}/web/#/details/{req.AioId}"
+                    EmbyUrl = $"http://127.0.0.1:8096/web/#/details/{req.AioId}"
                 };
             }
             catch (Exception ex)
