@@ -13,7 +13,7 @@ namespace InfiniteDrive.UI.Settings
         public const string TestSecondaryCommand = nameof(TestSecondaryCommand);
         public const string RunSetupTestCommand = nameof(RunSetupTestCommand);
 
-        public override string EditorTitle => "Connect";
+        public override string EditorTitle => "Providers";
         public override string EditorDescription => string.Empty;
 
         // ── Welcome ──────────────────────────────────────────────────────────

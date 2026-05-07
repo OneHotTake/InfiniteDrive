@@ -10,14 +10,12 @@ namespace InfiniteDrive.UI.Settings
 {
     public class ContentControlsUI : EditableOptionsBase
     {
-        public const string AddToBlockListCommand = nameof(AddToBlockListCommand);
-        public const string UnblockItemCommand = nameof(UnblockItemCommand);
         public const string AddBucketCommand = nameof(AddBucketCommand);
         public const string RemoveBucketCommand = nameof(RemoveBucketCommand);
 
-        public override string EditorTitle => "Filters";
+        public override string EditorTitle => "Quality";
         public override string EditorDescription =>
-            "Quality buckets, parental filters, and blocked content.";
+            "Quality tiers Marvin uses when selecting streams. Each bucket is a resolution + audio profile with a count.";
 
         // ═══════════════════════════════════════════════════════════════
         // Section 1: Quality & Resolution Preferences
@@ -98,36 +96,5 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem BucketStatus { get; set; } = new StatusItem("Buckets", "—", ItemStatus.None);
 
-        // ═══════════════════════════════════════════════════════════════
-        // Section 3: Parental Controls (Discover-only)
-        // ═══════════════════════════════════════════════════════════════
-
-        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionParental { get; set; } = new CaptionItem("Parental Controls");
-
-        [DisplayName("Hide unrated content")]
-        [Description("Applies to InfiniteDrive Discover results only. Does not affect your Emby library.")]
-        public bool HideUnratedContent { get; set; } = false;
-
-        // ═══════════════════════════════════════════════════════════════
-        // Section 4: Blocked Content Management
-        // ═══════════════════════════════════════════════════════════════
-
-        public SpacerItem Spacer3 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionBlocked { get; set; } = new CaptionItem("Blocked Content");
-
-        [DisplayName("Block by Title or ID")]
-        [Description("Title, IMDB ID (tt1234567), TMDB, Kitsu, or AniList ID.")]
-        public string BlockListInput { get; set; } = string.Empty;
-
-        public ButtonItem AddToBlockListButton { get; set; } = new ButtonItem("Block")
-        {
-            Icon = IconNames.add,
-            Data1 = AddToBlockListCommand,
-        };
-
-        public StatusItem BlockListStatus { get; set; } = new StatusItem("Block List", "—", ItemStatus.None);
-
-        public GenericItemList BlockedItemList { get; set; } = new GenericItemList();
     }
 }

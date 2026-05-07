@@ -1,11 +1,9 @@
-using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
 using Emby.Web.GenericEdit.Elements.List;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
-using Microsoft.Extensions.Logging;
 using DesiredVersionBucket = InfiniteDrive.Models.DesiredVersionBucket;
 
 namespace InfiniteDrive.UI.Settings
@@ -16,7 +14,7 @@ namespace InfiniteDrive.UI.Settings
             : base(pluginId)
         {
             ContentData = ui;
-            _ = LoadAllAsync();
+            LoadAll();
         }
 
         private ContentControlsUI UI => (ContentControlsUI)ContentData;
@@ -31,14 +29,6 @@ namespace InfiniteDrive.UI.Settings
 
             switch (cmd)
             {
-                case ContentControlsUI.AddToBlockListCommand:
-                    await AddToBlockListAsync();
-                    return this;
-
-                case ContentControlsUI.UnblockItemCommand:
-                    await UnblockItemAsync(itemId);
-                    return this;
-
                 case ContentControlsUI.AddBucketCommand:
                     AddBucket();
                     return this;
@@ -64,11 +54,10 @@ namespace InfiniteDrive.UI.Settings
         // Load
         // ═══════════════════════════════════════════════════════════════
 
-        private async Task LoadAllAsync()
+        private void LoadAll()
         {
             LoadQualitySettings();
             LoadBuckets();
-            await LoadBlockedItemsAsync();
         }
 
         private void LoadQualitySettings()
@@ -138,57 +127,6 @@ namespace InfiniteDrive.UI.Settings
             UI.BucketStatus.Status = total > 8 ? ItemStatus.Warning : ItemStatus.Succeeded;
         }
 
-        private async Task LoadBlockedItemsAsync()
-        {
-            try
-            {
-                UI.BlockedItemList.Clear();
-
-                var db = Plugin.Instance.DatabaseManager;
-                var items = await db.GetBlockedItemsAsync(skip: 0, limit: 100).ConfigureAwait(false);
-
-                if (items.Count == 0)
-                {
-                    UI.BlockedItemList.Add(new GenericListItem
-                    {
-                        PrimaryText = "No blocked content — use 'Add to Block List' to block titles or IDs",
-                        Icon = IconNames.info,
-                        IconMode = ItemListIconMode.SmallRegular,
-                    });
-                    RaiseUIViewInfoChanged();
-                    return;
-                }
-
-                foreach (var item in items)
-                {
-                    var details = $"{item.MediaType} · blocked {FormatTimeAgo(item.BlockedAt)}";
-
-                    UI.BlockedItemList.Add(new GenericListItem
-                    {
-                        PrimaryText = item.Title,
-                        SecondaryText = details,
-                        Icon = IconNames.block,
-                        IconMode = ItemListIconMode.SmallRegular,
-                        Status = ItemStatus.Unavailable,
-                        Button1 = new ButtonItem("Unblock")
-                        {
-                            Icon = IconNames.check_circle,
-                            Data1 = item.Id.ToString(),
-                            CommandId = ContentControlsUI.UnblockItemCommand,
-                            ConfirmationPrompt = $"Unblock '{item.Title}'?",
-                        },
-                    });
-                }
-
-                UI.BlockListStatus.StatusText = $"{items.Count} item(s) blocked";
-                UI.BlockListStatus.Status = ItemStatus.Warning;
-                RaiseUIViewInfoChanged();
-            }
-            catch (Exception ex)
-            {
-                Plugin.Instance.Logger.LogWarning(ex, "[ContentControlsUI] Failed to load blocked items");
-            }
-        }
 
         // ═══════════════════════════════════════════════════════════════
         // Bucket Commands
@@ -258,83 +196,6 @@ namespace InfiniteDrive.UI.Settings
             LoadBuckets();
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // Block List Commands
-        // ═══════════════════════════════════════════════════════════════
-
-        private async Task AddToBlockListAsync()
-        {
-            var input = UI.BlockListInput?.Trim();
-            if (string.IsNullOrEmpty(input))
-            {
-                UI.BlockListStatus.StatusText = "Enter a title or ID above, then click Add to Block List.";
-                UI.BlockListStatus.Status = ItemStatus.Warning;
-                RaiseUIViewInfoChanged();
-                return;
-            }
-
-            try
-            {
-                var db = Plugin.Instance.DatabaseManager;
-
-                string? aioId = null, tmdbId = null;
-                var title = input;
-                var mediaType = "movie";
-
-                if (input.StartsWith("tt", StringComparison.OrdinalIgnoreCase) && input.Length >= 3)
-                {
-                    aioId = input;
-                    title = $"Blocked IMDB: {input}";
-                }
-                else if (int.TryParse(input, out _))
-                {
-                    tmdbId = input;
-                    title = $"Blocked TMDB: {input}";
-                }
-
-                await db.UpsertBlockedItemAsync(aioId, tmdbId, null, title, mediaType, "admin").ConfigureAwait(false);
-
-                Plugin.Instance.Logger.LogInformation(
-                    "[ContentControlsUI] Blocked: {Input}", input);
-
-                UI.BlockListInput = string.Empty;
-                UI.BlockListStatus.StatusText = $"Blocked: {input}";
-                UI.BlockListStatus.Status = ItemStatus.Succeeded;
-
-                await LoadBlockedItemsAsync();
-            }
-            catch (Exception ex)
-            {
-                Plugin.Instance.Logger.LogWarning(ex, "[ContentControlsUI] Failed to block: {Input}", input);
-                UI.BlockListStatus.StatusText = $"Failed: {ex.Message}";
-                UI.BlockListStatus.Status = ItemStatus.Failed;
-                RaiseUIViewInfoChanged();
-            }
-        }
-
-        private async Task UnblockItemAsync(string itemIdStr)
-        {
-            try
-            {
-                if (!long.TryParse(itemIdStr, out var id))
-                    return;
-
-                var db = Plugin.Instance.DatabaseManager;
-                await db.UnblockItemAsync(id, unblockedBy: "admin").ConfigureAwait(false);
-
-                Plugin.Instance.Logger.LogInformation(
-                    "[ContentControlsUI] Unblocked item {Id}", id);
-
-                await LoadBlockedItemsAsync();
-            }
-            catch (Exception ex)
-            {
-                Plugin.Instance.Logger.LogWarning(ex, "[ContentControlsUI] Failed to unblock item");
-                UI.BlockListStatus.StatusText = $"Failed: {ex.Message}";
-                UI.BlockListStatus.Status = ItemStatus.Failed;
-                RaiseUIViewInfoChanged();
-            }
-        }
 
         // ═══════════════════════════════════════════════════════════════
         // Save
@@ -344,29 +205,11 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             cfg.UseRemuxForAutoSelection = UI.UseRemuxForAutoSelection;
-            cfg.HideUnratedContent = UI.HideUnratedContent;
             // Note: DesiredVersions bucket list is saved immediately on Add/Remove
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
             return base.OnSaveCommand(itemId, commandId, data);
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // Helpers
-        // ═══════════════════════════════════════════════════════════════
-
-        private static string FormatTimeAgo(string isoTime)
-        {
-            try
-            {
-                var dt = DateTime.Parse(isoTime, null, System.Globalization.DateTimeStyles.RoundtripKind);
-                var ago = DateTime.UtcNow - dt;
-                if (ago.TotalMinutes < 1) return "just now";
-                if (ago.TotalHours < 1) return $"{(int)ago.TotalMinutes}m ago";
-                if (ago.TotalDays < 1) return $"{(int)ago.TotalHours}h ago";
-                return $"{(int)ago.TotalDays}d ago";
-            }
-            catch { return isoTime; }
-        }
     }
 }
