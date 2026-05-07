@@ -265,33 +265,117 @@ namespace InfiniteDrive.Services
                     item.ProductionYear = riYear;
             }
 
-            if (!string.IsNullOrWhiteSpace(meta.Runtime) && int.TryParse(meta.Runtime, out var runtimeMin))
+            if (!string.IsNullOrWhiteSpace(meta.Runtime))
             {
-                if (item is Movie movie)
-                    movie.RunTimeTicks = TimeSpan.FromMinutes(runtimeMin).Ticks;
+                int totalMinutes = ParseRuntimeMinutes(meta.Runtime);
+                if (totalMinutes > 0 && item is Movie rMovie)
+                    rMovie.RunTimeTicks = TimeSpan.FromMinutes(totalMinutes).Ticks;
+                else if (totalMinutes > 0 && item is Series rSeries)
+                    rSeries.RunTimeTicks = TimeSpan.FromMinutes(totalMinutes).Ticks;
             }
 
             if (!string.IsNullOrWhiteSpace(meta.Country))
                 item.Studios = new[] { meta.Country };
 
-            if (meta.Cast?.Count > 0)
+            if (meta.AppExtras?.Cast?.Count > 0)
+            {
+                result.People = meta.AppExtras.Cast
+                    .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                    .Select(c => new PersonInfo
+                    {
+                        Name = c.Name!,
+                        Role = c.Character,
+                        ImageUrl = c.Photo,
+                        Type = PersonType.Actor
+                    })
+                    .ToList();
+            }
+            else if (meta.Cast?.Count > 0)
             {
                 result.People = meta.Cast
                     .Select(name => new PersonInfo { Name = name, Type = PersonType.Actor })
                     .ToList();
             }
 
-            if (!string.IsNullOrWhiteSpace(meta.Director))
+            if (meta.Directors?.Count > 0)
             {
                 var people = result.People ?? new List<PersonInfo>();
-                people.Add(new PersonInfo { Name = meta.Director, Type = PersonType.Director });
+                foreach (var d in meta.Directors)
+                    if (!string.IsNullOrWhiteSpace(d))
+                        people.Add(new PersonInfo { Name = d, Type = PersonType.Director });
                 result.People = people;
+            }
+
+            // Populate IMDB ID from meta direct field or behaviorHints if not in catalogItem
+            var imdbFromMeta = meta.ImdbId
+                ?? meta.BehaviorHints?.DefaultVideoId;
+            if (!string.IsNullOrWhiteSpace(imdbFromMeta) && imdbFromMeta.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                item.SetProviderId("IMDB", imdbFromMeta);
+
+            if (!string.IsNullOrWhiteSpace(meta.Released)
+                && DateTimeOffset.TryParse(meta.Released, null, System.Globalization.DateTimeStyles.RoundtripKind, out var releaseDate))
+            {
+                item.PremiereDate = releaseDate.UtcDateTime;
+            }
+
+            if (meta.Links?.Count > 0)
+            {
+                var knownCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { "imdb", "share", "Genres", "Cast", "Directors" };
+                var collectionName = meta.Links
+                    .Where(l => !string.IsNullOrWhiteSpace(l.Category) && !knownCategories.Contains(l.Category))
+                    .Select(l => l.Category!)
+                    .FirstOrDefault();
+                if (!string.IsNullOrWhiteSpace(collectionName))
+                    item.AddTag(collectionName);
             }
 
             SetProviderIds(item, catalogItem);
 
             result.HasMetadata = true;
             result.Provider = "InfiniteDrive";
+        }
+
+        internal static void AddSearchResult(List<RemoteSearchResult> results, CatalogItem item)
+        {
+            AioMeta? meta = null;
+            if (!string.IsNullOrEmpty(item.RawMetaJson))
+                try { meta = System.Text.Json.JsonSerializer.Deserialize<AioMeta>(item.RawMetaJson); } catch { }
+
+            var r = new RemoteSearchResult
+            {
+                Name = item.Title ?? meta?.Name ?? string.Empty,
+                ProductionYear = meta?.Year,
+                Overview = meta?.Description,
+                ImageUrl = meta?.Poster,
+                SearchProviderName = "InfiniteDrive",
+            };
+
+            if (!string.IsNullOrWhiteSpace(item.TmdbId)) r.SetProviderId("TMDB", item.TmdbId);
+            if (!string.IsNullOrWhiteSpace(item.AioId) && item.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                r.SetProviderId("IMDB", item.AioId);
+
+            results.Add(r);
+        }
+
+        private static int ParseRuntimeMinutes(string runtime)
+        {
+            var s = runtime.Trim();
+            // "Xh Ymin" or "XhYmin"
+            var hm = System.Text.RegularExpressions.Regex.Match(s, @"(\d+)\s*h\s*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (hm.Success)
+                return int.Parse(hm.Groups[1].Value) * 60 + int.Parse(hm.Groups[2].Value);
+            // "Xh" only
+            var ho = System.Text.RegularExpressions.Regex.Match(s, @"(\d+)\s*h", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (ho.Success)
+                return int.Parse(ho.Groups[1].Value) * 60;
+            // "X min"
+            var mo = System.Text.RegularExpressions.Regex.Match(s, @"(\d+)\s*min", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (mo.Success)
+                return int.Parse(mo.Groups[1].Value);
+            // plain integer
+            if (int.TryParse(s, out var plain)) return plain;
+            return 0;
         }
 
         private static void SetProviderIds(BaseItem item, CatalogItem catalogItem)
@@ -345,8 +429,27 @@ namespace InfiniteDrive.Services
             return result;
         }
 
-        public Task<IEnumerable<RemoteSearchResult>> GetSearchResults(SeriesInfo searchInfo, CancellationToken cancellationToken)
-            => Task.FromResult(Enumerable.Empty<RemoteSearchResult>());
+        public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(SeriesInfo searchInfo, CancellationToken cancellationToken)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+            if (db == null) return Enumerable.Empty<RemoteSearchResult>();
+
+            var results = new List<RemoteSearchResult>();
+
+            foreach (var kvp in searchInfo.ProviderIds)
+            {
+                var item = await db.GetCatalogItemByProviderIdAsync(kvp.Key, kvp.Value).ConfigureAwait(false);
+                if (item != null) { AioMetadataHelper.AddSearchResult(results, item); break; }
+            }
+
+            if (results.Count == 0 && !string.IsNullOrWhiteSpace(searchInfo.Name))
+            {
+                var item = await db.GetCatalogItemByTitleAsync(searchInfo.Name, searchInfo.Year, null).ConfigureAwait(false);
+                if (item != null) AioMetadataHelper.AddSearchResult(results, item);
+            }
+
+            return results;
+        }
 
         public Task<HttpResponseInfo> GetImageResponse(string url, CancellationToken cancellationToken)
             => Task.FromResult<HttpResponseInfo>(null!);
@@ -384,8 +487,27 @@ namespace InfiniteDrive.Services
             return result;
         }
 
-        public Task<IEnumerable<RemoteSearchResult>> GetSearchResults(MovieInfo searchInfo, CancellationToken cancellationToken)
-            => Task.FromResult(Enumerable.Empty<RemoteSearchResult>());
+        public async Task<IEnumerable<RemoteSearchResult>> GetSearchResults(MovieInfo searchInfo, CancellationToken cancellationToken)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+            if (db == null) return Enumerable.Empty<RemoteSearchResult>();
+
+            var results = new List<RemoteSearchResult>();
+
+            foreach (var kvp in searchInfo.ProviderIds)
+            {
+                var item = await db.GetCatalogItemByProviderIdAsync(kvp.Key, kvp.Value).ConfigureAwait(false);
+                if (item != null) { AioMetadataHelper.AddSearchResult(results, item); break; }
+            }
+
+            if (results.Count == 0 && !string.IsNullOrWhiteSpace(searchInfo.Name))
+            {
+                var item = await db.GetCatalogItemByTitleAsync(searchInfo.Name, searchInfo.Year, null).ConfigureAwait(false);
+                if (item != null) AioMetadataHelper.AddSearchResult(results, item);
+            }
+
+            return results;
+        }
 
         public Task<HttpResponseInfo> GetImageResponse(string url, CancellationToken cancellationToken)
             => Task.FromResult<HttpResponseInfo>(null!);
