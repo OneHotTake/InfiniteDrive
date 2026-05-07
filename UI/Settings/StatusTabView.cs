@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
@@ -81,8 +80,6 @@ namespace InfiniteDrive.UI.Settings
             return ui;
         }
 
-        // Status page is read-only — no save needed
-        public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
-            => base.OnSaveCommand(itemId, commandId, data);
+        // Status page is read-only — no save button needed
     }
 }

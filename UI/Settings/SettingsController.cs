@@ -29,28 +29,28 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Overview → Connect → Setup → Sources → Filters → Marvin → Advanced
+            // Tab order: Providers → Libraries → Sources → Quality → Restrictions → Marvin → Advanced
             // Names prefixed with zero-padded index to enforce ordering (Emby sorts tabs alphabetically by Name)
-            _tabs.Add(new TabPageController(pid, "00Overview", "Overview", () =>
-                new StatusTabView(pid, StatusTabView.BuildUI())));
-
-            _tabs.Add(new TabPageController(pid, "01Connect", "Connect", () =>
+            _tabs.Add(new TabPageController(pid, "01Providers", "Providers", () =>
                 new ConnectTabView(pid, LoadConnect())));
 
-            _tabs.Add(new TabPageController(pid, "02Setup", "Setup", () =>
+            _tabs.Add(new TabPageController(pid, "02Libraries", "Libraries", () =>
                 new SetupTabView(pid, LoadSetup())));
 
             _tabs.Add(new TabPageController(pid, "03Sources", "Sources", () =>
                 new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
 
-            _tabs.Add(new TabPageController(pid, "04Filters", "Filters", () =>
+            _tabs.Add(new TabPageController(pid, "04Quality", "Quality", () =>
                 new ContentControlsTabView(pid, LoadContentControls())));
 
-            _tabs.Add(new TabPageController(pid, "05Marvin", "Marvin", () =>
+            _tabs.Add(new TabPageController(pid, "05Restrictions", "Restrictions", () =>
+                new RestrictionsTabView(pid, LoadRestrictions())));
+
+            _tabs.Add(new TabPageController(pid, "06Marvin", "Marvin", () =>
                 new SyncAndMarvinTabView(pid, LoadSyncAndMarvin())));
 
             // Advanced is last — "you don't need this unless you have a reason"
-            _tabs.Add(new TabPageController(pid, "06Advanced", "Advanced", () =>
+            _tabs.Add(new TabPageController(pid, "07Advanced", "Advanced", () =>
                 new AdvancedTabView(pid, LoadAdvanced())));
         }
 
@@ -134,6 +134,14 @@ namespace InfiniteDrive.UI.Settings
             return new ContentControlsUI
             {
                 UseRemuxForAutoSelection = c.UseRemuxForAutoSelection,
+            };
+        }
+
+        private static RestrictionsUI LoadRestrictions()
+        {
+            var c = Plugin.Instance.Configuration;
+            return new RestrictionsUI
+            {
                 HideUnratedContent = c.HideUnratedContent,
             };
         }
