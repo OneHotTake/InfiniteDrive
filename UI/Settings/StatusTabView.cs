@@ -39,28 +39,38 @@ namespace InfiniteDrive.UI.Settings
                 ui.ProviderStatus.Status = ItemStatus.Failed;
             }
 
-            // Libraries — check that paths are configured AND directories exist on disk
-            var moviesConfigured = !string.IsNullOrWhiteSpace(cfg.SyncPathMovies);
-            var showsConfigured  = !string.IsNullOrWhiteSpace(cfg.SyncPathShows);
-            var moviesExists     = moviesConfigured && System.IO.Directory.Exists(cfg.SyncPathMovies);
-            var showsExists      = showsConfigured  && System.IO.Directory.Exists(cfg.SyncPathShows);
+            // Libraries — check paths are set to non-default values AND directories exist on disk
+            // Default paths (/media/infinitedrive/...) indicate the user has never run setup
+            bool IsConfigured(string path, string def) =>
+                !string.IsNullOrWhiteSpace(path) && path != def;
 
-            if (moviesExists && showsExists)
+            var moviesOk = IsConfigured(cfg.SyncPathMovies, "/media/infinitedrive/movies")
+                           && System.IO.Directory.Exists(cfg.SyncPathMovies);
+            var showsOk  = IsConfigured(cfg.SyncPathShows, "/media/infinitedrive/shows")
+                           && System.IO.Directory.Exists(cfg.SyncPathShows);
+            var animeOk  = IsConfigured(cfg.SyncPathAnime, "/media/infinitedrive/anime")
+                           && System.IO.Directory.Exists(cfg.SyncPathAnime);
+
+            var configured = new System.Collections.Generic.List<string>();
+            var missing    = new System.Collections.Generic.List<string>();
+            if (moviesOk) configured.Add("Movies"); else missing.Add("Movies");
+            if (showsOk)  configured.Add("Shows");  else missing.Add("Shows");
+            if (animeOk)  configured.Add("Anime");  else missing.Add("Anime");
+
+            if (configured.Count == 3)
             {
-                ui.LibraryStatus.StatusText = "Movies and Shows ready";
+                ui.LibraryStatus.StatusText = "Movies, Shows, and Anime paths exist";
                 ui.LibraryStatus.Status = ItemStatus.Succeeded;
             }
-            else if (!moviesConfigured && !showsConfigured)
+            else if (configured.Count == 0)
             {
-                ui.LibraryStatus.StatusText = "Not configured — open Setup tab";
+                ui.LibraryStatus.StatusText = "Not configured — open 2 Libraries tab";
                 ui.LibraryStatus.Status = ItemStatus.Failed;
             }
             else
             {
-                var missing = new System.Collections.Generic.List<string>();
-                if (!moviesExists) missing.Add("Movies");
-                if (!showsExists)  missing.Add("Shows");
-                ui.LibraryStatus.StatusText = $"{string.Join(", ", missing)} folder(s) not found — run library setup";
+                ui.LibraryStatus.StatusText =
+                    $"{string.Join(" + ", configured)} configured; {string.Join(", ", missing)} missing";
                 ui.LibraryStatus.Status = ItemStatus.Warning;
             }
 

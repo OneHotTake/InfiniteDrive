@@ -21,7 +21,7 @@ namespace InfiniteDrive.UI.Settings
             PageInfo = new PluginPageInfo
             {
                 Name = "InfiniteDriveSettings",
-                DisplayName = "InfiniteDrive",
+                DisplayName = "0 Overview",
                 IsMainConfigPage = true,
                 EnableInMainMenu = false,
                 MenuIcon = "settings",
@@ -31,26 +31,25 @@ namespace InfiniteDrive.UI.Settings
 
             // Tab order: Providers → Libraries → Sources → Quality → Restrictions → Marvin → Advanced
             // Names prefixed with zero-padded index to enforce ordering (Emby sorts tabs alphabetically by Name)
-            _tabs.Add(new TabPageController(pid, "01Providers", "Providers", () =>
+            _tabs.Add(new TabPageController(pid, "1Providers", "1 Providers", () =>
                 new ConnectTabView(pid, LoadConnect())));
 
-            _tabs.Add(new TabPageController(pid, "02Libraries", "Libraries", () =>
+            _tabs.Add(new TabPageController(pid, "2Libraries", "2 Libraries", () =>
                 new SetupTabView(pid, LoadSetup())));
 
-            _tabs.Add(new TabPageController(pid, "03Sources", "Sources", () =>
+            _tabs.Add(new TabPageController(pid, "3Sources", "3 Sources", () =>
                 new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
 
-            _tabs.Add(new TabPageController(pid, "04Quality", "Quality", () =>
+            _tabs.Add(new TabPageController(pid, "4Quality", "4 Quality", () =>
                 new ContentControlsTabView(pid, LoadContentControls())));
 
-            _tabs.Add(new TabPageController(pid, "05Restrictions", "Restrictions", () =>
+            _tabs.Add(new TabPageController(pid, "5Restrictions", "5 Restrictions", () =>
                 new RestrictionsTabView(pid, LoadRestrictions())));
 
-            _tabs.Add(new TabPageController(pid, "06Marvin", "Marvin", () =>
+            _tabs.Add(new TabPageController(pid, "6Marvin", "6 Marvin", () =>
                 new SyncAndMarvinTabView(pid, LoadSyncAndMarvin())));
 
-            // Advanced is last — "you don't need this unless you have a reason"
-            _tabs.Add(new TabPageController(pid, "07Advanced", "Advanced", () =>
+            _tabs.Add(new TabPageController(pid, "7Advanced", "7 Advanced", () =>
                 new AdvancedTabView(pid, LoadAdvanced())));
         }
 
