@@ -306,26 +306,6 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Returns catalog items with expiring tokens (within 90 days), bounded by limit.
-        /// Used by RefreshTask Verify step for token renewal.
-        /// </summary>
-        public async Task<List<CatalogItem>> GetCatalogItemsWithExpiringTokensAsync(
-            int limit,
-            CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                SELECT * FROM catalog_items
-                WHERE item_state = 1 AND removed_at IS NULL
-                ORDER BY updated_at DESC
-                LIMIT @limit;";
-
-            return await QueryListAsync(sql, cmd =>
-            {
-                BindInt(cmd, "@limit", limit);
-            }, ReadCatalogItem);
-        }
-
-        /// <summary>
         /// Returns catalog item by its .strm file path, or null.
         /// Used by auto-pin on playback to find the item being played.
         /// </summary>
@@ -1260,7 +1240,6 @@ CREATE TABLE IF NOT EXISTS playback_log (
     resolution_mode     TEXT NOT NULL CHECK(resolution_mode IN ('cached','fallback_1','fallback_2','sync_resolve','failed')),
     quality_served      TEXT,
     client_type         TEXT,
-    proxy_mode          TEXT,
     latency_ms          INTEGER,
     bitrate_sustained   INTEGER,
     quality_downgrade   INTEGER DEFAULT 0,
@@ -1925,12 +1904,11 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
             ResolutionMode = r.GetString(5),
             QualityServed  = r.IsDBNull(6)  ? null : r.GetString(6),
             ClientType     = r.IsDBNull(7)  ? null : r.GetString(7),
-            ProxyMode      = r.IsDBNull(8)  ? null : r.GetString(8),
-            LatencyMs      = r.IsDBNull(9)  ? null : r.GetInt(9),
-            BitrateSustained = r.IsDBNull(10) ? null : r.GetInt(10),
-            QualityDowngrade = r.GetInt(11),
-            ErrorMessage   = r.IsDBNull(12) ? null : r.GetString(12),
-            PlayedAt       = r.GetString(13),
+            LatencyMs      = r.IsDBNull(8)  ? null : r.GetInt(8),
+            BitrateSustained = r.IsDBNull(9) ? null : r.GetInt(9),
+            QualityDowngrade = r.GetInt(10),
+            ErrorMessage   = r.IsDBNull(11) ? null : r.GetString(11),
+            PlayedAt       = r.GetString(12),
         };
 
         private static SyncState ReadSyncState(IResultSet r) => new SyncState

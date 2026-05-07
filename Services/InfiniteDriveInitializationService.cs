@@ -81,9 +81,6 @@ namespace InfiniteDrive.Services
                 // Initialize database — ApplicationPaths guaranteed settled here
                 instance.InitialiseDatabaseManager();
 
-                // Auto-generate PluginSecret if absent
-                instance.EnsurePluginSecret();
-
                 // Initialize CooldownGate (Sprint 155: CooldownGate throttling)
                 instance.CooldownGate = new CooldownGate(
                     () => instance.Configuration,

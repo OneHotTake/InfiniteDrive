@@ -150,9 +150,6 @@ namespace InfiniteDrive.Models
         /// <summary>Unix timestamp for next retry attempt.</summary>
         public long? NextRetryAt { get; set; }
 
-        /// <summary>Unix timestamp when .strm token expires.</summary>
-        public long? StrmTokenExpiresAt { get; set; }
-
         /// <summary>
         /// JSON-encoded Videos[] array from Stremio metadata endpoint.
         /// Used for diff-based episode sync (Sprint 222).

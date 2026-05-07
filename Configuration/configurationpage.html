@@ -345,7 +345,7 @@
   <!-- Default Quality card -->
   <div class="es-card">
     <div class="es-card-title">Default Quality</div>
-    <p class="es-card-text">Sets the quality used when you press Play without choosing a version. All available versions are resolved live from AIOStreams at play time — no extra files needed.</p>
+    <p class="es-card-text">When you press Play without choosing a version, the highest-ranked stream plays automatically. Ranking is based on quality tier (4K &gt; 1440p &gt; 1080p &gt; 720p), audio quality, source type, and cache status.</p>
     <div class="selectContainer">
       <label class="selectLabel" for="es-default-quality">Default quality tier</label>
       <select id="es-default-quality" is="emby-select" class="emby-select-withcolor">
@@ -543,7 +543,8 @@
       <span class="material-icons" style="color:#52b54b">info</span>
       <div>
         Controls how InfiniteDrive curates and presents streams in Emby's version picker.
-        The bucket algorithm selects 6–8 streams per title across resolution × source quality tiers.
+        The bucket algorithm selects 6–8 streams per title across resolution &times; source quality tiers.
+        The first version (top of the list, auto-played) is always the highest-ranked stream.
       </div>
     </div>
   </div>
@@ -604,7 +605,7 @@
   </div>
 
   <div class="fieldDescription" style="margin-top:.8em;opacity:.6;font-size:.8em">
-    Resolution: 0=4K, 1=1080p, 2=720p, 3=480p &nbsp;|&nbsp;
+    Resolution: 0=4K, 1=1440p, 2=1080p, 3=720p, 4=480p &nbsp;|&nbsp;
     Source: 0=Remux, 1=+BluRay, 2=+WEB-DL, 3=+WEB, 9=Any
   </div>
 

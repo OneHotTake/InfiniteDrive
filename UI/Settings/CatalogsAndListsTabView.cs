@@ -288,29 +288,74 @@ namespace InfiniteDrive.UI.Settings
                 return;
             }
 
+            if (!url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                UI.SystemListStatus.StatusText = "List URL must use HTTPS.";
+                UI.SystemListStatus.Status = ItemStatus.Warning;
+                RaiseUIViewInfoChanged();
+                return;
+            }
+
+            var provider = Services.ListFetcher.DetectProvider(url);
+            if (provider == null)
+            {
+                UI.SystemListStatus.StatusText = "Unsupported list URL. Supported: mdblist.com, trakt.tv, themoviedb.org, anilist.co";
+                UI.SystemListStatus.Status = ItemStatus.Warning;
+                RaiseUIViewInfoChanged();
+                return;
+            }
+
             try
             {
-                // Detect service from URL
-                var service = "unknown";
-                if (url.Contains("trakt.tv", StringComparison.OrdinalIgnoreCase))
-                    service = "trakt";
-                else if (url.Contains("themoviedb.org", StringComparison.OrdinalIgnoreCase) ||
-                         url.Contains("tmdb.org", StringComparison.OrdinalIgnoreCase))
-                    service = "tmdb";
+                UI.SystemListStatus.StatusText = "Fetching list…";
+                UI.SystemListStatus.Status = ItemStatus.InProgress;
+                RaiseUIViewInfoChanged();
+
+                var config = Plugin.Instance.Configuration;
+                var fetchResult = await Services.ListFetcher.FetchAsync(
+                    url, config.TraktClientId, config.TmdbApiKey,
+                    Plugin.Instance.Logger, CancellationToken.None).ConfigureAwait(false);
+
+                if (!fetchResult.Ok)
+                {
+                    UI.SystemListStatus.StatusText = $"Failed: {fetchResult.Error}";
+                    UI.SystemListStatus.Status = ItemStatus.Failed;
+                    RaiseUIViewInfoChanged();
+                    return;
+                }
+
+                if (fetchResult.Items.Count == 0)
+                {
+                    UI.SystemListStatus.StatusText = "This list appears to be empty.";
+                    UI.SystemListStatus.Status = ItemStatus.Warning;
+                    RaiseUIViewInfoChanged();
+                    return;
+                }
 
                 if (string.IsNullOrEmpty(name))
-                    name = url.Split('?')[0].Split('/').LastOrDefault() ?? "System List";
+                    name = !string.IsNullOrWhiteSpace(fetchResult.DisplayName) ? fetchResult.DisplayName
+                         : url.Split('?')[0].Split('/').LastOrDefault() ?? "System List";
 
                 var db = Plugin.Instance.DatabaseManager;
-                await db.CreateUserCatalogAsync("SERVER", service, url, name).ConfigureAwait(false);
+                var catalogId = await db.CreateUserCatalogAsync("SERVER", provider, url, name).ConfigureAwait(false);
 
                 Plugin.Instance.Logger.LogInformation(
                     "[CatalogsAndListsUI] Added system list: {Name} ({Url})", name, url);
 
+                // Eager sync
+                var syncService = new Services.UserCatalogSyncService(
+                    Plugin.Instance.LogManager, db,
+                    Plugin.Instance.StrmWriterService,
+                    Plugin.Instance.CooldownGate,
+                    Plugin.Instance.IdResolverService);
+                var result = await syncService.SyncOneAsync(catalogId, CancellationToken.None).ConfigureAwait(false);
+
                 UI.SystemListUrlInput = string.Empty;
                 UI.SystemListNameInput = string.Empty;
-                UI.SystemListStatus.StatusText = $"Added: {name}";
-                UI.SystemListStatus.Status = ItemStatus.Succeeded;
+                UI.SystemListStatus.StatusText = result.Ok
+                    ? $"Added: {name} ({result.Added} items imported)"
+                    : $"Added but sync failed: {result.Error}";
+                UI.SystemListStatus.Status = result.Ok ? ItemStatus.Succeeded : ItemStatus.Warning;
 
                 await LoadSystemListsAsync();
             }

@@ -167,11 +167,14 @@ namespace InfiniteDrive.Services
                 return true;
 
             // Bucket "5.1/7.1 (Surround)" matches "Lossless/Premium" (lossless is better)
+            // and "DD/DTS (Compressed)" (lossy surround is still surround)
             if (bucketAudio.Contains("5.1") || bucketAudio.Contains("7.1") || bucketAudio.Contains("Surround"))
             {
                 if (streamAudio.Equals("Lossless/Premium", StringComparison.OrdinalIgnoreCase))
                     return true;
                 if (streamAudio.Contains("5.1") || streamAudio.Contains("Surround"))
+                    return true;
+                if (streamAudio.Contains("DD/DTS") || streamAudio.Contains("Compressed"))
                     return true;
             }
 

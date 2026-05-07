@@ -51,18 +51,6 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestSecondaryCommand,
         };
 
-        // ── Section 2: Emby Server ────────────────────────────────────────────
-
-        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionEmby { get; set; } = new CaptionItem("Emby Server");
-
-        [DisplayName("Emby External URL")]
-        [Description(
-            "The address your Emby server is reachable at from other devices on your network. " +
-            "This gets written into every streaming file. " +
-            "Example: http://192.168.1.100:8096")]
-        public string EmbyBaseUrl { get; set; } = "http://192.168.1.100:8096";
-
         // ── Test Result (single source of truth) ──────────────────────────────
 
         public SpacerItem SpacerResult { get; set; } = new SpacerItem();

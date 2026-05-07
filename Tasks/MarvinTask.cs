@@ -551,37 +551,15 @@ namespace InfiniteDrive.Tasks
             if (episodeKeys.Count == 0)
                 return new();
 
-            // Pick the latest episode as the quality representative
-            // (newest eps are most likely to have fresh, high-quality sources)
-            var latestEp = episodeKeys
-                .OrderByDescending(e => e.Season)
-                .ThenByDescending(e => e.Episode)
-                .First();
-
-            var response = await client.GetSeriesStreamsAsync(
-                item.AioId, latestEp.Season, latestEp.Episode, ct).ConfigureAwait(false);
-
-            if (response?.Streams == null || response.Streams.Count == 0)
-                return new();
-
-            var parsed = Services.StreamParser.ParseAll(response.Streams);
-            if (parsed.Count == 0)
-                return new();
-
-            var versions = Services.VersionSelectorService.SelectBestVersions(
-                parsed, config.DesiredVersions, config.MaxVersionsPerItem);
-            Services.VersionSelectorService.AssignSecondaryUrls(versions, parsed);
-
-            if (versions.Count == 0)
-                return versions;
-
-            // Write versioned .strm files for every episode in every season
+            // Write versioned .strm files for every episode — no representative gate
             var folderName = Services.NamingPolicyService.BuildFolderName(item);
             var basePath = string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase)
                 ? config.SyncPathAnime
                 : config.SyncPathShows;
             if (string.IsNullOrEmpty(basePath) || string.IsNullOrEmpty(item.StrmPath))
-                return versions;
+                return new();
+
+            var representativeVersions = new List<SelectedVersion>();
 
             var seasonGroups = episodeKeys.GroupBy(e => e.Season);
             foreach (var seasonGroup in seasonGroups)
@@ -623,10 +601,11 @@ namespace InfiniteDrive.Tasks
                     var epBaseNameNoExt = System.IO.Path.GetFileNameWithoutExtension(epBaseName);
                     await fileManager.WriteOrReplaceStrmFilesAsync(
                         seasonDir, epBaseNameNoExt, epVersions, ct);
+                    representativeVersions = epVersions;
                 }
             }
 
-            return versions;
+            return representativeVersions;
         }
 
         private async Task ValidationPassAsync(CancellationToken cancellationToken)
@@ -796,18 +775,10 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        private async Task TokenRenewalAsync(CancellationToken cancellationToken)
+        private static Task TokenRenewalAsync(CancellationToken cancellationToken)
         {
-            var db = Plugin.Instance!.DatabaseManager;
-
-            var expiringItems = await db.GetCatalogItemsWithExpiringTokensAsync(
-                int.MaxValue, cancellationToken);
-
-            if (!expiringItems.Any())
-                return;
-
-            // Version-slot token renewal disabled — slot infrastructure removed.
-            return;
+            // Token renewal removed — HMAC signing infrastructure deleted.
+            return Task.CompletedTask;
         }
 
         private async Task PersistEnrichmentCountsAsync(CancellationToken cancellationToken)
@@ -879,13 +850,6 @@ namespace InfiniteDrive.Tasks
                 try { _libraryManager.QueueLibraryScan(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "[InfiniteDrive] Enrichment: Failed to trigger library scan fallback"); }
             }
-        }
-
-        private static string GetEmbyBaseUrl(PluginConfiguration config)
-        {
-            if (!string.IsNullOrEmpty(config.EmbyBaseUrl))
-                return config.EmbyBaseUrl.TrimEnd('/');
-            return "http://localhost:8096";
         }
 
     }

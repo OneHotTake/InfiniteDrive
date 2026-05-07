@@ -31,12 +31,12 @@ namespace InfiniteDrive.UI.Settings
                     await ClearCacheAsync();
                     return this;
 
-                case AdvancedUI.ResetAllDataCommand:
-                    await ResetAllDataAsync();
+                case AdvancedUI.RebuildLibrariesCommand:
+                    RebuildLibraries();
                     return this;
 
-                case AdvancedUI.RebuildLibrariesCommand:
-                    await RebuildLibrariesAsync();
+                case AdvancedUI.ResetAllDataCommand:
+                    await ResetAllDataAsync();
                     return this;
 
                 case AdvancedUI.ResetFactoryDefaultsCommand:
@@ -53,82 +53,55 @@ namespace InfiniteDrive.UI.Settings
 
         private async Task ClearCacheAsync()
         {
-            UI.CacheStatus.StatusText = "Clearing cache...";
-            UI.CacheStatus.Status = ItemStatus.InProgress;
-            RaiseUIViewInfoChanged();
-
+            SetStatus("Clearing stream resolution cache...", ItemStatus.InProgress);
             try
             {
                 var db = Plugin.Instance.DatabaseManager;
                 await db.ClearResolutionCacheAsync();
                 await db.VacuumAsync();
-
-                UI.CacheStatus.StatusText = "Cache cleared and database vacuumed";
-                UI.CacheStatus.Status = ItemStatus.Succeeded;
+                SetStatus("Cache cleared. Marvin will re-resolve streams on next cycle.", ItemStatus.Succeeded);
                 Plugin.Instance.Logger.LogInformation("[Advanced] Resolution cache cleared");
             }
             catch (Exception ex)
             {
-                UI.CacheStatus.StatusText = $"Failed: {ex.Message}";
-                UI.CacheStatus.Status = ItemStatus.Failed;
+                SetStatus($"Failed: {ex.Message}", ItemStatus.Failed);
                 Plugin.Instance.Logger.LogWarning(ex, "[Advanced] Cache clear failed");
             }
+        }
 
-            RaiseUIViewInfoChanged();
+        private void RebuildLibraries()
+        {
+            try
+            {
+                Plugin.Instance.TriggerBackgroundSync();
+                SetStatus("Rebuild triggered — Marvin will run a full sync in the background.", ItemStatus.Succeeded);
+            }
+            catch (Exception ex)
+            {
+                SetStatus($"Failed: {ex.Message}", ItemStatus.Failed);
+            }
         }
 
         private async Task ResetAllDataAsync()
         {
-            UI.MaintenanceStatus.StatusText = "Resetting all data...";
-            UI.MaintenanceStatus.Status = ItemStatus.InProgress;
-            RaiseUIViewInfoChanged();
-
+            SetStatus("Resetting all data...", ItemStatus.InProgress);
             try
             {
                 var db = Plugin.Instance.DatabaseManager;
                 var paths = await db.ResetAllAsync();
-
-                UI.MaintenanceStatus.StatusText = $"All data reset — {paths.Count} path(s) cleaned";
-                UI.MaintenanceStatus.Status = ItemStatus.Succeeded;
+                SetStatus($"All data reset — {paths.Count} path(s) cleaned. Settings preserved.", ItemStatus.Succeeded);
                 Plugin.Instance.Logger.LogInformation("[Advanced] All data reset");
             }
             catch (Exception ex)
             {
-                UI.MaintenanceStatus.StatusText = $"Failed: {ex.Message}";
-                UI.MaintenanceStatus.Status = ItemStatus.Failed;
+                SetStatus($"Failed: {ex.Message}", ItemStatus.Failed);
                 Plugin.Instance.Logger.LogWarning(ex, "[Advanced] Reset all data failed");
             }
-
-            RaiseUIViewInfoChanged();
-        }
-
-        private Task RebuildLibrariesAsync()
-        {
-            UI.MaintenanceStatus.StatusText = "Rebuild triggered — full catalog sync will run";
-            UI.MaintenanceStatus.Status = ItemStatus.InProgress;
-            RaiseUIViewInfoChanged();
-
-            try
-            {
-                Plugin.Instance.TriggerBackgroundSync();
-                UI.MaintenanceStatus.StatusText = "Rebuild triggered — refresh page to see updates";
-                UI.MaintenanceStatus.Status = ItemStatus.Succeeded;
-            }
-            catch (Exception ex)
-            {
-                UI.MaintenanceStatus.StatusText = $"Failed: {ex.Message}";
-                UI.MaintenanceStatus.Status = ItemStatus.Failed;
-            }
-
-            RaiseUIViewInfoChanged();
-            return Task.CompletedTask;
         }
 
         private Task ResetFactoryDefaultsAsync()
         {
-            UI.MaintenanceStatus.StatusText = "Factory reset — restarting plugin...";
-            UI.MaintenanceStatus.Status = ItemStatus.Warning;
-            RaiseUIViewInfoChanged();
+            SetStatus("Applying factory defaults...", ItemStatus.Warning);
 
             try
             {
@@ -139,7 +112,6 @@ namespace InfiniteDrive.UI.Settings
                 cfg.EnableAioStreamsCatalog = true;
                 cfg.AioStreamsCatalogIds = string.Empty;
                 cfg.AioStreamsAcceptedStreamTypes = "debrid";
-                cfg.EmbyBaseUrl = "http://127.0.0.1:8096";
                 cfg.EmbyApiKey = string.Empty;
                 cfg.LibraryRootMovies = "/media/infinitedrive/movies";
                 cfg.SyncPathMovies = "/media/infinitedrive/movies";
@@ -148,7 +120,6 @@ namespace InfiniteDrive.UI.Settings
                 cfg.LibraryNameMovies = "Streamed Movies";
                 cfg.LibraryNameSeries = "Streamed Series";
                 cfg.LibraryNameAnime = "Streamed Anime";
-                cfg.SignatureValidityDays = 365;
                 cfg.MetadataLanguage = "en";
                 cfg.MetadataCertificationCountry = "US";
                 cfg.DontPanic = false;
@@ -161,15 +132,10 @@ namespace InfiniteDrive.UI.Settings
                 cfg.MaxConcurrentResolutions = 3;
                 cfg.CatalogItemLimitsJson = string.Empty;
                 cfg.CatalogSyncIntervalHours = 1;
-                cfg.ProxyMode = "auto";
-                cfg.UseRequiresOpening = true;
-                cfg.MaxConcurrentProxyStreams = 5;
                 cfg.EnablePreCache = true;
                 cfg.PreCacheBatchSize = 42;
                 cfg.PreCacheTTLDays = 14;
                 cfg.InMemoryCacheTtlMinutes = 360;
-                cfg.PluginSecret = string.Empty;
-                cfg.PluginSecretRotatedAt = 0;
                 cfg.ProviderPriorityOrder = "realdebrid,torbox,alldebrid,debridlink,premiumize,stremthru,usenet,http";
                 cfg.CandidatesPerProvider = 3;
                 cfg.MaxCuratedStreams = 7;
@@ -211,17 +177,24 @@ namespace InfiniteDrive.UI.Settings
                 cfg.RespectPlaylistsWhenPruning = true;
                 cfg.AutoDeduplicatePhysicalMedia = true;
                 Plugin.Instance.SaveConfiguration();
+                SetStatus("Factory defaults applied. Please reconfigure the plugin from the Connect tab.", ItemStatus.Succeeded);
                 Plugin.Instance.Logger.LogInformation("[Advanced] Factory defaults restored");
             }
             catch (Exception ex)
             {
-                UI.MaintenanceStatus.StatusText = $"Failed: {ex.Message}";
-                UI.MaintenanceStatus.Status = ItemStatus.Failed;
+                SetStatus($"Failed: {ex.Message}", ItemStatus.Failed);
                 Plugin.Instance.Logger.LogWarning(ex, "[Advanced] Factory reset failed");
             }
 
             RaiseUIViewInfoChanged();
             return Task.CompletedTask;
+        }
+
+        private void SetStatus(string text, ItemStatus status)
+        {
+            UI.ActionStatus.StatusText = text;
+            UI.ActionStatus.Status = status;
+            RaiseUIViewInfoChanged();
         }
 
         // ═══════════════════════════════════════════════════════════════

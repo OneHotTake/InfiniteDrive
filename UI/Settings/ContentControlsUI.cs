@@ -50,6 +50,7 @@ namespace InfiniteDrive.UI.Settings
         public IEnumerable<EditorSelectOption> ResolutionOptions { get; set; } = new List<EditorSelectOption>
         {
             new() { Value = "4K",    Name = "4K",    IsEnabled = true },
+            new() { Value = "1440p", Name = "1440p", IsEnabled = true },
             new() { Value = "1080p", Name = "1080p", IsEnabled = true },
             new() { Value = "720p",  Name = "720p",  IsEnabled = true },
             new() { Value = "SD",    Name = "SD",    IsEnabled = true },

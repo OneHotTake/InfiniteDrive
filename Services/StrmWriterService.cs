@@ -71,7 +71,7 @@ namespace InfiniteDrive.Services
                 {
                     Directory.CreateDirectory(animeFolder);
                     var animePath = Path.Combine(animeFolder, NamingPolicyService.BuildStrmFileName(item));
-                    WriteStrmFile(animePath, BuildSignedStrmUrl(config, item.AioId, "movie", null, null));
+                    WriteStrmFile(animePath, string.Empty);
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animePath;
                 }
@@ -80,7 +80,7 @@ namespace InfiniteDrive.Services
                     var animeSeasonDir = Path.Combine(animeFolder, "Season 01");
                     Directory.CreateDirectory(animeSeasonDir);
                     var animeStrmPath = Path.Combine(animeSeasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
-                    WriteStrmFile(animeStrmPath, BuildSignedStrmUrl(config, item.AioId, "series", 1, 1));
+                    WriteStrmFile(animeStrmPath, string.Empty);
                     await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                     return animeStrmPath;
                 }
@@ -95,7 +95,7 @@ namespace InfiniteDrive.Services
                 // File basename must match folder name for Emby version stacking
                 var fileName = NamingPolicyService.BuildStrmFileName(item);
                 var path = Path.Combine(folder, fileName);
-                WriteStrmFile(path, BuildSignedStrmUrl(config, item.AioId, "movie", null, null));
+                WriteStrmFile(path, string.Empty);
                 await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
                 return path;
             }
@@ -107,7 +107,7 @@ namespace InfiniteDrive.Services
             var seasonDir = Path.Combine(showDir, "Season 01");
             Directory.CreateDirectory(seasonDir);
             var strmPath = Path.Combine(seasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
-            WriteStrmFile(strmPath, BuildSignedStrmUrl(config, item.AioId, "series", 1, 1));
+            WriteStrmFile(strmPath, string.Empty);
             await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
             return strmPath;
         }
@@ -135,8 +135,7 @@ namespace InfiniteDrive.Services
             if (File.Exists(filePath))
                 return Task.FromResult((string?)filePath);
 
-            var url = BuildSignedStrmUrl(config, seriesItem.AioId, "series", season, episode);
-            WriteStrmFile(filePath, url);
+            WriteStrmFile(filePath, string.Empty);
 
             _logger.LogDebug("[InfiniteDrive] StrmWriterService: wrote episode {FilePath}", filePath);
             return Task.FromResult((string?)filePath);
@@ -155,8 +154,7 @@ namespace InfiniteDrive.Services
             var config = Plugin.Instance?.Configuration;
             if (config == null) return Task.CompletedTask;
 
-            var url = BuildSignedStrmUrl(config, aioId, "series", season, episode);
-            WriteStrmFile(filePath, url);
+            WriteStrmFile(filePath, string.Empty);
             return Task.CompletedTask;
         }
 
@@ -292,60 +290,6 @@ namespace InfiniteDrive.Services
         // ── Private: helpers ─────────────────────────────────────────────────────
 
         /// <summary>
-        /// Generates a signed URL for .strm files.
-        /// Uses the old /InfiniteDrive/resolve endpoint for compatibility.
-        /// TODO: Migrate to new AioMediaSourceProvider path (requires .strm rewrite).
-        /// </summary>
-        [Obsolete("Legacy resolve URL builder. Multi-version STRM prewriting writes direct CDN URLs instead. Kept as fallback for items without cached streams.")]
-        public static string BuildSignedStrmUrl(
-            PluginConfiguration config,
-            string aioId,
-            string mediaType,
-            int? season,
-            int? episode,
-            string quality = "")
-        {
-            // Default to config's DefaultSlotKey if not explicitly specified
-            if (string.IsNullOrEmpty(quality))
-                quality = config.DefaultSlotKey ?? "hd_broad";
-
-            // Ensure PluginSecret is initialized before accessing Configuration
-            Plugin.Instance?.EnsureInitialization();
-
-            var secret = Plugin.Instance?.Configuration?.PluginSecret;
-            if (!string.IsNullOrEmpty(secret))
-            {
-                var baseUrl = config.EmbyBaseUrl.TrimEnd('/');
-
-                // Generate resolve token for .strm files
-                // Token is opaque - IMDB ID and quality are passed as query parameters
-                var token = Services.PlaybackTokenService.GenerateResolveToken(secret, config.SignatureValidityDays * 24);
-
-                var sb = new System.Text.StringBuilder();
-                sb.Append(baseUrl);
-                sb.Append("/InfiniteDrive/resolve?");
-                sb.Append("token=").Append(Uri.EscapeDataString(token));
-                sb.Append("&quality=").Append(Uri.EscapeDataString(quality));
-                sb.Append("&id=").Append(Uri.EscapeDataString(aioId));
-                sb.Append("&idType=").Append(Uri.EscapeDataString(mediaType));
-
-                if (season.HasValue)
-                {
-                    sb.Append("&season=").Append(season.Value);
-                }
-                if (episode.HasValue)
-                {
-                    sb.Append("&episode=").Append(episode.Value);
-                }
-
-                return sb.ToString();
-            }
-
-            // PluginSecret is required — fail closed rather than generating dead-end URLs
-            throw new InvalidOperationException("PluginSecret not configured — cannot sign .strm URL");
-        }
-
-        /// <summary>
         /// Public wrapper for SanitisePath for external callers.
         /// Delegates to NamingPolicyService.SanitisePath.
         /// </summary>
@@ -404,8 +348,7 @@ namespace InfiniteDrive.Services
 
                     if (!File.Exists(filePath))
                     {
-                        var strmUrl = BuildSignedStrmUrl(config, item.AioId ?? item.Id, "series", seasonNum, ep.Episode);
-                        WriteStrmFile(filePath, strmUrl);
+                        WriteStrmFile(filePath, string.Empty);
                         written++;
                         _logger.LogDebug(
                             "[InfiniteDrive] WriteEpisodesFromVideosJson: Wrote {FilePath}",

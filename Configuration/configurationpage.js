@@ -2811,7 +2811,7 @@ function (loading) {
 
     // ── Streams tab ────────────────────────────────────────────────────────
 
-    var RES_TIER_LABELS = ['4K', '1080p', '720p', '480p'];
+    var RES_TIER_LABELS = ['4K', '1440p', '1080p', '720p', '480p'];
     var SRC_MAX_LABELS  = ['Remux only', '+ BluRay', '+ WEB-DL', '+ WEB', 'Any'];
     var DEFAULT_BUCKETS = [
         {resTier:0, srcMax:0, maxCount:2},

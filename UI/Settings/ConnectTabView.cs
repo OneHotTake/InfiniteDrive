@@ -140,19 +140,6 @@ namespace InfiniteDrive.UI.Settings
                 }
             }
 
-            // Emby URL
-            if (string.IsNullOrWhiteSpace(UI.EmbyBaseUrl) ||
-                UI.EmbyBaseUrl.StartsWith("http://127.0.0.1") ||
-                UI.EmbyBaseUrl.StartsWith("http://localhost"))
-            {
-                sb.AppendLine("Emby URL: Not externally reachable — update External URL");
-                allOk = false;
-            }
-            else
-            {
-                sb.AppendLine("Emby URL: Configured");
-            }
-
             UpdateResult(sb.ToString().TrimEnd(), allOk ? ItemStatus.Succeeded : ItemStatus.Warning);
         }
 
@@ -173,7 +160,6 @@ namespace InfiniteDrive.UI.Settings
             cfg.PrimaryManifestUrl = UI.PrimaryManifestUrl ?? string.Empty;
             cfg.SecondaryManifestUrl = UI.SecondaryManifestUrl ?? string.Empty;
             cfg.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl);
-            cfg.EmbyBaseUrl = UI.EmbyBaseUrl ?? string.Empty;
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
             return base.OnSaveCommand(itemId, commandId, data);

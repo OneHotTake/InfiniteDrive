@@ -36,9 +36,6 @@ namespace InfiniteDrive.Models
         /// <summary>Normalised client identifier (e.g. <c>emby_atv</c>).</summary>
         public string? ClientType { get; set; }
 
-        /// <summary><c>proxy</c> or <c>redirect</c>.</summary>
-        public string? ProxyMode { get; set; }
-
         /// <summary>Milliseconds from request receipt to first byte served.</summary>
         public int? LatencyMs { get; set; }
 

@@ -55,7 +55,7 @@ namespace InfiniteDrive.UI.Settings
         public IReadOnlyList<IPluginUIPageController> TabPageControllers => _tabs.AsReadOnly();
 
         public override Task<IPluginUIView> CreateDefaultPageView()
-            => Task.FromResult<IPluginUIView>(null!);
+            => Task.FromResult<IPluginUIView>(new StatusTabView(PluginId, StatusTabView.BuildUI()));
 
         // ── Load ─────────────────────────────────────────────────────────────
 
@@ -66,7 +66,6 @@ namespace InfiniteDrive.UI.Settings
             {
                 PrimaryManifestUrl = c.PrimaryManifestUrl ?? string.Empty,
                 SecondaryManifestUrl = c.SecondaryManifestUrl ?? string.Empty,
-                EmbyBaseUrl = ResolveEmbyBaseUrl(c.EmbyBaseUrl),
             };
         }
 
@@ -158,34 +157,5 @@ namespace InfiniteDrive.UI.Settings
             };
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────────
-
-        private static string ResolveEmbyBaseUrl(string current)
-        {
-            // If already set to something non-default, keep it
-            if (!string.IsNullOrEmpty(current) &&
-                !current.StartsWith("http://127.0.0.1") &&
-                !current.StartsWith("http://localhost"))
-            {
-                return current;
-            }
-
-            // Try to detect the external IP
-            try
-            {
-                var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
-                foreach (var ip in host.AddressList)
-                {
-                    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
-                        !ip.ToString().StartsWith("127."))
-                    {
-                        return $"http://{ip}:8096";
-                    }
-                }
-            }
-            catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "resolve external IP for EmbyBaseUrl"); }
-
-            return current;
-        }
     }
 }
