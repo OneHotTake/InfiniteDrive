@@ -84,9 +84,9 @@ namespace InfiniteDrive.Data
             var id = Guid.NewGuid().ToString();
             const string sql = @"
                 INSERT INTO user_catalogs
-                    (id, owner_user_id, source_type, service, list_url, display_name, active, created_at)
+                    (id, owner_user_id, service, list_url, display_name, active, created_at)
                 VALUES
-                    (@id, @owner_user_id, 'external_list', @service, @list_url, @display_name, 1, @created_at);";
+                    (@id, @owner_user_id, @service, @list_url, @display_name, 1, @created_at);";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -110,8 +110,8 @@ namespace InfiniteDrive.Data
             CancellationToken ct = default)
         {
             var sql = activeOnly
-                ? "SELECT id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
-                : "SELECT id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
+                ? "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
+                : "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
 
             return await QueryListAsync(sql,
                 cmd => BindText(cmd, "@owner_user_id", ownerUserId),
@@ -124,7 +124,7 @@ namespace InfiniteDrive.Data
         public async Task<IReadOnlyList<Models.UserCatalog>> GetAllActiveUserCatalogsAsync(CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, owner_user_id, source_type, service, list_url, display_name, active,
+                SELECT id, owner_user_id, service, list_url, display_name, active,
                        last_synced_at, last_sync_status, created_at
                 FROM user_catalogs WHERE active = 1 ORDER BY created_at;";
 
@@ -137,7 +137,7 @@ namespace InfiniteDrive.Data
         public Task<Models.UserCatalog?> GetUserCatalogByIdAsync(string catalogId, CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, owner_user_id, source_type, service, list_url, display_name, active,
+                SELECT id, owner_user_id, service, list_url, display_name, active,
                        last_synced_at, last_sync_status, created_at
                 FROM user_catalogs WHERE id = @id;";
 
@@ -161,14 +161,13 @@ namespace InfiniteDrive.Data
             {
                 Id             = row.GetString(0),
                 OwnerUserId    = row.GetString(1),
-                SourceType     = row.GetString(2),
-                Service        = row.GetString(3),
-                ListUrl        = row.GetString(4),
-                DisplayName    = row.GetString(5),
-                Active         = row.GetInt(6) == 1,
-                LastSyncedAt   = row.IsDBNull(7) ? null : row.GetString(7),
-                LastSyncStatus = row.IsDBNull(8) ? null : row.GetString(8),
-                CreatedAt      = row.GetString(9),
+                Service        = row.GetString(2),
+                ListUrl        = row.GetString(3),
+                DisplayName    = row.GetString(4),
+                Active         = row.GetInt(5) == 1,
+                LastSyncedAt   = row.IsDBNull(6) ? null : row.GetString(6),
+                LastSyncStatus = row.IsDBNull(7) ? null : row.GetString(7),
+                CreatedAt      = row.GetString(8),
             };
 
         /// <summary>
