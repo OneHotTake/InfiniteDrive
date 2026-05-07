@@ -29,21 +29,24 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Connect → Libraries → Catalogs & Lists → Content Controls → Sync & Marvin → Advanced
+            // Tab order: Overview → Connect → Setup → Sources → Filters → Marvin → Advanced
             // Names prefixed with zero-padded index to enforce ordering (Emby sorts tabs alphabetically by Name)
+            _tabs.Add(new TabPageController(pid, "00Overview", "Overview", () =>
+                new StatusTabView(pid, StatusTabView.BuildUI())));
+
             _tabs.Add(new TabPageController(pid, "01Connect", "Connect", () =>
                 new ConnectTabView(pid, LoadConnect())));
 
-            _tabs.Add(new TabPageController(pid, "02Libraries", "Libraries", () =>
+            _tabs.Add(new TabPageController(pid, "02Setup", "Setup", () =>
                 new SetupTabView(pid, LoadSetup())));
 
-            _tabs.Add(new TabPageController(pid, "03Catalogs", "Catalogs & Lists", () =>
+            _tabs.Add(new TabPageController(pid, "03Sources", "Sources", () =>
                 new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
 
-            _tabs.Add(new TabPageController(pid, "04Content", "Content Controls", () =>
+            _tabs.Add(new TabPageController(pid, "04Filters", "Filters", () =>
                 new ContentControlsTabView(pid, LoadContentControls())));
 
-            _tabs.Add(new TabPageController(pid, "05Sync", "Sync & Marvin", () =>
+            _tabs.Add(new TabPageController(pid, "05Marvin", "Marvin", () =>
                 new SyncAndMarvinTabView(pid, LoadSyncAndMarvin())));
 
             // Advanced is last — "you don't need this unless you have a reason"

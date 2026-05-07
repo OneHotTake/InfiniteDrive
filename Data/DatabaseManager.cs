@@ -1491,7 +1491,7 @@ CREATE TABLE IF NOT EXISTS user_catalogs (
     created_at         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_user_catalogs_owner ON user_catalogs(owner_user_id);
-CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHERE active = 1;
+CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active);
 
 -- ── user_item_saves ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS user_item_saves (
