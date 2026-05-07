@@ -82,20 +82,16 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             var buckets = cfg.DesiredVersions ?? new();
-            UI.BucketList.Clear();
 
+            // Auto-create default bucket on first load so users have something to start with
             if (buckets.Count == 0)
             {
-                UI.BucketList.Add(new GenericListItem
-                {
-                    PrimaryText = "No quality buckets configured — all versions fill from next-best streams",
-                    Icon = IconNames.info,
-                    IconMode = ItemListIconMode.SmallRegular,
-                });
-                UpdateBucketStatus();
-                RaiseUIViewInfoChanged();
-                return;
+                buckets.Add(new DesiredVersionBucket { Resolution = "1080p", Audio = "Any Audio", Count = 2 });
+                cfg.DesiredVersions = buckets;
+                Plugin.Instance.SaveConfiguration();
             }
+
+            UI.BucketList.Clear();
 
             for (int i = 0; i < buckets.Count; i++)
             {
@@ -131,8 +127,8 @@ namespace InfiniteDrive.UI.Settings
 
             if (buckets.Count == 0)
             {
-                UI.BucketStatus.StatusText = "No buckets. All versions fill from next-best streams.";
-                UI.BucketStatus.Status = ItemStatus.None;
+                UI.BucketStatus.StatusText = "No buckets — Marvin cannot select versions. Add at least one bucket.";
+                UI.BucketStatus.Status = ItemStatus.Warning;
                 return;
             }
 

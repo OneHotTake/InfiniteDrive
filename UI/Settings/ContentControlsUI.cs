@@ -15,21 +15,18 @@ namespace InfiniteDrive.UI.Settings
         public const string AddBucketCommand = nameof(AddBucketCommand);
         public const string RemoveBucketCommand = nameof(RemoveBucketCommand);
 
-        public override string EditorTitle => "Content Controls";
+        public override string EditorTitle => "Filters";
         public override string EditorDescription =>
-            "Quality preferences, version buckets, parental controls, and blocked content.";
+            "Quality buckets, parental filters, and blocked content.";
 
         // ═══════════════════════════════════════════════════════════════
         // Section 1: Quality & Resolution Preferences
         // ═══════════════════════════════════════════════════════════════
 
-        public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Quality & Resolution Preferences");
+        public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Quality");
 
         [DisplayName("Use REMUX files for auto-selection")]
-        [Description(
-            "When enabled, 4K/1080p Bluray REMUX files (40-60GB, TrueHD/Atmos audio) are included in " +
-            "auto-selection. REMUX files take 40+ seconds to probe and often require transcoding. " +
-            "When disabled (recommended), REMUX is deprioritized in favor of faster-starting encodes.")]
+        [Description("Includes 40–60 GB REMUX files in auto-selection. Not recommended — slow to start and often requires transcoding.")]
         public bool UseRemuxForAutoSelection { get; set; } = false;
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
@@ -38,11 +35,10 @@ namespace InfiniteDrive.UI.Settings
         // Section 2: Multi-Version Quality Buckets
         // ═══════════════════════════════════════════════════════════════
 
-        public CaptionItem CaptionBuckets { get; set; } = new CaptionItem("Multi-Version Quality Buckets");
+        public CaptionItem CaptionBuckets { get; set; } = new CaptionItem("Quality Buckets");
 
         public LabelItem BucketHelp { get; set; } = new LabelItem(
-            "Buckets are matched in order — earlier buckets get priority. " +
-            "Remaining slots fill with next-best streams.");
+            "Each bucket defines a quality tier. Marvin picks the best matching stream per bucket. Drag to reorder priority.");
 
         public GenericItemList BucketList { get; set; } = new GenericItemList();
 
@@ -94,25 +90,23 @@ namespace InfiniteDrive.UI.Settings
         [SelectItemsSource(nameof(CountOptions))]
         public string NewBucketCount { get; set; } = "2";
 
-        public ButtonItem AddBucketButton { get; set; } = new ButtonItem("Add Quality Bucket")
+        public ButtonItem AddBucketButton { get; set; } = new ButtonItem("Add Bucket")
         {
             Icon = IconNames.add,
             Data1 = AddBucketCommand,
         };
 
-        public StatusItem BucketStatus { get; set; } = new StatusItem("Buckets", "Idle", ItemStatus.None);
+        public StatusItem BucketStatus { get; set; } = new StatusItem("Buckets", "—", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
         // Section 3: Parental Controls (Discover-only)
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionParental { get; set; } = new CaptionItem("Parental Controls (Discover-only)");
+        public CaptionItem CaptionParental { get; set; } = new CaptionItem("Parental Controls");
 
         [DisplayName("Hide unrated content")]
-        [Description(
-            "Only affects InfiniteDrive Discover / search / browse results. " +
-            "Emby native library restrictions still apply for persisted items.")]
+        [Description("Applies to InfiniteDrive Discover results only. Does not affect your Emby library.")]
         public bool HideUnratedContent { get; set; } = false;
 
         // ═══════════════════════════════════════════════════════════════
@@ -120,19 +114,19 @@ namespace InfiniteDrive.UI.Settings
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer3 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionBlocked { get; set; } = new CaptionItem("Blocked Content Management");
+        public CaptionItem CaptionBlocked { get; set; } = new CaptionItem("Blocked Content");
 
         [DisplayName("Block by Title or ID")]
-        [Description("Enter a movie/show title, IMDB ID (tt1234567), TMDB ID, Kitsu ID, or AniList ID to block. Then click 'Add to Block List'.")]
+        [Description("Title, IMDB ID (tt1234567), TMDB, Kitsu, or AniList ID.")]
         public string BlockListInput { get; set; } = string.Empty;
 
-        public ButtonItem AddToBlockListButton { get; set; } = new ButtonItem("Add to Block List")
+        public ButtonItem AddToBlockListButton { get; set; } = new ButtonItem("Block")
         {
             Icon = IconNames.add,
             Data1 = AddToBlockListCommand,
         };
 
-        public StatusItem BlockListStatus { get; set; } = new StatusItem("Block List", "Idle", ItemStatus.None);
+        public StatusItem BlockListStatus { get; set; } = new StatusItem("Block List", "—", ItemStatus.None);
 
         public GenericItemList BlockedItemList { get; set; } = new GenericItemList();
     }
