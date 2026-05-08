@@ -11,8 +11,6 @@ namespace InfiniteDrive.UI.Settings
     {
         public const string TestPrimaryCommand = nameof(TestPrimaryCommand);
         public const string TestSecondaryCommand = nameof(TestSecondaryCommand);
-        public const string OpenPrimaryCommand = nameof(OpenPrimaryCommand);
-        public const string OpenSecondaryCommand = nameof(OpenSecondaryCommand);
 
         public override string EditorTitle => "Providers";
         public override string EditorDescription => string.Empty;
@@ -47,14 +45,9 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestPrimaryCommand,
         };
 
-        public ButtonItem OpenPrimaryButton { get; set; } = new ButtonItem("Open Dashboard")
-        {
-            Icon = IconNames.open_in_new,
-            Data1 = OpenPrimaryCommand,
-        };
-
         public StatusItem PrimaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
         public StatusItem PrimaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
+        public LabelItem PrimaryDashboardHint { get; set; } = new LabelItem("Copy the Server URL above into your browser to open the AIOStreams web UI.");
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
@@ -66,12 +59,6 @@ namespace InfiniteDrive.UI.Settings
         {
             Icon = IconNames.network_check,
             Data1 = TestSecondaryCommand,
-        };
-
-        public ButtonItem OpenSecondaryButton { get; set; } = new ButtonItem("Open Dashboard")
-        {
-            Icon = IconNames.open_in_new,
-            Data1 = OpenSecondaryCommand,
         };
 
         public StatusItem SecondaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
