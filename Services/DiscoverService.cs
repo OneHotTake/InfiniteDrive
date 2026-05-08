@@ -405,10 +405,19 @@ namespace InfiniteDrive.Services
                     }
                 }
 
-                // 5. Deduplicate by aioId — prefer the InLibrary variant when the same id appears twice
+                // 5. Deduplicate — two passes:
+                //    Pass 1: by AioId (same ID from multiple sources)
+                //    Pass 2: by normalized title+year (same content with different IDs, e.g. IMDB vs kitsu)
+                //    When collapsing, prefer: anime > series > movie, then InLibrary, then higher rating
                 var deduped = items
                     .GroupBy(i => i.AioId, StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.OrderByDescending(x => x.InLibrary ? 1 : 0).First())
+                    .GroupBy(i => NormalizeTitle(i.Title) + "|" + (i.Year?.ToString() ?? ""))
+                    .Select(g => g
+                        .OrderByDescending(x => x.MediaType switch { "anime" => 3, "series" => 2, _ => 1 })
+                        .ThenByDescending(x => x.InLibrary ? 1 : 0)
+                        .ThenByDescending(x => x.ImdbRating ?? 0)
+                        .First())
                     .OrderBy(x => x.InLibrary ? 0 : 1)
                     .ThenBy(x => x.Title)
                     .Take(50)
@@ -1703,6 +1712,10 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Detects anime-specific ID prefixes from AIOStreams IdParser.
         /// </summary>
+        /// <summary>Strips punctuation/spaces/case for title-based dedup.</summary>
+        private static string NormalizeTitle(string? title)
+            => new string((title ?? "").ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+
         private static bool IsAnimePrefixedId(string id)
         {
             if (string.IsNullOrEmpty(id)) return false;
