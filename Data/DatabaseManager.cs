@@ -1114,6 +1114,53 @@ namespace InfiniteDrive.Data
                 ReadCatalogItem).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Returns the most recently added catalog items that have poster art (raw_meta_json present).
+        /// Used for the "Recently Added" Discover rail.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetRecentCatalogItemsAsync(int limit, string? mediaType = null)
+        {
+            const string sql = @"
+                SELECT * FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND raw_meta_json IS NOT NULL
+                  AND (@mediaType IS NULL OR media_type = @mediaType)
+                ORDER BY added_at DESC
+                LIMIT @limit";
+
+            return await QueryListAsync(sql,
+                cmd =>
+                {
+                    BindNullableText(cmd, "@mediaType", mediaType);
+                    BindInt(cmd, "@limit", limit);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Returns catalog items that are present in the local library (.strm managed or real file).
+        /// Used for the "In Your Library" Discover rail.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetLibraryCatalogItemsAsync(int limit, string? mediaType = null)
+        {
+            const string sql = @"
+                SELECT * FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND raw_meta_json IS NOT NULL
+                  AND (strm_path IS NOT NULL OR local_source = 'library')
+                  AND (@mediaType IS NULL OR media_type = @mediaType)
+                ORDER BY COALESCE(last_version_refresh_at, added_at) DESC
+                LIMIT @limit";
+
+            return await QueryListAsync(sql,
+                cmd =>
+                {
+                    BindNullableText(cmd, "@mediaType", mediaType);
+                    BindInt(cmd, "@limit", limit);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+        }
+
         // stream_resolution_cache methods moved to DatabaseManager.StreamCache.cs
 
         // Operations methods moved to DatabaseManager.Operations.cs
