@@ -360,28 +360,51 @@ namespace InfiniteDrive.Services
                     return new DiscoverSearchResponse { Items = new() };
 
                 var type = string.IsNullOrEmpty(req.Type) ? null : req.Type.ToLowerInvariant();
-                var items = new List<DiscoverItem>();
 
-                // Live search via AIOStreams — uses manifest to discover correct catalog IDs
-                items = await GetLiveSearchResultsAsync(req.Query, type);
+                // 1. Live AIOStreams search (manifest-routed)
+                var items = await GetLiveSearchResultsAsync(req.Query, type);
 
-                // Batch library lookup for search results (dual-source: Emby + catalog_items)
-                if (items.Count > 0)
+                // Filter out AIOStreams error sentinel items (id prefix "aiostreamserror")
+                items = items
+                    .Where(i => !i.AioId.StartsWith("aiostreamserror", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                // 2. Local catalog DB search — InfiniteDrive items + library-sourced items
+                var db = Plugin.Instance?.DatabaseManager;
+                if (db != null)
                 {
-                    var searchMetas = items.Select(i => new AioStreamsMeta { Id = i.AioId, ImdbId = null }).ToList();
-                    var searchLibraryMap = BatchLibraryLookup(searchMetas);
+                    var catalogMatches = await db.SearchCatalogItemsByTitleAsync(req.Query, 20);
+                    foreach (var ci in catalogMatches)
+                        items.Add(CatalogItemToDiscoverItem(ci));
+                }
+
+                // 3. Emby library title search — catches items not managed by InfiniteDrive
+                items.AddRange(SearchEmbyLibrary(req.Query, type, 20));
+
+                // 4. Batch library lookup to fill InLibrary on live results not already marked
+                var allMetas = items
+                    .Where(i => !i.InLibrary)
+                    .Select(i => new AioStreamsMeta { Id = i.AioId })
+                    .ToList();
+                if (allMetas.Count > 0)
+                {
+                    var libraryMap = BatchLibraryLookup(allMetas);
                     foreach (var item in items)
                     {
-                        if (searchLibraryMap.TryGetValue(item.AioId, out var lib))
-                            item.InLibrary = lib.Item1;
+                        if (!item.InLibrary && libraryMap.TryGetValue(item.AioId, out var lib))
+                        {
+                            item.InLibrary  = lib.Item1;
+                            item.EmbyItemId ??= lib.Item2;
+                        }
                     }
                 }
 
-                // Deduplicate by IMDB ID
+                // 5. Deduplicate by aioId — prefer the InLibrary variant when the same id appears twice
                 var deduped = items
                     .GroupBy(i => i.AioId, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
+                    .Select(g => g.OrderByDescending(x => x.InLibrary ? 1 : 0).First())
                     .OrderBy(x => x.InLibrary ? 0 : 1)
+                    .ThenBy(x => x.Title)
                     .Take(50)
                     .ToList();
 
@@ -450,6 +473,98 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "Error fetching rails");
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Maps a catalog DB item to a DiscoverItem, reading rich metadata from RawMetaJson.
+        /// </summary>
+        private static DiscoverItem CatalogItemToDiscoverItem(CatalogItem ci)
+        {
+            string? poster = null, backdrop = null, overview = null;
+            if (!string.IsNullOrEmpty(ci.RawMetaJson))
+            {
+                try
+                {
+                    var meta = System.Text.Json.JsonSerializer.Deserialize<AioMeta>(ci.RawMetaJson);
+                    poster   = meta?.Poster;
+                    backdrop = meta?.Background;
+                    overview = meta?.Description;
+                }
+                catch { /* non-critical */ }
+            }
+            return new DiscoverItem
+            {
+                AioId       = ci.AioId,
+                Title       = ci.Title,
+                Year        = ci.Year,
+                MediaType   = ci.MediaType,
+                PosterUrl   = poster,
+                BackdropUrl = backdrop,
+                Overview    = overview,
+                InLibrary   = ci.StrmPath != null || ci.LocalSource == "library",
+                CatalogSource = "local:catalog"
+            };
+        }
+
+        /// <summary>
+        /// Searches Emby library by title substring.
+        /// Uses in-memory filter since this SDK version does not expose SearchTerm on InternalItemsQuery.
+        /// </summary>
+        private List<DiscoverItem> SearchEmbyLibrary(string query, string? mediaType, int limit)
+        {
+            try
+            {
+                var includeTypes = mediaType switch
+                {
+                    "movie"  => new[] { "Movie" },
+                    "series" => new[] { "Series" },
+                    "anime"  => new[] { "Series" },
+                    _        => new[] { "Movie", "Series" }
+                };
+
+                var allItems = _libraryManager.GetItemList(
+                    new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        IncludeItemTypes = includeTypes,
+                        Recursive = true
+                    });
+
+                var results = new List<DiscoverItem>();
+                foreach (var emby in allItems)
+                {
+                    if (emby.Name == null ||
+                        !emby.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string? imdbId = null, tmdbId = null;
+                    emby.ProviderIds?.TryGetValue("IMDB", out imdbId);
+                    emby.ProviderIds?.TryGetValue("TMDB", out tmdbId);
+                    var aioId = imdbId ?? (tmdbId != null ? $"tmdb:{tmdbId}" : null);
+                    if (string.IsNullOrEmpty(aioId)) continue;
+
+                    var mType = emby.GetType().Name.Equals("Series", StringComparison.OrdinalIgnoreCase)
+                        ? "series" : "movie";
+
+                    results.Add(new DiscoverItem
+                    {
+                        AioId       = aioId,
+                        Title       = emby.Name,
+                        Year        = emby.ProductionYear,
+                        MediaType   = mType,
+                        InLibrary   = true,
+                        EmbyItemId  = emby.Id.ToString("N"),
+                        CatalogSource = "library"
+                    });
+
+                    if (results.Count >= limit) break;
+                }
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Discover] Emby library title search failed (non-fatal)");
+                return new();
             }
         }
 
