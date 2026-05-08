@@ -95,32 +95,15 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             PopulateUrlInfo(cfg.PrimaryManifestUrl, UI.PrimaryServerUrl, UI.PrimaryUserId);
-            SetDashboardLink(UI.PrimaryDashboardLink, UI.PrimaryServerUrl);
-
             PopulateUrlInfo(cfg.SecondaryManifestUrl, UI.SecondaryServerUrl, UI.SecondaryUserId);
-            SetDashboardLink(UI.SecondaryDashboardLink, UI.SecondaryServerUrl);
         }
 
-        private static void SetDashboardLink(Emby.Web.GenericEdit.Elements.LabelItem label, StatusItem serverItem)
-        {
-            if (serverItem.Status == ItemStatus.Succeeded && !string.IsNullOrWhiteSpace(serverItem.StatusText))
-            {
-                label.Text = "Open dashboard";
-                label.HyperLink = serverItem.StatusText;
-            }
-            else
-            {
-                label.Text = string.Empty;
-                label.HyperLink = null;
-            }
-        }
-
-        private void PopulateUrlInfo(string url, StatusItem serverItem, StatusItem userIdItem)
+        private void PopulateUrlInfo(string url, Emby.Web.GenericEdit.Elements.LabelItem serverLabel, StatusItem userIdItem)
         {
             if (string.IsNullOrWhiteSpace(url))
             {
-                serverItem.StatusText = "Not configured";
-                serverItem.Status = ItemStatus.None;
+                serverLabel.Text = "Not configured";
+                serverLabel.HyperLink = null;
                 userIdItem.StatusText = "—";
                 userIdItem.Status = ItemStatus.None;
                 return;
@@ -129,11 +112,10 @@ namespace InfiniteDrive.UI.Settings
             try
             {
                 var uri = new Uri(url);
-                serverItem.StatusText = $"{uri.Scheme}://{uri.Host}/";
-                serverItem.Status = ItemStatus.Succeeded;
+                var baseUrl = $"{uri.Scheme}://{uri.Host}/";
+                serverLabel.Text = baseUrl;
+                serverLabel.HyperLink = baseUrl;
 
-                // Find the UUID-shaped path segment regardless of position (some servers
-                // prefix with /stremio/ or similar before the user ID)
                 var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
                 var userId = segments.FirstOrDefault(s => UuidPattern.IsMatch(s));
                 if (!string.IsNullOrEmpty(userId))
@@ -149,8 +131,8 @@ namespace InfiniteDrive.UI.Settings
             }
             catch
             {
-                serverItem.StatusText = "Invalid URL";
-                serverItem.Status = ItemStatus.Warning;
+                serverLabel.Text = "Invalid URL";
+                serverLabel.HyperLink = null;
                 userIdItem.StatusText = "—";
                 userIdItem.Status = ItemStatus.None;
             }
