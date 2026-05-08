@@ -1,6 +1,8 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
@@ -11,6 +13,10 @@ namespace InfiniteDrive.UI.Settings
 {
     public class ConnectTabView : PluginPageView
     {
+        private static readonly Regex UuidPattern = new Regex(
+            @"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         public ConnectTabView(string pluginId, ConnectUI ui) : base(pluginId)
         {
             ContentData = ui;
@@ -35,16 +41,18 @@ namespace InfiniteDrive.UI.Settings
 
                 case ConnectUI.TestSecondaryCommand:
                     if (string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl))
-                    {
                         UpdateResult("Secondary manifest: Not configured", ItemStatus.None);
-                    }
                     else
-                    {
                         await TestSingleAsync("Secondary manifest", UI.SecondaryManifestUrl).ConfigureAwait(false);
-                    }
                     return this;
 
+                case ConnectUI.OpenPrimaryCommand:
+                    OpenDashboard(UI.PrimaryServerUrl.StatusText);
+                    return this;
 
+                case ConnectUI.OpenSecondaryCommand:
+                    OpenDashboard(UI.SecondaryServerUrl.StatusText);
+                    return this;
             }
 
             return await base.RunCommand(itemId, commandId, data);
@@ -93,16 +101,16 @@ namespace InfiniteDrive.UI.Settings
         private void LoadUrlInfo()
         {
             var cfg = Plugin.Instance.Configuration;
-            PopulateUrlInfo(cfg.PrimaryManifestUrl, UI.PrimaryDashboardUrl, UI.PrimaryUserId);
-            PopulateUrlInfo(cfg.SecondaryManifestUrl, UI.SecondaryDashboardUrl, UI.SecondaryUserId);
+            PopulateUrlInfo(cfg.PrimaryManifestUrl, UI.PrimaryServerUrl, UI.PrimaryUserId);
+            PopulateUrlInfo(cfg.SecondaryManifestUrl, UI.SecondaryServerUrl, UI.SecondaryUserId);
         }
 
-        private static void PopulateUrlInfo(string url, StatusItem dashboardItem, StatusItem userIdItem)
+        private void PopulateUrlInfo(string url, StatusItem serverItem, StatusItem userIdItem)
         {
             if (string.IsNullOrWhiteSpace(url))
             {
-                dashboardItem.StatusText = "Not configured";
-                dashboardItem.Status = ItemStatus.None;
+                serverItem.StatusText = "Not configured";
+                serverItem.Status = ItemStatus.None;
                 userIdItem.StatusText = "—";
                 userIdItem.Status = ItemStatus.None;
                 return;
@@ -111,11 +119,13 @@ namespace InfiniteDrive.UI.Settings
             try
             {
                 var uri = new Uri(url);
-                dashboardItem.StatusText = $"{uri.Scheme}://{uri.Host}/";
-                dashboardItem.Status = ItemStatus.Succeeded;
+                serverItem.StatusText = $"{uri.Scheme}://{uri.Host}/";
+                serverItem.Status = ItemStatus.Succeeded;
 
+                // Find the UUID-shaped path segment regardless of position (some servers
+                // prefix with /stremio/ or similar before the user ID)
                 var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
-                var userId = segments.Length > 0 ? segments[0] : null;
+                var userId = segments.FirstOrDefault(s => UuidPattern.IsMatch(s));
                 if (!string.IsNullOrEmpty(userId))
                 {
                     userIdItem.StatusText = userId;
@@ -129,11 +139,23 @@ namespace InfiniteDrive.UI.Settings
             }
             catch
             {
-                dashboardItem.StatusText = "Invalid URL";
-                dashboardItem.Status = ItemStatus.Warning;
+                serverItem.StatusText = "Invalid URL";
+                serverItem.Status = ItemStatus.Warning;
                 userIdItem.StatusText = "—";
                 userIdItem.Status = ItemStatus.None;
             }
+        }
+
+        private void OpenDashboard(string serverUrl)
+        {
+            if (string.IsNullOrWhiteSpace(serverUrl) || serverUrl == "Not configured")
+            {
+                UpdateResult("No manifest URL configured — enter one above and save.", ItemStatus.Warning);
+                return;
+            }
+            // GenericEdit is server-rendered; we can't open a browser tab directly.
+            // Surfacing the URL in the test results area lets the user click it from there.
+            UpdateResult($"Open in browser: {serverUrl}", ItemStatus.Succeeded);
         }
 
         // ── One writer ─────────────────────────────────────────────────────

@@ -11,6 +11,8 @@ namespace InfiniteDrive.UI.Settings
     {
         public const string TestPrimaryCommand = nameof(TestPrimaryCommand);
         public const string TestSecondaryCommand = nameof(TestSecondaryCommand);
+        public const string OpenPrimaryCommand = nameof(OpenPrimaryCommand);
+        public const string OpenSecondaryCommand = nameof(OpenSecondaryCommand);
 
         public override string EditorTitle => "Providers";
         public override string EditorDescription => string.Empty;
@@ -45,7 +47,13 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestPrimaryCommand,
         };
 
-        public StatusItem PrimaryDashboardUrl { get; set; } = new StatusItem("Dashboard", "—", ItemStatus.None);
+        public ButtonItem OpenPrimaryButton { get; set; } = new ButtonItem("Open Dashboard")
+        {
+            Icon = IconNames.open_in_new,
+            Data1 = OpenPrimaryCommand,
+        };
+
+        public StatusItem PrimaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
         public StatusItem PrimaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
@@ -60,7 +68,13 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestSecondaryCommand,
         };
 
-        public StatusItem SecondaryDashboardUrl { get; set; } = new StatusItem("Dashboard", "—", ItemStatus.None);
+        public ButtonItem OpenSecondaryButton { get; set; } = new ButtonItem("Open Dashboard")
+        {
+            Icon = IconNames.open_in_new,
+            Data1 = OpenSecondaryCommand,
+        };
+
+        public StatusItem SecondaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
         public StatusItem SecondaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
     }
 }
