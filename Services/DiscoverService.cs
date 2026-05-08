@@ -569,7 +569,7 @@ namespace InfiniteDrive.Services
                 PosterUrl   = poster,
                 BackdropUrl = backdrop,
                 Overview    = overview,
-                InLibrary   = ci.StrmPath != null || ci.LocalSource == "library",
+                InLibrary   = true, // all catalog_items are InfiniteDrive-managed
                 CatalogSource = "local:catalog"
             };
         }
@@ -1107,6 +1107,24 @@ namespace InfiniteDrive.Services
 
                 // Create catalog_item entry with PINNED state
                 var now = DateTime.UtcNow.ToString("o");
+
+                // Pull metadata from discover_catalog if available, so the item
+                // passes the raw_meta_json IS NOT NULL filter on the rails queries.
+                var discoverEntry = await _db.GetDiscoverCatalogEntryByAioIdAsync(req.AioId);
+                string? rawMetaJson = null;
+                if (discoverEntry != null)
+                {
+                    rawMetaJson = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        name     = discoverEntry.Title,
+                        poster   = discoverEntry.PosterUrl,
+                        background = discoverEntry.BackdropUrl,
+                        description = discoverEntry.Overview,
+                        imdbRating = discoverEntry.ImdbRating?.ToString(),
+                        genres   = discoverEntry.Genres?.Split(',').Select(g => g.Trim()).ToList(),
+                    });
+                }
+
                 var catalogItem = new CatalogItem
                 {
                     Id = Guid.NewGuid().ToString(),
@@ -1117,7 +1135,8 @@ namespace InfiniteDrive.Services
                     Source = "discover",
                     ItemState = ItemState.Pinned,
                     PinSource = $"user:discover:{now}",
-                    PinnedAt = now
+                    PinnedAt = now,
+                    RawMetaJson = rawMetaJson,
                 };
 
                 // Write .strm files via StrmWriterService (Sprint 156)
