@@ -29,19 +29,21 @@ namespace InfiniteDrive.UI.Settings
 
             var pid = pluginId;
 
-            // Tab order: Providers → Libraries → Sources → Quality → Restrictions → Marvin → Advanced
+            // Tab order: Libraries → Quality → Providers → Sources → Restrictions → Marvin → Advanced
+            // Configure destination and intent before connecting a source — prevents Marvin from
+            // syncing content that immediately needs to be re-synced after quality changes.
             // Names prefixed with zero-padded index to enforce ordering (Emby sorts tabs alphabetically by Name)
-            _tabs.Add(new TabPageController(pid, "1Providers", "1 Providers", () =>
-                new ConnectTabView(pid, LoadConnect())));
-
-            _tabs.Add(new TabPageController(pid, "2Libraries", "2 Libraries", () =>
+            _tabs.Add(new TabPageController(pid, "1Libraries", "1 Libraries", () =>
                 new SetupTabView(pid, LoadSetup())));
 
-            _tabs.Add(new TabPageController(pid, "3Sources", "3 Sources", () =>
-                new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
-
-            _tabs.Add(new TabPageController(pid, "4Quality", "4 Quality", () =>
+            _tabs.Add(new TabPageController(pid, "2Quality", "2 Quality", () =>
                 new ContentControlsTabView(pid, LoadContentControls())));
+
+            _tabs.Add(new TabPageController(pid, "3Providers", "3 Providers", () =>
+                new ConnectTabView(pid, LoadConnect())));
+
+            _tabs.Add(new TabPageController(pid, "4Sources", "4 Sources", () =>
+                new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
 
             _tabs.Add(new TabPageController(pid, "5Restrictions", "5 Restrictions", () =>
                 new RestrictionsTabView(pid, LoadRestrictions())));

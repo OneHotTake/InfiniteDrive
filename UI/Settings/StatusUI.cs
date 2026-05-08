@@ -13,12 +13,13 @@ namespace InfiniteDrive.UI.Settings
             "I handle it all anyway. The panels below show how that's going. " +
             "I've seen worse. Not significantly worse, but some. You're welcome.";
 
-        // ── Provider ─────────────────────────────────────────────────────────
+        // ── Setup guidance ───────────────────────────────────────────────────
 
-        public CaptionItem CaptionProvider { get; set; } = new CaptionItem("Stream Source");
-
-        public StatusItem ProviderStatus { get; set; } = new StatusItem(
-            "AIOStreams", "Not configured", ItemStatus.None);
+        public LabelItem SetupGuide { get; set; } = new LabelItem(
+            "New here? Follow this order: (1) Libraries — tell Marvin where to put things. " +
+            "(2) Quality — define what you want before he starts collecting. " +
+            "(3) Providers — connect your AIOStreams manifest. " +
+            "Marvin starts syncing automatically once all three are green.");
 
         // ── Libraries ────────────────────────────────────────────────────────
 
@@ -35,5 +36,13 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem QualityStatus { get; set; } = new StatusItem(
             "Quality Buckets", "Not configured", ItemStatus.None);
+
+        // ── Provider ─────────────────────────────────────────────────────────
+
+        public SpacerItem Spacer3 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionProvider { get; set; } = new CaptionItem("Stream Source");
+
+        public StatusItem ProviderStatus { get; set; } = new StatusItem(
+            "AIOStreams", "Not configured", ItemStatus.None);
     }
 }
