@@ -21,10 +21,11 @@ namespace InfiniteDrive.UI.Settings
             PageInfo = new PluginPageInfo
             {
                 Name = "InfiniteDriveSettings",
-                DisplayName = "0 Overview",
+                DisplayName = "InfiniteDrive",
                 IsMainConfigPage = true,
-                EnableInMainMenu = false,
+                EnableInMainMenu = true,
                 MenuIcon = "settings",
+                MenuSection = "server",
             };
 
             var pid = pluginId;
