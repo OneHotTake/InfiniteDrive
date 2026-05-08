@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Emby.Web.GenericEdit.Elements;
 using InfiniteDrive.UI;
@@ -40,13 +41,21 @@ namespace InfiniteDrive.UI.Settings
                 ui.ProviderStatus.Status = ItemStatus.Failed;
             }
 
-            // Libraries — path must be set, the directory must exist, AND the user must have
-            // explicitly saved the Libraries tab at least once. This prevents default paths
-            // that happen to exist on the server from showing as configured after a factory reset.
-            bool IsConfigured(string path) =>
-                cfg.LibraryPathsUserConfigured &&
-                !string.IsNullOrWhiteSpace(path) &&
-                System.IO.Directory.Exists(path);
+            // Libraries — path must exist on disk AND Emby must have a virtual folder pointing
+            // at that path. After factory reset, LibraryProvisioningService hasn't run so no
+            // virtual folders exist yet → red. After saving the Libraries tab, provisioning
+            // runs and registers the folders → green. Pure state-machine, no extra flags.
+            var lm = Plugin.Instance.LibraryManager;
+            bool IsConfigured(string path)
+            {
+                if (string.IsNullOrWhiteSpace(path) || !System.IO.Directory.Exists(path)) return false;
+                if (lm == null) return false;
+                var norm = path.TrimEnd('/', '\\');
+                return lm.GetVirtualFolders().Any(f =>
+                    f.Locations != null &&
+                    f.Locations.Any(loc =>
+                        string.Equals(loc.TrimEnd('/', '\\'), norm, StringComparison.OrdinalIgnoreCase)));
+            }
 
             var moviesOk = IsConfigured(cfg.SyncPathMovies);
             var showsOk  = IsConfigured(cfg.SyncPathShows);

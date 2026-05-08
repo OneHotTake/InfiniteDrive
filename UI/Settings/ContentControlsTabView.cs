@@ -152,8 +152,8 @@ namespace InfiniteDrive.UI.Settings
             var total = buckets.Sum(b => b.Count) + count;
             if (total > 8)
             {
-                UI.AddBucketStatus.StatusText = $"Cannot add: total would be {total}, exceeding max of 8";
-                UI.AddBucketStatus.Status = ItemStatus.Warning;
+                UI.BucketTotalStatus.StatusText = $"Cannot add — total would be {total}, exceeding the 8-version max";
+                UI.BucketTotalStatus.Status = ItemStatus.Warning;
                 RaiseUIViewInfoChanged();
                 return;
             }
@@ -168,9 +168,6 @@ namespace InfiniteDrive.UI.Settings
             cfg.DesiredVersions = buckets;
             Plugin.Instance.SaveConfiguration();
 
-            UI.AddBucketStatus.StatusText = $"Added: {resolution} · {audio} · {count} {(count == 1 ? "version" : "versions")}";
-            UI.AddBucketStatus.Status = ItemStatus.Succeeded;
-
             LoadBuckets();
         }
 
@@ -184,8 +181,8 @@ namespace InfiniteDrive.UI.Settings
 
             if (!int.TryParse(indexStr, out var index) || index < 0 || index >= buckets.Count)
             {
-                UI.AddBucketStatus.StatusText = $"Invalid bucket index (data='{data}')";
-                UI.AddBucketStatus.Status = ItemStatus.Warning;
+                UI.BucketTotalStatus.StatusText = $"Invalid bucket index (data='{data}')";
+                UI.BucketTotalStatus.Status = ItemStatus.Warning;
                 RaiseUIViewInfoChanged();
                 return;
             }
@@ -198,9 +195,6 @@ namespace InfiniteDrive.UI.Settings
 
             var res = string.IsNullOrEmpty(removed.Resolution) ? "Any" : removed.Resolution;
             var audio = string.IsNullOrEmpty(removed.Audio) || removed.Audio == "Any Audio" ? "Any Audio" : removed.Audio;
-            UI.AddBucketStatus.StatusText = $"Removed: {res} · {audio}";
-            UI.AddBucketStatus.Status = ItemStatus.Succeeded;
-
             LoadBuckets();
         }
 

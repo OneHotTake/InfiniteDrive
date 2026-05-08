@@ -15,12 +15,18 @@ namespace InfiniteDrive.UI.Settings
 
         public override string EditorTitle => "Quality";
         public override string EditorDescription =>
-            "Quality tiers Marvin uses when selecting streams. Each bucket is a resolution + audio profile with a count.";
+            "Quality tiers Marvin uses when selecting streams. Each bucket defines a resolution + audio profile and a version count. " +
+            "Emby supports up to 8 versions per title — the total count across all buckets cannot exceed 8.";
+
+        // ── Bucket summary (top of page) ─────────────────────────────────────
+
+        public StatusItem BucketTotalStatus { get; set; } = new StatusItem("Buckets", "—", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
         // Section 1: Quality & Resolution Preferences
         // ═══════════════════════════════════════════════════════════════
 
+        public SpacerItem SpacerTop { get; set; } = new SpacerItem();
         public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Quality");
 
         [DisplayName("Use REMUX files for auto-selection")]
@@ -40,8 +46,6 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionBuckets { get; set; } = new CaptionItem("Active Buckets");
 
         public GenericItemList BucketList { get; set; } = new GenericItemList();
-
-        public StatusItem BucketTotalStatus { get; set; } = new StatusItem("Buckets", "—", ItemStatus.None);
 
         [Browsable(false)]
         public IEnumerable<EditorSelectOption> ResolutionOptions { get; set; } = new List<EditorSelectOption>
@@ -100,7 +104,6 @@ namespace InfiniteDrive.UI.Settings
             Data1 = AddBucketCommand,
         };
 
-        public StatusItem AddBucketStatus { get; set; } = new StatusItem("Add Result", "—", ItemStatus.None);
 
     }
 }
