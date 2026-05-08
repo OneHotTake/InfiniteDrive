@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using InfiniteDrive;
 using InfiniteDrive.Models;
 
 namespace InfiniteDrive.Services
@@ -23,30 +24,90 @@ namespace InfiniteDrive.Services
         public static List<SelectedVersion> SelectBestVersions(
             List<ParsedStream> rankedStreams,
             List<DesiredVersionBucket> desiredBuckets,
-            int hardCap = 8)
+            int hardCap = 8,
+            PluginConfiguration? config = null)
         {
             if (rankedStreams.Count == 0) return new();
 
             var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var results = new List<SelectedVersion>();
+            var prioritizeExtended = config?.PrioritizeExtendedEditions == true;
 
             // ── Phase 1: Bucket matching (ordered priority) ─────────────────────
             foreach (var bucket in desiredBuckets)
             {
                 if (results.Count >= hardCap) break;
-                var matchCount = 0;
+                var bucketLabel = BucketLabel(bucket);
 
-                foreach (var stream in rankedStreams)
+                if (prioritizeExtended && bucket.Count > 0)
                 {
-                    if (results.Count >= hardCap) break;
-                    if (matchCount >= bucket.Count) break;
-                    if (claimed.Contains(stream.Url)) continue;
+                    int extSlots = (int)Math.Ceiling(bucket.Count / 2.0);
+                    int anySlots = bucket.Count - extSlots;
 
-                    if (MatchesBucket(stream, bucket))
+                    // Phase A: fill extended slots
+                    var extended = new List<ParsedStream>();
+                    foreach (var stream in rankedStreams)
                     {
-                        claimed.Add(stream.Url);
-                        results.Add(MakeVersion(stream, BucketLabel(bucket)));
-                        matchCount++;
+                        if (extended.Count >= extSlots) break;
+                        if (claimed.Contains(stream.Url)) continue;
+                        if (MatchesBucket(stream, bucket) && IsExtended(stream, config!))
+                        {
+                            claimed.Add(stream.Url);
+                            extended.Add(stream);
+                        }
+                    }
+
+                    // Phase B: fill any-edition slots
+                    var any = new List<ParsedStream>();
+                    foreach (var stream in rankedStreams)
+                    {
+                        if (any.Count >= anySlots) break;
+                        if (claimed.Contains(stream.Url)) continue;
+                        if (MatchesBucket(stream, bucket))
+                        {
+                            claimed.Add(stream.Url);
+                            any.Add(stream);
+                        }
+                    }
+
+                    // Phase C: backfill unused extended slots with remaining best
+                    int deficit = extSlots - extended.Count;
+                    if (deficit > 0)
+                    {
+                        foreach (var stream in rankedStreams)
+                        {
+                            if (deficit <= 0) break;
+                            if (claimed.Contains(stream.Url)) continue;
+                            if (MatchesBucket(stream, bucket))
+                            {
+                                claimed.Add(stream.Url);
+                                any.Add(stream);
+                                deficit--;
+                            }
+                        }
+                    }
+
+                    foreach (var s in extended.Concat(any))
+                    {
+                        if (results.Count >= hardCap) break;
+                        results.Add(MakeVersion(s, bucketLabel));
+                    }
+                }
+                else
+                {
+                    var matchCount = 0;
+                    foreach (var stream in rankedStreams)
+                    {
+                        if (results.Count >= hardCap) break;
+                        if (matchCount >= bucket.Count) break;
+                        if (claimed.Contains(stream.Url)) continue;
+
+                        if (MatchesBucket(stream, bucket))
+                        {
+                            claimed.Add(stream.Url);
+                            results.Add(MakeVersion(stream, bucketLabel));
+                            matchCount++;
+                        }
                     }
                 }
             }
@@ -132,6 +193,11 @@ namespace InfiniteDrive.Services
 
         // ── Bucket matching ────────────────────────────────────────────────────
 
+        private static bool IsExtended(ParsedStream stream, PluginConfiguration config) =>
+            !string.IsNullOrEmpty(stream.Edition) &&
+            config.ExtendedEditionKeywords.Any(k =>
+                stream.Edition.Contains(k, StringComparison.OrdinalIgnoreCase));
+
         private static bool MatchesBucket(ParsedStream stream, DesiredVersionBucket bucket)
         {
             if (!ResolutionMatches(stream.Resolution, bucket.Resolution))
@@ -204,12 +270,28 @@ namespace InfiniteDrive.Services
             var audioPart = string.IsNullOrEmpty(stream.AudioPretty) || stream.AudioPretty == "Unknown Audio"
                 ? ""
                 : stream.AudioPretty;
-            var resPart = stream.Resolution == "Unknown" ? "" : stream.Resolution;
+
+            // Append best visual tag to resolution (e.g. "4K DV", "1080p HDR10+")
+            var resBase = stream.Resolution == "Unknown" ? "" : stream.Resolution;
+            var visualTag = BestVisualTag(stream.VisualTags);
+            var resPart = !string.IsNullOrEmpty(visualTag) && !string.IsNullOrEmpty(resBase)
+                ? $"{resBase} {visualTag}"
+                : !string.IsNullOrEmpty(visualTag) ? visualTag : resBase;
+
             var sourcePart = stream.SourceTag == "Unknown" ? "" : stream.SourceTag;
 
             var parts = new[] { resPart, sourcePart, audioPart, sizePart }
                 .Where(p => !string.IsNullOrEmpty(p));
             var label = string.Join(" - ", parts);
+
+            // Edition prefix (e.g. "Extended - 4K DV - TrueHD - 45.0GiB")
+            if (!string.IsNullOrEmpty(stream.Edition) &&
+                !stream.Edition.Contains("Theatrical", StringComparison.OrdinalIgnoreCase))
+                label = $"{stream.Edition} - {label}";
+
+            // Prefix for library / SeaDex streams
+            if (stream.IsLibrary) label = $"[Library] {label}";
+            else if (stream.IsSeadexBest) label = $"[SeaDex] {label}";
 
             return new SelectedVersion
             {
@@ -218,6 +300,21 @@ namespace InfiniteDrive.Services
                 SelectedScore = stream.RankScore,
                 MatchedBucket = bucketLabel,
             };
+        }
+
+        private static string BestVisualTag(List<string>? tags)
+        {
+            if (tags == null || tags.Count == 0) return "";
+            foreach (var tag in tags)
+                if (tag.Contains("DV", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("Dolby Vision", StringComparison.OrdinalIgnoreCase)) return "DV";
+            foreach (var tag in tags)
+                if (tag.Contains("HDR10+", StringComparison.OrdinalIgnoreCase)) return "HDR10+";
+            foreach (var tag in tags)
+                if (tag.Contains("HDR10", StringComparison.OrdinalIgnoreCase)) return "HDR10";
+            foreach (var tag in tags)
+                if (tag.Contains("HDR", StringComparison.OrdinalIgnoreCase)) return "HDR";
+            return "";
         }
 
         private static string BucketLabel(DesiredVersionBucket bucket)

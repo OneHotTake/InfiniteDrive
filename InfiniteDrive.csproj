@@ -105,6 +105,9 @@
     <None Include="plugin.json" CopyToPublishDirectory="Always" />
     <!-- thumb.png is embedded in the DLL; Plugin.cs exposes it via IHasThumbImage -->
     <EmbeddedResource Include="thumb.png" />
+    <!-- Discover page (IHasWebPages embedded resources) -->
+    <EmbeddedResource Include="Configuration\discoverpage.html" />
+    <EmbeddedResource Include="Configuration\discoverpage.js" />
   </ItemGroup>
 
   <ItemGroup>

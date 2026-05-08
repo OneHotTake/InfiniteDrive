@@ -56,16 +56,30 @@ namespace InfiniteDrive.Services
             var audioPretty = BuildAudioPretty(tech.AudioCodec, tech.AudioChannels, raw);
             var sourceTag = NormaliseSourceTag(tech.SourceType, raw);
             var sizeGiB = ExtractSizeGiB(raw);
+            var visualTags = raw.ParsedFile?.VisualTags;
+            var encode = raw.ParsedFile?.Encode;
+            var edition = raw.ParsedFile?.Edition;
+            var isLibrary = raw.Library == true || raw.Passthrough == true;
+            var isSeadexBest = raw.Seadex?.IsBest == true;
+            var isSeadex = raw.Seadex?.IsSeadex == true;
+
             var qualityTier = StreamHelpers.ParseQualityTier(
                 !string.IsNullOrEmpty(raw.ParsedFile?.Resolution)
                     ? raw.ParsedFile.Resolution
                     : raw.BehaviorHints?.Filename);
 
-            // Composite score: quality tier + audio bonus + source bonus + cache bonus
+            // Composite score
             int score = StreamHelpers.TierScore(qualityTier);
             score += AudioGroupScore(audioGroup);
             score += SourceTagScore(sourceTag);
             if (raw.Service?.Cached == true) score += 5;
+            if (isLibrary) score += 10;
+            if (isSeadexBest) score += 8;
+            else if (isSeadex) score += 4;
+            score += VisualTagScore(visualTags);
+            score += EncodeScore(encode);
+            if (raw.Bitrate.HasValue && raw.Bitrate.Value > 0)
+                score += Math.Min((int)(raw.Bitrate.Value / 1_000_000), 5);
 
             // StreamKey for dedup
             var streamKey = !string.IsNullOrEmpty(raw.InfoHash) && raw.FileIdx.HasValue
@@ -83,6 +97,12 @@ namespace InfiniteDrive.Services
                 RankScore = score,
                 RawStreamJson = JsonSerializer.Serialize(raw),
                 StreamKey = streamKey,
+                VisualTags = visualTags,
+                Encode = encode,
+                Edition = edition,
+                IsLibrary = isLibrary,
+                IsSeadexBest = isSeadexBest,
+                IsSeadex = isSeadex,
             };
         }
 
@@ -153,7 +173,7 @@ namespace InfiniteDrive.Services
             if (!string.IsNullOrEmpty(ch))
             {
                 if (ch.Contains("7.1") || ch.Contains("6.1") || ch.Contains("5.1"))
-                    return HasAny(audioTags, "dd", "dts", "dd+", "ddp")
+                    return HasAny(audioTags, "dd", "dts", "dd+", "ddp", "eac3", "ac3")
                         ? "DD/DTS (Compressed)"
                         : "5.1/7.1 (Surround)";
                 if (ch.Contains("2.0") || ch.Contains("stereo", StringComparison.OrdinalIgnoreCase))
@@ -166,6 +186,7 @@ namespace InfiniteDrive.Services
                 return "Lossless/Premium";
             if (desc.Contains("5.1") || desc.Contains("6.1") || desc.Contains("7.1"))
                 return desc.Contains("dd+") || desc.Contains("ddp") || desc.Contains("dts")
+                    || desc.Contains("eac3") || desc.Contains("ac3")
                     ? "DD/DTS (Compressed)"
                     : "5.1/7.1 (Surround)";
 
@@ -195,8 +216,10 @@ namespace InfiniteDrive.Services
                 if (t.Contains("dts-es", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS-ES"); continue; }
                 if (t.Contains("dts-hd", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS-HD"); continue; }
                 if (t.Contains("dts", StringComparison.OrdinalIgnoreCase)) { parts.Add("DTS"); continue; }
+                if (t.Contains("eac3", StringComparison.OrdinalIgnoreCase)) { parts.Add("DD+"); continue; }
                 if (t.Contains("dd+", StringComparison.OrdinalIgnoreCase) ||
                     t.Contains("ddp", StringComparison.OrdinalIgnoreCase)) { parts.Add("DD+"); continue; }
+                if (t.Contains("ac3", StringComparison.OrdinalIgnoreCase)) { parts.Add("DD"); continue; }
                 if (t.Contains("dd", StringComparison.OrdinalIgnoreCase)) { parts.Add("DD"); continue; }
                 if (t.Contains("flac", StringComparison.OrdinalIgnoreCase)) { parts.Add("FLAC"); continue; }
                 if (t.Contains("aac", StringComparison.OrdinalIgnoreCase)) { parts.Add("AAC"); continue; }
@@ -225,6 +248,14 @@ namespace InfiniteDrive.Services
 
         private static string NormaliseSourceTag(string? raw, AioStreamsStream stream)
         {
+            // T2-C: Use ParsedFile.Quality directly — structured value from AIOStreams parser
+            var pfQuality = stream.ParsedFile?.Quality;
+            if (!string.IsNullOrEmpty(pfQuality))
+            {
+                var q = NormaliseSourceTagString(pfQuality);
+                if (q != "Unknown") return q;
+            }
+
             // Try tech data first
             var result = NormaliseSourceTagString(raw);
             if (result != "Unknown") return result;
@@ -292,6 +323,32 @@ namespace InfiniteDrive.Services
         }
 
         // ── Scoring helpers ───────────────────────────────────────────────────
+
+        private static int VisualTagScore(List<string>? tags)
+        {
+            if (tags == null || tags.Count == 0) return 0;
+            int bonus = 0;
+            foreach (var tag in tags)
+            {
+                if (tag.Contains("DV", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("Dolby Vision", StringComparison.OrdinalIgnoreCase)) { bonus += 4; continue; }
+                if (tag.Contains("HDR10+", StringComparison.OrdinalIgnoreCase)) { bonus += 3; continue; }
+                if (tag.Contains("HDR10", StringComparison.OrdinalIgnoreCase)) { bonus += 2; continue; }
+                if (tag.Contains("HDR", StringComparison.OrdinalIgnoreCase)) { bonus += 2; continue; }
+                if (tag.Contains("10-bit", StringComparison.OrdinalIgnoreCase) ||
+                    tag.Contains("10bit", StringComparison.OrdinalIgnoreCase)) { bonus += 1; continue; }
+            }
+            return bonus;
+        }
+
+        private static int EncodeScore(string? encode)
+        {
+            if (string.IsNullOrEmpty(encode)) return 0;
+            if (encode.Contains("AV1", StringComparison.OrdinalIgnoreCase)) return 2;
+            if (encode.Contains("x265", StringComparison.OrdinalIgnoreCase) ||
+                encode.Contains("HEVC", StringComparison.OrdinalIgnoreCase)) return 1;
+            return 0;
+        }
 
         private static int AudioGroupScore(string group) => group switch
         {

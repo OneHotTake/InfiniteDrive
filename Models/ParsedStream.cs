@@ -35,6 +35,24 @@ namespace InfiniteDrive.Models
 
         /// <summary>StreamKey for dedup (infoHash:fileIdx or URL).</summary>
         public string? StreamKey { get; set; }
+
+        /// <summary>Visual HDR/DV tags from AIOStreams parsed file (DV, HDR10+, HDR10, HDR, 10-bit).</summary>
+        public System.Collections.Generic.List<string>? VisualTags { get; set; }
+
+        /// <summary>Video encode codec: x265, x264, AV1, etc.</summary>
+        public string? Encode { get; set; }
+
+        /// <summary>Edition variant: director's cut, theatrical, unrated, extended, etc.</summary>
+        public string? Edition { get; set; }
+
+        /// <summary>True when stream comes from the user's debrid library (pre-verified download).</summary>
+        public bool IsLibrary { get; set; }
+
+        /// <summary>True when this is the single best SeaDex release for the anime title.</summary>
+        public bool IsSeadexBest { get; set; }
+
+        /// <summary>True when this release appears in the SeaDex database.</summary>
+        public bool IsSeadex { get; set; }
     }
 
     /// <summary>
@@ -80,5 +98,6 @@ namespace InfiniteDrive.Models
         public int RankScore { get; set; }
         public string VersionLabel { get; set; } = string.Empty;
         public string? StreamKey { get; set; }
+        public string? Edition { get; set; }
     }
 }

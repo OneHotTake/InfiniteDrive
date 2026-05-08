@@ -60,7 +60,8 @@ namespace InfiniteDrive.Services
                 return null;
             }
 
-            var isAnime = string.Equals(item.CatalogType, "anime", StringComparison.OrdinalIgnoreCase);
+            var isAnime = string.Equals(item.CatalogType, "anime", StringComparison.OrdinalIgnoreCase)
+                         || IsAnimeId(item.AioId);
             if (isAnime && !string.IsNullOrWhiteSpace(config.SyncPathAnime))
             {
                 var animeFolder = Path.Combine(
@@ -362,6 +363,37 @@ namespace InfiniteDrive.Services
                 written, item.Title);
 
             return Task.FromResult(written);
+        }
+
+        /// <summary>
+        /// Detects anime-specific ID prefixes that indicate an item should be
+        /// routed to the anime library regardless of CatalogType.
+        /// Covers all prefixes from AIOStreams IdParser (id-parser.ts).
+        /// </summary>
+        private static bool IsAnimeId(string? id)
+        {
+            if (string.IsNullOrEmpty(id)) return false;
+            var s = id!;
+            // Fast path: check first character to avoid scanning non-anime IDs
+            var c = char.ToLowerInvariant(s[0]);
+            return c switch
+            {
+                'k' => s.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase),
+                'a' => s.StartsWith("anilist:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("anidb:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("anidb_id:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("anidbid:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("animeplanet:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("ap:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("acd:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("anisearch:", StringComparison.OrdinalIgnoreCase),
+                'm' => s.StartsWith("mal:", StringComparison.OrdinalIgnoreCase),
+                'n' => s.StartsWith("notifymoe:", StringComparison.OrdinalIgnoreCase)
+                     || s.StartsWith("nm:", StringComparison.OrdinalIgnoreCase),
+                's' => s.StartsWith("simkl:", StringComparison.OrdinalIgnoreCase),
+                'l' => s.StartsWith("livechart:", StringComparison.OrdinalIgnoreCase),
+                _ => false
+            };
         }
     }
 }

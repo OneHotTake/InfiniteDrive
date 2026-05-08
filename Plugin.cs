@@ -38,7 +38,7 @@ namespace InfiniteDrive
     /// Inherits <see cref="BasePlugin{TConfiguration}"/> which handles XML config
     /// persistence at {DataPath}/plugins/configurations/InfiniteDrive.xml.
     /// </summary>
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasUIPages, IHasThumbImage
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasUIPages, IHasWebPages, IHasThumbImage
     {
         /// <summary>Stable plugin GUID — never change this after first release.</summary>
         public static readonly Guid PluginGuid = new Guid("3c45a87e-2b4f-4d1a-9e73-8f12c3456789");
@@ -274,11 +274,35 @@ namespace InfiniteDrive
                     _uiPages = new List<IPluginUIPageController>
                     {
                         new UI.Settings.SettingsController(id),
-                        new UI.Discover.DiscoverController(id),
                     }.AsReadOnly();
                 }
                 return _uiPages;
             }
+        }
+
+        // ── IHasWebPages ────────────────────────────────────────────────────────
+
+        /// <inheritdoc/>
+        public IEnumerable<PluginPageInfo> GetPages()
+        {
+            return new[]
+            {
+                new PluginPageInfo
+                {
+                    Name = "InfiniteDiscover",
+                    EmbeddedResourcePath = GetType().Namespace + ".Configuration.discoverpage.html",
+                    EnableInMainMenu = true,
+                    EnableInUserMenu = true,
+                    MenuIcon = "explore",
+                    MenuSection = "server",
+                    DisplayName = "Discover"
+                },
+                new PluginPageInfo
+                {
+                    Name = "InfiniteDiscoverJS",
+                    EmbeddedResourcePath = GetType().Namespace + ".Configuration.discoverpage.js"
+                },
+            };
         }
 
         // ── IHasThumbImage ───────────────────────────────────────────────────────

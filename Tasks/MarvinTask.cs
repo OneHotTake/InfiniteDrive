@@ -387,7 +387,7 @@ namespace InfiniteDrive.Tasks
                     if (parsed.Count == 0) return (true, false);
 
                     newVersions = Services.VersionSelectorService.SelectBestVersions(
-                        parsed, config.DesiredVersions, config.MaxVersionsPerItem);
+                        parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
                     Services.VersionSelectorService.AssignSecondaryUrls(newVersions, parsed);
                 }
 
@@ -593,7 +593,7 @@ namespace InfiniteDrive.Tasks
                     if (epParsed.Count == 0) continue;
 
                     var epVersions = Services.VersionSelectorService.SelectBestVersions(
-                        epParsed, config.DesiredVersions, config.MaxVersionsPerItem);
+                        epParsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
                     Services.VersionSelectorService.AssignSecondaryUrls(epVersions, epParsed);
                     if (epVersions.Count == 0) continue;
 

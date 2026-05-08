@@ -252,6 +252,12 @@ namespace InfiniteDrive.Models
         /// <summary>Series content type.</summary>
         Series = 1,
 
+        /// <summary>Anime content type (Kitsu/MAL catalogs).</summary>
+        Anime = 2,
+
+        /// <summary>Hentai content type.</summary>
+        Hentai = 3,
+
         /// <summary>Other/unknown content type.</summary>
         Other = 99
     }

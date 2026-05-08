@@ -494,7 +494,21 @@ namespace InfiniteDrive.Tasks
             var ids = new List<System.Text.Json.Nodes.JsonNode>();
 
             if (!string.IsNullOrEmpty(aioId))
-                ids.Add(CreateProviderId("imdb", aioId));
+            {
+                // Detect anime provider prefixes — store with correct provider type
+                // so the census and metadata lookup work correctly for anime items.
+                if (aioId.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase))
+                    ids.Add(CreateProviderId("kitsu", aioId.Substring(6)));
+                else if (aioId.StartsWith("mal:", StringComparison.OrdinalIgnoreCase))
+                    ids.Add(CreateProviderId("mal", aioId.Substring(4)));
+                else if (aioId.StartsWith("anilist:", StringComparison.OrdinalIgnoreCase))
+                    ids.Add(CreateProviderId("anilist", aioId.Substring(8)));
+                else if (aioId.StartsWith("anidb:", StringComparison.OrdinalIgnoreCase))
+                    ids.Add(CreateProviderId("anidb", aioId.Substring(6)));
+                else if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                    ids.Add(CreateProviderId("imdb", aioId));
+                // else: unknown prefix — skip (don't store garbage as "imdb")
+            }
 
             if (!string.IsNullOrEmpty(tmdbId))
                 ids.Add(CreateProviderId("tmdb", tmdbId));
@@ -529,7 +543,9 @@ namespace InfiniteDrive.Tasks
             AioStreamsMeta meta, AioStreamsCatalogDef catalog, ILogger logger)
         {
             // ── FIX-216-01: Anime items use kitsu:/anilist: IDs without IMDB ───
-            var isAnimeCatalog = string.Equals(catalog.Type, "anime", StringComparison.OrdinalIgnoreCase);
+            var isAnimeCatalog = string.Equals(catalog.Type, "anime", StringComparison.OrdinalIgnoreCase)
+                || IsAnimePrefixedId(meta.Id)
+                || IsAnimePrefixedId(meta.ImdbId);
 
             // Resolve IMDB ID — AIOStreams may use the IMDB ID directly as 'id'
             // or put it in a separate imdb_id field.
@@ -615,7 +631,7 @@ namespace InfiniteDrive.Tasks
             return new CatalogItem
             {
                 Id          = GenerateDeterministicId(primaryId, "aiostreams"),
-                AioId       = aioId,
+                AioId       = string.IsNullOrEmpty(aioId) ? primaryId : aioId,
                 TmdbId       = tmdbId,
                 UniqueIdsJson = BuildUniqueIdsJson(primaryId, tmdbId, null),
                 Title        = meta.Name ?? "Unknown",
@@ -727,6 +743,34 @@ namespace InfiniteDrive.Tasks
                     return prop.GetString();
             }
             return null;
+        }
+
+        /// <summary>
+        /// Detects anime-specific ID prefixes from AIOStreams id-parser.ts.
+        /// Used to route items to the anime library regardless of catalog type.
+        /// </summary>
+        internal static bool IsAnimePrefixedId(string? id)
+        {
+            if (string.IsNullOrEmpty(id)) return false;
+            var c = char.ToLowerInvariant(id[0]);
+            return c switch
+            {
+                'k' => id.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase),
+                'a' => id.StartsWith("anilist:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidb:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidb_id:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidbid:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("animeplanet:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("ap:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("acd:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anisearch:", StringComparison.OrdinalIgnoreCase),
+                'm' => id.StartsWith("mal:", StringComparison.OrdinalIgnoreCase),
+                'n' => id.StartsWith("notifymoe:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("nm:", StringComparison.OrdinalIgnoreCase),
+                's' => id.StartsWith("simkl:", StringComparison.OrdinalIgnoreCase),
+                'l' => id.StartsWith("livechart:", StringComparison.OrdinalIgnoreCase),
+                _ => false
+            };
         }
     }
 
