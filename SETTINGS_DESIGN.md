@@ -1,18 +1,32 @@
-# InfiniteDrive Settings Design (Native PluginUI — 5 Tabs)
-
-> **Sprint 508 complete** — Settings page is now a clean 5-tab native PluginUI experience. All legacy tabs removed. "Don't Panic" footer added to every tab.
+# InfiniteDrive Settings Design (Native PluginUI — 7 Tabs)
 
 **Design philosophy**: Apple-simple, aggressive pruning, success-state first.
 
+## Setup Sequencing Rationale
+
+Tab order encodes intent-before-action. Marvin starts syncing the moment Providers are saved.
+If Quality is configured *after* Providers, everything Marvin just synced may be wrong and
+needs to be re-synced. The correct sequence is:
+
+1. **Where** things go (Libraries)
+2. **What** you want (Quality)
+3. **Where** to get them (Providers)
+
+Connecting a source last ensures Marvin's first sync run already knows the destination and
+the quality intent — no wasted work, no immediate re-sync.
+
 ## Final Tab Order
 
-1. **Setup** — AIOStreams providers, Emby server, library mappings, metadata defaults, quality
-2. **Catalogs & Lists** — AIOStreams system catalogs, list provider API keys (Trakt/TMDB), system-wide lists, user lists summary
-3. **Content Controls** — Quality tiers, Discover-only parental controls, blocked content management
-4. **Sync & Marvin** — Core engine schedule, pruning rules, rate-limit safety
-5. **Advanced** — Logging, cache settings, maintenance & reset (behind "Show advanced settings" toggle)
+0. **Overview** — Setup guidance + status for Libraries / Quality / Providers
+1. **Libraries** — Folder paths, library names, metadata language/country/subtitle defaults
+2. **Quality** — Version buckets (resolution + audio), remux preference, edition priority
+3. **Providers** — Primary + secondary AIOStreams manifest URLs, test + dashboard links
+4. **Sources** — Catalog enable/disable, list provider API keys, system lists, user lists
+5. **Restrictions** — Parental controls, hide-unrated, blocked content
+6. **Marvin** — Sync schedule, batch size, rate-limit ceiling, pruning rules
+7. **Advanced** — Logging, cache clear, maintenance, factory reset
 
-**Global behavior**: After ANY save on ANY tab, `MarvinTask.TriggerFullRun()` is automatically called (implemented in Sprint 502).
+**Global behavior**: After ANY save on ANY tab, `TriggerBackgroundSync()` is called.
 
 **Footer (on every tab)**: *Don't Panic* — Marvin is on the case.
 
