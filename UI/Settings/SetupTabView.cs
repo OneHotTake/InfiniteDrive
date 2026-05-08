@@ -25,7 +25,6 @@ namespace InfiniteDrive.UI.Settings
             cfg.MetadataLanguage = UI.MetadataLanguage ?? "en";
             cfg.MetadataCertificationCountry = UI.CertificationCountry ?? "US";
             cfg.DefaultSubtitleLanguage = UI.DefaultSubtitleLanguage ?? "en";
-            cfg.LibraryPathsUserConfigured = true;
             Plugin.Instance.SaveConfiguration();
 
             // Provision libraries (create directories + register with Emby) before sync
