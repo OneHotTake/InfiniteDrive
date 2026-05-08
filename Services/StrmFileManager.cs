@@ -121,9 +121,12 @@ namespace InfiniteDrive.Services
             }
 
             if (staleDeleted > 0 || written > 0)
+            {
                 _logger.LogInformation(
                     "[StrmFileManager] {Folder}: wrote {Written}, removed {Stale} stale versions",
                     folderBareName, written, staleDeleted);
+                NotifyLibraryMonitor(mediaFolder);
+            }
 
             return written;
         }
