@@ -161,6 +161,7 @@ namespace InfiniteDrive.UI.Settings
                 cfg.SystemRssFeedUrls = string.Empty;
                 cfg.DisabledSourceKeysJson = string.Empty;
                 cfg.IsFirstRunComplete = false;
+                cfg.LibraryPathsUserConfigured = false;
                 cfg.TmdbApiKey = string.Empty;
                 cfg.BlockUnratedForRestricted = true;
                 cfg.TraktClientId = string.Empty;

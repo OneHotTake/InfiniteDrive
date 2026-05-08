@@ -177,6 +177,10 @@ namespace InfiniteDrive
         [DataMember]
         public string SyncPathShows { get; set; } = "/media/infinitedrive/shows";
 
+        /// <summary>True once the user has explicitly saved the Libraries tab. Prevents default paths showing as configured.</summary>
+        [DataMember]
+        public bool LibraryPathsUserConfigured { get; set; } = false;
+
         /// <summary>Display name for the Movies library created by the plugin.</summary>
         [DataMember]
         public string LibraryNameMovies { get; set; } = "Streamed Movies";

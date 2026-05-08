@@ -11,13 +11,19 @@ namespace InfiniteDrive.UI.Settings
     {
         public const string TestPrimaryCommand = nameof(TestPrimaryCommand);
         public const string TestSecondaryCommand = nameof(TestSecondaryCommand);
-        public const string RunSetupTestCommand = nameof(RunSetupTestCommand);
 
         public override string EditorTitle => "Providers";
         public override string EditorDescription => string.Empty;
 
+        // ── Test Result (top of page) ─────────────────────────────────────────
+
+        public CaptionItem CaptionTestResults { get; set; } = new CaptionItem("Test Results");
+
+        public StatusItem SetupTestResult { get; set; } = new StatusItem("Status", "No tests run yet", ItemStatus.None);
+
         // ── Welcome ──────────────────────────────────────────────────────────
 
+        public SpacerItem SpacerWelcome { get; set; } = new SpacerItem();
         public CaptionItem CaptionConnect { get; set; } = new CaptionItem("Connect your sources");
 
         public LabelItem WelcomeText { get; set; } = new LabelItem(
@@ -39,6 +45,9 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestPrimaryCommand,
         };
 
+        public StatusItem PrimaryDashboardUrl { get; set; } = new StatusItem("Dashboard", "—", ItemStatus.None);
+        public StatusItem PrimaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
+
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
         [DisplayName("Secondary Manifest")]
@@ -51,16 +60,7 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestSecondaryCommand,
         };
 
-        // ── Test Result (single source of truth) ──────────────────────────────
-
-        public SpacerItem SpacerResult { get; set; } = new SpacerItem();
-
-        public StatusItem SetupTestResult { get; set; } = new StatusItem("Test Result", "No tests run yet", ItemStatus.None);
-
-        public ButtonItem RunSetupTestButton { get; set; } = new ButtonItem("Test Both")
-        {
-            Icon = IconNames.network_check,
-            Data1 = RunSetupTestCommand,
-        };
+        public StatusItem SecondaryDashboardUrl { get; set; } = new StatusItem("Dashboard", "—", ItemStatus.None);
+        public StatusItem SecondaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
     }
 }
