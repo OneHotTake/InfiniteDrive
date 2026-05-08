@@ -1090,6 +1090,30 @@ namespace InfiniteDrive.Data
                 ReadCatalogItem).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Full-text fuzzy search across catalog_items by title.
+        /// Returns up to <paramref name="limit"/> items whose title contains <paramref name="query"/>.
+        /// </summary>
+        public async Task<List<CatalogItem>> SearchCatalogItemsByTitleAsync(string query, int limit = 20)
+        {
+            const string sql = @"
+                SELECT * FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND title LIKE '%' || @query || '%'
+                ORDER BY
+                    CASE WHEN lower(title) = lower(@query) THEN 0 ELSE 1 END,
+                    title
+                LIMIT @limit";
+
+            return await QueryListAsync(sql,
+                cmd =>
+                {
+                    BindText(cmd, "@query", query);
+                    BindInt(cmd, "@limit", limit);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+        }
+
         // stream_resolution_cache methods moved to DatabaseManager.StreamCache.cs
 
         // Operations methods moved to DatabaseManager.Operations.cs
