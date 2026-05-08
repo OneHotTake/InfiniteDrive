@@ -288,6 +288,12 @@ namespace InfiniteDrive.Services
         private readonly StrmWriterService _strmWriter;
         private readonly IUserManager _userManager;
 
+        // ── Cinemeta background cache ───────────────────────────────────────────
+        private static List<DiscoverRail>? _cinemetaCache;
+        private static DateTime _cinemetaCacheTime = DateTime.MinValue;
+        private static readonly TimeSpan CinemetaCacheTtl = TimeSpan.FromHours(6);
+        private static int _cinemetaRefreshing = 0; // interlocked flag
+
         /// <inheritdoc/>
         public IRequest Request { get; set; } = null!;
 
@@ -419,7 +425,8 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Handles <c>GET /InfiniteDrive/Discover/Rails</c>.
-        /// Returns default rails: user playlists > admin catalogs > Cinemeta top 10.
+        /// Always returns instantly: DB rails are built inline; Cinemeta rails come
+        /// from a static in-memory cache that refreshes in the background every 6 h.
         /// </summary>
         public async Task<object> Get(DiscoverRailsRequest req)
         {
@@ -428,43 +435,52 @@ namespace InfiniteDrive.Services
 
             try
             {
-                var rails = new List<DiscoverRail>();
-                var config = Plugin.Instance?.Configuration;
                 var type = string.IsNullOrEmpty(req.Type) ? null : req.Type.ToLowerInvariant();
+                var rails = new List<DiscoverRail>();
 
-                // Rail 1: Cinemeta Top (always available as fallback)
-                if (config != null)
+                // ── DB rails (instant, ~2 ms each) ─────────────────────────────
+                var recentItems  = await _db.GetRecentCatalogItemsAsync(20, type);
+                var libraryItems = await _db.GetLibraryCatalogItemsAsync(20, type);
+
+                if (recentItems.Count > 0)
                 {
-                    using var client = AioStreamsClient.CreateForStremioBase(
-                        "https://v3-cinemeta.strem.io", _logger);
+                    var rail = new DiscoverRail { Title = "Recently Added", Type = type ?? "movie" };
+                    foreach (var ci in recentItems)
+                        rail.Items.Add(CatalogItemToDiscoverItem(ci));
+                    rails.Add(rail);
+                }
 
-                    var types = type != null ? new[] { type } : new[] { "movie", "series" };
+                if (libraryItems.Count > 0)
+                {
+                    // Deduplicate against Recently Added
+                    var recentIds = new HashSet<string>(
+                        recentItems.Select(x => x.AioId), StringComparer.OrdinalIgnoreCase);
+                    var libRail = new DiscoverRail { Title = "In Your Library", Type = type ?? "movie" };
+                    foreach (var ci in libraryItems)
+                        if (!recentIds.Contains(ci.AioId))
+                            libRail.Items.Add(CatalogItemToDiscoverItem(ci));
+                    if (libRail.Items.Count > 0)
+                        rails.Add(libRail);
+                }
 
-                    // Fetch all metas first
-                    var allMetas = new List<(string railType, AioStreamsMeta meta)>();
-                    foreach (var t in types)
-                    {
-                        var metas = await client.GetCinemetaTopAsync(t, 20, CancellationToken.None);
-                        foreach (var m in metas)
-                            allMetas.Add((t, m));
-                    }
+                // ── Cinemeta rails (cache hit = instant, miss = background refresh) ──
+                var now = DateTime.UtcNow;
+                var cacheAge = now - _cinemetaCacheTime;
+                if (_cinemetaCache != null)
+                {
+                    // Serve cached rails, filtered by type if requested
+                    foreach (var cached in _cinemetaCache)
+                        if (type == null || cached.Type == type)
+                            rails.Add(cached);
 
-                    // Batch library lookup — one query instead of N per item
-                    var libraryIds = BatchLibraryLookup(allMetas.Select(x => x.meta).ToList());
-
-                    // Build rails from pre-fetched data
-                    foreach (var t in types)
-                    {
-                        var label = t == "movie" ? "Popular Movies" : "Popular Shows";
-                        var railMetas = allMetas.Where(x => x.railType == t).Select(x => x.meta).ToList();
-                        if (railMetas.Count > 0)
-                        {
-                            var rail = new DiscoverRail { Title = label, Type = t };
-                            foreach (var meta in railMetas)
-                                rail.Items.Add(MapMetaToDiscoverItem(meta, libraryIds));
-                            rails.Add(rail);
-                        }
-                    }
+                    // If cache is stale, kick off a background refresh
+                    if (cacheAge > CinemetaCacheTtl)
+                        _ = RefreshCinemetaCacheAsync();
+                }
+                else
+                {
+                    // Cold start — trigger background refresh; user gets DB rails this time
+                    _ = RefreshCinemetaCacheAsync();
                 }
 
                 return new DiscoverRailsResponse { Rails = rails };
@@ -473,6 +489,57 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "Error fetching rails");
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Fetches Cinemeta top 20 movie + series in the background and stores result in
+        /// the static cache. Uses an interlocked flag so only one refresh runs at a time.
+        /// </summary>
+        private async Task RefreshCinemetaCacheAsync()
+        {
+            // Only one refresh at a time
+            if (Interlocked.CompareExchange(ref _cinemetaRefreshing, 1, 0) != 0)
+                return;
+
+            try
+            {
+                _logger.LogDebug("[Discover] Refreshing Cinemeta rail cache");
+                using var client = AioStreamsClient.CreateForStremioBase(
+                    "https://v3-cinemeta.strem.io", _logger);
+
+                var allMetas = new List<(string t, AioStreamsMeta m)>();
+                foreach (var t in new[] { "movie", "series" })
+                {
+                    var metas = await client.GetCinemetaTopAsync(t, 20, CancellationToken.None);
+                    foreach (var m in metas) allMetas.Add((t, m));
+                }
+
+                var libraryIds = BatchLibraryLookup(allMetas.Select(x => x.m).ToList());
+
+                var fresh = new List<DiscoverRail>();
+                foreach (var t in new[] { "movie", "series" })
+                {
+                    var label    = t == "movie" ? "Popular Movies" : "Popular Shows";
+                    var railMetas = allMetas.Where(x => x.t == t).Select(x => x.m).ToList();
+                    if (railMetas.Count == 0) continue;
+                    var rail = new DiscoverRail { Title = label, Type = t };
+                    foreach (var meta in railMetas)
+                        rail.Items.Add(MapMetaToDiscoverItem(meta, libraryIds));
+                    fresh.Add(rail);
+                }
+
+                _cinemetaCache     = fresh;
+                _cinemetaCacheTime = DateTime.UtcNow;
+                _logger.LogDebug("[Discover] Cinemeta rail cache refreshed ({Count} rails)", fresh.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Discover] Cinemeta cache refresh failed (non-fatal)");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _cinemetaRefreshing, 0);
             }
         }
 
