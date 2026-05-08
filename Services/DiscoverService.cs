@@ -362,34 +362,8 @@ namespace InfiniteDrive.Services
                 var type = string.IsNullOrEmpty(req.Type) ? null : req.Type.ToLowerInvariant();
                 var items = new List<DiscoverItem>();
 
-                // Live search via AIOStreams
-                if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl) || !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-                {
-                    using var client = AioStreamsClientFactory.Create(_logger);
-                    client.Cooldown = Plugin.Instance?.CooldownGate;
-
-                    // Search all types if no type filter
-                    var types = type == "movie" || type == "series" || type == "anime"
-                        ? new[] { type }
-                        : new[] { "movie", "series", "anime" };
-
-                    foreach (var t in types)
-                    {
-                        try
-                        {
-                            var result = await client.SearchLiveAsync(req.Query, t, 0, 50, CancellationToken.None);
-                            if (result?.Metas != null)
-                            {
-                                foreach (var meta in result.Metas)
-                                    items.Add(await MapMetaToDiscoverItemAsync(meta));
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            _logger.LogDebug(ex, "[Discover] Live search failed for type '{Type}'", t);
-                        }
-                    }
-                }
+                // Live search via AIOStreams — uses manifest to discover correct catalog IDs
+                items = await GetLiveSearchResultsAsync(req.Query, type);
 
                 // Deduplicate by IMDB ID
                 var deduped = items
@@ -1139,7 +1113,10 @@ namespace InfiniteDrive.Services
                 }
 
                 if (allPairs.Count == 0)
+                {
+                    _logger.LogDebug("[InfiniteDrive] BatchLibraryLookup: allPairs empty, aioIdList={Ids}", string.Join(", ", aioIdList.Take(5)));
                     return result;
+                }
 
                 // Single query for all provider IDs
                 var matches = _libraryManager.GetItemList(
@@ -1196,6 +1173,9 @@ namespace InfiniteDrive.Services
                 // Fallback: check InfiniteDrive catalog_items for items written to disk
                 // but not yet scanned by Emby (covers the gap between add and library scan)
                 var catalogAioIds = _db.GetCatalogItemAioIdsWithStrmPath(aioIdList);
+                if (catalogAioIds.Count > 0)
+                    _logger.LogDebug("[InfiniteDrive] BatchLibraryLookup: catalog_items fallback found {Count} items with strm_path: {Ids}",
+                        catalogAioIds.Count, string.Join(", ", catalogAioIds.Take(5)));
                 foreach (var aioId in catalogAioIds)
                 {
                     if (!result.ContainsKey(aioId) || !result[aioId].Item1)
