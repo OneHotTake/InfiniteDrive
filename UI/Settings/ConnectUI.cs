@@ -47,7 +47,7 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem PrimaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
         public StatusItem PrimaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
-        public LabelItem PrimaryDashboardHint { get; set; } = new LabelItem("Copy the Server URL above into your browser to open the AIOStreams web UI.");
+        public LabelItem PrimaryDashboardLink { get; set; } = new LabelItem(string.Empty);
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
@@ -63,5 +63,6 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem SecondaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
         public StatusItem SecondaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
+        public LabelItem SecondaryDashboardLink { get; set; } = new LabelItem(string.Empty);
     }
 }
