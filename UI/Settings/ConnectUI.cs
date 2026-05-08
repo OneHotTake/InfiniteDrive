@@ -45,9 +45,8 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestPrimaryCommand,
         };
 
-        public StatusItem PrimaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
+        public LabelItem PrimaryServerUrl { get; set; } = new LabelItem("—");
         public StatusItem PrimaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
-        public LabelItem PrimaryDashboardLink { get; set; } = new LabelItem(string.Empty);
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
@@ -61,8 +60,7 @@ namespace InfiniteDrive.UI.Settings
             Data1 = TestSecondaryCommand,
         };
 
-        public StatusItem SecondaryServerUrl { get; set; } = new StatusItem("Server", "—", ItemStatus.None);
+        public LabelItem SecondaryServerUrl { get; set; } = new LabelItem("—");
         public StatusItem SecondaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
-        public LabelItem SecondaryDashboardLink { get; set; } = new LabelItem(string.Empty);
     }
 }
