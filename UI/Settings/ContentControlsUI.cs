@@ -15,8 +15,9 @@ namespace InfiniteDrive.UI.Settings
 
         public override string EditorTitle => "Quality";
         public override string EditorDescription =>
-            "Quality tiers Marvin uses when selecting streams. Each bucket defines a resolution + audio profile and a version count. " +
-            "Emby supports up to 8 versions per title — the total count across all buckets cannot exceed 8.";
+            "Buckets tell Marvin what to collect. Each one defines a resolution, an audio profile, and a version count. " +
+            "Priority 1 is filled first. If nothing matches, Marvin falls back to the best available 1080p stream. " +
+            "Emby caps at 8 versions per title — all buckets share that limit.";
 
         // ── Bucket summary (top of page) ─────────────────────────────────────
 

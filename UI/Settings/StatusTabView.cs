@@ -90,7 +90,7 @@ namespace InfiniteDrive.UI.Settings
             {
                 var total = buckets.Sum(b => b.Count);
                 var label = buckets.Count == 1 ? "bucket" : "buckets";
-                ui.QualityStatus.StatusText = $"{buckets.Count} {label} · {total} versions max";
+                ui.QualityStatus.StatusText = $"{buckets.Count} {label} · {total} of 8 slots configured";
                 ui.QualityStatus.Status = ItemStatus.Succeeded;
             }
             else

@@ -130,8 +130,8 @@ namespace InfiniteDrive.UI.Settings
 
             var bucketLabel = buckets.Count == 1 ? "bucket" : "buckets";
             UI.BucketTotalStatus.StatusText = total > 8
-                ? $"{total} versions max · {buckets.Count} {bucketLabel} — exceeds max of 8"
-                : $"{total} versions max · {buckets.Count} {bucketLabel}";
+                ? $"{total} of 8 slots · {buckets.Count} {bucketLabel} — over the limit, reduce before syncing"
+                : $"{total} of 8 slots · {buckets.Count} {bucketLabel}";
             UI.BucketTotalStatus.Status = total > 8 ? ItemStatus.Warning : ItemStatus.Succeeded;
         }
 
@@ -152,7 +152,7 @@ namespace InfiniteDrive.UI.Settings
             var total = buckets.Sum(b => b.Count) + count;
             if (total > 8)
             {
-                UI.BucketTotalStatus.StatusText = $"Cannot add — total would be {total}, exceeding the 8-version max";
+                UI.BucketTotalStatus.StatusText = $"Cannot add — would use {total} of 8 slots";
                 UI.BucketTotalStatus.Status = ItemStatus.Warning;
                 RaiseUIViewInfoChanged();
                 return;

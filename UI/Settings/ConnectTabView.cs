@@ -46,13 +46,6 @@ namespace InfiniteDrive.UI.Settings
                         await TestSingleAsync("Secondary manifest", UI.SecondaryManifestUrl).ConfigureAwait(false);
                     return this;
 
-                case ConnectUI.OpenPrimaryCommand:
-                    OpenDashboard(UI.PrimaryServerUrl.StatusText);
-                    return this;
-
-                case ConnectUI.OpenSecondaryCommand:
-                    OpenDashboard(UI.SecondaryServerUrl.StatusText);
-                    return this;
             }
 
             return await base.RunCommand(itemId, commandId, data);
@@ -144,18 +137,6 @@ namespace InfiniteDrive.UI.Settings
                 userIdItem.StatusText = "—";
                 userIdItem.Status = ItemStatus.None;
             }
-        }
-
-        private void OpenDashboard(string serverUrl)
-        {
-            if (string.IsNullOrWhiteSpace(serverUrl) || serverUrl == "Not configured")
-            {
-                UpdateResult("No manifest URL configured — enter one above and save.", ItemStatus.Warning);
-                return;
-            }
-            // GenericEdit is server-rendered; we can't open a browser tab directly.
-            // Surfacing the URL in the test results area lets the user click it from there.
-            UpdateResult($"Open in browser: {serverUrl}", ItemStatus.Succeeded);
         }
 
         // ── One writer ─────────────────────────────────────────────────────
