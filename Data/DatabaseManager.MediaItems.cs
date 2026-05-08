@@ -707,15 +707,15 @@ namespace InfiniteDrive.Data
             {
                 BindText(cmd, "@Id", source.Id);
                 BindText(cmd, "@Name", source.Name);
-                BindText(cmd, "@Url", source.Url);
+                BindNullableText(cmd, "@Url", source.Url);
                 BindText(cmd, "@Type", source.Type.ToString());
                 cmd.BindParameters["@Enabled"].Bind(source.Enabled ? 1 : 0);
                 cmd.BindParameters["@ShowAsCollection"].Bind(source.ShowAsCollection ? 1 : 0);
                 BindInt(cmd, "@MaxItems", source.MaxItems);
                 BindInt(cmd, "@SyncIntervalHours", source.SyncIntervalHours);
-                BindText(cmd, "@LastSyncedAt", source.LastSyncedAt?.ToString("o"));
-                BindText(cmd, "@EmbyCollectionId", source.EmbyCollectionId);
-                BindText(cmd, "@CollectionName", source.CollectionName);
+                BindNullableText(cmd, "@LastSyncedAt", source.LastSyncedAt?.ToString("o"));
+                BindNullableText(cmd, "@EmbyCollectionId", source.EmbyCollectionId);
+                BindNullableText(cmd, "@CollectionName", source.CollectionName);
                 BindText(cmd, "@CreatedAt", source.CreatedAt.ToString("o"));
                 BindText(cmd, "@UpdatedAt", source.UpdatedAt.ToString("o"));
             }, cancellationToken);
