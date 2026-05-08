@@ -763,12 +763,14 @@ namespace InfiniteDrive.Services
 
                             if (!liveResults.ContainsKey(aioId))
                             {
+                                var isAnimeCatalog = string.Equals(catalogDef.Type, "anime", StringComparison.OrdinalIgnoreCase)
+                                    || IsAnimePrefixedId(aioId);
                                 var item = new DiscoverItem
                                 {
                                     AioId = aioId,
                                     Title = meta.Name ?? "",
                                     Year = ParseYear(meta.ReleaseInfo),
-                                    MediaType = meta.Type ?? catalogDef.Type ?? "movie",
+                                    MediaType = isAnimeCatalog ? "anime" : (meta.Type ?? catalogDef.Type ?? "movie"),
                                     PosterUrl = meta.Poster,
                                     BackdropUrl = meta.Background,
                                     Overview = meta.Description,
@@ -800,13 +802,15 @@ namespace InfiniteDrive.Services
         {
             try
             {
+                var isAnimeCatalog = string.Equals(catalogDef.Type, "anime", StringComparison.OrdinalIgnoreCase)
+                    || IsAnimePrefixedId(aioId);
                 var entry = new DiscoverCatalogEntry
                 {
                     Id = $"aio:{catalogDef.Type}:{aioId}",
                     AioId = aioId,
                     Title = meta.Name ?? "",
                     Year = ParseYear(meta.ReleaseInfo),
-                    MediaType = meta.Type ?? catalogDef.Type ?? "movie",
+                    MediaType = isAnimeCatalog ? "anime" : (meta.Type ?? catalogDef.Type ?? "movie"),
                     PosterUrl = meta.Poster,
                     BackdropUrl = meta.Background,
                     Overview = meta.Description,
