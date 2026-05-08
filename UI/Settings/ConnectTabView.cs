@@ -1,6 +1,5 @@
 using System;
 using System.Net.Http;
-using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,6 +14,7 @@ namespace InfiniteDrive.UI.Settings
         public ConnectTabView(string pluginId, ConnectUI ui) : base(pluginId)
         {
             ContentData = ui;
+            LoadUrlInfo();
         }
 
         private ConnectUI UI => (ConnectUI)ContentData;
@@ -44,9 +44,7 @@ namespace InfiniteDrive.UI.Settings
                     }
                     return this;
 
-                case ConnectUI.RunSetupTestCommand:
-                    await RunFullSetupTestAsync().ConfigureAwait(false);
-                    return this;
+
             }
 
             return await base.RunCommand(itemId, commandId, data);
@@ -90,57 +88,52 @@ namespace InfiniteDrive.UI.Settings
             }
         }
 
-        // ── Full test → single result ──────────────────────────────────────
+        // ── URL info ───────────────────────────────────────────────────────
 
-        private async Task RunFullSetupTestAsync()
+        private void LoadUrlInfo()
         {
-            UpdateResult("Running tests...", ItemStatus.InProgress);
+            var cfg = Plugin.Instance.Configuration;
+            PopulateUrlInfo(cfg.PrimaryManifestUrl, UI.PrimaryDashboardUrl, UI.PrimaryUserId);
+            PopulateUrlInfo(cfg.SecondaryManifestUrl, UI.SecondaryDashboardUrl, UI.SecondaryUserId);
+        }
 
-            var sb = new StringBuilder();
-            var allOk = true;
-
-            // Primary
-            if (string.IsNullOrWhiteSpace(UI.PrimaryManifestUrl))
+        private static void PopulateUrlInfo(string url, StatusItem dashboardItem, StatusItem userIdItem)
+        {
+            if (string.IsNullOrWhiteSpace(url))
             {
-                sb.AppendLine("Primary manifest: Not configured");
-                allOk = false;
-            }
-            else
-            {
-                try
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                    var resp = await http.GetAsync(UI.PrimaryManifestUrl, cts.Token).ConfigureAwait(false);
-                    resp.EnsureSuccessStatusCode();
-                    sb.AppendLine("Primary manifest: OK");
-                }
-                catch (Exception ex)
-                {
-                    sb.AppendLine($"Primary manifest: FAILED — {ex.Message}");
-                    allOk = false;
-                }
+                dashboardItem.StatusText = "Not configured";
+                dashboardItem.Status = ItemStatus.None;
+                userIdItem.StatusText = "—";
+                userIdItem.Status = ItemStatus.None;
+                return;
             }
 
-            // Secondary (only if set)
-            if (!string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl))
+            try
             {
-                try
+                var uri = new Uri(url);
+                dashboardItem.StatusText = $"{uri.Scheme}://{uri.Host}/";
+                dashboardItem.Status = ItemStatus.Succeeded;
+
+                var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var userId = segments.Length > 0 ? segments[0] : null;
+                if (!string.IsNullOrEmpty(userId))
                 {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                    var resp = await http.GetAsync(UI.SecondaryManifestUrl, cts.Token).ConfigureAwait(false);
-                    resp.EnsureSuccessStatusCode();
-                    sb.AppendLine("Secondary manifest: OK");
+                    userIdItem.StatusText = userId;
+                    userIdItem.Status = ItemStatus.Succeeded;
                 }
-                catch (Exception ex)
+                else
                 {
-                    sb.AppendLine($"Secondary manifest: FAILED — {ex.Message}");
-                    allOk = false;
+                    userIdItem.StatusText = "Not found in URL";
+                    userIdItem.Status = ItemStatus.Warning;
                 }
             }
-
-            UpdateResult(sb.ToString().TrimEnd(), allOk ? ItemStatus.Succeeded : ItemStatus.Warning);
+            catch
+            {
+                dashboardItem.StatusText = "Invalid URL";
+                dashboardItem.Status = ItemStatus.Warning;
+                userIdItem.StatusText = "—";
+                userIdItem.Status = ItemStatus.None;
+            }
         }
 
         // ── One writer ─────────────────────────────────────────────────────
@@ -162,6 +155,7 @@ namespace InfiniteDrive.UI.Settings
             cfg.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl);
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
+            LoadUrlInfo();
             return base.OnSaveCommand(itemId, commandId, data);
         }
     }

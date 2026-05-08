@@ -40,9 +40,13 @@ namespace InfiniteDrive.UI.Settings
                 ui.ProviderStatus.Status = ItemStatus.Failed;
             }
 
-            // Libraries — path must be set and the directory must exist on disk
+            // Libraries — path must be set, the directory must exist, AND the user must have
+            // explicitly saved the Libraries tab at least once. This prevents default paths
+            // that happen to exist on the server from showing as configured after a factory reset.
             bool IsConfigured(string path) =>
-                !string.IsNullOrWhiteSpace(path) && System.IO.Directory.Exists(path);
+                cfg.LibraryPathsUserConfigured &&
+                !string.IsNullOrWhiteSpace(path) &&
+                System.IO.Directory.Exists(path);
 
             var moviesOk = IsConfigured(cfg.SyncPathMovies);
             var showsOk  = IsConfigured(cfg.SyncPathShows);
