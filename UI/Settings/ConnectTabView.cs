@@ -95,7 +95,24 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             PopulateUrlInfo(cfg.PrimaryManifestUrl, UI.PrimaryServerUrl, UI.PrimaryUserId);
+            SetDashboardLink(UI.PrimaryDashboardLink, UI.PrimaryServerUrl);
+
             PopulateUrlInfo(cfg.SecondaryManifestUrl, UI.SecondaryServerUrl, UI.SecondaryUserId);
+            SetDashboardLink(UI.SecondaryDashboardLink, UI.SecondaryServerUrl);
+        }
+
+        private static void SetDashboardLink(Emby.Web.GenericEdit.Elements.LabelItem label, StatusItem serverItem)
+        {
+            if (serverItem.Status == ItemStatus.Succeeded && !string.IsNullOrWhiteSpace(serverItem.StatusText))
+            {
+                label.Text = $"Open {serverItem.StatusText}";
+                label.HyperLink = serverItem.StatusText;
+            }
+            else
+            {
+                label.Text = string.Empty;
+                label.HyperLink = null;
+            }
         }
 
         private void PopulateUrlInfo(string url, StatusItem serverItem, StatusItem userIdItem)
