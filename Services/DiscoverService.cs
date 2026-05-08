@@ -365,6 +365,18 @@ namespace InfiniteDrive.Services
                 // Live search via AIOStreams — uses manifest to discover correct catalog IDs
                 items = await GetLiveSearchResultsAsync(req.Query, type);
 
+                // Batch library lookup for search results (dual-source: Emby + catalog_items)
+                if (items.Count > 0)
+                {
+                    var searchMetas = items.Select(i => new AioStreamsMeta { Id = i.AioId, ImdbId = null }).ToList();
+                    var searchLibraryMap = BatchLibraryLookup(searchMetas);
+                    foreach (var item in items)
+                    {
+                        if (searchLibraryMap.TryGetValue(item.AioId, out var lib))
+                            item.InLibrary = lib.Item1;
+                    }
+                }
+
                 // Deduplicate by IMDB ID
                 var deduped = items
                     .GroupBy(i => i.AioId, StringComparer.OrdinalIgnoreCase)
@@ -451,13 +463,45 @@ namespace InfiniteDrive.Services
             if (config == null)
                 return new();
 
-            using (var client = AioStreamsClientFactory.Create(_logger))
+            // Resolve active client + manifest: try primary, fall back to secondary on empty/unreachable
+            AioStreamsClient? resolvedClient = null;
+            AioStreamsManifest? resolvedManifest = null;
+
+            var primaryClient = AioStreamsClientFactory.Create(_logger);
+            primaryClient.Cooldown = Plugin.Instance?.CooldownGate;
+            var primaryManifest = await primaryClient.GetManifestAsync(CancellationToken.None);
+            if (primaryManifest?.Catalogs?.Count > 0)
             {
-                client.Cooldown = Plugin.Instance?.CooldownGate;
+                resolvedClient  = primaryClient;
+                resolvedManifest = primaryManifest;
+            }
+            else if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            {
+                _logger.LogWarning("[Discover] Primary manifest empty/unreachable — trying secondary");
+                var secondaryClient = AioStreamsClientFactory.TryCreateForManifest(config.SecondaryManifestUrl, _logger);
+                if (secondaryClient != null)
+                {
+                    secondaryClient.Cooldown = Plugin.Instance?.CooldownGate;
+                    var secondaryManifest = await secondaryClient.GetManifestAsync(CancellationToken.None);
+                    if (secondaryManifest?.Catalogs?.Count > 0)
+                    {
+                        resolvedClient   = secondaryClient;
+                        resolvedManifest = secondaryManifest;
+                    }
+                }
+            }
+
+            if (resolvedClient == null || resolvedManifest == null)
+                return new();
+
+            var client   = resolvedClient;
+            var manifest = resolvedManifest;
+
+            using (client)
+            {
                 try
                 {
-                    // Fetch manifest to identify search-capable catalogs
-                    var manifest = await client.GetManifestAsync(CancellationToken.None);
+                    // manifest already fetched and validated above — skip re-fetch
                     if (manifest?.Catalogs == null || manifest.Catalogs.Count == 0)
                         return new();
 
@@ -1113,10 +1157,7 @@ namespace InfiniteDrive.Services
                 }
 
                 if (allPairs.Count == 0)
-                {
-                    _logger.LogDebug("[InfiniteDrive] BatchLibraryLookup: allPairs empty, aioIdList={Ids}", string.Join(", ", aioIdList.Take(5)));
                     return result;
-                }
 
                 // Single query for all provider IDs
                 var matches = _libraryManager.GetItemList(
@@ -1173,9 +1214,6 @@ namespace InfiniteDrive.Services
                 // Fallback: check InfiniteDrive catalog_items for items written to disk
                 // but not yet scanned by Emby (covers the gap between add and library scan)
                 var catalogAioIds = _db.GetCatalogItemAioIdsWithStrmPath(aioIdList);
-                if (catalogAioIds.Count > 0)
-                    _logger.LogDebug("[InfiniteDrive] BatchLibraryLookup: catalog_items fallback found {Count} items with strm_path: {Ids}",
-                        catalogAioIds.Count, string.Join(", ", catalogAioIds.Take(5)));
                 foreach (var aioId in catalogAioIds)
                 {
                     if (!result.ContainsKey(aioId) || !result[aioId].Item1)
