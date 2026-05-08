@@ -105,7 +105,7 @@ namespace InfiniteDrive.UI.Settings
         {
             if (serverItem.Status == ItemStatus.Succeeded && !string.IsNullOrWhiteSpace(serverItem.StatusText))
             {
-                label.Text = $"Open {serverItem.StatusText}";
+                label.Text = "Open dashboard";
                 label.HyperLink = serverItem.StatusText;
             }
             else
