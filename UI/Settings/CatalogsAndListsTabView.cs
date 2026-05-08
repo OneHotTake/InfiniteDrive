@@ -115,7 +115,7 @@ namespace InfiniteDrive.UI.Settings
                         Icon = isEnabled ? IconNames.check_circle : IconNames.radio_button_unchecked,
                         IconMode = ItemListIconMode.SmallRegular,
                         Status = isEnabled
-                            ? (state.Status == "ok" ? ItemStatus.Succeeded : ItemStatus.Warning)
+                            ? (state.ConsecutiveFailures > 0 ? ItemStatus.Warning : ItemStatus.Succeeded)
                             : ItemStatus.Unavailable,
                         Toggle = new ToggleButtonItem
                         {
@@ -244,12 +244,6 @@ namespace InfiniteDrive.UI.Settings
             }
 
             RaiseUIViewInfoChanged();
-
-            _ = Task.Run(async () =>
-            {
-                await LoadCatalogsAsync().ConfigureAwait(false);
-            });
-
             return Task.CompletedTask;
         }
 
@@ -392,7 +386,6 @@ namespace InfiniteDrive.UI.Settings
         public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
         {
             var cfg = Plugin.Instance.Configuration;
-            cfg.CatalogSyncIntervalHours = UI.CatalogSyncIntervalHours;
             cfg.TraktClientId = UI.TraktClientId ?? string.Empty;
             cfg.TmdbApiKey = UI.TmdbApiKey ?? string.Empty;
             cfg.MaxListsPerUser = UI.MaxListsPerUser;

@@ -110,8 +110,8 @@ namespace InfiniteDrive.Data
             CancellationToken ct = default)
         {
             var sql = activeOnly
-                ? "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
-                : "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
+                ? "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
+                : "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
 
             return await QueryListAsync(sql,
                 cmd => BindText(cmd, "@owner_user_id", ownerUserId),
@@ -125,7 +125,7 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 SELECT id, owner_user_id, service, list_url, display_name, active,
-                       last_synced_at, last_sync_status, created_at
+                       last_synced_at, created_at
                 FROM user_catalogs WHERE active = 1 ORDER BY created_at;";
 
             return await QueryListAsync(sql, null, ReadUserCatalog).ConfigureAwait(false);
@@ -138,7 +138,7 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 SELECT id, owner_user_id, service, list_url, display_name, active,
-                       last_synced_at, last_sync_status, created_at
+                       last_synced_at, created_at
                 FROM user_catalogs WHERE id = @id;";
 
             return QuerySingleAsync(sql,
@@ -166,8 +166,7 @@ namespace InfiniteDrive.Data
                 DisplayName    = row.GetString(4),
                 Active         = row.GetInt(5) == 1,
                 LastSyncedAt   = row.IsDBNull(6) ? null : row.GetString(6),
-                LastSyncStatus = row.IsDBNull(7) ? null : row.GetString(7),
-                CreatedAt      = row.GetString(8),
+                CreatedAt      = row.GetString(7),
             };
 
         /// <summary>
@@ -184,7 +183,7 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Updates last_synced_at and last_sync_status after a sync run.
+        /// Updates last_synced_at after a sync run.
         /// </summary>
         public async Task UpdateUserCatalogSyncStatusAsync(
             string catalogId,
@@ -194,13 +193,12 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 UPDATE user_catalogs
-                SET last_synced_at = @synced_at, last_sync_status = @status
+                SET last_synced_at = @synced_at
                 WHERE id = @id;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@synced_at", syncedAt.ToString("o"));
-                BindText(cmd, "@status", status);
                 BindText(cmd, "@id", catalogId);
             }, ct);
         }

@@ -120,7 +120,6 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new CatalogsAndListsUI
             {
-                CatalogSyncIntervalHours = c.CatalogSyncIntervalHours,
                 TraktClientId = c.TraktClientId ?? string.Empty,
                 TmdbApiKey = c.TmdbApiKey ?? string.Empty,
                 MaxListsPerUser = c.MaxListsPerUser,
