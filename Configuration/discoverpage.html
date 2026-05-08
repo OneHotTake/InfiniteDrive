@@ -1,0 +1,164 @@
+<div id="InfiniteDiscoverPage" data-role="page" class="page type-interior pluginConfigurationPage"
+     data-controller="__plugin/InfiniteDiscoverJS">
+<div class="content-primary">
+
+<style>
+#id-page { max-width: 1200px; margin: 0 auto; padding: 0 1em; }
+
+/* Search */
+.id-search { position: relative; margin-bottom: 2em; }
+.id-search input[type="search"] {
+  width: 100%; padding: .85em 1.2em .85em 2.8em; border: 1px solid var(--line-color, rgba(128,128,128,.3));
+  border-radius: 8px; background: rgba(128,128,128,.06); color: var(--theme-text-primary, inherit);
+  font-size: 1em; box-sizing: border-box; transition: border-color .2s, box-shadow .2s;
+}
+.id-search input:focus { outline: none; border-color: var(--theme-button-background,#00a4dc); box-shadow: 0 0 0 3px rgba(0,164,220,.12); }
+.id-search-icon { position: absolute; left: 1em; top: 50%; transform: translateY(-50%); opacity: .45; font-size: 1.1em; pointer-events: none; }
+
+/* Section title */
+.id-section-title { font-size: 1.1em; font-weight: 700; margin: 0 0 .75em; opacity: .85; }
+
+/* Horizontal rail */
+.id-rail-section { margin-bottom: 2em; }
+.id-rail-scroll {
+  display: flex; gap: .75em; overflow-x: auto; padding-bottom: .75em; scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch; scrollbar-width: thin;
+}
+.id-rail-scroll::-webkit-scrollbar { height: 6px; }
+.id-rail-scroll::-webkit-scrollbar-thumb { background: rgba(128,128,128,.3); border-radius: 3px; }
+.id-rail-scroll .id-card { flex: 0 0 150px; scroll-snap-align: start; }
+
+/* Grid (search results) */
+.id-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 1em; }
+@media (min-width: 768px) { .id-grid { grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 1.25em; } }
+
+/* Card */
+.id-card {
+  background: var(--theme-background-level2, rgba(128,128,128,.07)); border: 1px solid var(--line-color, rgba(128,128,128,.12));
+  border-radius: 8px; overflow: hidden; cursor: pointer; transition: transform .2s, box-shadow .2s;
+}
+.id-card:hover { transform: translateY(-4px); box-shadow: 0 8px 20px rgba(0,0,0,.25); }
+.id-card-poster { position: relative; aspect-ratio: 2/3; background: rgba(128,128,128,.12); overflow: hidden; }
+.id-card-poster img { width: 100%; height: 100%; object-fit: cover; transition: transform .3s; }
+.id-card:hover .id-card-poster img { transform: scale(1.05); }
+.id-card-no-poster {
+  display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;
+  font-size: .85em; text-align: center; padding: .5em; opacity: .5; word-break: break-word;
+}
+.id-card-info { padding: .6em .7em; }
+.id-card-info h3 { margin: 0 0 .3em; font-size: .82em; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.id-card-meta { display: flex; flex-wrap: wrap; gap: .35em; font-size: .72em; opacity: .75; }
+.id-card-year, .id-card-rating, .id-card-cert, .id-card-in-lib {
+  padding: .1em .4em; border-radius: 3px; background: rgba(128,128,128,.15);
+}
+.id-card-rating { color: #ffd700; background: rgba(255,215,0,.12); }
+.id-card-cert { background: rgba(220,53,69,.15); color: #dc3545; }
+.id-card-in-lib { background: rgba(40,167,69,.15); color: #28a745; }
+
+/* Loading */
+.id-loading { display: flex; flex-direction: column; align-items: center; padding: 3em; gap: 1em; opacity: .6; }
+.id-loading .spinner {
+  width: 36px; height: 36px; border: 3px solid rgba(128,128,128,.2); border-top-color: var(--theme-button-background,#00a4dc);
+  border-radius: 50%; animation: id-spin .8s linear infinite;
+}
+@keyframes id-spin { to { transform: rotate(360deg); } }
+
+/* Empty */
+.id-empty { text-align: center; padding: 3em 1em; opacity: .5; }
+
+/* Modal */
+.id-modal { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; }
+.id-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.75); }
+.id-modal-content {
+  position: relative; background: #2b2b2b;
+  border: 1px solid var(--line-color, rgba(128,128,128,.2)); border-radius: 12px;
+  max-width: 780px; width: 92%; max-height: 90vh; overflow-y: auto;
+  animation: id-modal-in .25s ease-out; color: #eee;
+}
+@keyframes id-modal-in { from { opacity: 0; transform: translateY(30px) scale(.97); } to { opacity: 1; transform: none; } }
+.id-modal-close {
+  position: absolute; top: .75em; right: .75em; background: rgba(0,0,0,.5); border: none; color: #fff;
+  font-size: 1.3em; cursor: pointer; width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; opacity: .7; transition: opacity .2s; z-index: 2;
+}
+.id-modal-close:hover { opacity: 1; }
+.id-modal-backdrop-img {
+  width: 100%; height: 200px; object-fit: cover; border-radius: 12px 12px 0 0; opacity: .6;
+}
+.id-modal-no-backdrop { height: 0; }
+.id-modal-body { display: flex; gap: 1.5em; padding: 1.5em 2em; }
+@media (max-width: 600px) { .id-modal-body { flex-direction: column; } }
+.id-detail-poster { flex-shrink: 0; width: 160px; }
+.id-detail-poster img { width: 100%; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.35); }
+.id-detail-info { flex: 1; min-width: 0; }
+.id-detail-info h2 { margin: 0 0 .4em; font-size: 1.35em; font-weight: 700; line-height: 1.2; }
+.id-detail-meta-row { display: flex; gap: .6em; flex-wrap: wrap; margin-bottom: .75em; }
+.id-detail-meta-row span { padding: .2em .5em; border-radius: 3px; font-size: .8em; background: rgba(128,128,128,.15); }
+.id-detail-rating { color: #ffd700 !important; background: rgba(255,215,0,.12) !important; }
+.id-detail-cert { background: rgba(220,53,69,.15) !important; color: #dc3545 !important; }
+.id-detail-genres { font-size: .85em; opacity: .65; margin-bottom: .75em; }
+.id-detail-overview { font-size: .9em; line-height: 1.65; opacity: .8; margin: 0 0 1em; }
+.id-modal-actions { display: flex; gap: .75em; padding: 1em 2em 1.5em; border-top: 1px solid var(--line-color, rgba(128,128,128,.12)); }
+.id-modal-actions button { flex: 1; padding: .7em 1em; border-radius: 6px; border: none; cursor: pointer; font-size: .9em; font-weight: 600; transition: opacity .2s; }
+.id-btn-primary { background: var(--theme-button-background,#00a4dc); color: #fff; }
+.id-btn-primary:hover { opacity: .85; }
+.id-btn-secondary { background: rgba(128,128,128,.15); color: var(--theme-text-primary, inherit); }
+.id-btn-secondary:hover { opacity: .85; background: rgba(128,128,128,.25); }
+
+/* Toast */
+.id-toast {
+  position: fixed; bottom: 2em; left: 50%; transform: translateX(-50%); padding: .75em 1.5em;
+  background: #333; color: #fff; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,.3);
+  z-index: 2000; animation: id-toast-in .3s ease-out; font-size: .9em;
+}
+.id-toast-success { background: #28a745; }
+.id-toast-error { background: #dc3545; }
+@keyframes id-toast-in { from { opacity: 0; transform: translateX(-50%) translateY(15px); } to { opacity: 1; transform: translateX(-50%); } }
+</style>
+
+<div id="id-page">
+  <!-- Search -->
+  <div class="id-search">
+    <span class="id-search-icon">&#128269;</span>
+    <input type="search" id="id-search-input" placeholder="Search movies and TV shows..." autocomplete="off" />
+  </div>
+
+  <!-- Loading -->
+  <div id="id-loading" class="id-loading">
+    <div class="spinner"></div>
+    <p>Loading...</p>
+  </div>
+
+  <!-- Rails -->
+  <div id="id-rails"></div>
+
+  <!-- Search Results -->
+  <div id="id-results" style="display:none">
+    <h3 class="id-section-title" id="id-results-title">Search Results</h3>
+    <div id="id-rail-movies" class="id-rail-section" style="display:none">
+      <h3 class="id-section-title">Movies</h3>
+      <div class="id-rail-scroll" id="id-rail-movies-scroll"></div>
+    </div>
+    <div id="id-rail-series" class="id-rail-section" style="display:none">
+      <h3 class="id-section-title">TV Series</h3>
+      <div class="id-rail-scroll" id="id-rail-series-scroll"></div>
+    </div>
+    <div id="id-rail-anime" class="id-rail-section" style="display:none">
+      <h3 class="id-section-title">Anime</h3>
+      <div class="id-rail-scroll" id="id-rail-anime-scroll"></div>
+    </div>
+    <div id="id-results-empty" class="id-empty" style="display:none"><p>No results found.</p></div>
+  </div>
+
+  <!-- Detail Modal -->
+  <div id="id-modal" class="id-modal" style="display:none">
+    <div class="id-modal-backdrop" id="id-modal-bg"></div>
+    <div class="id-modal-content" id="id-modal-box"></div>
+  </div>
+
+  <!-- Toast -->
+  <div id="id-toast" class="id-toast" style="display:none"></div>
+</div>
+
+</div>
+</div>

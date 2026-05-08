@@ -78,7 +78,7 @@ Provider fetchers modeled after HomeScreenCompanion (`../research-lists/HomeScre
 
 **Data/DatabaseManager.cs** -- V31 migration:
 - Rebuild `user_catalogs` with relaxed CHECK constraints
-- Migrate existing rows: `SET source_type = 'external_list'`
+- `source_type` column removed (dead code — `service` already stores provider type)
 
 ### 4. API Endpoints
 

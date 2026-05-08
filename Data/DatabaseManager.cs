@@ -1481,7 +1481,6 @@ CREATE INDEX IF NOT EXISTS idx_resolution_primary_id ON stream_resolution_log(pr
 CREATE TABLE IF NOT EXISTS user_catalogs (
     id                 TEXT PRIMARY KEY,
     owner_user_id      TEXT NOT NULL,
-    source_type        TEXT NOT NULL DEFAULT 'external_list',
     service            TEXT NOT NULL,
     list_url           TEXT NOT NULL,
     display_name       TEXT NOT NULL,

@@ -216,16 +216,18 @@ namespace InfiniteDrive.Data
             CancellationToken ct = default)
         {
             const string sql = @"
-                INSERT INTO source_memberships (source_id, media_item_id, user_catalog_id)
-                VALUES (@SourceId, @MediaItemId, @UserCatalogId)
+                INSERT INTO source_memberships (id, source_id, media_item_id, user_catalog_id, created_at)
+                VALUES (@Id, @SourceId, @MediaItemId, @UserCatalogId, @CreatedAt)
                 ON CONFLICT(source_id, media_item_id) DO UPDATE SET
                     user_catalog_id = COALESCE(excluded.user_catalog_id, source_memberships.user_catalog_id);";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
+                BindText(cmd, "@Id", Guid.NewGuid().ToString());
                 BindText(cmd, "@SourceId", sourceId);
                 BindText(cmd, "@MediaItemId", mediaItemId);
                 BindNullableText(cmd, "@UserCatalogId", userCatalogId);
+                BindText(cmd, "@CreatedAt", DateTime.UtcNow.ToString("o"));
             }, ct);
         }
 
@@ -910,6 +912,34 @@ namespace InfiniteDrive.Data
             {
                 _dbWriteGate.Release();
             }
+        }
+
+        /// <summary>
+        /// Returns AIO IDs that exist in catalog_items with a strm_path (item written to disk, not removed).
+        /// Used by Discover "In Library" fallback before Emby finishes scanning.
+        /// </summary>
+        public HashSet<string> GetCatalogItemAioIdsWithStrmPath(List<string> aioIds)
+        {
+            if (aioIds == null || aioIds.Count == 0)
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var placeholders = string.Join(",", aioIds.Select((_, i) => $"@p{i}"));
+            var sql = $"SELECT DISTINCT aio_id FROM catalog_items WHERE aio_id IN ({placeholders}) AND strm_path IS NOT NULL AND removed_at IS NULL";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            for (var i = 0; i < aioIds.Count; i++)
+                BindText(stmt, $"@p{i}", aioIds[i]);
+
+            foreach (var row in stmt.AsRows())
+            {
+                var val = row.GetString(0);
+                if (!string.IsNullOrEmpty(val))
+                    result.Add(val);
+            }
+
+            return result;
         }
     }
 }

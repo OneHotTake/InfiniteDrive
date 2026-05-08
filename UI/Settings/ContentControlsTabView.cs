@@ -64,6 +64,7 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             UI.UseRemuxForAutoSelection = cfg.UseRemuxForAutoSelection;
+            UI.PrioritizeExtendedEditions = cfg.PrioritizeExtendedEditions;
             RaiseUIViewInfoChanged();
         }
 
@@ -205,6 +206,7 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             cfg.UseRemuxForAutoSelection = UI.UseRemuxForAutoSelection;
+            cfg.PrioritizeExtendedEditions = UI.PrioritizeExtendedEditions;
             // Note: DesiredVersions bucket list is saved immediately on Add/Remove
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();

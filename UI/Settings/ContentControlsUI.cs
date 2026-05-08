@@ -27,6 +27,10 @@ namespace InfiniteDrive.UI.Settings
         [Description("Includes 40–60 GB REMUX files in auto-selection. Not recommended — slow to start and often requires transcoding.")]
         public bool UseRemuxForAutoSelection { get; set; } = false;
 
+        [DisplayName("Prioritize Extended Editions")]
+        [Description("Reserve about half of each bucket's slots for Extended and Director's Cut editions when available. The remaining slots are filled with the best theatrical versions. You always receive your full version count. Extended versions are labeled in the version picker (e.g. \"Extended - 4K DV - TrueHD\").")]
+        public bool PrioritizeExtendedEditions { get; set; } = false;
+
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
         // ═══════════════════════════════════════════════════════════════

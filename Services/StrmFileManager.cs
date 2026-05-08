@@ -177,6 +177,7 @@ namespace InfiniteDrive.Services
                 RankScore = v.SelectedScore,
                 VersionLabel = v.VersionLabel,
                 StreamKey = v.Stream.StreamKey,
+                Edition = v.Stream.Edition,
             }).ToList();
 
             return JsonSerializer.Serialize(dto);

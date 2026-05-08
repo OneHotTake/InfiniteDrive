@@ -757,6 +757,18 @@ namespace InfiniteDrive
         [DataMember]
         public string PluginLogLevel { get; set; } = "Info";
 
+        /// <summary>When true, roughly half of each quality bucket's slots are reserved for
+        /// Extended/Director's Cut editions. Graceful fallback if none exist — you always
+        /// get your full version count.</summary>
+        [DataMember]
+        public bool PrioritizeExtendedEditions { get; set; } = false;
+
+        /// <summary>Keywords that identify extended/special editions in parsedFile.edition.
+        /// Case-insensitive contains match.</summary>
+        [DataMember]
+        public List<string> ExtendedEditionKeywords { get; set; } = new()
+            { "Extended", "Director", "Unrated", "Special Edition" };
+
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  INSTANCE TYPE DETECTION                                             ║
         // ╚══════════════════════════════════════════════════════════════════════╝

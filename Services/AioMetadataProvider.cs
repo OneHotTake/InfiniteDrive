@@ -351,11 +351,46 @@ namespace InfiniteDrive.Services
                 SearchProviderName = "InfiniteDrive",
             };
 
-            if (!string.IsNullOrWhiteSpace(item.TmdbId)) r.SetProviderId("TMDB", item.TmdbId);
+            var isAnime = string.Equals(item.CatalogType, "anime", StringComparison.OrdinalIgnoreCase)
+                || IsAnimePrefixedId(item.AioId);
+
+            // IMDB: only when the primary ID is a tt-prefixed IMDB ID
             if (!string.IsNullOrWhiteSpace(item.AioId) && item.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
                 r.SetProviderId("IMDB", item.AioId);
 
+            // TMDB: skip for anime — stored TMDB IDs are often movie IDs on series items,
+            // causing Emby's TMDB plugin to query the wrong endpoint ("Failed to parse meta")
+            if (!isAnime && !string.IsNullOrWhiteSpace(item.TmdbId))
+                r.SetProviderId("TMDB", item.TmdbId);
+
+            // TVDB: preferred for anime series; Emby's TVDB plugin handles anime well
+            if (!string.IsNullOrWhiteSpace(item.TvdbId))
+                r.SetProviderId("TVDB", item.TvdbId);
+
             results.Add(r);
+        }
+
+        private static bool IsAnimePrefixedId(string? id)
+        {
+            if (string.IsNullOrEmpty(id)) return false;
+            var c = char.ToLowerInvariant(id[0]);
+            return c switch
+            {
+                'k' => id.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase),
+                'a' => id.StartsWith("anilist:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidb:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidb_id:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidbid:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("animeplanet:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("ap:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anisearch:", StringComparison.OrdinalIgnoreCase),
+                'm' => id.StartsWith("mal:", StringComparison.OrdinalIgnoreCase),
+                'n' => id.StartsWith("notifymoe:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("nm:", StringComparison.OrdinalIgnoreCase),
+                's' => id.StartsWith("simkl:", StringComparison.OrdinalIgnoreCase),
+                'l' => id.StartsWith("livechart:", StringComparison.OrdinalIgnoreCase),
+                _ => false
+            };
         }
 
         private static int ParseRuntimeMinutes(string runtime)

@@ -498,7 +498,8 @@ namespace InfiniteDrive.Tasks
                                 versions = VersionSelectorService.SelectBestVersions(
                                     parsed,
                                     config.DesiredVersions,
-                                    config.MaxVersionsPerItem);
+                                    config.MaxVersionsPerItem,
+                                    config);
                                 VersionSelectorService.AssignSecondaryUrls(versions, parsed);
                             }
                         }
@@ -764,7 +765,7 @@ namespace InfiniteDrive.Tasks
             }
 
             var versions = VersionSelectorService.SelectBestVersions(
-                parsed, config.DesiredVersions, config.MaxVersionsPerItem);
+                parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
             if (versions.Count == 0) return (0, null);
 
             VersionSelectorService.AssignSecondaryUrls(versions, parsed);

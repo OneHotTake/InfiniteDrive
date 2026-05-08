@@ -102,6 +102,16 @@ namespace InfiniteDrive.Services
             var added = 0;
             var updated = 0;
             var skippedNoImdb = 0;
+            var sourceId = "external_list_" + catalog.OwnerUserId;
+
+            // Ensure parent source row exists for FK integrity
+            await _db.UpsertSourceAsync(new Source
+            {
+                Id = sourceId,
+                Name = catalog.DisplayName ?? sourceId,
+                Type = SourceType.UserRss,
+                Enabled = true,
+            }, ct);
 
             foreach (var item in items)
             {
@@ -150,7 +160,7 @@ namespace InfiniteDrive.Services
 
                 // Link to this catalog in source_memberships
                 await _db.UpsertSourceMembershipWithCatalogAsync(
-                    "external_list_" + catalog.OwnerUserId,
+                    sourceId,
                     catalogItem.Id,
                     catalog.Id,
                     ct);
