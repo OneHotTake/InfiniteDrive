@@ -18,40 +18,42 @@ namespace InfiniteDrive.UI.Settings
         // ── Section 1: Library Mappings ───────────────────────────────────────
 
         public SpacerItem Spacer0 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionLibraries { get; set; } = new CaptionItem("Library Mappings");
+        public CaptionItem CaptionLibraries { get; set; } = new CaptionItem("Library Folders");
 
         public LabelItem LibrariesHelp { get; set; } = new LabelItem(
-            "Choose where InfiniteDrive stores its streaming files. " +
-            "Each type of content gets its own folder — movies, TV series, and anime. " +
-            "The paths below are pre-filled with sensible defaults. Change them only if you have a specific reason.");
+            "Map each content type to a library name (shown in Emby) and the folder where .strm files will be written.");
 
-        [DisplayName("Movies Library Name")]
+        public CaptionItem CaptionMovies { get; set; } = new CaptionItem("Movies");
+
+        [DisplayName("Library Name")]
         [Description("What this library will be called in your Emby sidebar.")]
         public string MoviesLibraryName { get; set; } = "Streamed Movies";
 
-        [DisplayName("Movies Library Path")]
+        [DisplayName("Folder Path")]
         [Description("Where movie streaming files are stored on your server.")]
         [EditFolderPicker]
         public string MoviesLibraryPath { get; set; } = "/media/infinitedrive/movies";
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionSeries { get; set; } = new CaptionItem("Series");
 
-        [DisplayName("Series Library Name")]
+        [DisplayName("Library Name")]
         [Description("What this library will be called in your Emby sidebar.")]
         public string SeriesLibraryName { get; set; } = "Streamed Series";
 
-        [DisplayName("Series Library Path")]
+        [DisplayName("Folder Path")]
         [Description("Where TV series streaming files are stored on your server.")]
         [EditFolderPicker]
         public string SeriesLibraryPath { get; set; } = "/media/infinitedrive/shows";
 
         public SpacerItem Spacer2 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionAnime { get; set; } = new CaptionItem("Anime");
 
-        [DisplayName("Anime Library Name")]
+        [DisplayName("Library Name")]
         [Description("What this library will be called in your Emby sidebar.")]
         public string AnimeLibraryName { get; set; } = "Streamed Anime";
 
-        [DisplayName("Anime Library Path")]
+        [DisplayName("Folder Path")]
         [Description("Where anime streaming files are stored on your server.")]
         [EditFolderPicker]
         public string AnimeLibraryPath { get; set; } = "/media/infinitedrive/anime";

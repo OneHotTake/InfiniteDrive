@@ -43,8 +43,8 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             ui.MarvinStatus.StatusText =
-                $"Interval: {cfg.MarvinProcessIntervalMinutes}m · Batch: {cfg.StreamResolutionBatchSize} · " +
-                $"Rate limit: {cfg.MarvinActionsPerHour}/hr";
+                $"Every {cfg.MarvinProcessIntervalMinutes}m · {cfg.StreamResolutionBatchSize} items per pass · " +
+                $"{cfg.MarvinActionsPerHour} actions/hr ceiling";
             ui.MarvinStatus.Status = ItemStatus.Succeeded;
             RaiseUIViewInfoChanged();
         }

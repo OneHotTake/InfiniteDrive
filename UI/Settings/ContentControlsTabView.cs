@@ -73,36 +73,42 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             var buckets = cfg.DesiredVersions ?? new();
 
-            // Auto-create default bucket on first load so users have something to start with
-            if (buckets.Count == 0)
-            {
-                buckets.Add(new DesiredVersionBucket { Resolution = "1080p", Audio = "Any Audio", Count = 2 });
-                cfg.DesiredVersions = buckets;
-                Plugin.Instance.SaveConfiguration();
-            }
-
             UI.BucketList.Clear();
 
-            for (int i = 0; i < buckets.Count; i++)
+            if (buckets.Count == 0)
             {
-                var b = buckets[i];
-                var res = string.IsNullOrEmpty(b.Resolution) ? "Any" : b.Resolution;
-                var audio = string.IsNullOrEmpty(b.Audio) || b.Audio == "Any Audio" ? "Any Audio" : b.Audio;
-
                 UI.BucketList.Add(new GenericListItem
                 {
-                    PrimaryText = $"{b.Count}x {res} · {audio}",
-                    SecondaryText = $"Bucket #{i + 1} — priority {i + 1}",
-                    Icon = IconNames.tune,
+                    PrimaryText = "No buckets yet",
+                    SecondaryText = "Marvin will default to one 1080p stream per title",
+                    Icon = IconNames.info,
                     IconMode = ItemListIconMode.SmallRegular,
-                    Status = ItemStatus.Succeeded,
-                    Button1 = new ButtonItem("Remove")
-                    {
-                        Icon = IconNames.delete,
-                        CommandId = $"{ContentControlsUI.RemoveBucketCommand}_{i}",
-                        ConfirmationPrompt = $"Remove bucket: {b.Count}x {res} · {audio}?",
-                    },
                 });
+            }
+            else
+            {
+                for (int i = 0; i < buckets.Count; i++)
+                {
+                    var b = buckets[i];
+                    var res = string.IsNullOrEmpty(b.Resolution) ? "Any" : b.Resolution;
+                    var audio = string.IsNullOrEmpty(b.Audio) || b.Audio == "Any Audio" ? "Any Audio" : b.Audio;
+                    var versionLabel = b.Count == 1 ? "version" : "versions";
+
+                    UI.BucketList.Add(new GenericListItem
+                    {
+                        PrimaryText = $"{res} · {audio}",
+                        SecondaryText = $"{b.Count} {versionLabel} · Priority {i + 1}",
+                        Icon = IconNames.tune,
+                        IconMode = ItemListIconMode.SmallRegular,
+                        Status = ItemStatus.Succeeded,
+                        Button1 = new ButtonItem("Remove")
+                        {
+                            Icon = IconNames.delete,
+                            CommandId = $"{ContentControlsUI.RemoveBucketCommand}_{i}",
+                            ConfirmationPrompt = $"Remove bucket: {res} · {audio}?",
+                        },
+                    });
+                }
             }
 
             UpdateBucketStatus();
@@ -117,15 +123,16 @@ namespace InfiniteDrive.UI.Settings
 
             if (buckets.Count == 0)
             {
-                UI.BucketStatus.StatusText = "No buckets — Marvin cannot select versions. Add at least one bucket.";
-                UI.BucketStatus.Status = ItemStatus.Warning;
+                UI.BucketTotalStatus.StatusText = "No buckets configured";
+                UI.BucketTotalStatus.Status = ItemStatus.Warning;
                 return;
             }
 
-            UI.BucketStatus.StatusText = total > 8
-                ? $"Total across all buckets: {total} — exceeds hardcoded max of 8"
-                : $"Total across all buckets: {total} / 8 max versions";
-            UI.BucketStatus.Status = total > 8 ? ItemStatus.Warning : ItemStatus.Succeeded;
+            var bucketLabel = buckets.Count == 1 ? "bucket" : "buckets";
+            UI.BucketTotalStatus.StatusText = total > 8
+                ? $"{total} versions max · {buckets.Count} {bucketLabel} — exceeds max of 8"
+                : $"{total} versions max · {buckets.Count} {bucketLabel}";
+            UI.BucketTotalStatus.Status = total > 8 ? ItemStatus.Warning : ItemStatus.Succeeded;
         }
 
 
@@ -145,8 +152,8 @@ namespace InfiniteDrive.UI.Settings
             var total = buckets.Sum(b => b.Count) + count;
             if (total > 8)
             {
-                UI.BucketStatus.StatusText = $"Cannot add: total would be {total}, exceeding max of 8";
-                UI.BucketStatus.Status = ItemStatus.Warning;
+                UI.AddBucketStatus.StatusText = $"Cannot add: total would be {total}, exceeding max of 8";
+                UI.AddBucketStatus.Status = ItemStatus.Warning;
                 RaiseUIViewInfoChanged();
                 return;
             }
@@ -161,8 +168,8 @@ namespace InfiniteDrive.UI.Settings
             cfg.DesiredVersions = buckets;
             Plugin.Instance.SaveConfiguration();
 
-            UI.BucketStatus.StatusText = $"Added: {count}x {resolution} · {audio}";
-            UI.BucketStatus.Status = ItemStatus.Succeeded;
+            UI.AddBucketStatus.StatusText = $"Added: {resolution} · {audio} · {count} {(count == 1 ? "version" : "versions")}";
+            UI.AddBucketStatus.Status = ItemStatus.Succeeded;
 
             LoadBuckets();
         }
@@ -177,8 +184,8 @@ namespace InfiniteDrive.UI.Settings
 
             if (!int.TryParse(indexStr, out var index) || index < 0 || index >= buckets.Count)
             {
-                UI.BucketStatus.StatusText = $"Invalid bucket index (data='{data}')";
-                UI.BucketStatus.Status = ItemStatus.Warning;
+                UI.AddBucketStatus.StatusText = $"Invalid bucket index (data='{data}')";
+                UI.AddBucketStatus.Status = ItemStatus.Warning;
                 RaiseUIViewInfoChanged();
                 return;
             }
@@ -191,8 +198,8 @@ namespace InfiniteDrive.UI.Settings
 
             var res = string.IsNullOrEmpty(removed.Resolution) ? "Any" : removed.Resolution;
             var audio = string.IsNullOrEmpty(removed.Audio) || removed.Audio == "Any Audio" ? "Any Audio" : removed.Audio;
-            UI.BucketStatus.StatusText = $"Removed: {removed.Count}x {res} · {audio}";
-            UI.BucketStatus.Status = ItemStatus.Succeeded;
+            UI.AddBucketStatus.StatusText = $"Removed: {res} · {audio}";
+            UI.AddBucketStatus.Status = ItemStatus.Succeeded;
 
             LoadBuckets();
         }

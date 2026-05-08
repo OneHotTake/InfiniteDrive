@@ -15,7 +15,7 @@ namespace InfiniteDrive.UI.Settings
 
         // ── Provider ─────────────────────────────────────────────────────────
 
-        public CaptionItem CaptionProvider { get; set; } = new CaptionItem("Provider");
+        public CaptionItem CaptionProvider { get; set; } = new CaptionItem("Stream Source");
 
         public StatusItem ProviderStatus { get; set; } = new StatusItem(
             "AIOStreams", "Not configured", ItemStatus.None);
@@ -31,7 +31,7 @@ namespace InfiniteDrive.UI.Settings
         // ── Quality ──────────────────────────────────────────────────────────
 
         public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Quality");
+        public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Version Strategy");
 
         public StatusItem QualityStatus { get; set; } = new StatusItem(
             "Quality Buckets", "Not configured", ItemStatus.None);

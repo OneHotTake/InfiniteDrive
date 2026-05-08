@@ -1,5 +1,9 @@
 SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working solution
-COMPLETE: Discover "In Library" dual-source check — GetCatalogItemAioIdsWithStrmPath in DatabaseManager.Catalog.cs + fallback in BatchLibraryLookup (DiscoverService.cs). Build: 0 errors.
+COMPLETE: Settings UX refinement — wording pass across 8 UI files (StatusUI, StatusTabView, ConnectUI, SetupUI, ContentControlsUI, ContentControlsTabView, SyncAndMarvinUI+TabView, AdvancedUI). Build: 0 errors.
+COMPLETE: Discover search — manifest-routed catalog IDs, Cinemeta supplement, local catalog + Emby library blend, aiostreamserror filter, primary→secondary failover. Build: 0 errors.
+COMPLETE: Discover rails — DB-first (Recently Added + In Your Library from catalog_items), Cinemeta background cache (6h TTL, interlocked refresh). Rails return in <50ms. Build: 0 errors.
+COMPLETE: StrmFileManager.WriteOrReplaceStrmFilesAsync now calls ReportFileSystemChanged so Emby auto-detects new .strm files. Build: 0 errors.
+COMPLETE: Discover "In Library" dual-source check — GetCatalogItemAioIdsWithStrmPath in DatabaseManager.Catalog.cs + fallback in BatchLibraryLookup (DiscoverService.cs) + search endpoint library status fix. Root cause: search endpoint hardcoded InLibrary=false. Build: 0 errors.
 COMPLETE: PrioritizeExtendedEditions toggle — StoredVersion.Edition, SerializeVersions Edition field, MakeVersion edition prefix, split bucket logic + IsExtended helper, PluginConfiguration 2 new props, 4 call sites updated. Build: 0 errors.
 ## AIOStreams Ranking Improvements (2026-05-07)
 COMPLETE: T1-A SeaDex +8/+4 bonus + [SeaDex] label; T1-B VisualTags/Encode scoring + DV/HDR label in version; T1-C Library +10 + [Library] label; T2-B eac3/ac3 aliases; T2-C ParsedFile.Quality direct; T2-D Edition field. Build: 0 errors.

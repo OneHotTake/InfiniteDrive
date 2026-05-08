@@ -59,7 +59,7 @@ namespace InfiniteDrive.UI.Settings
         public bool AutoDeduplicatePhysicalMedia { get; set; } = true;
 
         public LabelItem PruningSummary { get; set; } = new LabelItem(
-            "Items sync continuously. User playlists are respected. Physical media in other libraries takes precedence.");
+            "Marvin quietly removes items that no longer belong. Playlists are spared if you ask nicely.");
 
         // ═══════════════════════════════════════════════════════════════
         // Section 3: Rate Limits
@@ -69,9 +69,7 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionRateLimit { get; set; } = new CaptionItem("Rate Limits");
 
         [DisplayName("Actions per hour")]
-        [Description(
-            "Limits how aggressively Marvin runs to stay a good citizen with AIOStreams and debrid providers. " +
-            "Default: 360.")]
+        [Description("Upper bound on AIOStreams API calls per hour. 360 is comfortable; go lower if your provider is rate-sensitive.")]
         public int MarvinActionsPerHour { get; set; } = 360;
 
     }

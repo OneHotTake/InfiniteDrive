@@ -24,11 +24,11 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Quality");
 
         [DisplayName("Use REMUX files for auto-selection")]
-        [Description("Includes 40–60 GB REMUX files in auto-selection. Not recommended — slow to start and often requires transcoding.")]
+        [Description("When available, prefer remux sources over encodes of the same resolution.")]
         public bool UseRemuxForAutoSelection { get; set; } = false;
 
         [DisplayName("Prioritize Extended Editions")]
-        [Description("Reserve about half of each bucket's slots for Extended and Director's Cut editions when available. The remaining slots are filled with the best theatrical versions. You always receive your full version count. Extended versions are labeled in the version picker (e.g. \"Extended - 4K DV - TrueHD\").")]
+        [Description("Reserve half your version slots for Extended and Director's Cut editions, when they exist. You always get your full version count.")]
         public bool PrioritizeExtendedEditions { get; set; } = false;
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
@@ -37,12 +37,11 @@ namespace InfiniteDrive.UI.Settings
         // Section 2: Multi-Version Quality Buckets
         // ═══════════════════════════════════════════════════════════════
 
-        public CaptionItem CaptionBuckets { get; set; } = new CaptionItem("Quality Buckets");
-
-        public LabelItem BucketHelp { get; set; } = new LabelItem(
-            "Each bucket defines a quality tier. Marvin picks the best matching stream per bucket. Drag to reorder priority.");
+        public CaptionItem CaptionBuckets { get; set; } = new CaptionItem("Active Buckets");
 
         public GenericItemList BucketList { get; set; } = new GenericItemList();
+
+        public StatusItem BucketTotalStatus { get; set; } = new StatusItem("Buckets", "—", ItemStatus.None);
 
         [Browsable(false)]
         public IEnumerable<EditorSelectOption> ResolutionOptions { get; set; } = new List<EditorSelectOption>
@@ -77,6 +76,9 @@ namespace InfiniteDrive.UI.Settings
             new() { Value = "8", Name = "8", IsEnabled = true },
         };
 
+        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionAddBucket { get; set; } = new CaptionItem("Add a Bucket");
+
         [DisplayName("Resolution")]
         [Description("Resolution to match for this bucket.")]
         [SelectItemsSource(nameof(ResolutionOptions))]
@@ -98,7 +100,7 @@ namespace InfiniteDrive.UI.Settings
             Data1 = AddBucketCommand,
         };
 
-        public StatusItem BucketStatus { get; set; } = new StatusItem("Buckets", "—", ItemStatus.None);
+        public StatusItem AddBucketStatus { get; set; } = new StatusItem("Add Result", "—", ItemStatus.None);
 
     }
 }

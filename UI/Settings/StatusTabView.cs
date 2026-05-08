@@ -1,3 +1,4 @@
+using System.Linq;
 using Emby.Web.GenericEdit.Elements;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
@@ -25,31 +26,27 @@ namespace InfiniteDrive.UI.Settings
             var hasSecondary = !string.IsNullOrWhiteSpace(cfg.SecondaryManifestUrl);
             if (hasPrimary && hasSecondary)
             {
-                ui.ProviderStatus.StatusText = "Primary + Secondary configured";
+                ui.ProviderStatus.StatusText = "Primary + failover configured";
                 ui.ProviderStatus.Status = ItemStatus.Succeeded;
             }
             else if (hasPrimary)
             {
-                ui.ProviderStatus.StatusText = "Primary configured (no backup)";
+                ui.ProviderStatus.StatusText = "Primary only · no failover";
                 ui.ProviderStatus.Status = ItemStatus.Warning;
             }
             else
             {
-                ui.ProviderStatus.StatusText = "No AIOStreams manifest URL — go to Connect tab";
+                ui.ProviderStatus.StatusText = "No manifest URL — visit the Connect tab";
                 ui.ProviderStatus.Status = ItemStatus.Failed;
             }
 
-            // Libraries — check paths are set to non-default values AND directories exist on disk
-            // Default paths (/media/infinitedrive/...) indicate the user has never run setup
-            bool IsConfigured(string path, string def) =>
-                !string.IsNullOrWhiteSpace(path) && path != def;
+            // Libraries — path must be set and the directory must exist on disk
+            bool IsConfigured(string path) =>
+                !string.IsNullOrWhiteSpace(path) && System.IO.Directory.Exists(path);
 
-            var moviesOk = IsConfigured(cfg.SyncPathMovies, "/media/infinitedrive/movies")
-                           && System.IO.Directory.Exists(cfg.SyncPathMovies);
-            var showsOk  = IsConfigured(cfg.SyncPathShows, "/media/infinitedrive/shows")
-                           && System.IO.Directory.Exists(cfg.SyncPathShows);
-            var animeOk  = IsConfigured(cfg.SyncPathAnime, "/media/infinitedrive/anime")
-                           && System.IO.Directory.Exists(cfg.SyncPathAnime);
+            var moviesOk = IsConfigured(cfg.SyncPathMovies);
+            var showsOk  = IsConfigured(cfg.SyncPathShows);
+            var animeOk  = IsConfigured(cfg.SyncPathAnime);
 
             var configured = new System.Collections.Generic.List<string>();
             var missing    = new System.Collections.Generic.List<string>();
@@ -59,18 +56,18 @@ namespace InfiniteDrive.UI.Settings
 
             if (configured.Count == 3)
             {
-                ui.LibraryStatus.StatusText = "Movies, Shows, and Anime paths exist";
+                ui.LibraryStatus.StatusText = "Movies · Shows · Anime";
                 ui.LibraryStatus.Status = ItemStatus.Succeeded;
             }
             else if (configured.Count == 0)
             {
-                ui.LibraryStatus.StatusText = "Not configured — open 2 Libraries tab";
+                ui.LibraryStatus.StatusText = "No paths set — visit the Libraries tab";
                 ui.LibraryStatus.Status = ItemStatus.Failed;
             }
             else
             {
                 ui.LibraryStatus.StatusText =
-                    $"{string.Join(" + ", configured)} configured; {string.Join(", ", missing)} missing";
+                    $"{string.Join(" · ", configured)} ready · {string.Join(", ", missing)} missing";
                 ui.LibraryStatus.Status = ItemStatus.Warning;
             }
 
@@ -78,12 +75,14 @@ namespace InfiniteDrive.UI.Settings
             var buckets = cfg.DesiredVersions;
             if (buckets != null && buckets.Count > 0)
             {
-                ui.QualityStatus.StatusText = $"{buckets.Count} bucket(s) defined";
+                var total = buckets.Sum(b => b.Count);
+                var label = buckets.Count == 1 ? "bucket" : "buckets";
+                ui.QualityStatus.StatusText = $"{buckets.Count} {label} · {total} versions max";
                 ui.QualityStatus.Status = ItemStatus.Succeeded;
             }
             else
             {
-                ui.QualityStatus.StatusText = "No buckets — default 1080p/Any Audio applied automatically";
+                ui.QualityStatus.StatusText = "No buckets · defaulting to 1080p, any audio";
                 ui.QualityStatus.Status = ItemStatus.Warning;
             }
 
