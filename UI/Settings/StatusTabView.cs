@@ -37,7 +37,7 @@ namespace InfiniteDrive.UI.Settings
             }
             else
             {
-                ui.ProviderStatus.StatusText = "No manifest URL — visit the Connect tab";
+                ui.ProviderStatus.StatusText = "No manifest URL — visit the Providers tab";
                 ui.ProviderStatus.Status = ItemStatus.Failed;
             }
 
