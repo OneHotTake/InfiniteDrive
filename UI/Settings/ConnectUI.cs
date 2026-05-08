@@ -27,9 +27,9 @@ namespace InfiniteDrive.UI.Settings
         // ── Section 1: AIOStreams Providers ───────────────────────────────────
 
         public SpacerItem Spacer0 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionProviders { get; set; } = new CaptionItem("AIOStreams Providers");
+        public CaptionItem CaptionProviders { get; set; } = new CaptionItem("Manifest URLs");
 
-        [DisplayName("Primary Manifest URL")]
+        [DisplayName("Primary Manifest")]
         [Description("The main manifest URL from your AIOStreams web UI. This is where InfiniteDrive gets all its streaming links.")]
         public string PrimaryManifestUrl { get; set; } = string.Empty;
 
@@ -41,8 +41,8 @@ namespace InfiniteDrive.UI.Settings
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
-        [DisplayName("Secondary Manifest URL (optional)")]
-        [Description("A backup AIOStreams server. If your primary server goes down, InfiniteDrive will automatically use this one. Leave blank if you don't have a backup.")]
+        [DisplayName("Secondary Manifest")]
+        [Description("(Optional) A backup AIOStreams server. If your primary server goes down, InfiniteDrive will automatically use this one.")]
         public string SecondaryManifestUrl { get; set; } = string.Empty;
 
         public ButtonItem TestSecondaryButton { get; set; } = new ButtonItem("Test Secondary")
@@ -57,7 +57,7 @@ namespace InfiniteDrive.UI.Settings
 
         public StatusItem SetupTestResult { get; set; } = new StatusItem("Test Result", "No tests run yet", ItemStatus.None);
 
-        public ButtonItem RunSetupTestButton { get; set; } = new ButtonItem("Run Full Setup Test")
+        public ButtonItem RunSetupTestButton { get; set; } = new ButtonItem("Test Both")
         {
             Icon = IconNames.network_check,
             Data1 = RunSetupTestCommand,

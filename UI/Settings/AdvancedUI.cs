@@ -41,9 +41,7 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionCache { get; set; } = new CaptionItem("Cache");
 
         public LabelItem ClearCacheHelp { get; set; } = new LabelItem(
-            "Wipes cached stream URL lookups from the database. " +
-            "Marvin will re-resolve all streams on its next cycle. " +
-            "Safe to run at any time — no content is deleted.");
+            "Wipes cached stream URL lookups. Marvin will re-resolve on the next pass.");
 
         public ButtonItem ClearCacheButton { get; set; } = new ButtonItem("Clear Stream Resolution Cache")
         {
@@ -52,50 +50,37 @@ namespace InfiniteDrive.UI.Settings
             ConfirmationPrompt = "Clear all cached stream URL lookups? Marvin will re-resolve streams on its next run.",
         };
 
-        // ── Section 3: Reset ─────────────────────────────────────────────────
+        // ── Section 3: Last Resort ───────────────────────────────────────────
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionReset { get; set; } = new CaptionItem("Reset");
+        public CaptionItem CaptionLastResort { get; set; } = new CaptionItem("Last Resort");
 
-        public LabelItem RebuildHelp { get; set; } = new LabelItem(
-            "REBUILD LIBRARIES: Triggers a full Marvin sync to re-populate your Emby libraries from scratch. " +
-            "No data or settings are deleted — this is a safe re-index operation. " +
-            "Use this if your libraries look stale or items are missing.");
+        public LabelItem LastResortHelp { get; set; } = new LabelItem(
+            "These actions are permanent. There is no undo.");
 
-        public ButtonItem RebuildLibrariesButton { get; set; } = new ButtonItem("Rebuild Libraries")
+        public ButtonItem RebuildLibrariesButton { get; set; } = new ButtonItem("Force Full Rebuild")
         {
             Icon = IconNames.refresh,
             Data1 = RebuildLibrariesCommand,
-            ConfirmationPrompt = "Trigger a full library rebuild? No data is deleted — Marvin will re-sync all catalogs and recreate .strm files.",
+            ConfirmationPrompt = "Re-sync all catalogs and rewrite every .strm file from scratch. This may take several minutes.",
         };
 
         public SpacerItem Spacer2 { get; set; } = new SpacerItem();
 
-        public LabelItem ResetDataHelp { get; set; } = new LabelItem(
-            "RESET ALL DATA: Deletes every catalog item, .strm file, and cached stream URL from disk and the database. " +
-            "Your settings (manifest URLs, library paths, quality tiers) are preserved. " +
-            "Use this to start completely fresh while keeping your configuration.");
-
-        public ButtonItem ResetAllDataButton { get; set; } = new ButtonItem("Reset All InfiniteDrive Data")
+        public ButtonItem ResetAllDataButton { get; set; } = new ButtonItem("Wipe Library Data")
         {
             Icon = IconNames.warning,
             Data1 = ResetAllDataCommand,
-            ConfirmationPrompt = "WARNING: Deletes all catalog items, .strm files, and cached stream data. Your settings are kept. This cannot be undone. Continue?",
+            ConfirmationPrompt = "Deletes all catalog items, .strm files, and cached stream data. Your settings are preserved. This cannot be undone.",
         };
 
         public SpacerItem Spacer3 { get; set; } = new SpacerItem();
 
-        public LabelItem FactoryHelp { get; set; } = new LabelItem(
-            "FACTORY RESET: Wipes ALL settings AND all data back to the out-of-box state — " +
-            "as if you had just installed the plugin. " +
-            "Manifest URLs, library paths, quality tiers, API keys — everything is cleared. " +
-            "Use this only as a last resort.");
-
-        public ButtonItem ResetFactoryDefaultsButton { get; set; } = new ButtonItem("Factory Reset")
+        public ButtonItem ResetFactoryDefaultsButton { get; set; } = new ButtonItem("Reset to Factory Defaults")
         {
             Icon = IconNames.restore,
             Data1 = ResetFactoryDefaultsCommand,
-            ConfirmationPrompt = "FACTORY RESET: Wipes all settings AND all data. The plugin will need to be fully reconfigured. This cannot be undone. Continue?",
+            ConfirmationPrompt = "Resets every setting and deletes all data. InfiniteDrive will be as if it was just installed. This cannot be undone.",
         };
 
         public StatusItem ActionStatus { get; set; } = new StatusItem("Last Action", "None", ItemStatus.None);
