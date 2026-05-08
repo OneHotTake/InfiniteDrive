@@ -655,6 +655,30 @@ namespace InfiniteDrive.Services
                         }
                     }).ToList();
 
+                    // Supplement with Cinemeta — broader IMDB-based coverage for movie/series
+                    // (restored: was present in old SearchLiveAsync fallback, dropped when we
+                    //  switched to manifest-discovered catalog IDs)
+                    var cinemetaClient = AioStreamsClient.CreateForStremioBase("https://v3-cinemeta.strem.io", _logger);
+                    var cinemetaTypes = mediaType == "anime" ? Array.Empty<string>()
+                        : mediaType != null      ? new[] { mediaType }
+                        :                          new[] { "movie", "series" };
+                    foreach (var cType in cinemetaTypes)
+                    {
+                        var cDef = new AioStreamsCatalogDef { Type = cType, Id = "top", Name = "Cinemeta" };
+                        var capturedType = cType;
+                        var capturedDef  = cDef;
+                        catalogTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var r = await cinemetaClient.GetCatalogAsync(
+                                    capturedType, "top", query, null, null, cts.Token);
+                                return (capturedDef, r);
+                            }
+                            catch { return (capturedDef, (AioStreamsCatalogResponse?)null); }
+                        }));
+                    }
+
                     var catalogResults = await Task.WhenAll(catalogTasks);
 
                     var liveResults = new Dictionary<string, (DiscoverItem Item, string CatalogSource)>(StringComparer.OrdinalIgnoreCase);
