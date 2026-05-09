@@ -44,6 +44,7 @@ define([], function () {
         if (rating) h += '<span class="id-card-rating">&#9733; ' + esc(rating) + '</span>';
         if (cert) h += '<span class="id-card-cert">' + esc(cert) + '</span>';
         if (inLib) h += '<span class="id-card-in-lib">In Library</span>';
+        else if (item.IsPending) h += '<span class="id-card-pending">Pending</span>';
         h += '</div></div></div>';
         return h;
     }
@@ -172,6 +173,7 @@ define([], function () {
         var genres = item.Genres || '';
         var overview = item.Overview || 'Loading overview...';
         var inLib = item.InLibrary;
+        var isPending = item.IsPending;
         var mediaType = item.MediaType || 'movie';
 
         var h = '';
@@ -207,6 +209,8 @@ define([], function () {
         h += '<div class="id-modal-actions">';
         if (inLib) {
             h += '<button class="id-btn-secondary" disabled>In Library</button>';
+        } else if (isPending) {
+            h += '<button class="id-btn-secondary" disabled style="color:#00a4dc">Pending</button>';
         } else {
             h += '<button class="id-btn-primary" data-add-id="' + escAttr(aioId) + '">Add to Library</button>';
         }
@@ -237,17 +241,22 @@ define([], function () {
             dataType: 'json'
         }).then(function (data) {
             if (data && data.Ok) {
-                toast('Added "' + (item.Title || '') + '" to library', 'success');
-                item.InLibrary = true;
+                var label = data.IsPending ? 'Pending' : 'In Library';
+                var badgeClass = data.IsPending ? 'id-card-pending' : 'id-card-in-lib';
+                toast('"' + (item.Title || '') + '" added — ' + (data.IsPending ? 'stream pending Marvin' : 'ready to play'), 'success');
+                item.InLibrary = !data.IsPending;
+                item.IsPending = !!data.IsPending;
                 // Update any visible cards
                 document.querySelectorAll('.id-card[data-id="' + aioId + '"]').forEach(function (card) {
                     var meta = card.querySelector('.id-card-meta');
-                    if (meta && !meta.querySelector('.id-card-in-lib')) {
-                        meta.innerHTML += '<span class="id-card-in-lib">In Library</span>';
+                    if (meta) {
+                        var existing = meta.querySelector('.id-card-in-lib, .id-card-pending');
+                        if (existing) existing.remove();
+                        meta.innerHTML += '<span class="' + badgeClass + '">' + label + '</span>';
                     }
                 });
                 // Update modal button
-                if (btn) { btn.textContent = 'In Library'; btn.className = 'id-btn-secondary'; btn.disabled = true; }
+                if (btn) { btn.textContent = label; btn.className = 'id-btn-secondary'; btn.disabled = true; }
             } else {
                 toast(data && data.Error ? data.Error : 'Failed to add', 'error');
                 if (btn) { btn.disabled = false; btn.textContent = 'Add to Library'; }

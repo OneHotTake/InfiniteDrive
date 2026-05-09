@@ -176,6 +176,9 @@ namespace InfiniteDrive.Services
         /// <summary>Path to the created .strm file.</summary>
         public string? StrmPath { get; set; }
 
+        /// <summary><c>true</c> when the item is queued but Marvin hasn't assigned a stream yet.</summary>
+        public bool IsPending { get; set; }
+
         /// <summary>Error message if <c>Ok</c> is <c>false</c>.</summary>
         public string? Error { get; set; }
     }
@@ -239,8 +242,11 @@ namespace InfiniteDrive.Services
         /// <summary>MPAA/TV rating (e.g., "PG-13", "R", "TV-MA").</summary>
         public string? Certification { get; set; }
 
-        /// <summary><c>true</c> if already in user's Emby library.</summary>
+        /// <summary><c>true</c> if already in user's Emby library with a stream assigned.</summary>
         public bool InLibrary { get; set; }
+
+        /// <summary><c>true</c> if requested/queued but stream not yet assigned by Marvin.</summary>
+        public bool IsPending { get; set; }
 
         /// <summary>Emby internal item ID (for navigation to detail page).</summary>
         public string? EmbyItemId { get; set; }
@@ -389,19 +395,28 @@ namespace InfiniteDrive.Services
 
                 // 4. Batch library lookup to fill InLibrary on live results not already marked
                 var allMetas = items
-                    .Where(i => !i.InLibrary)
+                    .Where(i => !i.InLibrary && !i.IsPending)
                     .Select(i => new AioStreamsMeta { Id = i.AioId })
                     .ToList();
                 if (allMetas.Count > 0)
                 {
+                    var aioIdLookup = allMetas.Select(m => m.Id).Where(id => !string.IsNullOrEmpty(id)).ToList();
                     var libraryMap = BatchLibraryLookup(allMetas);
                     foreach (var item in items)
                     {
-                        if (!item.InLibrary && libraryMap.TryGetValue(item.AioId, out var lib))
+                        if (!item.InLibrary && !item.IsPending && libraryMap.TryGetValue(item.AioId, out var lib))
                         {
                             item.InLibrary  = lib.Item1;
                             item.EmbyItemId ??= lib.Item2;
                         }
+                    }
+
+                    // Pending pass: items in catalog but without a stream yet
+                    var pendingIds = _db.GetPendingCatalogAioIds(aioIdLookup.Where(id => id != null).Select(id => id!).ToList());
+                    foreach (var item in items)
+                    {
+                        if (!item.InLibrary && !item.IsPending && pendingIds.Contains(item.AioId))
+                            item.IsPending = true;
                     }
                 }
 
@@ -411,14 +426,22 @@ namespace InfiniteDrive.Services
                 //    When collapsing, prefer: anime > series > movie, then InLibrary, then higher rating
                 var deduped = items
                     .GroupBy(i => i.AioId, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.OrderByDescending(x => x.InLibrary ? 1 : 0).First())
+                    .Select(g => g.OrderByDescending(x => x.InLibrary ? 2 : x.IsPending ? 1 : 0).First())
                     .GroupBy(i => NormalizeTitle(i.Title) + "|" + (i.Year?.ToString() ?? ""))
-                    .Select(g => g
-                        .OrderByDescending(x => x.MediaType switch { "anime" => 3, "series" => 2, _ => 1 })
-                        .ThenByDescending(x => x.InLibrary ? 1 : 0)
-                        .ThenByDescending(x => x.ImdbRating ?? 0)
-                        .First())
-                    .OrderBy(x => x.InLibrary ? 0 : 1)
+                    .Select(g =>
+                    {
+                        var winner = g
+                            .OrderByDescending(x => x.MediaType switch { "anime" => 3, "series" => 2, _ => 1 })
+                            .ThenByDescending(x => x.InLibrary ? 2 : x.IsPending ? 1 : 0)
+                            .ThenByDescending(x => x.ImdbRating ?? 0)
+                            .First();
+                        // Anime ID is the primary driver — if any duplicate has an anime-prefixed ID,
+                        // the canonical entry is anime regardless of what the winner's stored type says
+                        if (winner.MediaType != "anime" && g.Any(x => IsAnimePrefixedId(x.AioId)))
+                            winner.MediaType = "anime";
+                        return winner;
+                    })
+                    .OrderBy(x => x.InLibrary ? 0 : x.IsPending ? 1 : 2)
                     .ThenBy(x => x.Title)
                     .Take(50)
                     .ToList();
@@ -526,6 +549,14 @@ namespace InfiniteDrive.Services
 
                 var libraryIds = BatchLibraryLookup(allMetas.Select(x => x.m).ToList());
 
+                // Cross-check against our catalog — items known as anime are excluded from movie/series rails
+                var allAioIds = allMetas
+                    .Select(x => x.m.ImdbId ?? x.m.Id ?? "")
+                    .Where(id => !string.IsNullOrEmpty(id))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var animeInCatalog = _db.GetAnimeMediaTypeAioIds(allAioIds);
+
                 var fresh = new List<DiscoverRail>();
                 foreach (var t in new[] { "movie", "series" })
                 {
@@ -534,8 +565,14 @@ namespace InfiniteDrive.Services
                     if (railMetas.Count == 0) continue;
                     var rail = new DiscoverRail { Title = label, Type = t };
                     foreach (var meta in railMetas)
+                    {
+                        var aioId = meta.ImdbId ?? meta.Id ?? "";
+                        // Skip items our catalog has classified as anime — they belong on the anime rail
+                        if (animeInCatalog.Contains(aioId)) continue;
                         rail.Items.Add(MapMetaToDiscoverItem(meta, libraryIds));
-                    fresh.Add(rail);
+                    }
+                    if (rail.Items.Count > 0)
+                        fresh.Add(rail);
                 }
 
                 _cinemetaCache     = fresh;
@@ -569,16 +606,20 @@ namespace InfiniteDrive.Services
                 }
                 catch { /* non-critical */ }
             }
+            // Anime ID is the primary driver — override stored media_type if AioId is anime-prefixed
+            var mediaType = IsAnimePrefixedId(ci.AioId) ? "anime" : ci.MediaType;
+            var onDisk = !string.IsNullOrEmpty(ci.StrmPath);
             return new DiscoverItem
             {
                 AioId       = ci.AioId,
                 Title       = ci.Title,
                 Year        = ci.Year,
-                MediaType   = ci.MediaType,
+                MediaType   = mediaType,
                 PosterUrl   = poster,
                 BackdropUrl = backdrop,
                 Overview    = overview,
-                InLibrary   = true, // all catalog_items are InfiniteDrive-managed
+                InLibrary   = onDisk,
+                IsPending   = !onDisk,
                 CatalogSource = "local:catalog"
             };
         }
@@ -1071,9 +1112,11 @@ namespace InfiniteDrive.Services
                     };
                 }
 
-                // Check if already in library
+                // Check if already in library — only skip if .strm file is actually on disk
                 var existing = await _db.GetCatalogItemByAioIdAsync(req.AioId);
-                if (existing != null)
+                if (existing != null
+                    && !string.IsNullOrEmpty(existing.StrmPath)
+                    && File.Exists(existing.StrmPath))
                 {
                     return new DiscoverAddToLibraryResponse
                     {
@@ -1114,39 +1157,51 @@ namespace InfiniteDrive.Services
                 // Get current user ID for attribution
                 var callerUserId = TryGetCurrentUserId();
 
-                // Create catalog_item entry with PINNED state
+                // Pull metadata from discover_catalog so the item passes the
+                // raw_meta_json IS NOT NULL filter on the rails queries.
                 var now = DateTime.UtcNow.ToString("o");
-
-                // Pull metadata from discover_catalog if available, so the item
-                // passes the raw_meta_json IS NOT NULL filter on the rails queries.
                 var discoverEntry = await _db.GetDiscoverCatalogEntryByAioIdAsync(req.AioId);
                 string? rawMetaJson = null;
                 if (discoverEntry != null)
                 {
                     rawMetaJson = System.Text.Json.JsonSerializer.Serialize(new
                     {
-                        name     = discoverEntry.Title,
-                        poster   = discoverEntry.PosterUrl,
+                        name       = discoverEntry.Title,
+                        poster     = discoverEntry.PosterUrl,
                         background = discoverEntry.BackdropUrl,
                         description = discoverEntry.Overview,
                         imdbRating = discoverEntry.ImdbRating?.ToString(),
-                        genres   = discoverEntry.Genres?.Split(',').Select(g => g.Trim()).ToList(),
+                        genres     = discoverEntry.Genres?.Split(',').Select(g => g.Trim()).ToList(),
                     });
                 }
 
-                var catalogItem = new CatalogItem
+                // Reuse existing catalog item if present (just needs a .strm written).
+                // Create a new one only if the item isn't in the catalog at all.
+                CatalogItem catalogItem;
+                if (existing != null)
                 {
-                    Id = Guid.NewGuid().ToString(),
-                    AioId = req.AioId,
-                    Title = req.Title,
-                    Year = req.Year,
-                    MediaType = req.Type.ToLowerInvariant(),
-                    Source = "discover",
-                    ItemState = ItemState.Pinned,
-                    PinSource = $"user:discover:{now}",
-                    PinnedAt = now,
-                    RawMetaJson = rawMetaJson,
-                };
+                    catalogItem = existing;
+                    catalogItem.ItemState = ItemState.Pinned;
+                    catalogItem.PinSource = $"user:discover:{now}";
+                    catalogItem.PinnedAt = now;
+                    if (rawMetaJson != null) catalogItem.RawMetaJson = rawMetaJson;
+                }
+                else
+                {
+                    catalogItem = new CatalogItem
+                    {
+                        Id        = Guid.NewGuid().ToString(),
+                        AioId     = req.AioId,
+                        Title     = req.Title,
+                        Year      = req.Year,
+                        MediaType = req.Type.ToLowerInvariant(),
+                        Source    = "discover",
+                        ItemState = ItemState.Pinned,
+                        PinSource = $"user:discover:{now}",
+                        PinnedAt  = now,
+                        RawMetaJson = rawMetaJson,
+                    };
+                }
 
                 // Write .strm files via StrmWriterService (Sprint 156)
                 var strmPath = await _strmWriter.WriteAsync(
@@ -1198,8 +1253,9 @@ namespace InfiniteDrive.Services
 
                 return new DiscoverAddToLibraryResponse
                 {
-                    Ok = true,
-                    StrmPath = strmPath
+                    Ok        = true,
+                    StrmPath  = strmPath,
+                    IsPending = true   // stream not yet assigned; Marvin will populate on next pass
                 };
             }
             catch (Exception ex)

@@ -152,18 +152,12 @@ namespace InfiniteDrive.Services
                 catalogItem.Title = item.Title;
                 if (item.Year.HasValue) catalogItem.Year = item.Year;
                 catalogItem.Source = "external_list";
+                catalogItem.SourceListId = catalog.Id;
 
                 await _db.UpsertCatalogItemAsync(catalogItem, ct);
 
                 // Write .strm file
                 await _strmWriter.WriteAsync(catalogItem, SourceType.UserRss, catalog.OwnerUserId, ct);
-
-                // Link to this catalog in source_memberships
-                await _db.UpsertSourceMembershipWithCatalogAsync(
-                    sourceId,
-                    catalogItem.Id,
-                    catalog.Id,
-                    ct);
 
                 if (isNew) added++; else updated++;
             }
