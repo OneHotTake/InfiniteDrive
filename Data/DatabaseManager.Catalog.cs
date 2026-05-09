@@ -939,5 +939,58 @@ namespace InfiniteDrive.Data
 
             return result;
         }
+
+        /// <summary>
+        /// Returns the subset of the given AIO IDs that are in catalog_items but have no
+        /// strm_path yet — i.e. not yet written to disk. Used by Discover to show a
+        /// "Pending" badge: the item is known to the system but has no file on disk yet.
+        /// </summary>
+        public HashSet<string> GetPendingCatalogAioIds(List<string> aioIds)
+        {
+            if (aioIds == null || aioIds.Count == 0)
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var placeholders = string.Join(",", aioIds.Select((_, i) => $"@p{i}"));
+            var sql = $"SELECT DISTINCT aio_id FROM catalog_items WHERE aio_id IN ({placeholders}) AND removed_at IS NULL AND strm_path IS NULL";
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            for (var i = 0; i < aioIds.Count; i++)
+                BindText(stmt, $"@p{i}", aioIds[i]);
+            foreach (var row in stmt.AsRows())
+            {
+                var val = row.GetString(0);
+                if (!string.IsNullOrEmpty(val))
+                    result.Add(val);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Returns the subset of the given AIO IDs that are classified as anime in catalog_items.
+        /// Used by Discover to filter/reclassify Cinemeta items that are actually anime.
+        /// </summary>
+        public HashSet<string> GetAnimeMediaTypeAioIds(List<string> aioIds)
+        {
+            if (aioIds == null || aioIds.Count == 0)
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var placeholders = string.Join(",", aioIds.Select((_, i) => $"@p{i}"));
+            var sql = $"SELECT DISTINCT aio_id FROM catalog_items WHERE media_type = 'anime' AND aio_id IN ({placeholders}) AND removed_at IS NULL";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            for (var i = 0; i < aioIds.Count; i++)
+                BindText(stmt, $"@p{i}", aioIds[i]);
+
+            foreach (var row in stmt.AsRows())
+            {
+                var val = row.GetString(0);
+                if (!string.IsNullOrEmpty(val))
+                    result.Add(val);
+            }
+
+            return result;
+        }
     }
 }

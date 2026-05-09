@@ -489,7 +489,7 @@ namespace InfiniteDrive.Tasks
         /// Currently includes IMDB and TMDB; future sprints can add
         /// Kitsu, AniList, MAL after implementing Haglund API integration.
         /// </summary>
-        private static string? BuildUniqueIdsJson(string aioId, string? tmdbId, JsonElement? meta)
+        private static string? BuildUniqueIdsJson(string aioId, string? tmdbId, string? crossImdbId, JsonElement? meta)
         {
             var ids = new List<System.Text.Json.Nodes.JsonNode>();
 
@@ -509,6 +509,12 @@ namespace InfiniteDrive.Tasks
                     ids.Add(CreateProviderId("imdb", aioId));
                 // else: unknown prefix — skip (don't store garbage as "imdb")
             }
+
+            // For anime items: also store the IMDB cross-reference so Emby's metadata resolver
+            // can decorate the item with posters/descriptions via IMDB even though the primary
+            // ID is a kitsu/anilist/etc. anchor.
+            if (!string.IsNullOrEmpty(crossImdbId) && crossImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                ids.Add(CreateProviderId("imdb", crossImdbId));
 
             if (!string.IsNullOrEmpty(tmdbId))
                 ids.Add(CreateProviderId("tmdb", tmdbId));
@@ -547,16 +553,27 @@ namespace InfiniteDrive.Tasks
                 || IsAnimePrefixedId(meta.Id)
                 || IsAnimePrefixedId(meta.ImdbId);
 
-            // Resolve IMDB ID — AIOStreams may use the IMDB ID directly as 'id'
-            // or put it in a separate imdb_id field.
-            var aioId = ResolveImdbId(meta.ImdbId ?? meta.Id);
-
-            // For anime catalogs, accept non-IMDB IDs (kitsu:XXXXX, anilist:XXXXX, etc.)
-            // when no IMDB cross-reference exists.
-            var primaryId = aioId;
-            if (string.IsNullOrEmpty(primaryId) && isAnimeCatalog && !string.IsNullOrEmpty(meta.Id))
+            // For anime items: keep the anime-prefixed ID (kitsu:, anilist:, etc.) as the primary
+            // identity anchor. The IMDB cross-reference (if any) is stored in UniqueIdsJson so
+            // Emby's metadata resolvers can still find posters/descriptions via IMDB/TMDB.
+            // Categorization (folder routing) is always driven by the anime-prefixed aioId.
+            //
+            // For non-anime items: prefer the IMDB ID as the primary ID.
+            string aioId, primaryId, crossImdbId;
+            if (isAnimeCatalog && !string.IsNullOrEmpty(meta.Id) && IsAnimePrefixedId(meta.Id))
             {
-                primaryId = meta.Id; // e.g. "kitsu:46474"
+                aioId         = meta.Id;                        // e.g. "kitsu:46474" — identity anchor
+                primaryId     = meta.Id;
+                crossImdbId   = ResolveImdbId(meta.ImdbId);    // "tt1234567" or "" — metadata decoration
+            }
+            else
+            {
+                aioId       = ResolveImdbId(meta.ImdbId ?? meta.Id);
+                primaryId   = aioId;
+                crossImdbId = string.Empty;
+                // Accept non-IMDB IDs for anime catalogs when no IMDB cross-reference exists.
+                if (string.IsNullOrEmpty(primaryId) && isAnimeCatalog && !string.IsNullOrEmpty(meta.Id))
+                    primaryId = aioId = meta.Id;
             }
 
             if (string.IsNullOrEmpty(primaryId))
@@ -631,9 +648,9 @@ namespace InfiniteDrive.Tasks
             return new CatalogItem
             {
                 Id          = GenerateDeterministicId(primaryId, "aiostreams"),
-                AioId       = string.IsNullOrEmpty(aioId) ? primaryId : aioId,
+                AioId       = primaryId,
                 TmdbId       = tmdbId,
-                UniqueIdsJson = BuildUniqueIdsJson(primaryId, tmdbId, null),
+                UniqueIdsJson = BuildUniqueIdsJson(primaryId, tmdbId, crossImdbId, null),
                 Title        = meta.Name ?? "Unknown",
                 Year         = year,
                 MediaType    = mediaType,

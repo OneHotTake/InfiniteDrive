@@ -502,7 +502,7 @@ namespace InfiniteDrive.Tasks
 
                 // Upgrade: write new version files
                 var folderName = Services.NamingPolicyService.BuildFolderName(item);
-                var folderPath = item.StrmPath!;
+                var folderPath = System.IO.Path.GetDirectoryName(item.StrmPath)!;
                 var folderBareName = System.IO.Path.GetFileName(folderName);
 
                 var written = await fileManager.WriteOrReplaceStrmFilesAsync(
