@@ -149,56 +149,6 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Cache-first stream URL resolution.
-        /// Returns the stream URL from cache or resolves via providers if cache miss/stale.
-        /// </summary>
-        public static async Task<string?> GetStreamUrlAsync(
-            string aioId,
-            int? season,
-            int? episode,
-            PluginConfiguration config,
-            DatabaseManager db,
-            ILogger logger,
-            ResolverHealthTracker? healthTracker = null,
-            CancellationToken cancellationToken = default)
-        {
-            // Step 1: Check cache first
-            var cached = await db.GetCachedStreamAsync(aioId, season, episode);
-            var candidates = cached != null
-                ? await db.GetStreamCandidatesAsync(aioId, season, episode)
-                : new List<StreamCandidate>();
-
-            // Step 2: If valid cache hit, use rank 0 candidate
-            string? streamUrl = null;
-            if (cached?.Status == "valid" && !IsExpired(cached.ExpiresAt))
-            {
-                streamUrl = candidates.Count > 0 ? candidates[0].Url : cached.StreamUrl;
-                logger.LogDebug("[StreamResolutionHelper] Cache HIT for {AioId} S{Season}E{Episode}",
-                    aioId, season ?? 0, episode ?? 0);
-                return streamUrl;
-            }
-
-            // Step 3: Cache miss or stale — sync resolve
-            logger.LogDebug("[StreamResolutionHelper] Cache MISS for {AioId} - resolving via providers", aioId);
-
-            var playReq = new PlayRequest
-            {
-                AioId = aioId,
-                Season = season,
-                Episode = episode
-            };
-
-            var resolved = await SyncResolveViaProvidersAsync(playReq, config, db, logger, healthTracker, cancellationToken);
-            if (resolved.Status == ResolutionStatus.Success && resolved.Entry != null)
-            {
-                var resolvedCandidates = await db.GetStreamCandidatesAsync(aioId, season, episode);
-                streamUrl = resolvedCandidates.Count > 0 ? resolvedCandidates[0].Url : resolved.StreamUrl;
-            }
-
-            return streamUrl;
-        }
-
-        /// <summary>
         /// Builds a ResolutionEntry from the primary (rank=0) candidate.
         /// Public for use by LinkResolverTask.
         /// </summary>

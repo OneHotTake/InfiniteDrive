@@ -150,3 +150,10 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Subtitle provider: AioSubtitleProvider (ISubtitleProvider) with cache-first search + live AIOStreams fallback
 - New: Services/AioSubtitleProvider.cs
 - Modified: DatabaseManager.Catalog.cs (expires_at fix), DatabaseManager.StreamCache.cs (GetRecentCachedEntries, GetCachedSubtitlesAsync), AioStreamsClient.cs (FetchSubtitlesAsync), PreCacheAioStreamsTask.cs (jitter + probe + subtitle decoration), AioMediaSourceProvider.cs (live subtitle decoration), CachedStreamEntry.cs (SubtitlesJson), AioStreams.cs (enhanced subtitle DTO), PluginConfiguration.cs (removed 2 dead configs), UI settings (removed dead fields)
+
+## Multi-Version STRM Prewriting (2026-05-06)
+- Branch: feature/multi-version-strm-prewrite
+- New: Services/StreamParser.cs, Services/VersionSelectorService.cs, Services/StrmFileManager.cs, Models/DesiredVersionBucket.cs, Models/ParsedStream.cs
+- Modified: RefreshTask.cs (multi-version write in ProcessMovieItemAsync), MarvinTask.cs (Phase 3b VersionRefreshPassAsync), DatabaseManager.cs (selected_versions_json + last_version_refresh_at columns), PluginConfiguration.cs (DesiredVersions, MaxVersionsPerItem), Plugin.cs (StrmFileManager singleton)
+- Deprecated: AioMediaSourceProvider.GetMediaSources/OpenMediaSource, ResolverService, BuildSignedStrmUrl
+- Build: 0 errors, 0 warnings

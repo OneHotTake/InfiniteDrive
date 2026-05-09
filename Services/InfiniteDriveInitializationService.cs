@@ -81,9 +81,6 @@ namespace InfiniteDrive.Services
                 // Initialize database — ApplicationPaths guaranteed settled here
                 instance.InitialiseDatabaseManager();
 
-                // Auto-generate PluginSecret if absent
-                instance.EnsurePluginSecret();
-
                 // Initialize CooldownGate (Sprint 155: CooldownGate throttling)
                 instance.CooldownGate = new CooldownGate(
                     () => instance.Configuration,
@@ -92,6 +89,18 @@ namespace InfiniteDrive.Services
 
                 // Initialize PlaylistService with SDK interfaces
                 instance.InitializePlaylistService(_playlistManager, _libraryManager);
+
+                // Ensure at least one quality bucket exists — never let Marvin run blind
+                var cfg = instance.Configuration;
+                if (cfg.DesiredVersions == null || cfg.DesiredVersions.Count == 0)
+                {
+                    cfg.DesiredVersions = new System.Collections.Generic.List<Models.DesiredVersionBucket>
+                    {
+                        new Models.DesiredVersionBucket { Resolution = "1080p", Audio = "Any Audio", Count = 2 }
+                    };
+                    instance.SaveConfiguration();
+                    _logger.LogInformation("[InfiniteDrive] No quality buckets found — created default (1080p × 2)");
+                }
 
                 _logger.LogInformation("[InfiniteDrive] Core initialization complete");
             }

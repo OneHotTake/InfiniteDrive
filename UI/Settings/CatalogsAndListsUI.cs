@@ -12,46 +12,40 @@ namespace InfiniteDrive.UI.Settings
         public const string AddSystemListCommand = nameof(AddSystemListCommand);
         public const string RemoveSystemListCommand = nameof(RemoveSystemListCommand);
 
-        public override string EditorTitle => "Catalogs & Lists";
+        public override string EditorTitle => "Sources";
         public override string EditorDescription =>
-            "Manage AIOStreams system catalogs, list provider API keys, system-wide lists, and user lists.";
+            "AIOStreams catalogs pulled from your manifest, optional API keys for list providers, " +
+            "and system-wide curated lists that supplement your Discover page.";
 
         // ═══════════════════════════════════════════════════════════════
         // Section 1: AIOStreams System Catalogs
         // ═══════════════════════════════════════════════════════════════
 
-        public CaptionItem CaptionCatalogs { get; set; } = new CaptionItem("AIOStreams System Catalogs");
+        public CaptionItem CaptionCatalogs { get; set; } = new CaptionItem("Catalogs");
 
         public GenericItemList CatalogList { get; set; } = new GenericItemList();
 
-        public ButtonItem SyncCatalogsButton { get; set; } = new ButtonItem("Refresh All Catalogs Now")
+        public ButtonItem SyncCatalogsButton { get; set; } = new ButtonItem("Sync Now")
         {
             Icon = IconNames.sync,
             Data1 = SyncCatalogsCommand,
         };
 
-        public StatusItem CatalogSyncStatus { get; set; } = new StatusItem("Sync", "Idle", ItemStatus.None);
-
-        public SpacerItem Spacer1 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionCatalogSettings { get; set; } = new CaptionItem("Catalog Sync Settings");
-
-        [DisplayName("Catalog Sync Interval (hours)")]
-        [Description("Minimum hours between catalog syncs. Marvin runs every 10 min but will skip sync if within this interval. Default: 1.")]
-        public int CatalogSyncIntervalHours { get; set; } = 1;
+        public StatusItem CatalogSyncStatus { get; set; } = new StatusItem("Sync", "—", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
         // Section 2: List Provider API Keys
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionProviderKeys { get; set; } = new CaptionItem("List Provider API Keys");
+        public CaptionItem CaptionProviderKeys { get; set; } = new CaptionItem("API Keys");
 
         [DisplayName("Trakt Client ID")]
-        [Description("Used for Trakt list provider. Required for Trakt lists.")]
+        [Description("Optional. Required only if you want to import Trakt lists. Get a free key at trakt.tv → Settings → Your API Apps.")]
         public string TraktClientId { get; set; } = string.Empty;
 
         [DisplayName("TMDB API Key")]
-        [Description("Used for TMDB list provider and certification lookup. Required for TMDB lists and parental controls.")]
+        [Description("Optional. Required for TMDB lists and content-rating lookups in Restrictions. Get a free key at themoviedb.org → Settings → API.")]
         public string TmdbApiKey { get; set; } = string.Empty;
 
         // ═══════════════════════════════════════════════════════════════
@@ -59,39 +53,48 @@ namespace InfiniteDrive.UI.Settings
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer3 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionSystemLists { get; set; } = new CaptionItem("System-Wide Lists");
+        public CaptionItem CaptionSystemLists { get; set; } = new CaptionItem("System Lists");
+
+        public LabelItem SystemListsHelp { get; set; } = new LabelItem(
+            "System lists are curated collections visible to all users on the Discover page. " +
+            "Paste a MDBList, Trakt, TMDB, or AniList URL and InfiniteDrive will sync it automatically. " +
+            "Trakt lists require a Trakt Client ID above; TMDB lists require a TMDB API key.");
 
         public GenericItemList SystemListTable { get; set; } = new GenericItemList();
 
         [DisplayName("List URL")]
-        [Description("Paste a Trakt, TMDB, or other supported list URL. Example: https://trakt.tv/users/username/lists/list-name")]
+        [Description("Paste a MDBList, Trakt, TMDB, or AniList URL. Syncs immediately on add.")]
         public string SystemListUrlInput { get; set; } = string.Empty;
 
         [DisplayName("Display Name")]
-        [Description("A friendly name for this list. Shown in the lists table above.")]
+        [Description("Friendly name shown in the table above.")]
         public string SystemListNameInput { get; set; } = string.Empty;
 
-        public ButtonItem AddSystemListButton { get; set; } = new ButtonItem("Add New System List")
+        public ButtonItem AddSystemListButton { get; set; } = new ButtonItem("Add List")
         {
             Icon = IconNames.add,
             Data1 = AddSystemListCommand,
         };
 
-        public StatusItem SystemListStatus { get; set; } = new StatusItem("System Lists", "Idle", ItemStatus.None);
+        public StatusItem SystemListStatus { get; set; } = new StatusItem("System Lists", "—", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
         // Section 4: User Lists (read-only for admins)
         // ═══════════════════════════════════════════════════════════════
 
         public SpacerItem Spacer4 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionUserLists { get; set; } = new CaptionItem("User Lists (Read-Only)");
+        public CaptionItem CaptionUserLists { get; set; } = new CaptionItem("User Lists");
+
+        public LabelItem UserListsHelp { get; set; } = new LabelItem(
+            "Each Emby user can create their own private lists from the Discover page. " +
+            "This section shows a summary — individual lists are managed by the users themselves.");
 
         public GenericItemList UserListTable { get; set; } = new GenericItemList();
 
-        public StatusItem UserListStatus { get; set; } = new StatusItem("User Lists", "Idle", ItemStatus.None);
+        public StatusItem UserListStatus { get; set; } = new StatusItem("User Lists", "—", ItemStatus.None);
 
         [DisplayName("Max Lists Per User")]
-        [Description("Maximum number of lists each user can create. Each user list automatically creates a native Emby playlist. Set to 0 to disable user lists entirely.")]
+        [Description("How many lists each user is allowed to create. Set to 0 to disable user lists entirely.")]
         public int MaxListsPerUser { get; set; } = 10;
 
     }

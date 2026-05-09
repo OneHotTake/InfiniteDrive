@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Models;
+using InfiniteDrive.Services;
 using SQLitePCL.pretty;
 using Microsoft.Extensions.Logging;
 
@@ -82,9 +84,9 @@ namespace InfiniteDrive.Data
             var id = Guid.NewGuid().ToString();
             const string sql = @"
                 INSERT INTO user_catalogs
-                    (id, owner_user_id, source_type, service, list_url, display_name, active, created_at)
+                    (id, owner_user_id, service, list_url, display_name, active, created_at)
                 VALUES
-                    (@id, @owner_user_id, 'external_list', @service, @list_url, @display_name, 1, @created_at);";
+                    (@id, @owner_user_id, @service, @list_url, @display_name, 1, @created_at);";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
@@ -108,8 +110,8 @@ namespace InfiniteDrive.Data
             CancellationToken ct = default)
         {
             var sql = activeOnly
-                ? "SELECT id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
-                : "SELECT id, owner_user_id, source_type, service, list_url, display_name, active, last_synced_at, last_sync_status, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
+                ? "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id AND active = 1 ORDER BY created_at;"
+                : "SELECT id, owner_user_id, service, list_url, display_name, active, last_synced_at, created_at FROM user_catalogs WHERE owner_user_id = @owner_user_id ORDER BY created_at;";
 
             return await QueryListAsync(sql,
                 cmd => BindText(cmd, "@owner_user_id", ownerUserId),
@@ -122,8 +124,8 @@ namespace InfiniteDrive.Data
         public async Task<IReadOnlyList<Models.UserCatalog>> GetAllActiveUserCatalogsAsync(CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, owner_user_id, source_type, service, list_url, display_name, active,
-                       last_synced_at, last_sync_status, created_at
+                SELECT id, owner_user_id, service, list_url, display_name, active,
+                       last_synced_at, created_at
                 FROM user_catalogs WHERE active = 1 ORDER BY created_at;";
 
             return await QueryListAsync(sql, null, ReadUserCatalog).ConfigureAwait(false);
@@ -135,8 +137,8 @@ namespace InfiniteDrive.Data
         public Task<Models.UserCatalog?> GetUserCatalogByIdAsync(string catalogId, CancellationToken ct = default)
         {
             const string sql = @"
-                SELECT id, owner_user_id, source_type, service, list_url, display_name, active,
-                       last_synced_at, last_sync_status, created_at
+                SELECT id, owner_user_id, service, list_url, display_name, active,
+                       last_synced_at, created_at
                 FROM user_catalogs WHERE id = @id;";
 
             return QuerySingleAsync(sql,
@@ -159,14 +161,12 @@ namespace InfiniteDrive.Data
             {
                 Id             = row.GetString(0),
                 OwnerUserId    = row.GetString(1),
-                SourceType     = row.GetString(2),
-                Service        = row.GetString(3),
-                ListUrl        = row.GetString(4),
-                DisplayName    = row.GetString(5),
-                Active         = row.GetInt(6) == 1,
-                LastSyncedAt   = row.IsDBNull(7) ? null : row.GetString(7),
-                LastSyncStatus = row.IsDBNull(8) ? null : row.GetString(8),
-                CreatedAt      = row.GetString(9),
+                Service        = row.GetString(2),
+                ListUrl        = row.GetString(3),
+                DisplayName    = row.GetString(4),
+                Active         = row.GetInt(5) == 1,
+                LastSyncedAt   = row.IsDBNull(6) ? null : row.GetString(6),
+                CreatedAt      = row.GetString(7),
             };
 
         /// <summary>
@@ -183,7 +183,7 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Updates last_synced_at and last_sync_status after a sync run.
+        /// Updates last_synced_at after a sync run.
         /// </summary>
         public async Task UpdateUserCatalogSyncStatusAsync(
             string catalogId,
@@ -193,13 +193,12 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 UPDATE user_catalogs
-                SET last_synced_at = @synced_at, last_sync_status = @status
+                SET last_synced_at = @synced_at
                 WHERE id = @id;";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
                 BindText(cmd, "@synced_at", syncedAt.ToString("o"));
-                BindText(cmd, "@status", status);
                 BindText(cmd, "@id", catalogId);
             }, ct);
         }
@@ -215,16 +214,18 @@ namespace InfiniteDrive.Data
             CancellationToken ct = default)
         {
             const string sql = @"
-                INSERT INTO source_memberships (source_id, media_item_id, user_catalog_id)
-                VALUES (@SourceId, @MediaItemId, @UserCatalogId)
+                INSERT INTO source_memberships (id, source_id, media_item_id, user_catalog_id, created_at)
+                VALUES (@Id, @SourceId, @MediaItemId, @UserCatalogId, @CreatedAt)
                 ON CONFLICT(source_id, media_item_id) DO UPDATE SET
                     user_catalog_id = COALESCE(excluded.user_catalog_id, source_memberships.user_catalog_id);";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
+                BindText(cmd, "@Id", Guid.NewGuid().ToString());
                 BindText(cmd, "@SourceId", sourceId);
                 BindText(cmd, "@MediaItemId", mediaItemId);
                 BindNullableText(cmd, "@UserCatalogId", userCatalogId);
+                BindText(cmd, "@CreatedAt", DateTime.UtcNow.ToString("o"));
             }, ct);
         }
 
@@ -815,5 +816,181 @@ namespace InfiniteDrive.Data
             => QueryScalarIntAsync(
                 "SELECT COUNT(*) FROM catalog_items WHERE enrichment_status = 'Blocked' AND removed_at IS NULL;",
                 ct);
+
+        /// <summary>
+        /// Reads stored versions JSON for a given aio_id and returns deserialized list.
+        /// Returns null if no versions are stored.
+        /// </summary>
+        public List<StoredVersion>? GetStoredVersions(string aioId)
+        {
+            const string sql = @"
+                SELECT selected_versions_json
+                FROM catalog_items
+                WHERE aio_id = @aio_id
+                LIMIT 1;";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            BindText(stmt, "@aio_id", aioId);
+
+            foreach (var row in stmt.AsRows())
+            {
+                var json = row.IsDBNull(0) ? null : row.GetString(0);
+                var versions = StrmFileManager.DeserializeVersions(json);
+                return versions.Count > 0 ? versions : null;
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Updates the Url and SecondaryUrl of a single stored version identified by streamKey
+        /// within the selected_versions_json column. Used by CDN failover self-healing.
+        /// </summary>
+        public async Task UpdateStoredVersionUrlAsync(
+            string aioId, string streamKey, string newUrl, string? newSecondaryUrl,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrEmpty(streamKey) || string.IsNullOrEmpty(newUrl)) return;
+
+            // Read current JSON
+            const string readSql = @"
+                SELECT selected_versions_json
+                FROM catalog_items
+                WHERE aio_id = @aio_id
+                LIMIT 1;";
+
+            string? currentJson = null;
+            using (var conn = OpenConnection())
+            using (var stmt = conn.PrepareStatement(readSql))
+            {
+                BindText(stmt, "@aio_id", aioId);
+                foreach (var row in stmt.AsRows())
+                    currentJson = row.IsDBNull(0) ? null : row.GetString(0);
+            }
+
+            if (string.IsNullOrEmpty(currentJson)) return;
+
+            var versions = StrmFileManager.DeserializeVersions(currentJson);
+            var updated = false;
+
+            foreach (var v in versions)
+            {
+                if (string.Equals(v.StreamKey, streamKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    v.Url = newUrl;
+                    v.SecondaryUrl = newSecondaryUrl;
+                    updated = true;
+                    break;
+                }
+            }
+
+            if (!updated) return;
+
+            var newJson = JsonSerializer.Serialize(versions);
+            const string writeSql = @"
+                UPDATE catalog_items
+                SET selected_versions_json = @json,
+                    updated_at = datetime('now')
+                WHERE aio_id = @aio_id;";
+
+            await _dbWriteGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                using var conn = OpenConnection();
+                conn.RunInTransaction(c =>
+                {
+                    using var stmt = c.PrepareStatement(writeSql);
+                    BindText(stmt, "@json", newJson);
+                    BindText(stmt, "@aio_id", aioId);
+                    while (stmt.MoveNext()) { }
+                });
+            }
+            finally
+            {
+                _dbWriteGate.Release();
+            }
+        }
+
+        /// <summary>
+        /// Returns AIO IDs that exist in catalog_items with a strm_path (item written to disk, not removed).
+        /// Used by Discover "In Library" fallback before Emby finishes scanning.
+        /// </summary>
+        public HashSet<string> GetCatalogItemAioIdsWithStrmPath(List<string> aioIds)
+        {
+            if (aioIds == null || aioIds.Count == 0)
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var placeholders = string.Join(",", aioIds.Select((_, i) => $"@p{i}"));
+            var sql = $"SELECT DISTINCT aio_id FROM catalog_items WHERE aio_id IN ({placeholders}) AND strm_path IS NOT NULL AND removed_at IS NULL";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            for (var i = 0; i < aioIds.Count; i++)
+                BindText(stmt, $"@p{i}", aioIds[i]);
+
+            foreach (var row in stmt.AsRows())
+            {
+                var val = row.GetString(0);
+                if (!string.IsNullOrEmpty(val))
+                    result.Add(val);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Returns the subset of the given AIO IDs that are in catalog_items but have no
+        /// strm_path yet — i.e. not yet written to disk. Used by Discover to show a
+        /// "Pending" badge: the item is known to the system but has no file on disk yet.
+        /// </summary>
+        public HashSet<string> GetPendingCatalogAioIds(List<string> aioIds)
+        {
+            if (aioIds == null || aioIds.Count == 0)
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var placeholders = string.Join(",", aioIds.Select((_, i) => $"@p{i}"));
+            var sql = $"SELECT DISTINCT aio_id FROM catalog_items WHERE aio_id IN ({placeholders}) AND removed_at IS NULL AND strm_path IS NULL";
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            for (var i = 0; i < aioIds.Count; i++)
+                BindText(stmt, $"@p{i}", aioIds[i]);
+            foreach (var row in stmt.AsRows())
+            {
+                var val = row.GetString(0);
+                if (!string.IsNullOrEmpty(val))
+                    result.Add(val);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Returns the subset of the given AIO IDs that are classified as anime in catalog_items.
+        /// Used by Discover to filter/reclassify Cinemeta items that are actually anime.
+        /// </summary>
+        public HashSet<string> GetAnimeMediaTypeAioIds(List<string> aioIds)
+        {
+            if (aioIds == null || aioIds.Count == 0)
+                return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var placeholders = string.Join(",", aioIds.Select((_, i) => $"@p{i}"));
+            var sql = $"SELECT DISTINCT aio_id FROM catalog_items WHERE media_type = 'anime' AND aio_id IN ({placeholders}) AND removed_at IS NULL";
+
+            using var conn = OpenConnection();
+            using var stmt = conn.PrepareStatement(sql);
+            for (var i = 0; i < aioIds.Count; i++)
+                BindText(stmt, $"@p{i}", aioIds[i]);
+
+            foreach (var row in stmt.AsRows())
+            {
+                var val = row.GetString(0);
+                if (!string.IsNullOrEmpty(val))
+                    result.Add(val);
+            }
+
+            return result;
+        }
     }
 }

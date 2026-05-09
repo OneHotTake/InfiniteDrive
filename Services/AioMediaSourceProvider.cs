@@ -95,10 +95,9 @@ namespace InfiniteDrive.Services
                 item.Name, item.GetType().Name, item.Path);
 
             var config = Plugin.Instance?.Configuration;
-            if (config == null || string.IsNullOrEmpty(config.PluginSecret))
+            if (config == null)
             {
-                _logger.LogWarning("[AioMediaSourceProvider] Skipping {Name} — config={Cfg} secret={Secret}",
-                    item.Name, config != null ? "ok" : "null", !string.IsNullOrEmpty(config?.PluginSecret) ? "set" : "empty");
+                _logger.LogWarning("[AioMediaSourceProvider] Skipping {Name} — config is null", item.Name);
                 return new List<MediaSourceInfo>();
             }
 
@@ -116,6 +115,14 @@ namespace InfiniteDrive.Services
                 _logger.LogWarning("[AioMediaSourceProvider] No AIO ID for {Name} (Path={Path}, Providers={Providers})",
                     item.Name, item.Path,
                     item.ProviderIds != null ? string.Join(",", item.ProviderIds.Keys) : "none");
+                return new List<MediaSourceInfo>();
+            }
+
+            // If this item is a .strm file in a configured path, let Emby play it natively.
+            // The .strm files contain direct CDN URLs — no need to inject MediaSourceInfo.
+            if (!string.IsNullOrEmpty(item.Path) && item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogDebug("[AioMediaSourceProvider] Skipping .strm item {Name} — plays natively", item.Name);
                 return new List<MediaSourceInfo>();
             }
 
@@ -194,7 +201,6 @@ namespace InfiniteDrive.Services
                         if (scored.Count > 0)
                         {
                             var sources = BuildSourcesFromCandidates(scored, aioId);
-                            SetOpenTokens(sources, aioId, scored, mediaType);
 
                             SortByLanguagePreference(sources, config, null);
                             _cache[cacheKey] = (sources, DateTime.UtcNow.Add(cacheTtl));
@@ -222,7 +228,6 @@ namespace InfiniteDrive.Services
 
             if (liveSources.Count > 0)
             {
-                SetOpenTokens(liveSources, aioId, candidates, mediaType);
                 SortByLanguagePreference(liveSources, config, null);
                 _cache[cacheKey] = (liveSources, DateTime.UtcNow.Add(cacheTtl));
 
@@ -337,13 +342,13 @@ namespace InfiniteDrive.Services
             {
                 Id = candidate.Id ?? Guid.NewGuid().ToString("N"),
                 Name = name,
-                Path = "", // No URL — prevents Emby ffprobe storm. OpenMediaSource provides URL on play.
+                Path = "", // No URL — Marvin task populates CDN URL on next cycle.
                 Protocol = MediaProtocol.Http,
                 SupportsDirectPlay = true,
                 SupportsDirectStream = true,
                 SupportsTranscoding = true,
                 IsInfiniteStream = false,
-                RequiresOpening = true,
+                RequiresOpening = false,
                 SupportsProbing = false,
             };
 
@@ -472,204 +477,6 @@ namespace InfiniteDrive.Services
             return channels;
         }
 
-        // ═══════════════════════════════════════════════════════════════════════════
-        //  OpenMediaSource helpers
-        // ═══════════════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// Serializes all candidates into the OpenToken so OpenMediaSource can failover.
-        /// </summary>
-        private void SetOpenTokens(List<MediaSourceInfo> sources, string aioId,
-            List<StreamCandidate>? originalCandidates = null, string? mediaType = null)
-        {
-            // Build all candidate entries
-            var allCandidates = sources.Select((s, i) =>
-            {
-                var orig = originalCandidates != null && i < originalCandidates.Count
-                    ? originalCandidates[i] : null;
-                return new OpenTokenCandidate
-                {
-                    Rank = i,
-                    Url = orig?.Url ?? s.Path,
-                    Headers = s.RequiredHttpHeaders,
-                    ProviderKey = ExtractProviderFromName(s.Name),
-                    Size = s.Size,
-                    StreamKey = orig?.StreamKey,
-                    InfoHash = orig?.InfoHash,
-                    FileIdx = orig?.FileIdx,
-                    FileName = orig?.FileName,
-                };
-            }).ToList();
-
-            // Each source gets its OWN token with its candidate FIRST (for failover)
-            for (var idx = 0; idx < sources.Count; idx++)
-            {
-                var ordered = new List<OpenTokenCandidate> { allCandidates[idx] };
-                for (var j = 0; j < allCandidates.Count; j++)
-                {
-                    if (j != idx) ordered.Add(allCandidates[j]);
-                }
-
-                sources[idx].OpenToken = JsonSerializer.Serialize(new OpenTokenData
-                {
-                    AioId = aioId,
-                    MediaType = mediaType,
-                    Candidates = ordered,
-                });
-            }
-        }
-
-        private async Task<MediaSourceInfo> BuildSourceFromCandidateAsync(
-            OpenTokenCandidate cand, string aioId, CancellationToken ct)
-        {
-            var name = $"Stream #{cand.Rank + 1}";
-            var source = new MediaSourceInfo
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Name = name,
-                Path = cand.Url ?? "",
-                Protocol = MediaProtocol.Http,
-                SupportsDirectPlay = true,
-                SupportsDirectStream = true,
-                SupportsTranscoding = true,
-                RequiresOpening = false,
-                IsInfiniteStream = false,
-            };
-
-            if (cand.Size.HasValue) source.Size = cand.Size.Value;
-            if (cand.Headers != null) source.RequiredHttpHeaders = cand.Headers;
-
-            // Container from filename
-            if (!string.IsNullOrEmpty(cand.FileName))
-            {
-                var ext = System.IO.Path.GetExtension(cand.FileName)?.TrimStart('.');
-                if (!string.IsNullOrEmpty(ext))
-                    source.Container = ext;
-            }
-
-            // Emby does NOT probe ILiveStream sources.
-            // Run ffprobe on the selected CDN URL to get real stream metadata.
-            // Only probes the ONE stream the user selected — no storm.
-            if (!string.IsNullOrEmpty(cand.Url))
-            {
-                try
-                {
-                    using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                    probeCts.CancelAfter(TimeSpan.FromSeconds(8));
-                    var probed = await CdnProber.ProbeAsync(cand.Url, _logger, probeCts.Token).ConfigureAwait(false);
-                    if (probed != null && probed.Count > 1)
-                    {
-                        source.MediaStreams = FilterKnownStreams(probed);
-                        _logger.LogInformation("[AioMediaSourceProvider] ffprobe got {Count} streams for rank {Rank}",
-                            probed.Count, cand.Rank);
-                        // Cache probe result for dropdown display
-                        if (!string.IsNullOrEmpty(cand.StreamKey))
-                        {
-                            var json = SerializeProbeStreams(probed);
-                            var db = Plugin.Instance?.DatabaseManager;
-                            if (db != null)
-                                _ = db.SaveProbeJsonAsync(cand.StreamKey, json);
-                        }
-                        return source;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex, "[AioMediaSourceProvider] ffprobe failed for rank {Rank}, using filename fallback", cand.Rank);
-                }
-            }
-
-            // Fallback: parse what we can from filename
-            source.MediaStreams = BuildStreamsFromFilename(cand.FileName);
-
-            return source;
-        }
-
-        /// <summary>
-        /// Builds minimal MediaStreams from filename so Emby can decide direct play vs transcode.
-        /// ILiveStream sources are NOT probed by Emby — this is the only stream info it gets.
-        /// </summary>
-        private static List<MediaStream> BuildStreamsFromFilename(string? fileName)
-        {
-            if (string.IsNullOrEmpty(fileName)) return new List<MediaStream>
-            {
-                new MediaStream { Type = MediaStreamType.Video, Index = 0 },
-                new MediaStream { Type = MediaStreamType.Audio, Index = 1 },
-            };
-
-            var fn = fileName.ToUpperInvariant();
-
-            // Video codec from filename
-            var videoCodec = "";
-            if (fn.Contains("H265") || fn.Contains("H.265") || fn.Contains("HEVC") || fn.Contains("X265") || fn.Contains("X.265"))
-                videoCodec = "hevc";
-            else if (fn.Contains("H264") || fn.Contains("H.264") || fn.Contains("AVC") || fn.Contains("X264") || fn.Contains("X.264"))
-                videoCodec = "h264";
-            else if (fn.Contains("AV1"))
-                videoCodec = "av1";
-            else if (fn.Contains("VP9"))
-                videoCodec = "vp9";
-            else if (fn.Contains("VP8"))
-                videoCodec = "vp8";
-
-            // Audio codec from filename
-            var audioCodec = "";
-            if (fn.Contains("EAC3") || fn.Contains("E-AC3") || fn.Contains("DDP") || fn.Contains("DD+"))
-                audioCodec = "eac3";
-            else if (fn.Contains("AC3") || fn.Contains("AC-3") || fn.Contains("DD5") || fn.Contains("DD "))
-                audioCodec = "ac3";
-            else if (fn.Contains("DTS-HD") || fn.Contains("DTSHD"))
-                audioCodec = "dtshd";
-            else if (fn.Contains("DTS"))
-                audioCodec = "dts";
-            else if (fn.Contains("TRUEHD") || fn.Contains("ATMOS"))
-                audioCodec = "truehd";
-            else if (fn.Contains("AAC"))
-                audioCodec = "aac";
-            else if (fn.Contains("FLAC"))
-                audioCodec = "flac";
-            else if (fn.Contains("OPUS"))
-                audioCodec = "opus";
-
-            // Channels
-            int? channels = null;
-            if (fn.Contains("7.1")) channels = 8;
-            else if (fn.Contains("5.1")) channels = 6;
-            else if (fn.Contains("2.0") || fn.Contains("STEREO")) channels = 2;
-
-            var streams = new List<MediaStream>
-            {
-                new MediaStream
-                {
-                    Type = MediaStreamType.Video,
-                    Index = 0,
-                    Codec = videoCodec,
-                    IsDefault = true,
-                },
-                new MediaStream
-                {
-                    Type = MediaStreamType.Audio,
-                    Index = 1,
-                    Codec = audioCodec,
-                    Channels = channels,
-                    IsDefault = true,
-                },
-            };
-
-            return streams;
-        }
-
-        private static string ExtractProviderFromName(string? name)
-        {
-            if (string.IsNullOrEmpty(name)) return "unknown";
-            var providers = new[] { "Real-Debrid", "TorBox", "AllDebrid", "Premiumize", "DebridLink", "StremThru" };
-            foreach (var p in providers)
-            {
-                if (name.Contains(p, StringComparison.OrdinalIgnoreCase))
-                    return p;
-            }
-            return "unknown";
-        }
 
         // ═══════════════════════════════════════════════════════════════════════════
         //  Probing (cache → live probe, never overwrites with worse data)
@@ -725,6 +532,17 @@ namespace InfiniteDrive.Services
                 _logger.LogDebug(ex, "[AioMediaSourceProvider] DB cache write failed for {Id} (non-fatal)", aioId);
             }
         }
+
+
+        // ═══════════════════════════════════════════════════════════════════════════
+        //  Versioned multi-CDN sources
+        // ═══════════════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// Looks up stored multi-version data and returns direct-play MediaSourceInfo
+        /// for each version. Returns null if no stored versions exist (fall through
+        /// to legacy resolution).
+        /// </summary>
 
 
         // ═══════════════════════════════════════════════════════════════════════════
@@ -983,27 +801,15 @@ namespace InfiniteDrive.Services
         //  Config helpers
         // ═══════════════════════════════════════════════════════════════════════════
 
+        /// <summary>
+        /// OpenMediaSource is not used — .strm files contain direct CDN URLs.
+        /// Emby plays them natively without going through this provider.
+        /// </summary>
+        public Task<ILiveStream> OpenMediaSource(string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
+        {
+            throw new NotSupportedException("OpenMediaSource is not used by InfiniteDrive — .strm files play natively.");
+        }
+
     }
 
-    // ── Open token DTOs (shared between GetMediaSources and OpenMediaSource) ──
-
-    internal class OpenTokenData
-    {
-        public string AioId { get; set; } = string.Empty;
-        public string? MediaType { get; set; }
-        public List<OpenTokenCandidate> Candidates { get; set; } = new();
-    }
-
-    internal class OpenTokenCandidate
-    {
-        public int Rank { get; set; }
-        public string? Url { get; set; }
-        public Dictionary<string, string>? Headers { get; set; }
-        public string ProviderKey { get; set; } = "unknown";
-        public long? Size { get; set; }
-        public string? StreamKey { get; set; }
-        public string? InfoHash { get; set; }
-        public int? FileIdx { get; set; }
-        public string? FileName { get; set; }
-    }
 }

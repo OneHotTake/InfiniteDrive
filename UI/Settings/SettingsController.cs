@@ -23,31 +23,36 @@ namespace InfiniteDrive.UI.Settings
                 Name = "InfiniteDriveSettings",
                 DisplayName = "InfiniteDrive",
                 IsMainConfigPage = true,
-                EnableInMainMenu = false,
+                EnableInMainMenu = true,
                 MenuIcon = "settings",
+                MenuSection = "server",
             };
 
             var pid = pluginId;
 
-            // Tab order: Connect → Libraries → Catalogs & Lists → Content Controls → Sync & Marvin → Advanced
+            // Tab order: Libraries → Quality → Providers → Sources → Restrictions → Marvin → Advanced
+            // Configure destination and intent before connecting a source — prevents Marvin from
+            // syncing content that immediately needs to be re-synced after quality changes.
             // Names prefixed with zero-padded index to enforce ordering (Emby sorts tabs alphabetically by Name)
-            _tabs.Add(new TabPageController(pid, "01Connect", "Connect", () =>
-                new ConnectTabView(pid, LoadConnect())));
-
-            _tabs.Add(new TabPageController(pid, "02Libraries", "Libraries", () =>
+            _tabs.Add(new TabPageController(pid, "1Libraries", "1 Libraries", () =>
                 new SetupTabView(pid, LoadSetup())));
 
-            _tabs.Add(new TabPageController(pid, "03Catalogs", "Catalogs & Lists", () =>
-                new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
-
-            _tabs.Add(new TabPageController(pid, "04Content", "Content Controls", () =>
+            _tabs.Add(new TabPageController(pid, "2Quality", "2 Quality", () =>
                 new ContentControlsTabView(pid, LoadContentControls())));
 
-            _tabs.Add(new TabPageController(pid, "05Sync", "Sync & Marvin", () =>
+            _tabs.Add(new TabPageController(pid, "3Providers", "3 Providers", () =>
+                new ConnectTabView(pid, LoadConnect())));
+
+            _tabs.Add(new TabPageController(pid, "4Sources", "4 Sources", () =>
+                new CatalogsAndListsTabView(pid, LoadCatalogsAndLists())));
+
+            _tabs.Add(new TabPageController(pid, "5Restrictions", "5 Restrictions", () =>
+                new RestrictionsTabView(pid, LoadRestrictions())));
+
+            _tabs.Add(new TabPageController(pid, "6Marvin", "6 Marvin", () =>
                 new SyncAndMarvinTabView(pid, LoadSyncAndMarvin())));
 
-            // Advanced is last — "you don't need this unless you have a reason"
-            _tabs.Add(new TabPageController(pid, "06Advanced", "Advanced", () =>
+            _tabs.Add(new TabPageController(pid, "7Advanced", "7 Advanced", () =>
                 new AdvancedTabView(pid, LoadAdvanced())));
         }
 
@@ -55,7 +60,7 @@ namespace InfiniteDrive.UI.Settings
         public IReadOnlyList<IPluginUIPageController> TabPageControllers => _tabs.AsReadOnly();
 
         public override Task<IPluginUIView> CreateDefaultPageView()
-            => Task.FromResult<IPluginUIView>(null!);
+            => Task.FromResult<IPluginUIView>(new StatusTabView(PluginId, StatusTabView.BuildUI()));
 
         // ── Load ─────────────────────────────────────────────────────────────
 
@@ -66,7 +71,6 @@ namespace InfiniteDrive.UI.Settings
             {
                 PrimaryManifestUrl = c.PrimaryManifestUrl ?? string.Empty,
                 SecondaryManifestUrl = c.SecondaryManifestUrl ?? string.Empty,
-                EmbyBaseUrl = ResolveEmbyBaseUrl(c.EmbyBaseUrl),
             };
         }
 
@@ -119,7 +123,6 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new CatalogsAndListsUI
             {
-                CatalogSyncIntervalHours = c.CatalogSyncIntervalHours,
                 TraktClientId = c.TraktClientId ?? string.Empty,
                 TmdbApiKey = c.TmdbApiKey ?? string.Empty,
                 MaxListsPerUser = c.MaxListsPerUser,
@@ -131,8 +134,15 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new ContentControlsUI
             {
-                DefaultQualityTier = c.DefaultQualityTier ?? "1080p (any)",
                 UseRemuxForAutoSelection = c.UseRemuxForAutoSelection,
+            };
+        }
+
+        private static RestrictionsUI LoadRestrictions()
+        {
+            var c = Plugin.Instance.Configuration;
+            return new RestrictionsUI
+            {
                 HideUnratedContent = c.HideUnratedContent,
             };
         }
@@ -159,34 +169,5 @@ namespace InfiniteDrive.UI.Settings
             };
         }
 
-        // ── Helpers ───────────────────────────────────────────────────────────
-
-        private static string ResolveEmbyBaseUrl(string current)
-        {
-            // If already set to something non-default, keep it
-            if (!string.IsNullOrEmpty(current) &&
-                !current.StartsWith("http://127.0.0.1") &&
-                !current.StartsWith("http://localhost"))
-            {
-                return current;
-            }
-
-            // Try to detect the external IP
-            try
-            {
-                var host = System.Net.Dns.GetHostEntry(System.Net.Dns.GetHostName());
-                foreach (var ip in host.AddressList)
-                {
-                    if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork &&
-                        !ip.ToString().StartsWith("127."))
-                    {
-                        return $"http://{ip}:8096";
-                    }
-                }
-            }
-            catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "resolve external IP for EmbyBaseUrl"); }
-
-            return current;
-        }
     }
 }

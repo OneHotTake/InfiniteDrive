@@ -3,7 +3,6 @@ using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
-using Microsoft.Extensions.Logging;
 
 namespace InfiniteDrive.UI.Settings
 {
@@ -29,7 +28,7 @@ namespace InfiniteDrive.UI.Settings
             switch (cmd)
             {
                 case SyncAndMarvinUI.RunMarvinNowCommand:
-                    await RunMarvinNowAsync();
+                    RunMarvinNow();
                     return this;
             }
 
@@ -44,8 +43,8 @@ namespace InfiniteDrive.UI.Settings
         {
             var cfg = Plugin.Instance.Configuration;
             ui.MarvinStatus.StatusText =
-                $"Interval: {cfg.MarvinProcessIntervalMinutes}m · Batch: {cfg.StreamResolutionBatchSize} · " +
-                $"Rate limit: {cfg.MarvinActionsPerHour}/hr";
+                $"Every {cfg.MarvinProcessIntervalMinutes}m · {cfg.StreamResolutionBatchSize} items per pass · " +
+                $"{cfg.MarvinActionsPerHour} actions/hr ceiling";
             ui.MarvinStatus.Status = ItemStatus.Succeeded;
             RaiseUIViewInfoChanged();
         }
@@ -54,7 +53,7 @@ namespace InfiniteDrive.UI.Settings
         // Commands
         // ═══════════════════════════════════════════════════════════════
 
-        private Task RunMarvinNowAsync()
+        private void RunMarvinNow()
         {
             UI.MarvinStatus.StatusText = "Running Marvin...";
             UI.MarvinStatus.Status = ItemStatus.InProgress;
@@ -73,7 +72,6 @@ namespace InfiniteDrive.UI.Settings
             }
 
             RaiseUIViewInfoChanged();
-            return Task.CompletedTask;
         }
 
         // ═══════════════════════════════════════════════════════════════

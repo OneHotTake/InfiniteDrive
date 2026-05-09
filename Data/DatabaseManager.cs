@@ -107,7 +107,7 @@ namespace InfiniteDrive.Data
                  enrichment_status, retry_count, next_retry_at,
                  blocked_at, blocked_by, first_added_by_user_id,
                  tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_expanded_at, last_verified_at,
-                 source_manifest_url)
+                 source_manifest_url, selected_versions_json, last_version_refresh_at)
             VALUES
                 (@id, @aio_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                  @source, @source_list_id, @seasons_json, @strm_path,
@@ -116,7 +116,7 @@ namespace InfiniteDrive.Data
                  @enrichment_status, @retry_count, @next_retry_at,
                  @blocked_at, @blocked_by, @first_added_by_user_id,
                  @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_expanded_at, @last_verified_at,
-                 @source_manifest_url)
+                 @source_manifest_url, @selected_versions_json, @last_version_refresh_at)
             ON CONFLICT(aio_id, source) DO UPDATE SET
                 tmdb_id       = excluded.tmdb_id,
                 unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
@@ -144,7 +144,9 @@ namespace InfiniteDrive.Data
                 episodes_expanded = COALESCE(excluded.episodes_expanded, catalog_items.episodes_expanded),
                 last_expanded_at = COALESCE(excluded.last_expanded_at, catalog_items.last_expanded_at),
                 last_verified_at = excluded.last_verified_at,
-                source_manifest_url = COALESCE(excluded.source_manifest_url, catalog_items.source_manifest_url);";
+                source_manifest_url = COALESCE(excluded.source_manifest_url, catalog_items.source_manifest_url),
+                selected_versions_json = COALESCE(excluded.selected_versions_json, catalog_items.selected_versions_json),
+                last_version_refresh_at = COALESCE(excluded.last_version_refresh_at, catalog_items.last_version_refresh_at);";
 
         private void BindCatalogItemParams(IStatement cmd, CatalogItem item)
         {
@@ -194,6 +196,8 @@ namespace InfiniteDrive.Data
             else
                 cmd.BindParameters["@last_verified_at"].BindNull();
             BindNullableText(cmd, "@source_manifest_url", item.SourceManifestUrl);
+            BindNullableText(cmd, "@selected_versions_json", item.SelectedVersionsJson);
+            BindNullableText(cmd, "@last_version_refresh_at", item.LastVersionRefreshAt);
         }
 
         public async Task UpsertCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken = default)
@@ -302,26 +306,6 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Returns catalog items with expiring tokens (within 90 days), bounded by limit.
-        /// Used by RefreshTask Verify step for token renewal.
-        /// </summary>
-        public async Task<List<CatalogItem>> GetCatalogItemsWithExpiringTokensAsync(
-            int limit,
-            CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                SELECT * FROM catalog_items
-                WHERE item_state = 1 AND removed_at IS NULL
-                ORDER BY updated_at DESC
-                LIMIT @limit;";
-
-            return await QueryListAsync(sql, cmd =>
-            {
-                BindInt(cmd, "@limit", limit);
-            }, ReadCatalogItem);
-        }
-
-        /// <summary>
         /// Returns catalog item by its .strm file path, or null.
         /// Used by auto-pin on playback to find the item being played.
         /// </summary>
@@ -376,8 +360,10 @@ namespace InfiniteDrive.Data
         /// longer present in <paramref name="currentAioIds"/> is soft-deleted by
         /// setting <c>removed_at = now()</c>.
         ///
-        /// Sprint 302-06: Only removes items not verified in >7 days. Items
-        /// that were recently verified are kept to handle transient source errors.
+        /// Removes items that have been absent from a catalog for at least
+        /// <c>AbsentSyncsThreshold</c> consecutive successful syncs.
+        /// Pinned items (pin_source IS NOT NULL) and blocked items (blocked_at IS NOT NULL)
+        /// are never pruned via catalog automation.
         ///
         /// Returns the list of <c>strm_path</c> values for the removed rows so the
         /// caller can delete the files from disk.
@@ -388,14 +374,13 @@ namespace InfiniteDrive.Data
             CancellationToken cancellationToken = default)
         {
             var existing = await GetCatalogItemsBySourceAsync(source);
-            var sevenDaysAgo = DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeSeconds();
+            var threshold = Plugin.Instance!.Configuration.AbsentSyncsThreshold;
 
-            // Sprint 302-06: Only remove items that:
-            // 1. Are not in current catalog AND
-            // 2. Have not been verified in >7 days OR never verified
             var toRemove = existing.Where(x =>
                 !currentAioIds.Contains(x.AioId) &&
-                (x.LastVerifiedAt == null || x.LastVerifiedAt < sevenDaysAgo)
+                string.IsNullOrEmpty(x.PinSource) &&
+                string.IsNullOrEmpty(x.BlockedAt) &&
+                x.AbsentSyncs >= threshold
             ).ToList();
 
             if (toRemove.Count == 0)
@@ -448,7 +433,8 @@ namespace InfiniteDrive.Data
 
             var sql = $@"
                 UPDATE catalog_items
-                SET last_verified_at = @verified_at
+                SET last_verified_at = @verified_at,
+                    absent_syncs = 0
                 WHERE aio_id IN ({idsParam}) AND source = @source;";
 
             await ExecuteWriteAsync(sql, cmd =>
@@ -460,6 +446,82 @@ namespace InfiniteDrive.Data
                     BindText(cmd, $"@id{i}", aioIds.ElementAt(i));
                 }
             }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Two-phase absent-sync counter update for a single source.
+        ///
+        /// Phase 1: increment absent_syncs for ALL active, unprotected items belonging to
+        ///          <paramref name="source"/> (no variable-length IN list — safe for large catalogs).
+        /// Phase 2: reset absent_syncs + last_verified_at for items that ARE present in this
+        ///          sync cycle (batched in chunks of 500 to stay under SQLite param limits).
+        ///
+        /// Guard: if <paramref name="presentIds"/> is empty we treat the catalog as DOWN and
+        /// skip both phases entirely — prevents mass-increment when a provider fails to return data.
+        ///
+        /// KNOWN LIMITATION (BACKLOG): sub-catalog flakiness within a multi-catalog provider
+        /// (e.g. one AIOStreams catalog hiccups while others succeed) will still increment
+        /// absent_syncs for that catalog's items, because the provider-level safety valve only
+        /// guards against full-provider failure. Items from a persistently flaky sub-catalog
+        /// may be pruned after `threshold` consecutive partial failures.
+        /// Fix: track per-sub-catalog last-successful-fetch timestamps and scope increment to
+        /// catalogs that actually succeeded this cycle. Out of scope for alpha.
+        /// </summary>
+        public async Task IncrementAbsentSyncsAsync(
+            string source,
+            HashSet<string> presentIds,
+            CancellationToken cancellationToken = default)
+        {
+            if (presentIds.Count == 0)
+                return; // empty = catalog DOWN — never increment
+
+            var now = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            await _dbWriteGate.WaitAsync(cancellationToken);
+            try
+            {
+                using var conn = OpenConnection();
+                conn.RunInTransaction(c =>
+                {
+                    // Phase 1: increment counter for all active, unprotected items for this source
+                    const string phase1Sql = @"
+                        UPDATE catalog_items
+                        SET absent_syncs = absent_syncs + 1
+                        WHERE source = @source
+                          AND removed_at IS NULL
+                          AND pin_source IS NULL
+                          AND blocked_at IS NULL";
+
+                    using (var stmt = c.PrepareStatement(phase1Sql))
+                    {
+                        BindText(stmt, "@source", source);
+                        while (stmt.MoveNext()) { }
+                    }
+
+                    // Phase 2: reset counter for items present in this sync cycle (batched)
+                    foreach (var batch in presentIds.Chunk(500))
+                    {
+                        var placeholders = string.Join(",", batch.Select((_, i) => $"@id{i}"));
+                        var phase2Sql = $@"
+                            UPDATE catalog_items
+                            SET absent_syncs = 0,
+                                last_verified_at = @now
+                            WHERE source = @source
+                              AND aio_id IN ({placeholders})";
+
+                        using var stmt2 = c.PrepareStatement(phase2Sql);
+                        BindInt(stmt2, "@now", now);
+                        BindText(stmt2, "@source", source);
+                        for (int i = 0; i < batch.Length; i++)
+                            BindText(stmt2, $"@id{i}", batch[i]);
+                        while (stmt2.MoveNext()) { }
+                    }
+                });
+            }
+            finally
+            {
+                _dbWriteGate.Release();
+            }
         }
 
         /// <summary>
@@ -1106,6 +1168,77 @@ namespace InfiniteDrive.Data
                 ReadCatalogItem).ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// Full-text fuzzy search across catalog_items by title.
+        /// Returns up to <paramref name="limit"/> items whose title contains <paramref name="query"/>.
+        /// </summary>
+        public async Task<List<CatalogItem>> SearchCatalogItemsByTitleAsync(string query, int limit = 20)
+        {
+            const string sql = @"
+                SELECT * FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND title LIKE '%' || @query || '%'
+                ORDER BY
+                    CASE WHEN lower(title) = lower(@query) THEN 0 ELSE 1 END,
+                    title
+                LIMIT @limit";
+
+            return await QueryListAsync(sql,
+                cmd =>
+                {
+                    BindText(cmd, "@query", query);
+                    BindInt(cmd, "@limit", limit);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Returns the most recently added catalog items that have poster art (raw_meta_json present).
+        /// Used for the "Recently Added" Discover rail.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetRecentCatalogItemsAsync(int limit, string? mediaType = null)
+        {
+            const string sql = @"
+                SELECT * FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND raw_meta_json IS NOT NULL
+                  AND (@mediaType IS NULL OR media_type = @mediaType)
+                ORDER BY added_at DESC
+                LIMIT @limit";
+
+            return await QueryListAsync(sql,
+                cmd =>
+                {
+                    BindNullableText(cmd, "@mediaType", mediaType);
+                    BindInt(cmd, "@limit", limit);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Returns catalog items that are present in the local library (.strm managed or real file).
+        /// Used for the "In Your Library" Discover rail.
+        /// </summary>
+        public async Task<List<CatalogItem>> GetLibraryCatalogItemsAsync(int limit, string? mediaType = null)
+        {
+            const string sql = @"
+                SELECT * FROM catalog_items
+                WHERE removed_at IS NULL
+                  AND raw_meta_json IS NOT NULL
+                  AND (strm_path IS NOT NULL OR local_source = 'library')
+                  AND (@mediaType IS NULL OR media_type = @mediaType)
+                ORDER BY COALESCE(last_version_refresh_at, added_at) DESC
+                LIMIT @limit";
+
+            return await QueryListAsync(sql,
+                cmd =>
+                {
+                    BindNullableText(cmd, "@mediaType", mediaType);
+                    BindInt(cmd, "@limit", limit);
+                },
+                ReadCatalogItem).ConfigureAwait(false);
+        }
+
         // stream_resolution_cache methods moved to DatabaseManager.StreamCache.cs
 
         // Operations methods moved to DatabaseManager.Operations.cs
@@ -1187,7 +1320,10 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     episodes_expanded       INTEGER,
     last_expanded_at        INTEGER,
     last_verified_at        INTEGER,
+    absent_syncs            INTEGER NOT NULL DEFAULT 0,
     source_manifest_url     TEXT,
+    selected_versions_json  TEXT,
+    last_version_refresh_at TEXT,
     UNIQUE(aio_id, source)
 );
 CREATE INDEX IF NOT EXISTS idx_catalog_aio ON catalog_items(aio_id);
@@ -1254,7 +1390,6 @@ CREATE TABLE IF NOT EXISTS playback_log (
     resolution_mode     TEXT NOT NULL CHECK(resolution_mode IN ('cached','fallback_1','fallback_2','sync_resolve','failed')),
     quality_served      TEXT,
     client_type         TEXT,
-    proxy_mode          TEXT,
     latency_ms          INTEGER,
     bitrate_sustained   INTEGER,
     quality_downgrade   INTEGER DEFAULT 0,
@@ -1496,7 +1631,6 @@ CREATE INDEX IF NOT EXISTS idx_resolution_primary_id ON stream_resolution_log(pr
 CREATE TABLE IF NOT EXISTS user_catalogs (
     id                 TEXT PRIMARY KEY,
     owner_user_id      TEXT NOT NULL,
-    source_type        TEXT NOT NULL DEFAULT 'external_list',
     service            TEXT NOT NULL,
     list_url           TEXT NOT NULL,
     display_name       TEXT NOT NULL,
@@ -1506,7 +1640,7 @@ CREATE TABLE IF NOT EXISTS user_catalogs (
     created_at         TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_user_catalogs_owner ON user_catalogs(owner_user_id);
-CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active) WHERE active = 1;
+CREATE INDEX IF NOT EXISTS idx_user_catalogs_active ON user_catalogs(active);
 
 -- ── user_item_saves ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS user_item_saves (
@@ -1849,7 +1983,10 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 EpisodesExpanded  = GetBool(m, r, "episodes_expanded"),
                 LastExpandedAt    = GetLong(m, r, "last_expanded_at"),
                 LastVerifiedAt    = GetLong(m, r, "last_verified_at"),
+                AbsentSyncs       = GetInt(m, r, "absent_syncs") ?? 0,
                 SourceManifestUrl = GetStr(m, r, "source_manifest_url"),
+                SelectedVersionsJson = GetStr(m, r, "selected_versions_json"),
+                LastVersionRefreshAt = GetStr(m, r, "last_version_refresh_at"),
             };
         }
 
@@ -1917,12 +2054,11 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
             ResolutionMode = r.GetString(5),
             QualityServed  = r.IsDBNull(6)  ? null : r.GetString(6),
             ClientType     = r.IsDBNull(7)  ? null : r.GetString(7),
-            ProxyMode      = r.IsDBNull(8)  ? null : r.GetString(8),
-            LatencyMs      = r.IsDBNull(9)  ? null : r.GetInt(9),
-            BitrateSustained = r.IsDBNull(10) ? null : r.GetInt(10),
-            QualityDowngrade = r.GetInt(11),
-            ErrorMessage   = r.IsDBNull(12) ? null : r.GetString(12),
-            PlayedAt       = r.GetString(13),
+            LatencyMs      = r.IsDBNull(8)  ? null : r.GetInt(8),
+            BitrateSustained = r.IsDBNull(9) ? null : r.GetInt(9),
+            QualityDowngrade = r.GetInt(10),
+            ErrorMessage   = r.IsDBNull(11) ? null : r.GetString(11),
+            PlayedAt       = r.GetString(12),
         };
 
         private static SyncState ReadSyncState(IResultSet r) => new SyncState

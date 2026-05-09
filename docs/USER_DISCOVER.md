@@ -214,7 +214,6 @@ from the RSS `<title>`, and creates a `user_catalogs` row:
 
 ```
 owner_user_id        <caller>
-source_type          user_rss
 service              trakt | mdblist   (detected from host)
 rss_url              <full URL as pasted>
 display_name         <from RSS title, user-editable later>
@@ -367,7 +366,6 @@ by reading `IUserManager` directly — there is no per-endpoint opt-out.
 CREATE TABLE user_catalogs (
     id                 TEXT PRIMARY KEY,
     owner_user_id      TEXT NOT NULL,
-    source_type        TEXT NOT NULL CHECK (source_type IN ('user_rss')),
     service            TEXT NOT NULL CHECK (service IN ('trakt','mdblist')),
     rss_url            TEXT NOT NULL,
     display_name       TEXT NOT NULL,

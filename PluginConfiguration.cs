@@ -132,14 +132,6 @@ namespace InfiniteDrive
         // ╚══════════════════════════════════════════════════════════════════════╝
 
         /// <summary>
-        /// The loopback URL Emby listens on.  Written verbatim into every .strm file.
-        /// Emby clients request this URL, which the plugin intercepts and resolves.
-        /// Default: <c>http://127.0.0.1:8096</c>
-        /// </summary>
-        [DataMember]
-        public string EmbyBaseUrl { get; set; } = "http://127.0.0.1:8096";
-
-        /// <summary>
         /// Emby API key for .strm file authentication.
         /// Used in .strm files to authenticate playback requests.
         ///
@@ -196,10 +188,6 @@ namespace InfiniteDrive
         /// <summary>Display name for the Anime library created by the plugin.</summary>
         [DataMember]
         public string LibraryNameAnime { get; set; } = "Streamed Anime";
-
-        /// <summary>Number of days signed .strm URLs remain valid. Default: 365.</summary>
-        [DataMember]
-        public int SignatureValidityDays { get; set; } = 365;
 
         /// <summary>
         /// Absolute path where anime .strm files are written.
@@ -312,36 +300,6 @@ namespace InfiniteDrive
         // ╚══════════════════════════════════════════════════════════════════════╝
 
         /// <summary>
-        /// Controls how streams are served to Emby clients.
-        /// <list type="bullet">
-        ///   <item><c>auto</c> — redirect first, learn per-client (recommended)</item>
-        ///   <item><c>redirect</c> — always HTTP 302 to the debrid/CDN URL</item>
-        ///   <item><c>proxy</c> — always passthrough proxy (needed for Samsung/LG TVs)</item>
-        /// </list>
-        /// </summary>
-        [DataMember]
-        public string ProxyMode { get; set; } = "auto";
-
-        /// <summary>
-        /// When <c>true</c>, sources returned by AioMediaSourceProvider have
-        /// <c>RequiresOpening = true</c> so Emby always calls <c>OpenMediaSource()</c>
-        /// and never plays the .strm URL directly.  Set to <c>false</c> to revert to
-        /// CDN-URL-in-Path behavior without redeploy (rollback switch).
-        ///
-        /// WARNING: Setting this to false bypasses OpenMediaSource entirely. The direct
-        /// .strm URL path has URL encoding issues (%7C pipe not decoded by Emby framework)
-        /// that break HMAC signature verification. Only disable if those issues are resolved.
-        /// </summary>
-        [DataMember]
-        public bool UseRequiresOpening { get; set; } = true;
-
-        /// <summary>
-        /// Maximum number of simultaneously proxied streams before new requests fall
-        /// back to redirect mode.  Each proxy stream uses ~256 KB RAM.  Default: 5.
-        /// </summary>
-        [DataMember]
-        public int MaxConcurrentProxyStreams { get; set; } = 5;
-
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  STREAM PRE-CACHE                                                    ║
         // ╚══════════════════════════════════════════════════════════════════════╝
@@ -376,28 +334,6 @@ namespace InfiniteDrive
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  STREAM SIGNING SECRET                                               ║
         // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>
-        /// HMAC-SHA256 signing secret used to sign .strm file URLs.
-        ///
-        /// Auto-generated as 32 random bytes (base64) on first plugin load.
-        /// Stored here so it survives plugin reloads and Emby restarts.
-        ///
-        /// WARNING: Rotating this secret invalidates ALL existing .strm files.
-        /// After rotation, trigger a full catalog sync to regenerate them.
-        ///
-        /// Do not share this value — it is equivalent to a server-side API key.
-        /// </summary>
-        [DataMember]
-        public string PluginSecret { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Unix timestamp (seconds) of the last PluginSecret rotation.
-        /// 0 = never rotated (auto-generated on first load).
-        /// Updated by SetupService.RotateApiKey after successful two-phase rotation.
-        /// </summary>
-        [DataMember]
-        public long PluginSecretRotatedAt { get; set; } = 0;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  MULTI-PROVIDER PRIORITY                                             ║
@@ -446,7 +382,7 @@ namespace InfiniteDrive
         /// <summary>
         /// JSON-serialized bucket definitions for stream selection.
         /// Each bucket: { "resTier": int, "srcMax": int, "maxCount": int }
-        /// resTier: 0=4K 1=1080p 2=720p 3=480p
+        /// resTier: 0=4K 1=1440p 2=1080p 3=720p 4=480p
         /// srcMax:  0=Remux-only 1=+BluRay 2=+WEB-DL 3=+WEB
         /// maxCount: max streams from this bucket
         /// </summary>
@@ -569,6 +505,25 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public string DefaultSlotKey { get; set; } = "hd_broad";
+
+        // ╔══════════════════════════════════════════════════════════════════════╗
+        // ║  MULTI-VERSION STRM PREWRITING                                       ║
+        // ╚══════════════════════════════════════════════════════════════════════╝
+
+        /// <summary>
+        /// Desired quality buckets for multi-version .strm selection.
+        /// Buckets are matched in order — earlier buckets get priority.
+        /// Empty by default — users configure buckets via the Content Controls UI.
+        /// </summary>
+        [DataMember]
+        public List<Models.DesiredVersionBucket> DesiredVersions { get; set; } = new();
+
+        /// <summary>
+        /// Maximum number of .strm versions per media item. Default: 8.
+        /// After bucket matching, remaining slots are filled with next-best streams.
+        /// </summary>
+        [DataMember]
+        public int MaxVersionsPerItem { get; set; } = 8;
 
         /// <summary>
         /// Queue of pending rehydration operations serialised as JSON.
@@ -790,6 +745,13 @@ namespace InfiniteDrive
         [DataMember]
         public bool RespectPlaylistsWhenPruning { get; set; } = true;
 
+        /// <summary>
+        /// Number of consecutive successful syncs an item must be absent before being pruned.
+        /// Default 3. Pinned and blocked items are always exempt.
+        /// </summary>
+        [DataMember]
+        public int AbsentSyncsThreshold { get; set; } = 3;
+
         /// <summary>When true, auto-deduplicate against physical media in other libraries. Default: true.</summary>
         [DataMember]
         public bool AutoDeduplicatePhysicalMedia { get; set; } = true;
@@ -801,6 +763,18 @@ namespace InfiniteDrive
         /// <summary>Minimum log verbosity level for InfiniteDrive. Default: "Info".</summary>
         [DataMember]
         public string PluginLogLevel { get; set; } = "Info";
+
+        /// <summary>When true, roughly half of each quality bucket's slots are reserved for
+        /// Extended/Director's Cut editions. Graceful fallback if none exist — you always
+        /// get your full version count.</summary>
+        [DataMember]
+        public bool PrioritizeExtendedEditions { get; set; } = false;
+
+        /// <summary>Keywords that identify extended/special editions in parsedFile.edition.
+        /// Case-insensitive contains match.</summary>
+        [DataMember]
+        public List<string> ExtendedEditionKeywords { get; set; } = new()
+            { "Extended", "Director", "Unrated", "Special Edition" };
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  INSTANCE TYPE DETECTION                                             ║
@@ -886,7 +860,6 @@ namespace InfiniteDrive
             ApiDailyBudget            = Clamp(ApiDailyBudget,            1,     100_000);
             MaxConcurrentResolutions  = Clamp(MaxConcurrentResolutions,  1,     20);
             CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     24);     // 1 h – 24 h
-            MaxConcurrentProxyStreams  = Clamp(MaxConcurrentProxyStreams, 1,     20);
             PreCacheBatchSize          = Clamp(PreCacheBatchSize,         1,     500);
             PreCacheTTLDays            = Clamp(PreCacheTTLDays,           1,     90);
             InMemoryCacheTtlMinutes    = Clamp(InMemoryCacheTtlMinutes,   10,    1_440);
@@ -897,7 +870,6 @@ namespace InfiniteDrive
             CandidatesPerProvider     = Clamp(CandidatesPerProvider,     1,     10);
             MaxCuratedStreams         = Clamp(MaxCuratedStreams,         1,     12);
             CandidateTtlHours         = Clamp(CandidateTtlHours,         1,     168);    // 1 h – 7 days
-            SignatureValidityDays    = Clamp(SignatureValidityDays,    1,     3650);
             FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);
             UserCatalogLimit          = Clamp(UserCatalogLimit, 0, 50);
 
@@ -906,6 +878,13 @@ namespace InfiniteDrive
             if (StreamResolutionBatchSize < 1) StreamResolutionBatchSize = 42;
             if (MarvinActionsPerHour < 1) MarvinActionsPerHour = 360;
             if (MaxListsPerUser < 0) MaxListsPerUser = 10;
+
+            // Seed a default quality bucket if none are defined — prevents Marvin running with nothing to populate
+            if (DesiredVersions == null || DesiredVersions.Count == 0)
+                DesiredVersions = new System.Collections.Generic.List<Models.DesiredVersionBucket>
+                {
+                    new Models.DesiredVersionBucket { Resolution = "1080p", Audio = "Any Audio", Count = 1 }
+                };
 
             // Recompute instance type from manifest URL
             ResolvedInstanceType = DetectInstanceType(PrimaryManifestUrl);

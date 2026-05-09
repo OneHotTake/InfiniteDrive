@@ -1,9 +1,38 @@
 SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working solution
+COMPLETE: Resilient Deletion Policy — absent_syncs column + IncrementAbsentSyncsAsync (two-phase, pin/block-safe) + PruneSourceAsync threshold gate + UpdateLastVerifiedAtAsync reset + DeleteWithVersions (version-variant cleanup) + AbsentSyncsThreshold config (default 3). Build: 0 errors.
+COMPLETE: Settings UX refinement — wording pass across 8 UI files (StatusUI, StatusTabView, ConnectUI, SetupUI, ContentControlsUI, ContentControlsTabView, SyncAndMarvinUI+TabView, AdvancedUI). Build: 0 errors.
+COMPLETE: Discover search — manifest-routed catalog IDs, Cinemeta supplement, local catalog + Emby library blend, aiostreamserror filter, primary→secondary failover. Build: 0 errors.
+COMPLETE: Discover rails — DB-first (Recently Added + In Your Library from catalog_items), Cinemeta background cache (6h TTL, interlocked refresh). Rails return in <50ms. Build: 0 errors.
+COMPLETE: StrmFileManager.WriteOrReplaceStrmFilesAsync now calls ReportFileSystemChanged so Emby auto-detects new .strm files. Build: 0 errors.
+COMPLETE: Discover "In Library" dual-source check — GetCatalogItemAioIdsWithStrmPath in DatabaseManager.Catalog.cs + fallback in BatchLibraryLookup (DiscoverService.cs) + search endpoint library status fix. Root cause: search endpoint hardcoded InLibrary=false. Build: 0 errors.
+COMPLETE: PrioritizeExtendedEditions toggle — StoredVersion.Edition, SerializeVersions Edition field, MakeVersion edition prefix, split bucket logic + IsExtended helper, PluginConfiguration 2 new props, 4 call sites updated. Build: 0 errors.
+## AIOStreams Ranking Improvements (2026-05-07)
+COMPLETE: T1-A SeaDex +8/+4 bonus + [SeaDex] label; T1-B VisualTags/Encode scoring + DV/HDR label in version; T1-C Library +10 + [Library] label; T2-B eac3/ac3 aliases; T2-C ParsedFile.Quality direct; T2-D Edition field. Build: 0 errors.
 
 ---
 status: complete
-task: Stream Cache Polish + Subtitle Extraction
-last_updated: 2026-05-05
+task: Discover Page Overhaul — Apple TV-style poster grid UI
+last_updated: 2026-05-07
+
+## Summary
+- Replaced GenericEdit Discover page with custom IHasWebPages embedded HTML+JS
+- Apple TV-style poster card grids, horizontal rails, search-as-you-type, detail modal
+- Reuses existing REST API (DiscoverService) — no backend changes
+- Deleted: DiscoverController.cs, DiscoverPageView.cs, DiscoverUI.cs, discoverpage.css
+- Created: Configuration/discoverpage.html (~150 lines), Configuration/discoverpage.js (~220 lines)
+- Modified: Plugin.cs (added IHasWebPages + GetPages()), InfiniteDrive.csproj (embedded resources)
+- Build: 0 errors, 0 warnings
+last_updated: 2026-05-06
+
+## Summary
+- Branch: feature/multi-version-strm-prewrite
+- CDN URL failover: primary→secondary→fresh-resolve pipeline in OpenMediaSource
+- Self-healing: Marvin stream list comparison promotes secondary on dead primary
+- SecondaryUrl on StoredVersion/SelectedVersion, assigned by AssignSecondaryUrls
+- Versioned GetMediaSources: serves direct-play sources from stored versions with failover tokens
+- StrmFileManager.RewriteSingleStrmFile for atomic single-file URL replacement
+- DatabaseManager.UpdateStoredVersionUrlAsync for targeted JSON column updates
+- Build: `dotnet publish -c Release` — 0 errors, 0 warnings
 
 ## Summary
 - Fixed default page (was Advanced, now Providers via CreateDefaultPageView)
@@ -76,6 +105,9 @@ Sprint 516 (MED):  God class internals — DiagnosticsEndpoints split, StreamHel
 
 ## Technical Debt Reduction Post-516 (2026-05-04)
 COMPLETE: BUG-01 (ResolverService rate-limit return null→continue), H-01 (MarvinTask SELECT * → explicit columns), H-03 (11 dead DatabaseManager methods deleted), H-04 (5 dead AioMediaSourceProvider members deleted), H-05 (3 dead CatalogSyncTask methods deleted), M-01 (GetNeedsEnrichCountAsync/GetBlockedCountAsync added to DB; StatusService+MarvinTask use them), M-03 (RefreshTask GetEmbyBaseUrl dupe deleted; inlined), M-04 (TriggerService lazy HousekeepingService singleton), M-06 (UseRequiresOpening hardcode removed from Validate(); danger comment added), M-09 (ParsePort dead copy in RawStreamsService deleted), M-10 (duplicate HDR check fixed), L-01 (22 silent catch blocks fixed with LogDebug), L-02 (no-op static constructor deleted from Plugin.cs), L-03 (IsSaved/IsBlocked passthrough aliases deleted from MediaItem), L-04 (LEGACY label removed from PluginConfiguration), L-06 (redundant stub assignments removed from HealthService). Build: 0 errors, 0 warnings.
+
+## Metadata Parsing Fixes (2026-05-07)
+COMPLETE: AioMetaResponse — imdb_id snake_case fix, director→Directors List<string> + StringOrArrayConverter, Released/AppExtras/AioAppExtras/AioCastMember/AioLink/Links fields, AioBehaviorHints.DefaultVideoId. AioMetadataProvider — ParseRuntimeMinutes (handles 1h49min/Xh/Xmin/plain), app_extras rich cast fallback, IMDB from meta.ImdbId/behaviorHints.DefaultVideoId, PremiereDate from Released, collection tag from Links, GetSearchResults implemented for Movie+Series. Build: 0 errors, 0 warnings.
 
 ## Stream Cache Polish + Subtitle Extraction (2026-05-05)
 COMPLETE: Part 1 — 6 cache pipeline bugs fixed. Bug 1+2: GetUncachedItemsAsync NOT EXISTS now checks expires_at, expired/stale entries picked up for re-resolution. Bug 3+4: Removed dead PreCacheIntervalHours and CacheRefreshIntervalDays from config+UI. Bug 5: Batch order randomized for jitter. Bug 6: Post-loop dead-link probe on 5 recent entries. Part 2 — Full subtitle support via ISubtitleProvider. AioStreamsSubtitle enhanced with title/langCode/fromTrusted/aiTranslated. FetchSubtitlesAsync added to AioStreamsClient with provider iteration. PreCache fetches + scores subtitles via Jaccard matching. AioSubtitleProvider implements ISubtitleProvider (cache-first, live fallback). Live resolve path also decorates subtitles. New: Services/AioSubtitleProvider.cs, GetRecentCachedEntries/GetCachedSubtitlesAsync in DatabaseManager.StreamCache.cs. Modified: 11 files. Build: 0 errors, 0 warnings.

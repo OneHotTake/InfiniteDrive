@@ -1,841 +1,324 @@
-define(['baseView', 'loading', 'emby-input', 'emby-button', 'emby-select', 'emby-scrollpanel'],
-function (BaseView, loading) {
+define([], function () {
     'use strict';
 
-    // ── Module-level state ────────────────────────────────────────────────────
-    var _view = null;
-    var _currentTab = 'discover';
-    var _searchTimeout = null;
-    var _isSearching = false;
-    var _currentDetailItem = null;
-    var _currentUserId = null;
-    var _userListLimit = -1; // -1 = not yet fetched
+    var cache = new Map();
+    var searchTimer = null;
 
-    // ── Authenticated fetch ───────────────────────────────────────────────────
-    function idFetch(url, opts) {
-        opts = opts || {};
-        var token = (typeof ApiClient !== 'undefined' && ApiClient.accessToken) ? ApiClient.accessToken() : '';
-        opts.headers = Object.assign({ 'X-Emby-Token': token }, opts.headers || {});
-        return fetch(url, opts);
+    // ── Helpers ────────────────────────────────────────────────────────
+
+    function esc(s) { var d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+    function escAttr(s) { return (s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;'); }
+
+    function $(id) { return document.getElementById(id); }
+
+    function show(el) { el.style.display = ''; }
+    function hide(el) { el.style.display = 'none'; }
+
+    function toast(msg, type) {
+        var t = $('id-toast');
+        t.textContent = msg;
+        t.className = 'id-toast' + (type ? ' id-toast-' + type : '');
+        show(t);
+        setTimeout(function () { hide(t); }, 3000);
     }
 
-    // ── DOM helpers ───────────────────────────────────────────────────────────
-    function q(id) { return _view ? _view.querySelector('#' + id) : null; }
-    function esc(s) {
-        if (!s) return '';
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
+    // ── Card HTML ─────────────────────────────────────────────────────
 
-    // ── Notification helper ───────────────────────────────────────────────────
-    function showToast(message, type) {
-        type = type || 'success';
-        var toast = q('id-toast');
-        if (!toast) return;
+    function cardHtml(item) {
+        cache.set(item.AioId, item);
+        var poster = item.PosterUrl;
+        var year = item.Year || '';
+        var rating = item.ImdbRating ? item.ImdbRating.toFixed(1) : '';
+        var cert = item.Certification || '';
+        var inLib = item.InLibrary;
 
-        toast.textContent = message;
-        toast.className = 'id-toast id-toast-' + type;
-        toast.style.display = 'block';
-
-        setTimeout(function() {
-            toast.style.display = 'none';
-        }, 3000);
-    }
-
-    // ── Loading state helpers ────────────────────────────────────────────────
-    function setGridLoading(gridId, loadingElId, show) {
-        var grid = q(gridId);
-        var loadingEl = q(loadingElId);
-        if (grid) grid.style.display = show ? 'none' : '';
-        if (loadingEl) loadingEl.style.display = show ? 'flex' : 'none';
-    }
-
-    // ── Tab switching ────────────────────────────────────────────────────────
-    function switchTab(tabName) {
-        // Guard: if lists are disabled, redirect to discover
-        if (tabName === 'lists' && _userListLimit === 0) {
-            tabName = 'discover';
+        var h = '<div class="id-card" data-id="' + escAttr(item.AioId) + '">';
+        h += '<div class="id-card-poster">';
+        if (poster) {
+            h += '<img src="' + escAttr(poster) + '" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=id-card-no-poster>' + esc(item.Title || '?') + '</div>\'" />';
+        } else {
+            h += '<div class="id-card-no-poster">' + esc(item.Title || '?') + '</div>';
         }
-
-        // Update active tab button
-        _view.querySelectorAll('.id-tab').forEach(function(tab) {
-            tab.classList.remove('active');
-            if (tab.getAttribute('data-tab') === tabName) {
-                tab.classList.add('active');
-            }
-        });
-
-        // Update active panel
-        _view.querySelectorAll('.id-tab-panel').forEach(function(panel) {
-            panel.classList.remove('active');
-        });
-        var activePanel = q('id-tab-' + tabName);
-        if (activePanel) activePanel.classList.add('active');
-
-        _currentTab = tabName;
-
-        // Load content for the active tab
-        if (tabName === 'discover') {
-            if (_isSearching) {
-                // Already searching, keep results
-            } else {
-                loadRails();
-            }
-        } else if (tabName === 'picks') {
-            loadPicks();
-        } else if (tabName === 'lists') {
-            loadLists();
-        }
+        h += '</div><div class="id-card-info"><h3>' + esc(item.Title) + '</h3><div class="id-card-meta">';
+        if (year) h += '<span class="id-card-year">' + esc(year) + '</span>';
+        if (rating) h += '<span class="id-card-rating">&#9733; ' + esc(rating) + '</span>';
+        if (cert) h += '<span class="id-card-cert">' + esc(cert) + '</span>';
+        if (inLib) h += '<span class="id-card-in-lib">In Library</span>';
+        else if (item.IsPending) h += '<span class="id-card-pending">Pending</span>';
+        h += '</div></div></div>';
+        return h;
     }
 
-    // ── Discover Tab: Default Rails ──────────────────────────────────────────
+    // ── Rails ─────────────────────────────────────────────────────────
+
     function loadRails() {
-        _isSearching = false;
-        q('id-rails-container').style.display = '';
-        q('id-discover-grid').style.display = 'none';
-        q('id-loading').style.display = 'flex';
-        q('id-empty-discover').style.display = 'none';
-
-        var typeFilter = q('id-type-filter');
-        var type = typeFilter ? typeFilter.value : '';
-        var url = '/InfiniteDrive/Discover/Rails';
-        if (type) url += '?type=' + encodeURIComponent(type);
-
-        idFetch(url)
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                var rails = data.rails || [];
-                var container = q('id-rails-container');
-                container.innerHTML = '';
-
-                rails.forEach(function(rail) {
-                    var railHtml = '<div class="id-rail">' +
-                        '<div class="id-rail-title">' + esc(rail.title) + '</div>' +
-                        '<div class="id-rail-scroll" id="id-rail-' + esc(rail.title.replace(/\s/g, '-')) + '"></div>' +
-                    '</div>';
-                    container.insertAdjacentHTML('beforeend', railHtml);
-
-                    var scrollId = 'id-rail-' + rail.title.replace(/\s/g, '-');
-                    renderRail(scrollId, rail.items || []);
-                });
-
-                q('id-loading').style.display = 'none';
-
-                if (rails.length === 0) {
-                    q('id-empty-discover').style.display = 'block';
-                }
-            })
-            .catch(function(err) {
-                console.error('Failed to load rails:', err);
-                showToast('Failed to load content', 'error');
-                q('id-loading').style.display = 'none';
-            });
-    }
-
-    function renderRail(containerId, items) {
-        var container = _view.querySelector('#' + containerId);
-        if (!container || items.length === 0) return;
-
-        var html = items.map(function(item) { return renderCard(item); }).join('');
-        container.innerHTML = html;
-
-        container.querySelectorAll('.id-card').forEach(function(card) {
-            card.addEventListener('click', function() {
-                var imdbId = this.getAttribute('data-imdb');
-                var mediaType = this.getAttribute('data-type');
-                if (imdbId) openDetailModal(imdbId, mediaType);
-            });
-        });
-    }
-
-    // ── Discover Tab: Live Search ──────────────────────────────────────────
-    function performSearch(query) {
-        _isSearching = true;
-        q('id-rails-container').style.display = 'none';
-        q('id-discover-grid').style.display = '';
-        q('id-loading').style.display = 'flex';
-        q('id-empty-discover').style.display = 'none';
-
-        var typeFilter = q('id-type-filter');
-        var type = typeFilter ? typeFilter.value : '';
-        var url = '/InfiniteDrive/Discover/Search?q=' + encodeURIComponent(query);
-        if (type) url += '&type=' + encodeURIComponent(type);
-
-        idFetch(url)
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                var items = data.items || [];
-                renderGrid('id-discover-grid', items);
-                q('id-loading').style.display = 'none';
-
-                if (items.length === 0) {
-                    q('id-empty-discover').style.display = 'block';
-                }
-            })
-            .catch(function(err) {
-                console.error('Failed to search:', err);
-                showToast('Search failed', 'error');
-                q('id-loading').style.display = 'none';
-            });
-    }
-
-    function setupSearch() {
-        var searchInput = q('id-search-input');
-        var searchBtn = q('id-search-btn');
-        var typeFilter = q('id-type-filter');
-
-        // Debounced search on input
-        searchInput.addEventListener('input', function(e) {
-            clearTimeout(_searchTimeout);
-            var query = e.target.value.trim();
-
-            if (query.length === 0) {
-                _isSearching = false;
-                loadRails();
+        ApiClient.ajax({
+            type: 'GET',
+            url: ApiClient.getUrl('InfiniteDrive/Discover/Rails'),
+            dataType: 'json'
+        }).then(function (data) {
+            var container = $('id-rails');
+            if (!data || !data.Rails || !data.Rails.length) {
+                container.innerHTML = '<div class="id-empty"><p>No popular titles available yet.</p></div>';
                 return;
             }
-
-            if (query.length >= 2) {
-                _searchTimeout = setTimeout(function() {
-                    performSearch(query);
-                }, 300);
-            }
-        });
-
-        // Search button click
-        searchBtn.addEventListener('click', function() {
-            var query = searchInput.value.trim();
-            if (query.length >= 2) {
-                performSearch(query);
-            }
-        });
-
-        // Type filter change
-        if (typeFilter) {
-            typeFilter.addEventListener('change', function() {
-                if (_isSearching) {
-                    var query = searchInput.value.trim();
-                    if (query.length >= 2) performSearch(query);
-                } else {
-                    loadRails();
-                }
+            var html = '';
+            data.Rails.forEach(function (rail) {
+                if (!rail.Items || !rail.Items.length) return;
+                html += '<div class="id-rail-section">';
+                html += '<h3 class="id-section-title">' + esc(rail.Title) + '</h3>';
+                html += '<div class="id-rail-scroll">';
+                rail.Items.forEach(function (item) { html += cardHtml(item); });
+                html += '</div></div>';
             });
-        }
-    }
-
-    // ── Grid rendering ───────────────────────────────────────────────────────
-    function renderGrid(gridId, items) {
-        var grid = q(gridId);
-        if (!grid) return;
-
-        if (items.length === 0) {
-            grid.innerHTML = '';
-            return;
-        }
-
-        var html = items.map(function(item) {
-            return renderCard(item);
-        }).join('');
-        grid.innerHTML = html;
-
-        // Attach click handlers
-        grid.querySelectorAll('.id-card').forEach(function(card) {
-            card.addEventListener('click', function() {
-                var imdbId = this.getAttribute('data-imdb');
-                var mediaType = this.getAttribute('data-type');
-                if (imdbId) {
-                    openDetailModal(imdbId, mediaType);
-                }
-            });
+            container.innerHTML = html;
+            hide($('id-loading'));
+        }).catch(function () {
+            $('id-rails').innerHTML = '<div class="id-empty"><p>Could not load popular titles.</p></div>';
+            hide($('id-loading'));
         });
     }
 
-    function renderCard(item) {
-        var year = item.year ? '<span class="id-card-year">' + esc(item.year) + '</span>' : '';
-        var rating = item.imdbRating ? '<span class="id-card-rating">★ ' + item.imdbRating.toFixed(1) + '</span>' : '';
-        var cert = item.certification ? '<span class="id-card-cert">' + esc(item.certification) + '</span>' : '';
-        var inLib = item.inLibrary ? '<span class="id-card-in-lib">In Library</span>' : '';
+    // ── Search ────────────────────────────────────────────────────────
 
-        return '<div class="id-card" data-imdb="' + esc(item.imdbId) + '" data-type="' + esc(item.mediaType) + '">' +
-            '<div class="id-card-poster">' +
-                '<img src="' + esc(item.posterUrl || '') + '" alt="' + esc(item.title) + '" loading="lazy" />' +
-            '</div>' +
-            '<div class="id-card-info">' +
-                '<h3>' + esc(item.title) + '</h3>' +
-                '<div class="id-card-meta">' +
-                    year + rating + cert + inLib +
-                '</div>' +
-            '</div>' +
-        '</div>';
-    }
+    function doSearch(query) {
+        var moviesRail = $('id-rail-movies'), seriesRail = $('id-rail-series'), animeRail = $('id-rail-anime');
+        var moviesScroll = $('id-rail-movies-scroll'), seriesScroll = $('id-rail-series-scroll'), animeScroll = $('id-rail-anime-scroll');
+        var empty = $('id-results-empty');
+        var results = $('id-results');
+        var title = $('id-results-title');
 
-    // ── Detail Modal ─────────────────────────────────────────────────────────
-    function openDetailModal(imdbId, mediaType) {
-        var modal = q('id-detail-modal');
-        modal.style.display = 'flex';
+        if (!query) { hide(results); return; }
 
-        // Reset modal state
-        q('id-detail-add-btn').style.display = '';
-        q('id-detail-remove-btn').style.display = 'none';
-        q('id-detail-poster-img').src = '';
-        q('id-detail-title').textContent = '';
-        q('id-detail-meta').textContent = '';
-        q('id-detail-overview').textContent = '';
-        q('id-detail-rating').textContent = '';
-        q('id-detail-certification').textContent = '';
+        title.textContent = 'Results for "' + query + '"';
+        show(results);
+        hide(moviesRail); hide(seriesRail); hide(animeRail); hide(empty);
+        moviesScroll.innerHTML = '<div class="id-loading"><div class="spinner"></div></div>';
+        seriesScroll.innerHTML = ''; animeScroll.innerHTML = '';
 
-        // Fetch detail
-        var url = '/InfiniteDrive/Discover/Detail?imdbId=' + encodeURIComponent(imdbId) + '&type=' + encodeURIComponent(mediaType);
-        idFetch(url)
-            .then(function(res) { return res.json(); })
-            .then(function(item) {
-                _currentDetailItem = item;
-
-                // Populate modal
-                q('id-detail-poster-img').src = item.posterUrl || '';
-                q('id-detail-title').textContent = item.title || '';
-                q('id-detail-meta').textContent = (item.year || '') + ' • ' + (item.mediaType || '');
-                q('id-detail-overview').textContent = item.overview || '';
-
-                var ratingHtml = item.imdbRating ? '<span class="id-detail-rating">★ ' + item.imdbRating.toFixed(1) + '</span>' : '';
-                var certHtml = item.certification ? '<span class="id-detail-certification">' + esc(item.certification) + '</span>' : '';
-                q('id-detail-rating').innerHTML = ratingHtml;
-                q('id-detail-certification').innerHTML = certHtml;
-
-                // Update button based on library status
-                if (item.inLibrary) {
-                    q('id-detail-add-btn').style.display = 'none';
-                    q('id-detail-remove-btn').style.display = '';
-                }
-            })
-            .catch(function(err) {
-                console.error('Failed to load detail:', err);
-                showToast('Failed to load item details', 'error');
-                closeModal('id-detail-modal');
-            });
-    }
-
-    function setupDetailModal() {
-        // Close buttons
-        q('id-modal-close').addEventListener('click', function() { closeModal('id-detail-modal'); });
-        q('id-detail-close-btn').addEventListener('click', function() { closeModal('id-detail-modal'); });
-
-        // Backdrop click
-        q('id-detail-modal').addEventListener('click', function(e) {
-            if (e.target.classList.contains('id-modal-backdrop')) {
-                closeModal('id-detail-modal');
-            }
-        });
-
-        // Add to library
-        q('id-detail-add-btn').addEventListener('click', function() {
-            if (!_currentDetailItem) return;
-
-            var btn = this;
-            btn.disabled = true;
-            btn.textContent = 'Adding...';
-
-            var url = '/InfiniteDrive/Discover/AddToLibrary';
-            var params = new URLSearchParams({
-                imdbId: _currentDetailItem.imdbId,
-                type: _currentDetailItem.mediaType,
-                title: _currentDetailItem.title,
-                year: _currentDetailItem.year || ''
-            });
-
-            idFetch(url + '?' + params.toString(), { method: 'POST' })
-                .then(function(res) {
-                    if (res.ok) {
-                        showToast('Added to library', 'success');
-                        closeModal('id-detail-modal');
-                        // Refresh current view
-                        if (_currentTab === 'discover') { if (_isSearching) performSearch(q('id-search-input').value.trim()); else loadRails(); }
-                        else if (_currentTab === 'picks') loadPicks();
-                    } else {
-                        throw new Error('Add failed');
-                    }
-                })
-                .catch(function(err) {
-                    console.error('Failed to add to library:', err);
-                    showToast('Failed to add to library', 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Add to Library';
-                });
-        });
-
-        // Remove from library
-        q('id-detail-remove-btn').addEventListener('click', function() {
-            if (!_currentDetailItem) return;
-
-            var btn = this;
-            btn.disabled = true;
-            btn.textContent = 'Removing...';
-
-            var url = '/InfiniteDrive/Discover/RemoveFromLibrary?imdbId=' + encodeURIComponent(_currentDetailItem.imdbId);
-
-            idFetch(url, { method: 'POST' })
-                .then(function(res) {
-                    if (res.ok) {
-                        showToast('Removed from library', 'success');
-                        closeModal('id-detail-modal');
-                        // Refresh current view
-                        if (_currentTab === 'discover') { if (_isSearching) performSearch(q('id-search-input').value.trim()); else loadRails(); }
-                        else if (_currentTab === 'picks') loadPicks();
-                    } else {
-                        throw new Error('Remove failed');
-                    }
-                })
-                .catch(function(err) {
-                    console.error('Failed to remove from library:', err);
-                    showToast('Failed to remove from library', 'error');
-                    btn.disabled = false;
-                    btn.textContent = 'Remove from Library';
-                });
-        });
-    }
-
-    // ── My Picks Tab ─────────────────────────────────────────────────────────
-    function loadPicks() {
-        setGridLoading('id-picks-grid', 'id-picks-loading', true);
-        q('id-picks-empty').style.display = 'none';
-
-        idFetch('/InfiniteDrive/User/Pins')
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                var items = data.items || [];
-
-                if (items.length === 0) {
-                    q('id-picks-empty').style.display = 'block';
-                    q('id-browse-discover').addEventListener('click', function() {
-                        switchTab('discover');
-                    });
-                } else {
-                    renderPicksGrid(items);
-                }
-
-                setGridLoading('id-picks-grid', 'id-picks-loading', false);
-            })
-            .catch(function(err) {
-                console.error('Failed to load picks:', err);
-                showToast('Failed to load your picks', 'error');
-                setGridLoading('id-picks-grid', 'id-picks-loading', false);
-            });
-    }
-
-    function renderPicksGrid(items) {
-        var grid = q('id-picks-grid');
-        if (!grid) return;
-
-        var html = items.map(function(item) {
-            var year = item.year ? '<span class="id-card-year">' + esc(item.year) + '</span>' : '';
-            var rating = item.imdbRating ? '<span class="id-card-rating">★ ' + item.imdbRating.toFixed(1) + '</span>' : '';
-
-            return '<div class="id-card" data-imdb="' + esc(item.imdbId) + '" data-type="' + esc(item.mediaType) + '">' +
-                '<div class="id-card-poster">' +
-                    '<img src="' + esc(item.posterUrl || '') + '" alt="' + esc(item.title) + '" loading="lazy" />' +
-                '</div>' +
-                '<div class="id-card-info">' +
-                    '<h3>' + esc(item.title) + '</h3>' +
-                    '<div class="id-card-meta">' + year + rating + '</div>' +
-                '</div>' +
-                '<div class="id-card-actions">' +
-                    '<button class="id-pick-remove" data-imdb="' + esc(item.imdbId) + '">Remove</button>' +
-                '</div>' +
-            '</div>';
-        }).join('');
-
-        grid.innerHTML = html;
-
-        // Card click handlers (open detail)
-        grid.querySelectorAll('.id-card').forEach(function(card) {
-            card.addEventListener('click', function(e) {
-                if (e.target.classList.contains('id-pick-remove')) return;
-                var imdbId = this.getAttribute('data-imdb');
-                var mediaType = this.getAttribute('data-type');
-                if (imdbId) {
-                    openDetailModal(imdbId, mediaType);
-                }
-            });
-        });
-
-        // Remove button handlers
-        grid.querySelectorAll('.id-pick-remove').forEach(function(btn) {
-            btn.addEventListener('click', function(e) {
-                e.stopPropagation();
-                var imdbId = this.getAttribute('data-imdb');
-                removePick(imdbId, this);
-            });
-        });
-    }
-
-    function removePick(imdbId, btnElement) {
-        btnElement.disabled = true;
-        btnElement.textContent = 'Removing...';
-
-        var url = '/InfiniteDrive/Discover/RemoveFromLibrary?imdbId=' + encodeURIComponent(imdbId);
-
-        idFetch(url, { method: 'POST' })
-            .then(function(res) {
-                if (res.ok) {
-                    showToast('Removed from picks', 'success');
-                    loadPicks(); // Reload to update UI
-                } else {
-                    throw new Error('Remove failed');
-                }
-            })
-            .catch(function(err) {
-                console.error('Failed to remove pick:', err);
-                showToast('Failed to remove', 'error');
-                btnElement.disabled = false;
-                btnElement.textContent = 'Remove';
-            });
-    }
-
-    // ── My Lists Tab ─────────────────────────────────────────────────────────
-    function loadLists() {
-        setGridLoading('id-lists-grid', 'id-lists-loading', true);
-        q('id-lists-empty').style.display = 'none';
-
-        idFetch('/InfiniteDrive/User/Catalogs')
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                var catalogs = data.Catalogs || [];
-                var limit = data.Limit != null ? data.Limit : 5;
-
-                // Admin-reduced-limit warning
-                var overLimitEl = q('id-lists-overlimit-warning');
-                var addListBtn = q('id-add-list-btn');
-                if (overLimitEl) {
-                    if (catalogs.length > limit && limit > 0) {
-                        overLimitEl.textContent = 'Your server\'s per-user list limit is ' + limit + '. You have ' + catalogs.length + ' lists. You can keep your existing lists, but won\'t be able to add new ones until you remove some.';
-                        overLimitEl.style.display = 'block';
-                    } else {
-                        overLimitEl.style.display = 'none';
-                    }
-                }
-                if (addListBtn) {
-                    addListBtn.disabled = catalogs.length >= limit && limit > 0;
-                }
-
-                if (catalogs.length === 0) {
-                    q('id-lists-empty').style.display = 'block';
-                    var limitEl = q('id-lists-limit');
-                    if (limitEl) limitEl.textContent = '';
-                } else {
-                    renderListsGrid(catalogs);
-                    var limitEl = q('id-lists-limit');
-                    if (limitEl) limitEl.textContent = catalogs.length + ' of ' + limit + ' lists used';
-                }
-
-                setGridLoading('id-lists-grid', 'id-lists-loading', false);
-            })
-            .catch(function(err) {
-                console.error('Failed to load lists:', err);
-                showToast('Failed to load your lists', 'error');
-                setGridLoading('id-lists-grid', 'id-lists-loading', false);
-            });
-    }
-
-    function renderListsGrid(catalogs) {
-        var grid = q('id-lists-grid');
-        if (!grid) return;
-
-        var html = catalogs.map(function(cat) {
-            var providerIcons = { trakt: '🎬', mdblist: '📋', tmdb: '🎬', anilist: '🎌' };
-            var icon = providerIcons[cat.Provider] || '📋';
-            var lastSync = cat.LastSyncedAt ? new Date(cat.LastSyncedAt).toLocaleDateString() : 'Never';
-            var syncStatus = cat.LastSyncStatus || '';
-
-            return '<div class="id-list-card" data-id="' + esc(cat.Id) + '">' +
-                '<div class="id-list-header">' +
-                    '<div class="id-list-icon">' + icon + '</div>' +
-                    '<div class="id-list-info">' +
-                        '<h3>' + esc(cat.DisplayName || cat.Id) + '</h3>' +
-                        '<div class="id-list-url">' + esc(cat.Provider || '') + ' &middot; ' + esc((cat.ListUrl || '').substring(0, 50)) + (cat.ListUrl && cat.ListUrl.length > 50 ? '…' : '') + '</div>' +
-                    '</div>' +
-                '</div>' +
-                '<div class="id-list-meta">' +
-                    '<span>' + (cat.ItemCount || 0) + ' items</span>' +
-                    '<span>Last sync: ' + lastSync + '</span>' +
-                    (syncStatus && syncStatus !== 'ok' ? '<span style="color:#dc3545">' + esc(syncStatus) + '</span>' : '') +
-                '</div>' +
-                '<div class="id-list-actions">' +
-                    '<button class="id-list-refresh" data-id="' + esc(cat.Id) + '">Refresh</button>' +
-                    '<button class="id-list-remove" data-id="' + esc(cat.Id) + '">Remove</button>' +
-                '</div>' +
-            '</div>';
-        }).join('');
-
-        grid.innerHTML = html;
-
-        // Refresh button handlers
-        grid.querySelectorAll('.id-list-refresh').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                var catalogId = this.getAttribute('data-id');
-                refreshList(catalogId, this);
-            });
-        });
-
-        // Remove button handlers
-        grid.querySelectorAll('.id-list-remove').forEach(function(btn) {
-            btn.addEventListener('click', function() {
-                var catalogId = this.getAttribute('data-id');
-                if (confirm('Are you sure you want to remove this list?')) {
-                    removeList(catalogId, this);
-                }
-            });
-        });
-
-        // Refresh all button
-        q('id-refresh-all-btn').addEventListener('click', function() {
-            refreshAllLists();
-        });
-    }
-
-    function refreshList(catalogId, btn) {
-        btn.disabled = true;
-        btn.textContent = 'Refreshing...';
-
-        var url = '/InfiniteDrive/User/Catalogs/Refresh?catalogId=' + encodeURIComponent(catalogId);
-
-        idFetch(url, { method: 'POST' })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                if (data.Ok) {
-                    showToast((data.Fetched || 0) + ' items refreshed', 'success');
-                } else {
-                    showToast(data.Error || 'Refresh failed', 'error');
-                }
-                loadLists();
-            })
-            .catch(function(err) {
-                console.error('Failed to refresh list:', err);
-                showToast('Failed to refresh list', 'error');
-                btn.disabled = false;
-                btn.textContent = 'Refresh';
-            });
-    }
-
-    function refreshAllLists() {
-        var btn = q('id-refresh-all-btn');
-        btn.disabled = true;
-        btn.textContent = 'Refreshing all...';
-
-        idFetch('/InfiniteDrive/User/Catalogs/Refresh', { method: 'POST' })
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                if (data.Ok) {
-                    showToast(data.Lists + ' list(s) refreshed — ' + (data.Fetched || 0) + ' items', 'success');
-                } else {
-                    showToast(data.Error || 'Refresh failed', 'error');
-                }
-                loadLists();
-            })
-            .catch(function(err) {
-                console.error('Failed to refresh all lists:', err);
-                showToast('Failed to refresh lists', 'error');
-            })
-            .finally(function() {
-                btn.disabled = false;
-                btn.textContent = 'Refresh All';
-            });
-    }
-
-    function removeList(catalogId, btn) {
-        var url = '/InfiniteDrive/User/Catalogs/Remove?catalogId=' + encodeURIComponent(catalogId);
-
-        idFetch(url, { method: 'POST' })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                if (data.Ok) {
-                    showToast('List removed', 'success');
-                    loadLists();
-                } else {
-                    showToast(data.Error || 'Failed to remove list', 'error');
-                }
-            })
-            .catch(function(err) {
-                console.error('Failed to remove list:', err);
-                showToast('Failed to remove list', 'error');
-            });
-    }
-
-    // ── Add List Modal ───────────────────────────────────────────────────────
-    function openAddListModal() {
-        var modal = q('id-add-list-modal');
-        modal.style.display = 'flex';
-
-        // Reset form
-        q('id-list-name-input').value = '';
-        q('id-list-url-input').value = '';
-        q('id-add-list-error').textContent = '';
-
-        // Load enabled providers
-        var sel = q('id-list-provider-input');
-        sel.innerHTML = '<option value="">Loading...</option>';
-        idFetch('/InfiniteDrive/User/Catalogs/Providers')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var providers = data.EnabledProviders || [];
-                var current = data.CurrentCount || 0;
-                var limit = data.Limit || 5;
-                sel.innerHTML = '';
-                if (current >= limit) {
-                    sel.innerHTML = '<option value="">List limit reached (' + limit + ')</option>';
-                    var errEl = q('id-add-list-error');
-                    if (errEl) errEl.textContent = 'Remove an existing list to add a new one.';
-                    return;
-                }
-                if (providers.indexOf('mdblist') !== -1)
-                    sel.innerHTML += '<option value="mdblist">MDBList</option>';
-                if (providers.indexOf('trakt') !== -1)
-                    sel.innerHTML += '<option value="trakt">Trakt</option>';
-                if (providers.indexOf('tmdb') !== -1)
-                    sel.innerHTML += '<option value="tmdb">TMDB</option>';
-                if (providers.indexOf('anilist') !== -1)
-                    sel.innerHTML += '<option value="anilist">AniList</option>';
-                if (!sel.innerHTML) sel.innerHTML = '<option value="">No providers available</option>';
-            })
-            .catch(function() { sel.innerHTML = '<option value="">Error loading providers</option>'; });
-    }
-
-    function setupAddListModal() {
-        // Close button
-        q('id-add-list-close').addEventListener('click', function() { closeModal('id-add-list-modal'); });
-
-        // Cancel button
-        q('id-add-list-cancel').addEventListener('click', function() { closeModal('id-add-list-modal'); });
-
-        // Backdrop click
-        q('id-add-list-modal').addEventListener('click', function(e) {
-            if (e.target.classList.contains('id-modal-backdrop')) {
-                closeModal('id-add-list-modal');
-            }
-        });
-
-        // Add button
-        q('id-add-list-btn').addEventListener('click', function() { openAddListModal(); });
-        q('id-add-list-empty-btn').addEventListener('click', function() { openAddListModal(); });
-
-        // Submit
-        q('id-add-list-submit').addEventListener('click', function() {
-            var name = q('id-list-name-input').value.trim();
-            var url = q('id-list-url-input').value.trim();
-            var errorEl = q('id-add-list-error');
-
-            errorEl.textContent = '';
-
-            if (!url) {
-                errorEl.textContent = 'Please enter a list URL';
+        ApiClient.ajax({
+            type: 'GET',
+            url: ApiClient.getUrl('InfiniteDrive/Discover/Search', { q: query }),
+            dataType: 'json'
+        }).then(function (data) {
+            var items = data && data.Items ? data.Items : [];
+            if (!items.length) {
+                hide(moviesRail); hide(seriesRail); hide(animeRail); show(empty);
                 return;
             }
-
-            var btn = this;
-            btn.disabled = true;
-            btn.textContent = 'Validating...';
-
-            var apiUrl = '/InfiniteDrive/User/Catalogs/Add?' +
-                new URLSearchParams({ listUrl: url, displayName: name }).toString();
-
-            idFetch(apiUrl, { method: 'POST' })
-                .then(function(res) { return res.json(); })
-                .then(function(data) {
-                    if (data.Ok) {
-                        showToast('List added — ' + (data.Fetched || 0) + ' items found', 'success');
-                        closeModal('id-add-list-modal');
-                        loadLists();
-                    } else {
-                        errorEl.textContent = data.Error || 'Failed to add list.';
-                        btn.disabled = false;
-                        btn.textContent = 'Validate & Save';
-                    }
-                })
-                .catch(function(err) {
-                    console.error('Failed to add list:', err);
-                    errorEl.textContent = 'Failed to add list: ' + err.message;
-                    btn.disabled = false;
-                    btn.textContent = 'Validate & Save';
-                });
-        });
-    }
-
-    // ── Modal helpers ────────────────────────────────────────────────────────
-    function closeModal(modalId) {
-        var modal = q(modalId);
-        if (modal) {
-            modal.style.display = 'none';
-        }
-        if (modalId === 'id-detail-modal') {
-            _currentDetailItem = null;
-        }
-    }
-
-    // ── List limit check ──────────────────────────────────────────────────
-    function checkListLimit() {
-        idFetch('/InfiniteDrive/User/Catalogs/Providers')
-            .then(function(r) { return r.json(); })
-            .then(function(data) {
-                var limit = data.Limit != null ? data.Limit : 5;
-                _userListLimit = limit;
-
-                var listsTab = _view.querySelector('.id-tab[data-tab="lists"]');
-                if (listsTab) {
-                    listsTab.style.display = limit === 0 ? 'none' : '';
-                }
-
-                // If currently on lists tab but it's now disabled, redirect
-                if (limit === 0 && _currentTab === 'lists') {
-                    switchTab('discover');
-                }
-            })
-            .catch(function() {});
-    }
-
-    // ── Tab setup ───────────────────────────────────────────────────────────
-    function setupTabs() {
-        _view.querySelectorAll('.id-tab').forEach(function(tab) {
-            tab.addEventListener('click', function() {
-                var tabName = this.getAttribute('data-tab');
-                switchTab(tabName);
+            var movies = [], series = [], anime = [];
+            items.forEach(function (item) {
+                if (item.MediaType === 'anime') anime.push(item);
+                else if (item.MediaType === 'series') series.push(item);
+                else movies.push(item);
             });
+            if (movies.length) {
+                var mh = ''; movies.forEach(function (i) { mh += cardHtml(i); });
+                moviesScroll.innerHTML = mh; show(moviesRail);
+            } else { hide(moviesRail); }
+            if (series.length) {
+                var sh = ''; series.forEach(function (i) { sh += cardHtml(i); });
+                seriesScroll.innerHTML = sh; show(seriesRail);
+            } else { hide(seriesRail); }
+            if (anime.length) {
+                var ah = ''; anime.forEach(function (i) { ah += cardHtml(i); });
+                animeScroll.innerHTML = ah; show(animeRail);
+            } else { hide(animeRail); }
+        }).catch(function () {
+            hide(moviesRail); hide(seriesRail); hide(animeRail); show(empty);
+            empty.querySelector('p').textContent = 'Search failed — check your connection.';
         });
     }
 
-    // ── BaseView controller ───────────────────────────────────────────────────
-    function View(view, params) {
-        BaseView.apply(this, arguments);
-        _view = view;
-        // One-time DOM setup
-        setupTabs();
-        setupSearch();
-        setupDetailModal();
-        setupAddListModal();
+    // ── Detail Modal ──────────────────────────────────────────────────
+
+    function openDetail(aioId) {
+        var item = cache.get(aioId);
+        if (!item) return;
+
+        renderModal(item);
+
+        // If no overview, fetch full meta from backend
+        if (!item.Overview) {
+            ApiClient.ajax({
+                type: 'GET',
+                url: ApiClient.getUrl('InfiniteDrive/Discover/Detail', { aioId: aioId }),
+                dataType: 'json'
+            }).then(function (data) {
+                if (data && data.Item) {
+                    // Update cache and re-render overview if we got one
+                    var d = data.Item;
+                    if (d.Overview) {
+                        item.Overview = d.Overview;
+                        if (d.Genres) item.Genres = d.Genres;
+                        if (d.BackdropUrl) item.BackdropUrl = d.BackdropUrl;
+                        if (d.Certification) item.Certification = d.Certification;
+                        var el = document.querySelector('.id-detail-overview');
+                        if (el) el.textContent = d.Overview;
+                        var gEl = document.querySelector('.id-detail-genres');
+                        if (gEl && d.Genres) gEl.textContent = d.Genres;
+                    }
+                }
+            });
+        }
     }
 
-    Object.assign(View.prototype, BaseView.prototype);
+    function renderModal(item) {
+        var aioId = item.AioId;
+        var backdrop = item.BackdropUrl || '';
+        var poster = item.PosterUrl || '';
+        var year = item.Year || '';
+        var rating = item.ImdbRating ? item.ImdbRating.toFixed(1) : '';
+        var cert = item.Certification || '';
+        var genres = item.Genres || '';
+        var overview = item.Overview || 'Loading overview...';
+        var inLib = item.InLibrary;
+        var isPending = item.IsPending;
+        var mediaType = item.MediaType || 'movie';
 
-    View.prototype.onResume = function (options) {
-        BaseView.prototype.onResume.apply(this, arguments);
-        _view = this.view;
-
-        // Update welcome message
-        if (typeof ApiClient !== 'undefined') {
-            _currentUserId = ApiClient.getCurrentUserId();
-            var welcomeEl = q('id-welcome');
-            if (welcomeEl) {
-                var user = ApiClient.getCurrentUser();
-                if (user && user.Name) {
-                    welcomeEl.textContent = 'Welcome back, ' + user.Name;
-                }
-            }
+        var h = '';
+        // Backdrop
+        if (backdrop) {
+            h += '<img class="id-modal-backdrop-img" src="' + escAttr(backdrop) + '" alt="" />';
+        } else {
+            h += '<div class="id-modal-no-backdrop"></div>';
         }
+        h += '<button class="id-modal-close" id="id-modal-x">&times;</button>';
 
-        checkListLimit();
-        switchTab('discover');
+        // Body
+        h += '<div class="id-modal-body">';
+        if (poster) {
+            h += '<div class="id-detail-poster"><img src="' + escAttr(poster) + '" alt="" /></div>';
+        }
+        h += '<div class="id-detail-info">';
+        h += '<h2>' + esc(item.Title) + '</h2>';
+
+        h += '<div class="id-detail-meta-row">';
+        if (year) h += '<span>' + esc(year) + '</span>';
+        if (rating) h += '<span class="id-detail-rating">&#9733; ' + esc(rating) + '</span>';
+        if (cert) h += '<span class="id-detail-cert">' + esc(cert) + '</span>';
+        var typeLabel = mediaType === 'anime' ? 'Anime' : mediaType === 'series' ? 'TV Series' : 'Movie';
+        h += '<span>' + esc(typeLabel) + '</span>';
+        h += '</div>';
+
+        if (genres) h += '<div class="id-detail-genres">' + esc(genres) + '</div>';
+        h += '<p class="id-detail-overview">' + esc(overview) + '</p>';
+        h += '</div></div>';
+
+        // Actions
+        h += '<div class="id-modal-actions">';
+        if (inLib) {
+            h += '<button class="id-btn-secondary" disabled>In Library</button>';
+        } else if (isPending) {
+            h += '<button class="id-btn-secondary" disabled style="color:#00a4dc">Pending</button>';
+        } else {
+            h += '<button class="id-btn-primary" data-add-id="' + escAttr(aioId) + '">Add to Library</button>';
+        }
+        h += '<button class="id-btn-secondary" id="id-modal-close-btn">Close</button>';
+        h += '</div>';
+
+        $('id-modal-box').innerHTML = h;
+        show($('id-modal'));
+    }
+
+    function closeModal() { hide($('id-modal')); }
+
+    function addToLibrary(aioId) {
+        var item = cache.get(aioId);
+        if (!item) return;
+
+        var btn = document.querySelector('[data-add-id="' + aioId + '"]');
+        if (btn) { btn.disabled = true; btn.textContent = 'Adding...'; }
+
+        ApiClient.ajax({
+            type: 'POST',
+            url: ApiClient.getUrl('InfiniteDrive/Discover/AddToLibrary', {
+                aioId: aioId,
+                type: item.MediaType || 'movie',
+                title: item.Title || '',
+                year: item.Year || ''
+            }),
+            dataType: 'json'
+        }).then(function (data) {
+            if (data && data.Ok) {
+                var label = data.IsPending ? 'Pending' : 'In Library';
+                var badgeClass = data.IsPending ? 'id-card-pending' : 'id-card-in-lib';
+                toast('"' + (item.Title || '') + '" added — ' + (data.IsPending ? 'stream pending Marvin' : 'ready to play'), 'success');
+                item.InLibrary = !data.IsPending;
+                item.IsPending = !!data.IsPending;
+                // Update any visible cards
+                document.querySelectorAll('.id-card[data-id="' + aioId + '"]').forEach(function (card) {
+                    var meta = card.querySelector('.id-card-meta');
+                    if (meta) {
+                        var existing = meta.querySelector('.id-card-in-lib, .id-card-pending');
+                        if (existing) existing.remove();
+                        meta.innerHTML += '<span class="' + badgeClass + '">' + label + '</span>';
+                    }
+                });
+                // Update modal button
+                if (btn) { btn.textContent = label; btn.className = 'id-btn-secondary'; btn.disabled = true; }
+            } else {
+                toast(data && data.Error ? data.Error : 'Failed to add', 'error');
+                if (btn) { btn.disabled = false; btn.textContent = 'Add to Library'; }
+            }
+        }).catch(function () {
+            toast('Failed to add to library', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Add to Library'; }
+        });
+    }
+
+    // ── Event Binding ─────────────────────────────────────────────────
+
+    function bindEvents(page) {
+        var input = $('id-search-input');
+
+        input.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            var q = input.value.trim();
+            searchTimer = setTimeout(function () { doSearch(q); }, 300);
+        });
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                clearTimeout(searchTimer);
+                doSearch(input.value.trim());
+            }
+        });
+
+        // Card clicks (delegated)
+        page.addEventListener('click', function (e) {
+            var card = e.target.closest('.id-card');
+            if (card) {
+                openDetail(card.getAttribute('data-id'));
+                return;
+            }
+        });
+
+        // Modal events (delegated)
+        document.addEventListener('click', function (e) {
+            // Close button / backdrop
+            if (e.target.id === 'id-modal-x' || e.target.id === 'id-modal-close-btn' || e.target.id === 'id-modal-bg') {
+                closeModal();
+                return;
+            }
+            // Add to library
+            var addBtn = e.target.closest('[data-add-id]');
+            if (addBtn) {
+                addToLibrary(addBtn.getAttribute('data-add-id'));
+                return;
+            }
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape') closeModal();
+        });
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────
+
+    return function (view) {
+        bindEvents(view);
+        loadRails();
     };
-
-    View.prototype.onPause = function () {
-        clearTimeout(_searchTimeout);
-    };
-
-    return View;
 });

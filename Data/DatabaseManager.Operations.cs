@@ -318,12 +318,12 @@ namespace InfiniteDrive.Data
             const string sql = @"
                 INSERT INTO playback_log
                     (id, aio_id, title, season, episode,
-                     resolution_mode, quality_served, client_type, proxy_mode,
+                     resolution_mode, quality_served, client_type,
                      latency_ms, bitrate_sustained, quality_downgrade,
                      error_message, played_at)
                 VALUES
                     (@id, @aio_id, @title, @season, @episode,
-                     @resolution_mode, @quality_served, @client_type, @proxy_mode,
+                     @resolution_mode, @quality_served, @client_type,
                      @latency_ms, @bitrate_sustained, @quality_downgrade,
                      @error_message, @played_at);";
 
@@ -337,7 +337,6 @@ namespace InfiniteDrive.Data
                 BindText(cmd, "@resolution_mode",  entry.ResolutionMode);
                 BindNullableText(cmd, "@quality_served",  entry.QualityServed);
                 BindNullableText(cmd, "@client_type",     entry.ClientType);
-                BindNullableText(cmd, "@proxy_mode",      entry.ProxyMode);
                 BindNullableInt(cmd,  "@latency_ms",      entry.LatencyMs);
                 BindNullableInt(cmd,  "@bitrate_sustained",entry.BitrateSustained);
                 cmd.BindParameters["@quality_downgrade"].Bind(entry.QualityDowngrade);
@@ -355,7 +354,7 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 SELECT id, aio_id, title, season, episode,
-                       resolution_mode, quality_served, client_type, proxy_mode,
+                       resolution_mode, quality_served, client_type,
                        latency_ms, bitrate_sustained, quality_downgrade,
                        error_message, played_at
                 FROM playback_log

@@ -382,6 +382,9 @@ namespace InfiniteDrive.Services
 
         /// <summary>Error information when AIOStreams could not resolve the stream.</summary>
         [JsonPropertyName("error")]         public AioStreamsStreamError? Error { get; set; }
+
+        /// <summary>SeaDex quality signals for anime streams.</summary>
+        [JsonPropertyName("seadex")]        public AioStreamsSeadex? Seadex { get; set; }
     }
 
     /// <summary>
@@ -450,6 +453,9 @@ namespace InfiniteDrive.Services
 
         /// <summary>True if AIOStreams classified this as a season pack.</summary>
         [JsonPropertyName("seasonPack")]   public bool?   SeasonPack  { get; set; }
+
+        /// <summary>Edition variant: director's cut, theatrical, unrated, extended, etc.</summary>
+        [JsonPropertyName("edition")]      public string? Edition     { get; set; }
     }
 
     /// <summary>
@@ -470,6 +476,19 @@ namespace InfiniteDrive.Services
         /// Cached streams play instantly without torrent download wait.
         /// </summary>
         [JsonPropertyName("cached")] public bool?   Cached { get; set; }
+    }
+
+    /// <summary>
+    /// SeaDex quality signals injected by AIOStreams for anime streams.
+    /// See https://releases.moe for the SeaDex database.
+    /// </summary>
+    public class AioStreamsSeadex
+    {
+        /// <summary>True when this is the single best release for the title.</summary>
+        [JsonPropertyName("isBest")]    public bool? IsBest    { get; set; }
+
+        /// <summary>True when this release is in the SeaDex database (not necessarily #1).</summary>
+        [JsonPropertyName("isSeadex")]  public bool? IsSeadex  { get; set; }
     }
 
     /// <summary>

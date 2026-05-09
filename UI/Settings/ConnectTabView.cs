@@ -1,7 +1,8 @@
 using System;
+using System.Linq;
 using System.Net.Http;
-using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
@@ -12,9 +13,14 @@ namespace InfiniteDrive.UI.Settings
 {
     public class ConnectTabView : PluginPageView
     {
+        private static readonly Regex UuidPattern = new Regex(
+            @"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
         public ConnectTabView(string pluginId, ConnectUI ui) : base(pluginId)
         {
             ContentData = ui;
+            LoadUrlInfo();
         }
 
         private ConnectUI UI => (ConnectUI)ContentData;
@@ -35,18 +41,11 @@ namespace InfiniteDrive.UI.Settings
 
                 case ConnectUI.TestSecondaryCommand:
                     if (string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl))
-                    {
                         UpdateResult("Secondary manifest: Not configured", ItemStatus.None);
-                    }
                     else
-                    {
                         await TestSingleAsync("Secondary manifest", UI.SecondaryManifestUrl).ConfigureAwait(false);
-                    }
                     return this;
 
-                case ConnectUI.RunSetupTestCommand:
-                    await RunFullSetupTestAsync().ConfigureAwait(false);
-                    return this;
             }
 
             return await base.RunCommand(itemId, commandId, data);
@@ -90,70 +89,53 @@ namespace InfiniteDrive.UI.Settings
             }
         }
 
-        // ── Full test → single result ──────────────────────────────────────
+        // ── URL info ───────────────────────────────────────────────────────
 
-        private async Task RunFullSetupTestAsync()
+        private void LoadUrlInfo()
         {
-            UpdateResult("Running tests...", ItemStatus.InProgress);
+            var cfg = Plugin.Instance.Configuration;
+            PopulateUrlInfo(cfg.PrimaryManifestUrl, UI.PrimaryServerUrl, UI.PrimaryUserId);
+            PopulateUrlInfo(cfg.SecondaryManifestUrl, UI.SecondaryServerUrl, UI.SecondaryUserId);
+        }
 
-            var sb = new StringBuilder();
-            var allOk = true;
-
-            // Primary
-            if (string.IsNullOrWhiteSpace(UI.PrimaryManifestUrl))
+        private void PopulateUrlInfo(string url, Emby.Web.GenericEdit.Elements.LabelItem serverLabel, StatusItem userIdItem)
+        {
+            if (string.IsNullOrWhiteSpace(url))
             {
-                sb.AppendLine("Primary manifest: Not configured");
-                allOk = false;
-            }
-            else
-            {
-                try
-                {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                    var resp = await http.GetAsync(UI.PrimaryManifestUrl, cts.Token).ConfigureAwait(false);
-                    resp.EnsureSuccessStatusCode();
-                    sb.AppendLine("Primary manifest: OK");
-                }
-                catch (Exception ex)
-                {
-                    sb.AppendLine($"Primary manifest: FAILED — {ex.Message}");
-                    allOk = false;
-                }
+                serverLabel.Text = "Not configured";
+                serverLabel.HyperLink = null;
+                userIdItem.StatusText = "—";
+                userIdItem.Status = ItemStatus.None;
+                return;
             }
 
-            // Secondary (only if set)
-            if (!string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl))
+            try
             {
-                try
+                var uri = new Uri(url);
+                var baseUrl = $"{uri.Scheme}://{uri.Host}/";
+                serverLabel.Text = baseUrl;
+                serverLabel.HyperLink = baseUrl;
+
+                var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+                var userId = segments.FirstOrDefault(s => UuidPattern.IsMatch(s));
+                if (!string.IsNullOrEmpty(userId))
                 {
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                    var resp = await http.GetAsync(UI.SecondaryManifestUrl, cts.Token).ConfigureAwait(false);
-                    resp.EnsureSuccessStatusCode();
-                    sb.AppendLine("Secondary manifest: OK");
+                    userIdItem.StatusText = userId;
+                    userIdItem.Status = ItemStatus.Succeeded;
                 }
-                catch (Exception ex)
+                else
                 {
-                    sb.AppendLine($"Secondary manifest: FAILED — {ex.Message}");
-                    allOk = false;
+                    userIdItem.StatusText = "Not found in URL";
+                    userIdItem.Status = ItemStatus.Warning;
                 }
             }
-
-            // Emby URL
-            if (string.IsNullOrWhiteSpace(UI.EmbyBaseUrl) ||
-                UI.EmbyBaseUrl.StartsWith("http://127.0.0.1") ||
-                UI.EmbyBaseUrl.StartsWith("http://localhost"))
+            catch
             {
-                sb.AppendLine("Emby URL: Not externally reachable — update External URL");
-                allOk = false;
+                serverLabel.Text = "Invalid URL";
+                serverLabel.HyperLink = null;
+                userIdItem.StatusText = "—";
+                userIdItem.Status = ItemStatus.None;
             }
-            else
-            {
-                sb.AppendLine("Emby URL: Configured");
-            }
-
-            UpdateResult(sb.ToString().TrimEnd(), allOk ? ItemStatus.Succeeded : ItemStatus.Warning);
         }
 
         // ── One writer ─────────────────────────────────────────────────────
@@ -173,9 +155,9 @@ namespace InfiniteDrive.UI.Settings
             cfg.PrimaryManifestUrl = UI.PrimaryManifestUrl ?? string.Empty;
             cfg.SecondaryManifestUrl = UI.SecondaryManifestUrl ?? string.Empty;
             cfg.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl);
-            cfg.EmbyBaseUrl = UI.EmbyBaseUrl ?? string.Empty;
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
+            LoadUrlInfo();
             return base.OnSaveCommand(itemId, commandId, data);
         }
     }
