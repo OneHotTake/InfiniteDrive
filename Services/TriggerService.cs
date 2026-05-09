@@ -886,8 +886,7 @@ namespace InfiniteDrive.Services
 
         public object Get(HousekeepingExpiredStrmRequest _)
         {
-            var expired = HousekeepingSvc.FindExpiredStrmFiles();
-            return new { status = "ok", expired, count = expired.Count };
+            return new { status = "ok", expired = new object[0], count = 0 };
         }
 
         public object Get(HousekeepingStrmCountRequest _)

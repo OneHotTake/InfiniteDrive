@@ -115,7 +115,7 @@ namespace InfiniteDrive.Services
             if (ContainsI(f, "2160p") || ContainsI(f, "2160") || ContainsI(f, "4K")
                                       || ContainsI(f, "UHD"))
                 return isUpscaled ? "1080p" : "2160p";
-            if (ContainsI(f, "1440p"))                                            return "1080p";
+            if (ContainsI(f, "1440p"))                                            return "1440p";
             if (ContainsI(f, "1080p") || ContainsI(f, "1080"))                    return "1080p";
             if (ContainsI(f, "720p")  || ContainsI(f, "720"))                     return "720p";
             if (ContainsI(f, "480p") || ContainsI(f, "360p") || ContainsI(f, "240p")) return "480p";
@@ -595,6 +595,7 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrEmpty(tier)) return 0;
             var t = tier.ToLowerInvariant();
             if (t.Contains("2160") || t.Contains("4k")) return 40;
+            if (t.Contains("1440")) return 35;
             if (t.Contains("1080")) return 30;
             if (t.Contains("720")) return 20;
             if (t.Contains("480") || t.Contains("sd")) return 10;

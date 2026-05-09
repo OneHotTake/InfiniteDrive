@@ -13,7 +13,10 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Builds a folder name using Emby auto-match convention:
         /// <c>{Title} ({Year}) [imdbid-{aioId}]</c>
-        /// Priority: tt IMDB > anime provider (kitsu/anilist) > TVDB (series/anime) > TMDB > title+year only.
+        /// Priority: tt IMDB > TVDB (series/anime) > TMDB > anime-native tag (kitsu/anilist/etc) > title+year only.
+        /// For anime items: TVDB/TMDB are preferred over the native anime tag so Emby's built-in
+        /// scrapers can resolve metadata. The native tag is last resort (InfiniteDrive reads it;
+        /// Emby's TMDB/TVDB plugins do not).
         /// </summary>
         public static string BuildFolderName(
             string title,
@@ -31,24 +34,20 @@ namespace InfiniteDrive.Services
             {
                 sb.Append($" [imdbid-{aioId}]");
             }
-            else if (!string.IsNullOrEmpty(aioId) && aioId.Contains(':'))
-            {
-                // Anime/obscure: emit the native provider tag (e.g. [kitsu=46474], [anilist=12345])
-                var tag = ParseAioIdTag(aioId);
-                if (tag != null) sb.Append($" [{tag}]");
-                else if (!string.IsNullOrEmpty(tvdbId) && (mediaType == "series" || mediaType == "anime"))
-                    sb.Append($" [tvdbid-{tvdbId}]");
-                else if (!string.IsNullOrEmpty(tmdbId))
-                    sb.Append($" [tmdbid-{tmdbId}]");
-            }
-            else if (!string.IsNullOrEmpty(tvdbId) &&
-                     (mediaType == "series" || mediaType == "anime"))
+            else if (!string.IsNullOrEmpty(tvdbId) && (mediaType == "series" || mediaType == "anime"))
             {
                 sb.Append($" [tvdbid-{tvdbId}]");
             }
             else if (!string.IsNullOrEmpty(tmdbId))
             {
                 sb.Append($" [tmdbid-{tmdbId}]");
+            }
+            else if (!string.IsNullOrEmpty(aioId) && aioId.Contains(':'))
+            {
+                // Last resort: native anime provider tag (e.g. [kitsu=46474], [anilist=12345]).
+                // Only InfiniteDrive's path resolver reads this; Emby's scrapers do not.
+                var tag = ParseAioIdTag(aioId);
+                if (tag != null) sb.Append($" [{tag}]");
             }
 
             return sb.ToString();

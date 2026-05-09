@@ -38,7 +38,7 @@ namespace InfiniteDrive
     /// Inherits <see cref="BasePlugin{TConfiguration}"/> which handles XML config
     /// persistence at {DataPath}/plugins/configurations/InfiniteDrive.xml.
     /// </summary>
-    public class Plugin : BasePlugin<PluginConfiguration>, IHasUIPages, IHasThumbImage
+    public class Plugin : BasePlugin<PluginConfiguration>, IHasUIPages, IHasWebPages, IHasThumbImage
     {
         /// <summary>Stable plugin GUID — never change this after first release.</summary>
         public static readonly Guid PluginGuid = new Guid("3c45a87e-2b4f-4d1a-9e73-8f12c3456789");
@@ -52,8 +52,6 @@ namespace InfiniteDrive
         private readonly ILogger<Plugin> _logger;
         private readonly ILogManager _logManager;
         private readonly IApplicationPaths _appPaths;
-        private volatile bool _secretEnsured;
-
         /// <summary>
         /// Shared logger for use by auto-discovered providers (e.g. AioMetadataProvider).
         /// </summary>
@@ -103,6 +101,11 @@ namespace InfiniteDrive
         /// All .strm writes go through this singleton (Sprint 156).
         /// </summary>
         public Services.StrmWriterService StrmWriterService { get; private set; } = null!;
+
+        /// <summary>
+        /// StrmFileManager — multi-version .strm file I/O for pre-written CDN URLs.
+        /// </summary>
+        public Services.StrmFileManager StrmFileManager { get; private set; } = null!;
 
         /// <summary>
         /// Resolution cache repository interface for stream URL caching.
@@ -271,11 +274,35 @@ namespace InfiniteDrive
                     _uiPages = new List<IPluginUIPageController>
                     {
                         new UI.Settings.SettingsController(id),
-                        new UI.Discover.DiscoverController(id),
                     }.AsReadOnly();
                 }
                 return _uiPages;
             }
+        }
+
+        // ── IHasWebPages ────────────────────────────────────────────────────────
+
+        /// <inheritdoc/>
+        public IEnumerable<PluginPageInfo> GetPages()
+        {
+            return new[]
+            {
+                new PluginPageInfo
+                {
+                    Name = "InfiniteDiscover",
+                    EmbeddedResourcePath = GetType().Namespace + ".Configuration.discoverpage.html",
+                    EnableInMainMenu = true,
+                    EnableInUserMenu = true,
+                    MenuIcon = "explore",
+                    MenuSection = "server",
+                    DisplayName = "Discover"
+                },
+                new PluginPageInfo
+                {
+                    Name = "InfiniteDiscoverJS",
+                    EmbeddedResourcePath = GetType().Namespace + ".Configuration.discoverpage.js"
+                },
+            };
         }
 
         // ── IHasThumbImage ───────────────────────────────────────────────────────
@@ -291,35 +318,6 @@ namespace InfiniteDrive
         public ImageFormat ThumbImageFormat => ImageFormat.Png;
 
         // ── Public helpers ─────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Ensures the PluginSecret is initialized. Should be called by services
-        /// that need stream signing before first use.
-        /// </summary>
-        public void EnsureInitialization()
-        {
-            EnsurePluginSecret();
-        }
-
-        /// <summary>
-        /// Async version that ensures PluginSecret is initialized before .strm file writes.
-        /// Returns true if secret exists (was already set or was just generated), false if failed.
-        /// </summary>
-        public Task<bool> EnsureInitializedAsync()
-        {
-            EnsurePluginSecret();
-            // Check if secret actually exists after EnsurePluginSecret
-            var success = !string.IsNullOrEmpty(Configuration?.PluginSecret);
-            if (!success)
-            {
-                _logger?.LogWarning("[InfiniteDrive] PluginSecret is empty after EnsurePluginSecret — .strm files will use unauthenticated URLs");
-            }
-            else
-            {
-                _logger?.LogInformation("[InfiniteDrive] PluginSecret confirmed ready for .strm file generation");
-            }
-            return Task.FromResult(success);
-        }
 
         /// <summary>
         /// Checks whether the Emby Anime Plugin is installed by scanning
@@ -378,6 +376,10 @@ namespace InfiniteDrive
                 // Initialise StrmWriterService (Sprint 156: Unified Write Path)
                 StrmWriterService = new Services.StrmWriterService(_logManager, DatabaseManager);
                 _logger.LogInformation("[InfiniteDrive] StrmWriterService initialised");
+
+                // Initialise StrmFileManager (multi-version .strm prewriting)
+                StrmFileManager = new Services.StrmFileManager(_logManager);
+                _logger.LogInformation("[InfiniteDrive] StrmFileManager initialised");
 
                 // Initialise StreamProbeService (Sprint 159: Stream Availability Probe)
                 StreamProbeService = new Services.StreamProbeService(
@@ -486,41 +488,5 @@ namespace InfiniteDrive
             });
         }
 
-        /// <summary>
-        /// Generates and persists a PluginSecret if one does not already exist.
-        /// Called lazily on first config access to ensure ApplicationPaths is ready.
-        /// Safe to call multiple times - will only execute once.
-        /// </summary>
-        public void EnsurePluginSecret()
-        {
-            if (_secretEnsured)
-                return;
-
-            try
-            {
-                // Guard against ApplicationPaths not being ready yet
-                if (ApplicationPaths?.PluginConfigurationsPath == null)
-                {
-                    _logger.LogWarning("[InfiniteDrive] Deferring PluginSecret — ApplicationPaths not ready yet");
-                    return;
-                }
-
-                if (!string.IsNullOrEmpty(Configuration.PluginSecret))
-                {
-                    _secretEnsured = true;
-                    return;
-                }
-
-                Configuration.PluginSecret = PlaybackTokenService.GenerateSecret();
-                SaveConfiguration();
-                _secretEnsured = true;
-                _logger.LogInformation("[InfiniteDrive] PluginSecret generated and saved");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[InfiniteDrive] Failed to generate PluginSecret — stream signing will not work");
-                _secretEnsured = true; // Don't retry on error
-            }
-        }
     }
 }

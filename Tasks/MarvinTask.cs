@@ -181,7 +181,16 @@ namespace InfiniteDrive.Tasks
 
                 progress?.Report(0.80);
 
-                // ── Phase 4: Repair (80-100%) ────────────────────────────────
+                // ── Phase 3b: Version Refresh (80-85%) ──────────────────────
+                Plugin.Pipeline.SetPhase("Marvin", "VersionRefresh");
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 3b: Multi-Version Refresh");
+                phaseSw.Restart();
+                await VersionRefreshPassAsync(cancellationToken);
+                _logger.LogDebug("[Marvin] Phase 3b (VersionRefresh) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+
+                progress?.Report(0.85);
+
+                // ── Phase 4: Repair (85-100%) ────────────────────────────────
                 Plugin.Pipeline.SetPhase("Marvin", "Repair");
                 _logger.LogInformation("[InfiniteDrive] Marvin Phase 4: Repair");
 
@@ -283,6 +292,320 @@ namespace InfiniteDrive.Tasks
             {
                 // Primary still down — no action needed
             }
+        }
+
+        // ── Phase 3b: Multi-Version Refresh ──────────────────────────────────
+
+        /// <summary>
+        /// Re-fetches streams for items with stale version selections and upgrades
+        /// .strm files when better alternatives are available. This enables the
+        /// "new releases improve over time" behaviour as more/better streams appear.
+        /// </summary>
+        private async Task VersionRefreshPassAsync(CancellationToken cancellationToken)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+            var config = Plugin.Instance?.Configuration;
+            var fileManager = Plugin.Instance?.StrmFileManager;
+            if (db == null || config == null || fileManager == null) return;
+
+            // Get all Written items that have version data (or are eligible for first versioning)
+            var activeItems = await db.GetActiveCatalogItemsAsync();
+            var candidates = activeItems
+                .Where(i => i.ItemState == ItemState.Written
+                         && !string.IsNullOrEmpty(i.StrmPath)
+                         && !string.IsNullOrEmpty(i.AioId))
+                .ToList();
+
+            if (candidates.Count == 0) return;
+
+            _logger.LogInformation("[VersionRefresh] Checking {Count} items for version upgrades", candidates.Count);
+
+            var upgraded = 0;
+            var checked_ = 0;
+
+            using var client = Services.AioStreamsClientFactory.Create(_logger);
+            client.Cooldown = Plugin.Instance?.CooldownGate;
+            if (!client.IsConfigured) return;
+
+            // Process in small batches to avoid API rate limits
+            using var gate = new SemaphoreSlim(2);
+            var tasks = candidates.Select(item => RefreshItemVersionsAsync(
+                item, client, fileManager, config, db, gate, cancellationToken));
+
+            var results = await Task.WhenAll(tasks);
+            foreach (var (wasChecked, wasUpgraded) in results)
+            {
+                if (wasChecked) checked_++;
+                if (wasUpgraded) upgraded++;
+            }
+
+            if (upgraded > 0)
+                _logger.LogInformation("[VersionRefresh] Upgraded {Upgraded}/{Checked} items", upgraded, checked_);
+            else
+                _logger.LogDebug("[VersionRefresh] No upgrades needed across {Checked} items", checked_);
+        }
+
+        private async Task<(bool checked_, bool upgraded)> RefreshItemVersionsAsync(
+            CatalogItem item,
+            Services.AioStreamsClient client,
+            Services.StrmFileManager fileManager,
+            PluginConfiguration config,
+            Data.DatabaseManager db,
+            SemaphoreSlim gate,
+            CancellationToken ct)
+        {
+            await gate.WaitAsync(ct);
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // Throttle: only refresh items older than 1 hour since last refresh
+                if (!string.IsNullOrEmpty(item.LastVersionRefreshAt)
+                    && DateTime.TryParse(item.LastVersionRefreshAt, out var lastRefresh)
+                    && (DateTime.UtcNow - lastRefresh) < TimeSpan.FromHours(1))
+                    return (false, false);
+
+                // Fetch fresh streams
+                List<SelectedVersion> newVersions;
+
+                if (item.MediaType == "series" || item.MediaType == "anime")
+                {
+                    // For series: fetch streams per actual episode and write versioned .strm for each
+                    newVersions = await RefreshSeriesVersionsAsync(
+                        item, client, fileManager, config, ct);
+                }
+                else
+                {
+                    // Movies: single fetch
+                    var response = await client.GetMovieStreamsAsync(
+                        item.AioId, ct).ConfigureAwait(false);
+
+                    if (response?.Streams == null || response.Streams.Count == 0)
+                        return (true, false);
+
+                    var parsed = Services.StreamParser.ParseAll(response.Streams);
+                    if (parsed.Count == 0) return (true, false);
+
+                    newVersions = Services.VersionSelectorService.SelectBestVersions(
+                        parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
+                    Services.VersionSelectorService.AssignSecondaryUrls(newVersions, parsed);
+                }
+
+                if (newVersions.Count == 0)
+                    return (true, false);
+
+                // ── Stream list comparison healing ──────────────────────────────
+                // Check stored URLs against fresh stream set. If primary is dead
+                // but secondary is alive, swap. If both dead, fall through to full refresh.
+                var storedVersions = Services.StrmFileManager.DeserializeVersions(item.SelectedVersionsJson);
+                if (storedVersions.Count > 0)
+                {
+                    var freshUrls = new HashSet<string>(
+                        newVersions.Select(v => v.Stream.Url), StringComparer.OrdinalIgnoreCase);
+
+                    var healed = false;
+                    foreach (var sv in storedVersions)
+                    {
+                        var primaryAlive = !string.IsNullOrEmpty(sv.Url) && freshUrls.Contains(sv.Url);
+                        var secondaryAlive = !string.IsNullOrEmpty(sv.SecondaryUrl) && freshUrls.Contains(sv.SecondaryUrl);
+
+                        if (primaryAlive) continue; // Both alive or primary alive — no action
+
+                        if (!primaryAlive && secondaryAlive)
+                        {
+                            // Swap: secondary → primary
+                            var oldSecondary = sv.SecondaryUrl;
+                            sv.Url = oldSecondary!;
+                            sv.SecondaryUrl = null;
+
+                            // Try to find a new secondary from the fresh URL pool
+                            // (prefer same resolution, exclude all currently-used URLs)
+                            var claimedUrls = new HashSet<string>(
+                                storedVersions.Where(v => !string.IsNullOrEmpty(v.Url)).Select(v => v.Url!),
+                                StringComparer.OrdinalIgnoreCase);
+                            claimedUrls.Add(sv.Url);
+                            foreach (var v in storedVersions)
+                                if (!string.IsNullOrEmpty(v.SecondaryUrl)) claimedUrls.Add(v.SecondaryUrl);
+
+                            var newSecondary = newVersions.FirstOrDefault(nv =>
+                                !claimedUrls.Contains(nv.Stream.Url))?.Stream.Url;
+                            if (newSecondary != null)
+                            {
+                                sv.SecondaryUrl = newSecondary;
+                                _logger.LogInformation(
+                                    "[VersionRefresh] Healed {AioId}: promoted secondary → primary, assigned new secondary ({StreamKey})",
+                                    item.AioId, sv.StreamKey);
+                            }
+                            else
+                            {
+                                _logger.LogInformation(
+                                    "[VersionRefresh] Healed {AioId}: promoted secondary → primary, no new secondary available ({StreamKey})",
+                                    item.AioId, sv.StreamKey);
+                            }
+
+                            healed = true;
+
+                            // Rewrite .strm file
+                            if (!string.IsNullOrEmpty(item.StrmPath) && !string.IsNullOrEmpty(sv.StreamKey))
+                            {
+                                try { fileManager.RewriteSingleStrmFile(item.StrmPath, sv.Url); }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug(ex, "[VersionRefresh] Rewrite failed for {AioId}", item.AioId);
+                                }
+
+                                // Update DB
+                                try
+                                {
+                                    await db.UpdateStoredVersionUrlAsync(
+                                        item.AioId, sv.StreamKey, sv.Url, null, ct).ConfigureAwait(false);
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogDebug(ex, "[VersionRefresh] DB update failed for {AioId}", item.AioId);
+                                }
+                            }
+                        }
+                        // Both dead → fall through to full ShouldReplace check below
+                    }
+
+                    if (healed)
+                    {
+                        // Update the stored JSON with healed versions
+                        item.SelectedVersionsJson = Services.StrmFileManager.SerializeVersions(
+                            storedVersions.Select(sv => new SelectedVersion
+                            {
+                                Stream = new ParsedStream
+                                {
+                                    Url = sv.Url,
+                                    Resolution = sv.Resolution,
+                                    AudioPretty = sv.AudioPretty,
+                                    AudioGroup = "Any",
+                                    SourceTag = sv.SourceTag,
+                                    SizeGiB = sv.SizeGiB,
+                                    RankScore = sv.RankScore,
+                                    StreamKey = sv.StreamKey,
+                                },
+                                SecondaryUrl = sv.SecondaryUrl,
+                                VersionLabel = sv.VersionLabel,
+                                SelectedScore = sv.RankScore,
+                            }).ToList());
+                        item.LastVersionRefreshAt = DateTime.UtcNow.ToString("o");
+                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                        await db.UpsertCatalogItemAsync(item, ct).ConfigureAwait(false);
+                    }
+                }
+
+                // Compare against stored versions — clean direct comparison, no reconstruction
+                if (!Services.VersionSelectorService.ShouldReplace(storedVersions, newVersions))
+                    return (true, false);
+
+                // Upgrade: write new version files
+                var folderName = Services.NamingPolicyService.BuildFolderName(item);
+                var folderPath = System.IO.Path.GetDirectoryName(item.StrmPath)!;
+                var folderBareName = System.IO.Path.GetFileName(folderName);
+
+                var written = await fileManager.WriteOrReplaceStrmFilesAsync(
+                    folderPath, folderBareName, newVersions, ct);
+
+                if (written > 0)
+                {
+                    item.SelectedVersionsJson = Services.StrmFileManager.SerializeVersions(newVersions);
+                    item.LastVersionRefreshAt = DateTime.UtcNow.ToString("o");
+                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    await db.UpsertCatalogItemAsync(item, ct);
+
+                    _logger.LogInformation(
+                        "[VersionRefresh] Upgraded {AioId} ({Title}): {Count} versions",
+                        item.AioId, item.Title, written);
+                    return (true, true);
+                }
+
+                return (true, false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[VersionRefresh] Non-fatal error for {AioId}", item.AioId);
+                return (false, false);
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+
+        /// <summary>
+        /// Refreshes multi-version .strm files for series/anime by fetching streams
+        /// for the most recent episode and writing versioned files into each season dir.
+        /// Uses actual episode metadata from VideosJson, not S01E01 guessing.
+        /// </summary>
+        private async Task<List<SelectedVersion>> RefreshSeriesVersionsAsync(
+            CatalogItem item,
+            Services.AioStreamsClient client,
+            Services.StrmFileManager fileManager,
+            PluginConfiguration config,
+            CancellationToken ct)
+        {
+            // Parse actual episodes from stored VideosJson
+            var episodeKeys = Services.EpisodeDiffService.ParseVideoKeys(item.VideosJson);
+            if (episodeKeys.Count == 0)
+                return new();
+
+            // Write versioned .strm files for every episode — no representative gate
+            var folderName = Services.NamingPolicyService.BuildFolderName(item);
+            var basePath = string.Equals(item.MediaType, "anime", StringComparison.OrdinalIgnoreCase)
+                ? config.SyncPathAnime
+                : config.SyncPathShows;
+            if (string.IsNullOrEmpty(basePath) || string.IsNullOrEmpty(item.StrmPath))
+                return new();
+
+            var representativeVersions = new List<SelectedVersion>();
+
+            var seasonGroups = episodeKeys.GroupBy(e => e.Season);
+            foreach (var seasonGroup in seasonGroups)
+            {
+                var seasonNum = seasonGroup.Key;
+                var seasonDir = System.IO.Path.Combine(item.StrmPath, $"Season {seasonNum:D2}");
+
+                // Write multi-version .strm for each episode in this season
+                foreach (var ep in seasonGroup)
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    // Fetch streams for this specific episode
+                    Services.AioStreamsStreamResponse? epResponse;
+                    try
+                    {
+                        epResponse = await client.GetSeriesStreamsAsync(
+                            item.AioId, seasonNum, ep.Episode, ct).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "[VersionRefresh] Failed to fetch S{S:D2}E{E:D2} for {AioId}, skipping",
+                            seasonNum, ep.Episode, item.AioId);
+                        continue;
+                    }
+
+                    if (epResponse?.Streams == null || epResponse.Streams.Count == 0)
+                        continue;
+
+                    var epParsed = Services.StreamParser.ParseAll(epResponse.Streams);
+                    if (epParsed.Count == 0) continue;
+
+                    var epVersions = Services.VersionSelectorService.SelectBestVersions(
+                        epParsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
+                    Services.VersionSelectorService.AssignSecondaryUrls(epVersions, epParsed);
+                    if (epVersions.Count == 0) continue;
+
+                    var epBaseName = Services.NamingPolicyService.BuildStrmFileName(item, seasonNum, ep.Episode);
+                    var epBaseNameNoExt = System.IO.Path.GetFileNameWithoutExtension(epBaseName);
+                    await fileManager.WriteOrReplaceStrmFilesAsync(
+                        seasonDir, epBaseNameNoExt, epVersions, ct);
+                    representativeVersions = epVersions;
+                }
+            }
+
+            return representativeVersions;
         }
 
         private async Task ValidationPassAsync(CancellationToken cancellationToken)
@@ -452,18 +775,10 @@ namespace InfiniteDrive.Tasks
             }
         }
 
-        private async Task TokenRenewalAsync(CancellationToken cancellationToken)
+        private static Task TokenRenewalAsync(CancellationToken cancellationToken)
         {
-            var db = Plugin.Instance!.DatabaseManager;
-
-            var expiringItems = await db.GetCatalogItemsWithExpiringTokensAsync(
-                int.MaxValue, cancellationToken);
-
-            if (!expiringItems.Any())
-                return;
-
-            // Version-slot token renewal disabled — slot infrastructure removed.
-            return;
+            // Token renewal removed — HMAC signing infrastructure deleted.
+            return Task.CompletedTask;
         }
 
         private async Task PersistEnrichmentCountsAsync(CancellationToken cancellationToken)
@@ -535,13 +850,6 @@ namespace InfiniteDrive.Tasks
                 try { _libraryManager.QueueLibraryScan(); }
                 catch (Exception ex) { _logger.LogWarning(ex, "[InfiniteDrive] Enrichment: Failed to trigger library scan fallback"); }
             }
-        }
-
-        private static string GetEmbyBaseUrl(PluginConfiguration config)
-        {
-            if (!string.IsNullOrEmpty(config.EmbyBaseUrl))
-                return config.EmbyBaseUrl.TrimEnd('/');
-            return "http://localhost:8096";
         }
 
     }

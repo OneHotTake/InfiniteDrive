@@ -150,9 +150,6 @@ namespace InfiniteDrive.Models
         /// <summary>Unix timestamp for next retry attempt.</summary>
         public long? NextRetryAt { get; set; }
 
-        /// <summary>Unix timestamp when .strm token expires.</summary>
-        public long? StrmTokenExpiresAt { get; set; }
-
         /// <summary>
         /// JSON-encoded Videos[] array from Stremio metadata endpoint.
         /// Used for diff-based episode sync (Sprint 222).
@@ -187,11 +184,17 @@ namespace InfiniteDrive.Models
 
         /// <summary>
         /// Unix timestamp when this item was last verified in a catalog sync.
-        /// Used for safe removal: items are only pruned if they've been missing
-        /// for >7 days (not verified in 7+ days).
-        /// Null if never verified.
+        /// Null if never verified. Now used for UI display only — prune logic uses AbsentSyncs.
         /// </summary>
         public long? LastVerifiedAt { get; set; }
+
+        /// <summary>
+        /// Number of consecutive successful catalog syncs in which this item was absent.
+        /// Incremented by IncrementAbsentSyncsAsync Phase 1; reset to 0 by Phase 2 when the
+        /// item reappears. Items are pruned when this reaches AbsentSyncsThreshold.
+        /// Pinned and blocked items are excluded from increment and prune.
+        /// </summary>
+        public int AbsentSyncs { get; set; }
 
         /// <summary>
         /// The manifest URL that originally provided this item (primary or secondary).
@@ -199,5 +202,20 @@ namespace InfiniteDrive.Models
         /// Null for items migrated before this field was added.
         /// </summary>
         public string? SourceManifestUrl { get; set; }
+
+        // ── Multi-Version STRM Prewriting ───────────────────────────────────
+
+        /// <summary>
+        /// JSON-serialised list of <see cref="StoredVersion"/> objects representing
+        /// the currently written .strm versions. Used for comparison during Marvin
+        /// refresh cycles to detect when better streams are available.
+        /// </summary>
+        public string? SelectedVersionsJson { get; set; }
+
+        /// <summary>
+        /// ISO 8601 timestamp of the last multi-version refresh.
+        /// Used to throttle version refreshes in Marvin cycles.
+        /// </summary>
+        public string? LastVersionRefreshAt { get; set; }
     }
 }

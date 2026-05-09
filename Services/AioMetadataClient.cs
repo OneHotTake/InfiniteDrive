@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Models;
@@ -23,6 +24,18 @@ namespace InfiniteDrive.Services
         private static readonly HttpClient _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(TimeoutSeconds)
+        };
+
+        // Separate clients for public anime APIs (no auth required)
+        private static readonly HttpClient _kitsuClient = new HttpClient
+        {
+            BaseAddress = new Uri("https://kitsu.app/api/edge/"),
+            Timeout = TimeSpan.FromSeconds(10),
+        };
+        private static readonly HttpClient _jikanClient = new HttpClient
+        {
+            BaseAddress = new Uri("https://api.jikan.moe/v4/"),
+            Timeout = TimeSpan.FromSeconds(10),
         };
         private Uri? _baseUrl;
 
@@ -68,6 +81,14 @@ namespace InfiniteDrive.Services
             // Build lookup URL - prefer IMDB ID, fall back to TMDB
             string lookupId;
             string lookupType;
+
+            // Route anime IDs to dedicated public APIs instead of AIOStreams meta endpoint
+            if (aioId.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase))
+                return await FetchFromKitsuAsync(aioId.Substring(6), cancellationToken);
+            if (aioId.StartsWith("mal:", StringComparison.OrdinalIgnoreCase))
+                return await FetchFromJikanAsync(aioId.Substring(4), cancellationToken);
+            if (aioId.StartsWith("anilist:", StringComparison.OrdinalIgnoreCase))
+                return await FetchFromAniListAsync(aioId.Substring(8), cancellationToken);
 
             if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
             {
@@ -399,6 +420,127 @@ namespace InfiniteDrive.Services
                 .Replace("\\t", "\t")
                 .Replace("\\\"", "\"")
                 .Replace("\\\\", "\\");
+        }
+
+        // ── Anime metadata APIs ────────────────────────────────────────────────
+
+        private async Task<EnrichedMetadata?> FetchFromKitsuAsync(string numericId, CancellationToken ct)
+        {
+            try
+            {
+                var resp = await _kitsuClient.GetAsync($"anime/{numericId}", ct);
+                if (!resp.IsSuccessStatusCode) return null;
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("data", out var data)) return null;
+                if (!data.TryGetProperty("attributes", out var attrs)) return null;
+
+                var meta = new EnrichedMetadata();
+                if (attrs.TryGetProperty("canonicalTitle", out var t)) meta.Name = t.GetString() ?? "";
+                if (string.IsNullOrEmpty(meta.Name) && attrs.TryGetProperty("titles", out var titles))
+                {
+                    if (titles.TryGetProperty("en", out var en) && en.ValueKind == JsonValueKind.String)
+                        meta.Name = en.GetString() ?? "";
+                    if (string.IsNullOrEmpty(meta.Name) && titles.TryGetProperty("en_jp", out var enjp))
+                        meta.Name = enjp.GetString() ?? "";
+                }
+                if (attrs.TryGetProperty("synopsis", out var syn)) meta.Description = syn.GetString() ?? "";
+                if (attrs.TryGetProperty("startDate", out var sd) && sd.ValueKind == JsonValueKind.String)
+                {
+                    var raw = sd.GetString();
+                    if (!string.IsNullOrEmpty(raw) && raw.Length >= 4 && int.TryParse(raw.AsSpan(0, 4), out var y))
+                        meta.Year = y;
+                }
+                if (attrs.TryGetProperty("averageRating", out var ar) && ar.ValueKind == JsonValueKind.String)
+                {
+                    if (float.TryParse(ar.GetString(), out var score))
+                        meta.ImdbId = ""; // no IMDB id from Kitsu
+                }
+                _logger.LogDebug("[AioMetadata] Kitsu: fetched '{Name}' ({Year})", meta.Name, meta.Year);
+                return string.IsNullOrEmpty(meta.Name) ? null : meta;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AioMetadata] Kitsu fetch failed for id={Id}", numericId);
+                return null;
+            }
+        }
+
+        private async Task<EnrichedMetadata?> FetchFromJikanAsync(string malId, CancellationToken ct)
+        {
+            try
+            {
+                var resp = await _jikanClient.GetAsync($"anime/{malId}", ct);
+                if (!resp.IsSuccessStatusCode) return null;
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("data", out var data)) return null;
+
+                var meta = new EnrichedMetadata();
+                if (data.TryGetProperty("title_english", out var te) && te.ValueKind == JsonValueKind.String)
+                    meta.Name = te.GetString() ?? "";
+                if (string.IsNullOrEmpty(meta.Name) && data.TryGetProperty("title", out var t))
+                    meta.Name = t.GetString() ?? "";
+                if (data.TryGetProperty("synopsis", out var syn)) meta.Description = syn.GetString() ?? "";
+                if (data.TryGetProperty("year", out var yr) && yr.ValueKind == JsonValueKind.Number)
+                    meta.Year = yr.GetInt32();
+                if (data.TryGetProperty("genres", out var genres) && genres.ValueKind == JsonValueKind.Array)
+                    meta.Genres = genres.EnumerateArray()
+                        .Where(g => g.TryGetProperty("name", out _))
+                        .Select(g => g.GetProperty("name").GetString() ?? "")
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .ToList();
+                _logger.LogDebug("[AioMetadata] Jikan: fetched '{Name}' ({Year})", meta.Name, meta.Year);
+                return string.IsNullOrEmpty(meta.Name) ? null : meta;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AioMetadata] Jikan fetch failed for mal_id={Id}", malId);
+                return null;
+            }
+        }
+
+        private async Task<EnrichedMetadata?> FetchFromAniListAsync(string anilistId, CancellationToken ct)
+        {
+            const string query = "{\"query\":\"query($id:Int){Media(id:$id,type:ANIME){title{english romaji}description startDate{year}genres}}\",\"variables\":{\"id\":ID}}";
+            try
+            {
+                var body = query.Replace("ID", anilistId);
+                var req = new HttpRequestMessage(HttpMethod.Post, "https://graphql.anilist.co")
+                {
+                    Content = new StringContent(body, Encoding.UTF8, "application/json")
+                };
+                var resp = await _httpClient.SendAsync(req, ct);
+                if (!resp.IsSuccessStatusCode) return null;
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                var media = doc.RootElement
+                    .GetProperty("data")
+                    .GetProperty("Media");
+
+                var meta = new EnrichedMetadata();
+                var title = media.GetProperty("title");
+                if (title.TryGetProperty("english", out var en) && en.ValueKind == JsonValueKind.String)
+                    meta.Name = en.GetString() ?? "";
+                if (string.IsNullOrEmpty(meta.Name) && title.TryGetProperty("romaji", out var ro))
+                    meta.Name = ro.GetString() ?? "";
+                if (media.TryGetProperty("description", out var d)) meta.Description = d.GetString() ?? "";
+                if (media.TryGetProperty("startDate", out var sd) && sd.TryGetProperty("year", out var yr)
+                    && yr.ValueKind == JsonValueKind.Number)
+                    meta.Year = yr.GetInt32();
+                if (media.TryGetProperty("genres", out var genres) && genres.ValueKind == JsonValueKind.Array)
+                    meta.Genres = genres.EnumerateArray()
+                        .Select(g => g.GetString() ?? "")
+                        .Where(s => !string.IsNullOrEmpty(s))
+                        .ToList();
+                _logger.LogDebug("[AioMetadata] AniList: fetched '{Name}' ({Year})", meta.Name, meta.Year);
+                return string.IsNullOrEmpty(meta.Name) ? null : meta;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[AioMetadata] AniList fetch failed for id={Id}", anilistId);
+                return null;
+            }
         }
 
         public record EnrichedMetadata

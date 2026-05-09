@@ -12,6 +12,7 @@ using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using InfiniteDrive.Services;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Logging;
 using ILogManager = MediaBrowser.Model.Logging.ILogManager;
 using Microsoft.Extensions.Logging;
@@ -402,7 +403,6 @@ namespace InfiniteDrive.Tasks
         private async Task<int> WriteStepAsync(List<CatalogItem> items, CancellationToken cancellationToken)
         {
             var config = Plugin.Instance!.Configuration;
-            var embyBaseUrl = string.IsNullOrEmpty(config.EmbyBaseUrl) ? "http://localhost:8096" : config.EmbyBaseUrl.TrimEnd('/');
 
             // Split into movies and series
             var series = items.Where(i =>
@@ -424,7 +424,7 @@ namespace InfiniteDrive.Tasks
                 var movieResults = new ConcurrentBag<(bool success, CatalogItem item)>();
 
                 var movieTasks = movies.Select(item => ProcessMovieItemAsync(
-                    item, config, embyBaseUrl, movieGate, movieResults, cancellationToken));
+                    item, config, movieGate, movieResults, cancellationToken));
                 await Task.WhenAll(movieTasks);
 
                 foreach (var (success, item) in movieResults)
@@ -461,7 +461,6 @@ namespace InfiniteDrive.Tasks
         private async Task ProcessMovieItemAsync(
             CatalogItem item,
             PluginConfiguration config,
-            string embyBaseUrl,
             SemaphoreSlim gate,
             ConcurrentBag<(bool, CatalogItem)> results,
             CancellationToken cancellationToken)
@@ -474,35 +473,82 @@ namespace InfiniteDrive.Tasks
                 var basePath = GetLibraryPath(config, item.MediaType);
                 var folderPath = Path.Combine(basePath, folderName);
 
-                Directory.CreateDirectory(folderPath);
+                // ── Multi-version STRM prewriting ─────────────────────────────
+                List<SelectedVersion>? versions = null;
 
-                var baseName = Path.GetFileNameWithoutExtension(folderName);
-                var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.AioId ?? "", "imdb", null, null);
-                var fileName = baseName + ".strm";
-                var fullPath = Path.Combine(folderPath, fileName);
-                var tmpPath = fullPath + ".tmp";
-
+                // Attempt to fetch live streams from AIOStreams
                 try
                 {
-                    await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
-                    File.Move(tmpPath, fullPath, overwrite: true);
+                    using var client = AioStreamsClientFactory.Create(_logger);
+                    client.Cooldown = Plugin.Instance?.CooldownGate;
+                    if (client.IsConfigured)
+                    {
+                        var response = await client.GetMovieStreamsAsync(
+                            item.AioId ?? "", cancellationToken).ConfigureAwait(false);
+
+                        if (response?.Streams?.Count > 0)
+                        {
+                            var parsed = StreamParser.ParseAll(response.Streams);
+                            _logger.LogInformation(
+                                "[Write] Movie {AioId} ({Title}): AIOStreams returned {Raw} streams, {Playable} playable",
+                                item.AioId, item.Title, response.Streams.Count, parsed.Count);
+
+                            if (parsed.Count > 0)
+                            {
+                                versions = VersionSelectorService.SelectBestVersions(
+                                    parsed,
+                                    config.DesiredVersions,
+                                    config.MaxVersionsPerItem,
+                                    config);
+                                VersionSelectorService.AssignSecondaryUrls(versions, parsed);
+                            }
+                        }
+                        else
+                        {
+                            _logger.LogInformation(
+                                "[Write] Movie {AioId} ({Title}): AIOStreams returned 0 streams (no debrid cache)",
+                                item.AioId, item.Title);
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to write .strm: {Path}", fullPath);
-                    if (File.Exists(tmpPath)) File.Delete(tmpPath);
+                    _logger.LogDebug(ex, "[Write] Stream fetch failed for {AioId}, falling back to resolve URL", item.AioId);
                 }
 
-                item.ItemState = ItemState.Written;
-                item.StrmPath = folderPath;
-                item.LocalPath = folderPath;
-                item.LocalSource = "strm";
-                item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(config.SignatureValidityDays).ToUnixTimeSeconds();
-                item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+                var fileManager = Plugin.Instance?.StrmFileManager;
+                var folderBareName = Path.GetFileName(folderName);
+                var written = 0;
 
-                _logger.LogDebug("[Write] Movie {AioId} ({Title}) written in {Ms}ms", item.AioId, item.Title, itemSw.ElapsedMilliseconds);
-                results.Add((true, item));
+                if (versions != null && versions.Count > 0 && fileManager != null)
+                {
+                    // Write multi-version .strm files with direct CDN URLs
+                    written = await fileManager.WriteOrReplaceStrmFilesAsync(
+                        folderPath, folderBareName, versions, cancellationToken);
+
+                    item.SelectedVersionsJson = StrmFileManager.SerializeVersions(versions);
+                    item.LastVersionRefreshAt = DateTime.UtcNow.ToString("o");
+                }
+
+                if (written > 0)
+                {
+                    item.ItemState = ItemState.Written;
+                    item.StrmPath = folderPath;
+                    item.LocalPath = folderPath;
+                    item.LocalSource = "strm";
+                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
+                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
+
+                    _logger.LogDebug("[Write] Movie {AioId} ({Title}) written {Versions} versions in {Ms}ms",
+                        item.AioId, item.Title, written, itemSw.ElapsedMilliseconds);
+                    results.Add((true, item));
+                    QueueItemRefresh(folderPath);
+                }
+                else
+                {
+                    _logger.LogDebug("[Write] Movie {AioId} ({Title}) skipped — no streams available", item.AioId, item.Title);
+                    results.Add((false, item));
+                }
             }
             catch (Exception ex)
             {
@@ -568,31 +614,109 @@ namespace InfiniteDrive.Tasks
                         item.AioId, item.Title, diff.AddedEpisodes.Count);
                 }
 
-                var strm = Plugin.Instance?.StrmWriterService;
-                if (strm == null)
+                // ── Multi-version STRM: per-episode parallel resolution ──────────
+                var fileManager = Plugin.Instance?.StrmFileManager;
+                var seriesPath = Path.Combine(basePath, folderName);
+                var episodesWritten = 0;
+                var representativeVersions = new List<SelectedVersion>();
+                var realEpisodes = aioVideos
+                    .Where(v => v.Season.HasValue && v.Season.Value > 0 && v.Episode.HasValue)
+                    .ToList();
+
+                try
                 {
-                    results.Add((false, item));
-                    return;
+                    using var client = AioStreamsClientFactory.Create(_logger);
+                    client.Cooldown = Plugin.Instance?.CooldownGate;
+
+                    if (client.IsConfigured && fileManager != null && realEpisodes.Count > 0)
+                    {
+                        var concurrency = config.MaxConcurrentResolutions;
+                        using var episodeGate = new SemaphoreSlim(concurrency, concurrency);
+                        var resolved = 0;
+                        var syncLock = new object();
+                        var latestRep = (Season: 0, Ep: 0, Versions: (List<SelectedVersion>?)null);
+
+                        var tasks = realEpisodes.Select(async ep =>
+                        {
+                            try
+                            {
+                                await episodeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                return;
+                            }
+
+                            try
+                            {
+                                var (written, versions) = await ResolveAndWriteEpisodeAsync(
+                                    client, fileManager, item, seriesPath,
+                                    ep.Season!.Value, ep.Episode!.Value,
+                                    config, cancellationToken).ConfigureAwait(false);
+
+                                if (written > 0)
+                                {
+                                    lock (syncLock)
+                                    {
+                                        episodesWritten += written;
+                                        resolved++;
+                                        if (ep.Season!.Value > latestRep.Season ||
+                                            (ep.Season!.Value == latestRep.Season && ep.Episode!.Value > latestRep.Ep))
+                                        {
+                                            latestRep = (ep.Season!.Value, ep.Episode!.Value, versions);
+                                        }
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogDebug(ex,
+                                    "[Write] Series {AioId}: S{S}E{E} — resolve failed",
+                                    item.AioId, ep.Season, ep.Episode);
+                            }
+                            finally
+                            {
+                                episodeGate.Release();
+                            }
+                        }).ToList();
+
+                        await Task.WhenAll(tasks).ConfigureAwait(false);
+
+                        representativeVersions = latestRep.Versions ?? new List<SelectedVersion>();
+
+                        _logger.LogInformation(
+                            "[Write] Series {AioId} ({Title}): per-episode resolution: {Resolved}/{Total} episodes resolved",
+                            item.AioId, item.Title, resolved, realEpisodes.Count);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[Write] AIOStreams client failed for series {AioId}", item.AioId);
                 }
 
-                var episodesWritten = await strm.WriteEpisodesFromVideosJsonAsync(item, config, cancellationToken);
                 if (episodesWritten > 0)
                 {
                     item.EpisodesExpanded = true;
-                    // Stagger re-expansion: set timestamp randomly in the past (0 to 6h)
-                    // so titles don't all re-expand at the same 6-hour mark
                     var jitterSec = Random.Shared.Next(0, ReExpansionIntervalSec);
                     item.LastExpandedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() - jitterSec;
                     item.ItemState = ItemState.Written;
-                    item.StrmPath = Path.Combine(basePath, folderName);
-                    item.LocalPath = item.StrmPath;
+                    item.StrmPath = seriesPath;
+                    item.LocalPath = seriesPath;
                     item.LocalSource = "strm";
+
+                    if (representativeVersions.Count > 0)
+                    {
+                        item.SelectedVersionsJson = StrmFileManager.SerializeVersions(representativeVersions);
+                        item.LastVersionRefreshAt = DateTime.UtcNow.ToString("o");
+                    }
+
                     item.UpdatedAt = DateTime.UtcNow.ToString("o");
                     await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
                     _logger.LogInformation(
                         "[InfiniteDrive] Episode expansion for {AioId} ({Title}) - {Count} episodes in {Ms}ms",
                         item.AioId, item.Title, episodesWritten, itemSw.ElapsedMilliseconds);
                     results.Add((true, item));
+                    QueueItemRefresh(seriesPath);
                 }
                 else
                 {
@@ -607,6 +731,74 @@ namespace InfiniteDrive.Tasks
             finally
             {
                 gate.Release();
+            }
+        }
+
+        private async Task<(int written, List<SelectedVersion>? versions)> ResolveAndWriteEpisodeAsync(
+            AioStreamsClient client,
+            StrmFileManager fileManager,
+            CatalogItem item,
+            string seriesPath,
+            int season,
+            int episode,
+            PluginConfiguration config,
+            CancellationToken cancellationToken)
+        {
+            var response = await client.GetSeriesStreamsAsync(
+                item.AioId ?? "", season, episode, cancellationToken).ConfigureAwait(false);
+
+            if (response?.Streams == null || response.Streams.Count == 0)
+            {
+                _logger.LogDebug(
+                    "[Write] Series {AioId}: S{S}E{E} — 0 streams from AIOStreams",
+                    item.AioId, season, episode);
+                return (0, null);
+            }
+
+            var parsed = StreamParser.ParseAll(response.Streams);
+            if (parsed.Count == 0)
+            {
+                _logger.LogDebug(
+                    "[Write] Series {AioId}: S{S}E{E} — {Raw} raw streams, 0 playable after filtering",
+                    item.AioId, season, episode, response.Streams.Count);
+                return (0, null);
+            }
+
+            var versions = VersionSelectorService.SelectBestVersions(
+                parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
+            if (versions.Count == 0) return (0, null);
+
+            VersionSelectorService.AssignSecondaryUrls(versions, parsed);
+
+            var seasonDir = Path.Combine(seriesPath, $"Season {season:D2}");
+            var epBaseName = NamingPolicyService.BuildStrmFileName(item, season, episode);
+            var epBaseNameNoExt = Path.GetFileNameWithoutExtension(epBaseName);
+
+            var written = await fileManager.WriteOrReplaceStrmFilesAsync(
+                seasonDir, epBaseNameNoExt, versions, cancellationToken).ConfigureAwait(false);
+
+            return (written, versions);
+        }
+
+        private void QueueItemRefresh(string itemPath)
+        {
+            var providerManager = Plugin.Instance?.ProviderManager;
+            var fileSystem      = Plugin.Instance?.FileSystem;
+            if (providerManager == null || fileSystem == null) return;
+
+            var embyItem = _libraryManager.FindByPath(itemPath, false)
+                        ?? _libraryManager.FindByPath(itemPath, true);
+            if (embyItem == null) return;
+
+            try
+            {
+                var options = new MetadataRefreshOptions(fileSystem);
+                providerManager.QueueRefresh(embyItem.InternalId, options, RefreshPriority.Normal);
+                _logger.LogDebug("[Write] Queued Emby refresh for {Path}", itemPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Write] Failed to queue refresh for {Path}", itemPath);
             }
         }
 
@@ -809,8 +1001,7 @@ namespace InfiniteDrive.Tasks
 
             if (!notifiedItems.Any())
             {
-                // No Notified items, check for token renewal
-                return await RenewTokensAsync(NotifyLimit, cancellationToken);
+                return 0;
             }
 
             foreach (var item in notifiedItems)
@@ -872,61 +1063,6 @@ namespace InfiniteDrive.Tasks
             }
 
             return verified;
-        }
-
-        /// <summary>
-        /// Renews tokens for items expiring within 90 days.
-        /// Shares the 42-item budget with Verify step.
-        /// </summary>
-        private async Task<int> RenewTokensAsync(int budget, CancellationToken cancellationToken)
-        {
-            var renewed = 0;
-
-            var expiringItems = await Plugin.Instance!.DatabaseManager.GetCatalogItemsWithExpiringTokensAsync(
-                budget,
-                cancellationToken);
-
-            if (!expiringItems.Any())
-                return 0;
-
-            var config = Plugin.Instance!.Configuration;
-
-            foreach (var item in expiringItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (string.IsNullOrEmpty(item.StrmPath) || string.IsNullOrEmpty(item.LocalPath))
-                    continue;
-
-                // Rewrite .strm files with fresh tokens
-                var folderPath = item.LocalPath;
-                var baseName = Path.GetFileNameWithoutExtension(folderPath);
-
-                try
-                {
-                    var strmUrl = StrmWriterService.BuildSignedStrmUrl(config, item.AioId ?? "", "imdb", null, null);
-                    var fileName = baseName + ".strm";
-                    var fullPath = Path.Combine(folderPath, fileName);
-                    var tmpPath = fullPath + ".tmp";
-
-                    await File.WriteAllTextAsync(tmpPath, strmUrl, new UTF8Encoding(false));
-                    File.Move(tmpPath, fullPath, overwrite: true);
-
-                    // Update token expiry timestamp
-                    item.StrmTokenExpiresAt = DateTimeOffset.UtcNow.AddDays(Plugin.Instance!.Configuration.SignatureValidityDays).ToUnixTimeSeconds();
-                    item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(item, cancellationToken);
-
-                    renewed++;
-                    _logger.LogDebug("[InfiniteDrive] Renew: Refreshed token for {AioId}", item.AioId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Renew: Failed to refresh token for {AioId}", item.AioId);
-                }
-            }
-
-            return renewed;
         }
 
         // ── Stalled-Item Promotion ──────────────────────────────────────────────

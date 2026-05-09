@@ -120,7 +120,7 @@ namespace InfiniteDrive.Models
         /// <summary>
         /// IMDB ID (may be with or without "tt" prefix).
         /// </summary>
-        [JsonPropertyName("imdbId")]
+        [JsonPropertyName("imdb_id")]
         public string? ImdbId { get; set; }
 
         /// <summary>
@@ -166,10 +166,11 @@ namespace InfiniteDrive.Models
         public List<string>? Cast { get; set; }
 
         /// <summary>
-        /// Director name(s).
+        /// Director name(s). AIOStreams may return a single string or an array.
         /// </summary>
         [JsonPropertyName("director")]
-        public string? Director { get; set; }
+        [JsonConverter(typeof(StringOrArrayConverter))]
+        public List<string>? Directors { get; set; }
 
         /// <summary>
         /// Runtime duration (varies by provider).
@@ -225,6 +226,18 @@ namespace InfiniteDrive.Models
         /// </summary>
         [JsonPropertyName("sortTitle")]
         public string? SortTitle { get; set; }
+
+        /// <summary>Exact release date (ISO 8601).</summary>
+        [JsonPropertyName("released")]
+        public string? Released { get; set; }
+
+        /// <summary>Rich cast with character names and photos.</summary>
+        [JsonPropertyName("app_extras")]
+        public AioAppExtras? AppExtras { get; set; }
+
+        /// <summary>Links including collection membership.</summary>
+        [JsonPropertyName("links")]
+        public List<AioLink>? Links { get; set; }
     }
 
     /// <summary>
@@ -238,6 +251,12 @@ namespace InfiniteDrive.Models
 
         /// <summary>Series content type.</summary>
         Series = 1,
+
+        /// <summary>Anime content type (Kitsu/MAL catalogs).</summary>
+        Anime = 2,
+
+        /// <summary>Hentai content type.</summary>
+        Hentai = 3,
 
         /// <summary>Other/unknown content type.</summary>
         Other = 99
@@ -313,6 +332,35 @@ namespace InfiniteDrive.Models
         /// </summary>
         [JsonPropertyName("configFile")]
         public string? ConfigFile { get; set; }
+
+        /// <summary>
+        /// Default video ID (IMDB fallback from behaviorHints).
+        /// </summary>
+        [JsonPropertyName("defaultVideoId")]
+        public string? DefaultVideoId { get; set; }
+    }
+
+    /// <summary>Rich cast with character names and photos from app_extras.</summary>
+    public class AioAppExtras
+    {
+        [JsonPropertyName("cast")]
+        public List<AioCastMember>? Cast { get; set; }
+    }
+
+    /// <summary>Individual cast member with character and photo info.</summary>
+    public class AioCastMember
+    {
+        [JsonPropertyName("name")]      public string? Name      { get; set; }
+        [JsonPropertyName("character")] public string? Character { get; set; }
+        [JsonPropertyName("photo")]     public string? Photo     { get; set; }
+    }
+
+    /// <summary>Link entry for collection detection and external references.</summary>
+    public class AioLink
+    {
+        [JsonPropertyName("name")]     public string? Name     { get; set; }
+        [JsonPropertyName("category")] public string? Category { get; set; }
+        [JsonPropertyName("url")]      public string? Url      { get; set; }
     }
 
     /// <summary>
@@ -344,6 +392,36 @@ namespace InfiniteDrive.Models
                 writer.WriteNumberValue(value.Value);
             else
                 writer.WriteNullValue();
+        }
+    }
+
+    /// <summary>
+    /// Handles fields that may be a single string or an array of strings.
+    /// </summary>
+    internal class StringOrArrayConverter : JsonConverter<List<string>?>
+    {
+        public override List<string>? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+        {
+            if (reader.TokenType == JsonTokenType.Null) return null;
+            if (reader.TokenType == JsonTokenType.String)
+                return new List<string> { reader.GetString()! };
+            if (reader.TokenType == JsonTokenType.StartArray)
+            {
+                var list = new List<string>();
+                while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+                    if (reader.TokenType == JsonTokenType.String)
+                        list.Add(reader.GetString()!);
+                return list;
+            }
+            reader.Skip();
+            return null;
+        }
+        public override void Write(Utf8JsonWriter writer, List<string>? value, JsonSerializerOptions options)
+        {
+            if (value == null) { writer.WriteNullValue(); return; }
+            writer.WriteStartArray();
+            foreach (var s in value) writer.WriteStringValue(s);
+            writer.WriteEndArray();
         }
     }
 

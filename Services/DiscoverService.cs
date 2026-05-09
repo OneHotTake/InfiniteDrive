@@ -176,6 +176,9 @@ namespace InfiniteDrive.Services
         /// <summary>Path to the created .strm file.</summary>
         public string? StrmPath { get; set; }
 
+        /// <summary><c>true</c> when the item is queued but Marvin hasn't assigned a stream yet.</summary>
+        public bool IsPending { get; set; }
+
         /// <summary>Error message if <c>Ok</c> is <c>false</c>.</summary>
         public string? Error { get; set; }
     }
@@ -239,8 +242,11 @@ namespace InfiniteDrive.Services
         /// <summary>MPAA/TV rating (e.g., "PG-13", "R", "TV-MA").</summary>
         public string? Certification { get; set; }
 
-        /// <summary><c>true</c> if already in user's Emby library.</summary>
+        /// <summary><c>true</c> if already in user's Emby library with a stream assigned.</summary>
         public bool InLibrary { get; set; }
+
+        /// <summary><c>true</c> if requested/queued but stream not yet assigned by Marvin.</summary>
+        public bool IsPending { get; set; }
 
         /// <summary>Emby internal item ID (for navigation to detail page).</summary>
         public string? EmbyItemId { get; set; }
@@ -287,6 +293,12 @@ namespace InfiniteDrive.Services
         private readonly IAuthorizationContext _authCtx;
         private readonly StrmWriterService _strmWriter;
         private readonly IUserManager _userManager;
+
+        // ── Cinemeta background cache ───────────────────────────────────────────
+        private static List<DiscoverRail>? _cinemetaCache;
+        private static DateTime _cinemetaCacheTime = DateTime.MinValue;
+        private static readonly TimeSpan CinemetaCacheTtl = TimeSpan.FromHours(6);
+        private static int _cinemetaRefreshing = 0; // interlocked flag
 
         /// <inheritdoc/>
         public IRequest Request { get; set; } = null!;
@@ -359,43 +371,78 @@ namespace InfiniteDrive.Services
                 if (config == null)
                     return new DiscoverSearchResponse { Items = new() };
 
-                var type = string.IsNullOrEmpty(req.Type) ? "movie" : req.Type.ToLowerInvariant();
-                var items = new List<DiscoverItem>();
+                var type = string.IsNullOrEmpty(req.Type) ? null : req.Type.ToLowerInvariant();
 
-                // Live search via AIOStreams
-                if (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl) || !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+                // 1. Live AIOStreams search (manifest-routed)
+                var items = await GetLiveSearchResultsAsync(req.Query, type);
+
+                // Filter out AIOStreams error sentinel items (id prefix "aiostreamserror")
+                items = items
+                    .Where(i => !i.AioId.StartsWith("aiostreamserror", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                // 2. Local catalog DB search — InfiniteDrive items + library-sourced items
+                var db = Plugin.Instance?.DatabaseManager;
+                if (db != null)
                 {
-                    using var client = AioStreamsClientFactory.Create(_logger);
-                    client.Cooldown = Plugin.Instance?.CooldownGate;
+                    var catalogMatches = await db.SearchCatalogItemsByTitleAsync(req.Query, 20);
+                    foreach (var ci in catalogMatches)
+                        items.Add(CatalogItemToDiscoverItem(ci));
+                }
 
-                    // Search both movie and series if no type filter
-                    var types = type == "movie" || type == "series"
-                        ? new[] { type }
-                        : new[] { "movie", "series" };
+                // 3. Emby library title search — catches items not managed by InfiniteDrive
+                items.AddRange(SearchEmbyLibrary(req.Query, type, 20));
 
-                    foreach (var t in types)
+                // 4. Batch library lookup to fill InLibrary on live results not already marked
+                var allMetas = items
+                    .Where(i => !i.InLibrary && !i.IsPending)
+                    .Select(i => new AioStreamsMeta { Id = i.AioId })
+                    .ToList();
+                if (allMetas.Count > 0)
+                {
+                    var aioIdLookup = allMetas.Select(m => m.Id).Where(id => !string.IsNullOrEmpty(id)).ToList();
+                    var libraryMap = BatchLibraryLookup(allMetas);
+                    foreach (var item in items)
                     {
-                        try
+                        if (!item.InLibrary && !item.IsPending && libraryMap.TryGetValue(item.AioId, out var lib))
                         {
-                            var result = await client.SearchLiveAsync(req.Query, t, 0, 50, CancellationToken.None);
-                            if (result?.Metas != null)
-                            {
-                                foreach (var meta in result.Metas)
-                                    items.Add(await MapMetaToDiscoverItemAsync(meta));
-                            }
+                            item.InLibrary  = lib.Item1;
+                            item.EmbyItemId ??= lib.Item2;
                         }
-                        catch (Exception ex)
-                        {
-                            _logger.LogDebug(ex, "[Discover] Live search failed for type '{Type}'", t);
-                        }
+                    }
+
+                    // Pending pass: items in catalog but without a stream yet
+                    var pendingIds = _db.GetPendingCatalogAioIds(aioIdLookup.Where(id => id != null).Select(id => id!).ToList());
+                    foreach (var item in items)
+                    {
+                        if (!item.InLibrary && !item.IsPending && pendingIds.Contains(item.AioId))
+                            item.IsPending = true;
                     }
                 }
 
-                // Deduplicate by IMDB ID
+                // 5. Deduplicate — two passes:
+                //    Pass 1: by AioId (same ID from multiple sources)
+                //    Pass 2: by normalized title+year (same content with different IDs, e.g. IMDB vs kitsu)
+                //    When collapsing, prefer: anime > series > movie, then InLibrary, then higher rating
                 var deduped = items
                     .GroupBy(i => i.AioId, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
-                    .OrderBy(x => x.InLibrary ? 0 : 1)
+                    .Select(g => g.OrderByDescending(x => x.InLibrary ? 2 : x.IsPending ? 1 : 0).First())
+                    .GroupBy(i => NormalizeTitle(i.Title) + "|" + (i.Year?.ToString() ?? ""))
+                    .Select(g =>
+                    {
+                        var winner = g
+                            .OrderByDescending(x => x.MediaType switch { "anime" => 3, "series" => 2, _ => 1 })
+                            .ThenByDescending(x => x.InLibrary ? 2 : x.IsPending ? 1 : 0)
+                            .ThenByDescending(x => x.ImdbRating ?? 0)
+                            .First();
+                        // Anime ID is the primary driver — if any duplicate has an anime-prefixed ID,
+                        // the canonical entry is anime regardless of what the winner's stored type says
+                        if (winner.MediaType != "anime" && g.Any(x => IsAnimePrefixedId(x.AioId)))
+                            winner.MediaType = "anime";
+                        return winner;
+                    })
+                    .OrderBy(x => x.InLibrary ? 0 : x.IsPending ? 1 : 2)
+                    .ThenBy(x => x.Title)
                     .Take(50)
                     .ToList();
 
@@ -410,7 +457,8 @@ namespace InfiniteDrive.Services
 
         /// <summary>
         /// Handles <c>GET /InfiniteDrive/Discover/Rails</c>.
-        /// Returns default rails: user playlists > admin catalogs > Cinemeta top 10.
+        /// Always returns instantly: DB rails are built inline; Cinemeta rails come
+        /// from a static in-memory cache that refreshes in the background every 6 h.
         /// </summary>
         public async Task<object> Get(DiscoverRailsRequest req)
         {
@@ -419,29 +467,52 @@ namespace InfiniteDrive.Services
 
             try
             {
-                var rails = new List<DiscoverRail>();
-                var config = Plugin.Instance?.Configuration;
                 var type = string.IsNullOrEmpty(req.Type) ? null : req.Type.ToLowerInvariant();
+                var rails = new List<DiscoverRail>();
 
-                // Rail 1: Cinemeta Top (always available as fallback)
-                if (config != null)
+                // ── DB rails (instant, ~2 ms each) ─────────────────────────────
+                var recentItems  = await _db.GetRecentCatalogItemsAsync(20, type);
+                var libraryItems = await _db.GetLibraryCatalogItemsAsync(20, type);
+
+                if (recentItems.Count > 0)
                 {
-                    using var client = AioStreamsClient.CreateForStremioBase(
-                        "https://v3-cinemeta.strem.io", _logger);
+                    var rail = new DiscoverRail { Title = "Recently Added", Type = type ?? "movie" };
+                    foreach (var ci in recentItems)
+                        rail.Items.Add(CatalogItemToDiscoverItem(ci));
+                    rails.Add(rail);
+                }
 
-                    var types = type != null ? new[] { type } : new[] { "movie", "series" };
-                    foreach (var t in types)
-                    {
-                        var label = t == "movie" ? "Popular Movies" : "Popular Shows";
-                        var metas = await client.GetCinemetaTopAsync(t, 20, CancellationToken.None);
-                        if (metas.Count > 0)
-                        {
-                            var rail = new DiscoverRail { Title = label, Type = t };
-                            foreach (var meta in metas)
-                                rail.Items.Add(await MapMetaToDiscoverItemAsync(meta));
-                            rails.Add(rail);
-                        }
-                    }
+                if (libraryItems.Count > 0)
+                {
+                    // Deduplicate against Recently Added
+                    var recentIds = new HashSet<string>(
+                        recentItems.Select(x => x.AioId), StringComparer.OrdinalIgnoreCase);
+                    var libRail = new DiscoverRail { Title = "In Your Library", Type = type ?? "movie" };
+                    foreach (var ci in libraryItems)
+                        if (!recentIds.Contains(ci.AioId))
+                            libRail.Items.Add(CatalogItemToDiscoverItem(ci));
+                    if (libRail.Items.Count > 0)
+                        rails.Add(libRail);
+                }
+
+                // ── Cinemeta rails (cache hit = instant, miss = background refresh) ──
+                var now = DateTime.UtcNow;
+                var cacheAge = now - _cinemetaCacheTime;
+                if (_cinemetaCache != null)
+                {
+                    // Serve cached rails, filtered by type if requested
+                    foreach (var cached in _cinemetaCache)
+                        if (type == null || cached.Type == type)
+                            rails.Add(cached);
+
+                    // If cache is stale, kick off a background refresh
+                    if (cacheAge > CinemetaCacheTtl)
+                        _ = RefreshCinemetaCacheAsync();
+                }
+                else
+                {
+                    // Cold start — trigger background refresh; user gets DB rails this time
+                    _ = RefreshCinemetaCacheAsync();
                 }
 
                 return new DiscoverRailsResponse { Rails = rails };
@@ -450,6 +521,167 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "Error fetching rails");
                 throw;
+            }
+        }
+
+        /// <summary>
+        /// Fetches Cinemeta top 20 movie + series in the background and stores result in
+        /// the static cache. Uses an interlocked flag so only one refresh runs at a time.
+        /// </summary>
+        private async Task RefreshCinemetaCacheAsync()
+        {
+            // Only one refresh at a time
+            if (Interlocked.CompareExchange(ref _cinemetaRefreshing, 1, 0) != 0)
+                return;
+
+            try
+            {
+                _logger.LogDebug("[Discover] Refreshing Cinemeta rail cache");
+                using var client = AioStreamsClient.CreateForStremioBase(
+                    "https://v3-cinemeta.strem.io", _logger);
+
+                var allMetas = new List<(string t, AioStreamsMeta m)>();
+                foreach (var t in new[] { "movie", "series" })
+                {
+                    var metas = await client.GetCinemetaTopAsync(t, 20, CancellationToken.None);
+                    foreach (var m in metas) allMetas.Add((t, m));
+                }
+
+                var libraryIds = BatchLibraryLookup(allMetas.Select(x => x.m).ToList());
+
+                // Cross-check against our catalog — items known as anime are excluded from movie/series rails
+                var allAioIds = allMetas
+                    .Select(x => x.m.ImdbId ?? x.m.Id ?? "")
+                    .Where(id => !string.IsNullOrEmpty(id))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var animeInCatalog = _db.GetAnimeMediaTypeAioIds(allAioIds);
+
+                var fresh = new List<DiscoverRail>();
+                foreach (var t in new[] { "movie", "series" })
+                {
+                    var label    = t == "movie" ? "Popular Movies" : "Popular Shows";
+                    var railMetas = allMetas.Where(x => x.t == t).Select(x => x.m).ToList();
+                    if (railMetas.Count == 0) continue;
+                    var rail = new DiscoverRail { Title = label, Type = t };
+                    foreach (var meta in railMetas)
+                    {
+                        var aioId = meta.ImdbId ?? meta.Id ?? "";
+                        // Skip items our catalog has classified as anime — they belong on the anime rail
+                        if (animeInCatalog.Contains(aioId)) continue;
+                        rail.Items.Add(MapMetaToDiscoverItem(meta, libraryIds));
+                    }
+                    if (rail.Items.Count > 0)
+                        fresh.Add(rail);
+                }
+
+                _cinemetaCache     = fresh;
+                _cinemetaCacheTime = DateTime.UtcNow;
+                _logger.LogDebug("[Discover] Cinemeta rail cache refreshed ({Count} rails)", fresh.Count);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[Discover] Cinemeta cache refresh failed (non-fatal)");
+            }
+            finally
+            {
+                Interlocked.Exchange(ref _cinemetaRefreshing, 0);
+            }
+        }
+
+        /// <summary>
+        /// Maps a catalog DB item to a DiscoverItem, reading rich metadata from RawMetaJson.
+        /// </summary>
+        private static DiscoverItem CatalogItemToDiscoverItem(CatalogItem ci)
+        {
+            string? poster = null, backdrop = null, overview = null;
+            if (!string.IsNullOrEmpty(ci.RawMetaJson))
+            {
+                try
+                {
+                    var meta = System.Text.Json.JsonSerializer.Deserialize<AioMeta>(ci.RawMetaJson);
+                    poster   = meta?.Poster;
+                    backdrop = meta?.Background;
+                    overview = meta?.Description;
+                }
+                catch { /* non-critical */ }
+            }
+            // Anime ID is the primary driver — override stored media_type if AioId is anime-prefixed
+            var mediaType = IsAnimePrefixedId(ci.AioId) ? "anime" : ci.MediaType;
+            var onDisk = !string.IsNullOrEmpty(ci.StrmPath);
+            return new DiscoverItem
+            {
+                AioId       = ci.AioId,
+                Title       = ci.Title,
+                Year        = ci.Year,
+                MediaType   = mediaType,
+                PosterUrl   = poster,
+                BackdropUrl = backdrop,
+                Overview    = overview,
+                InLibrary   = onDisk,
+                IsPending   = !onDisk,
+                CatalogSource = "local:catalog"
+            };
+        }
+
+        /// <summary>
+        /// Searches Emby library by title substring.
+        /// Uses in-memory filter since this SDK version does not expose SearchTerm on InternalItemsQuery.
+        /// </summary>
+        private List<DiscoverItem> SearchEmbyLibrary(string query, string? mediaType, int limit)
+        {
+            try
+            {
+                var includeTypes = mediaType switch
+                {
+                    "movie"  => new[] { "Movie" },
+                    "series" => new[] { "Series" },
+                    "anime"  => new[] { "Series" },
+                    _        => new[] { "Movie", "Series" }
+                };
+
+                var allItems = _libraryManager.GetItemList(
+                    new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        IncludeItemTypes = includeTypes,
+                        Recursive = true
+                    });
+
+                var results = new List<DiscoverItem>();
+                foreach (var emby in allItems)
+                {
+                    if (emby.Name == null ||
+                        !emby.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    string? imdbId = null, tmdbId = null;
+                    emby.ProviderIds?.TryGetValue("IMDB", out imdbId);
+                    emby.ProviderIds?.TryGetValue("TMDB", out tmdbId);
+                    var aioId = imdbId ?? (tmdbId != null ? $"tmdb:{tmdbId}" : null);
+                    if (string.IsNullOrEmpty(aioId)) continue;
+
+                    var mType = emby.GetType().Name.Equals("Series", StringComparison.OrdinalIgnoreCase)
+                        ? "series" : "movie";
+
+                    results.Add(new DiscoverItem
+                    {
+                        AioId       = aioId,
+                        Title       = emby.Name,
+                        Year        = emby.ProductionYear,
+                        MediaType   = mType,
+                        InLibrary   = true,
+                        EmbyItemId  = emby.Id.ToString("N"),
+                        CatalogSource = "library"
+                    });
+
+                    if (results.Count >= limit) break;
+                }
+                return results;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[Discover] Emby library title search failed (non-fatal)");
+                return new();
             }
         }
 
@@ -463,13 +695,45 @@ namespace InfiniteDrive.Services
             if (config == null)
                 return new();
 
-            using (var client = AioStreamsClientFactory.Create(_logger))
+            // Resolve active client + manifest: try primary, fall back to secondary on empty/unreachable
+            AioStreamsClient? resolvedClient = null;
+            AioStreamsManifest? resolvedManifest = null;
+
+            var primaryClient = AioStreamsClientFactory.Create(_logger);
+            primaryClient.Cooldown = Plugin.Instance?.CooldownGate;
+            var primaryManifest = await primaryClient.GetManifestAsync(CancellationToken.None);
+            if (primaryManifest?.Catalogs?.Count > 0)
             {
-                client.Cooldown = Plugin.Instance?.CooldownGate;
+                resolvedClient  = primaryClient;
+                resolvedManifest = primaryManifest;
+            }
+            else if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            {
+                _logger.LogWarning("[Discover] Primary manifest empty/unreachable — trying secondary");
+                var secondaryClient = AioStreamsClientFactory.TryCreateForManifest(config.SecondaryManifestUrl, _logger);
+                if (secondaryClient != null)
+                {
+                    secondaryClient.Cooldown = Plugin.Instance?.CooldownGate;
+                    var secondaryManifest = await secondaryClient.GetManifestAsync(CancellationToken.None);
+                    if (secondaryManifest?.Catalogs?.Count > 0)
+                    {
+                        resolvedClient   = secondaryClient;
+                        resolvedManifest = secondaryManifest;
+                    }
+                }
+            }
+
+            if (resolvedClient == null || resolvedManifest == null)
+                return new();
+
+            var client   = resolvedClient;
+            var manifest = resolvedManifest;
+
+            using (client)
+            {
                 try
                 {
-                    // Fetch manifest to identify search-capable catalogs
-                    var manifest = await client.GetManifestAsync(CancellationToken.None);
+                    // manifest already fetched and validated above — skip re-fetch
                     if (manifest?.Catalogs == null || manifest.Catalogs.Count == 0)
                         return new();
 
@@ -508,6 +772,30 @@ namespace InfiniteDrive.Services
                         }
                     }).ToList();
 
+                    // Supplement with Cinemeta — broader IMDB-based coverage for movie/series
+                    // (restored: was present in old SearchLiveAsync fallback, dropped when we
+                    //  switched to manifest-discovered catalog IDs)
+                    var cinemetaClient = AioStreamsClient.CreateForStremioBase("https://v3-cinemeta.strem.io", _logger);
+                    var cinemetaTypes = mediaType == "anime" ? Array.Empty<string>()
+                        : mediaType != null      ? new[] { mediaType }
+                        :                          new[] { "movie", "series" };
+                    foreach (var cType in cinemetaTypes)
+                    {
+                        var cDef = new AioStreamsCatalogDef { Type = cType, Id = "top", Name = "Cinemeta" };
+                        var capturedType = cType;
+                        var capturedDef  = cDef;
+                        catalogTasks.Add(Task.Run(async () =>
+                        {
+                            try
+                            {
+                                var r = await cinemetaClient.GetCatalogAsync(
+                                    capturedType, "top", query, null, null, cts.Token);
+                                return (capturedDef, r);
+                            }
+                            catch { return (capturedDef, (AioStreamsCatalogResponse?)null); }
+                        }));
+                    }
+
                     var catalogResults = await Task.WhenAll(catalogTasks);
 
                     var liveResults = new Dictionary<string, (DiscoverItem Item, string CatalogSource)>(StringComparer.OrdinalIgnoreCase);
@@ -525,12 +813,14 @@ namespace InfiniteDrive.Services
 
                             if (!liveResults.ContainsKey(aioId))
                             {
+                                var isAnimeCatalog = string.Equals(catalogDef.Type, "anime", StringComparison.OrdinalIgnoreCase)
+                                    || IsAnimePrefixedId(aioId);
                                 var item = new DiscoverItem
                                 {
                                     AioId = aioId,
                                     Title = meta.Name ?? "",
                                     Year = ParseYear(meta.ReleaseInfo),
-                                    MediaType = meta.Type ?? catalogDef.Type ?? "movie",
+                                    MediaType = isAnimeCatalog ? "anime" : (meta.Type ?? catalogDef.Type ?? "movie"),
                                     PosterUrl = meta.Poster,
                                     BackdropUrl = meta.Background,
                                     Overview = meta.Description,
@@ -562,13 +852,15 @@ namespace InfiniteDrive.Services
         {
             try
             {
+                var isAnimeCatalog = string.Equals(catalogDef.Type, "anime", StringComparison.OrdinalIgnoreCase)
+                    || IsAnimePrefixedId(aioId);
                 var entry = new DiscoverCatalogEntry
                 {
                     Id = $"aio:{catalogDef.Type}:{aioId}",
                     AioId = aioId,
                     Title = meta.Name ?? "",
                     Year = ParseYear(meta.ReleaseInfo),
-                    MediaType = meta.Type ?? catalogDef.Type ?? "movie",
+                    MediaType = isAnimeCatalog ? "anime" : (meta.Type ?? catalogDef.Type ?? "movie"),
                     PosterUrl = meta.Poster,
                     BackdropUrl = meta.Background,
                     Overview = meta.Description,
@@ -704,18 +996,90 @@ namespace InfiniteDrive.Services
                     return new DiscoverDetailResponse { Item = null };
                 }
 
+                // Try cached entry first
                 var entry = await _db.GetDiscoverCatalogEntryByAioIdAsync(req.AioId);
-                if (entry == null)
+                if (entry != null)
                 {
-                    return new DiscoverDetailResponse { Item = null };
+                    var maxRating = GetUserMaxParentalRating();
+                    var filtered = ApplyParentalFilter(new List<DiscoverCatalogEntry> { entry }, maxRating);
+                    var cached = filtered.Count > 0 ? await MapToDiscoverItemAsync(filtered[0], null) : null;
+
+                    // If cached entry has overview, return it directly
+                    if (cached != null && !string.IsNullOrWhiteSpace(cached.Overview))
+                        return new DiscoverDetailResponse { Item = cached };
+
+                    // Otherwise fall through to live fetch to enrich
                 }
 
-                // Apply parental filter
-                var maxRating = GetUserMaxParentalRating();
-                var filtered = ApplyParentalFilter(new List<DiscoverCatalogEntry> { entry }, maxRating);
-                var item = filtered.Count > 0 ? await MapToDiscoverItemAsync(filtered[0], null) : null;
+                // Live meta fetch from AIOStreams for full description
+                using (var client = AioStreamsClientFactory.Create(_logger))
+                {
+                    client.Cooldown = Plugin.Instance?.CooldownGate;
+                    // Use anime type for anime-prefixed IDs (kitsu, anilist, mal, anidb, etc.)
+                    var id = req.AioId ?? "";
+                    var type = IsAnimePrefixedId(id)
+                        ? "anime"
+                        : entry?.MediaType ?? "movie";
+                    try
+                    {
+                        var metaResp = await client.GetMetaAsyncTyped(type, req.AioId, CancellationToken.None);
+                        if (metaResp?.Meta != null)
+                        {
+                            var m = metaResp.Meta;
+                            var item = new DiscoverItem
+                            {
+                                AioId = m.ImdbId ?? m.Id ?? req.AioId,
+                                Title = m.Name ?? "",
+                                Year = ParseYear(m.ReleaseInfo),
+                                MediaType = m.Type.ToString().ToLowerInvariant(),
+                                PosterUrl = m.Poster,
+                                BackdropUrl = m.Background,
+                                Overview = m.Description,
+                                Genres = m.Genres != null && m.Genres.Count > 0 ? string.Join(", ", m.Genres) : null,
+                                ImdbRating = string.IsNullOrEmpty(m.ImdbRating) || !double.TryParse(m.ImdbRating, out var r) ? null : r,
+                                InLibrary = false,
+                                CatalogSource = "live_meta"
+                            };
 
-                return new DiscoverDetailResponse { Item = item };
+                            // Check library status
+                            try
+                            {
+                                var providerIds = BuildProviderIdPairs(item.AioId);
+                                var match = _libraryManager.GetItemList(
+                                    new MediaBrowser.Controller.Entities.InternalItemsQuery
+                                    {
+                                        AnyProviderIdEquals = providerIds,
+                                        IncludeItemTypes = item.MediaType == "series"
+                                            ? new[] { "Series" }
+                                            : new[] { "Movie" },
+                                        Recursive = true
+                                    }).FirstOrDefault();
+                                if (match != null)
+                                {
+                                    item.InLibrary = true;
+                                    item.EmbyItemId = match.Id.ToString("N");
+                                }
+                            } catch { }
+
+                            return new DiscoverDetailResponse { Item = item };
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogDebug(ex, "Live meta fetch failed for {AioId}", req.AioId);
+                    }
+                }
+
+                // Return cached entry as fallback even without overview
+                if (entry != null)
+                {
+                    var maxRating2 = GetUserMaxParentalRating();
+                    var filtered2 = ApplyParentalFilter(new List<DiscoverCatalogEntry> { entry }, maxRating2);
+                    var fallback = filtered2.Count > 0 ? await MapToDiscoverItemAsync(filtered2[0], null) : null;
+                    return new DiscoverDetailResponse { Item = fallback };
+                }
+
+                return new DiscoverDetailResponse { Item = null };
             }
             catch (Exception ex)
             {
@@ -728,14 +1092,11 @@ namespace InfiniteDrive.Services
         /// Handles <c>POST /InfiniteDrive/Discover/AddToLibrary</c>.
         /// Creates a .strm file in the appropriate library folder and creates a catalog_item entry.
         /// </summary>
-        public async Task<object> Post(DiscoverAddToLibraryRequest req, CancellationToken ct)
+        public async Task<object> Post(DiscoverAddToLibraryRequest req)
         {
             // Sprint 204: Un-gate endpoint - allow authenticated users, not just admins
             var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
-
-            // Ensure PluginSecret is initialized before accessing Configuration
-            Plugin.Instance?.EnsureInitialization();
 
             try
             {
@@ -751,9 +1112,11 @@ namespace InfiniteDrive.Services
                     };
                 }
 
-                // Check if already in library
+                // Check if already in library — only skip if .strm file is actually on disk
                 var existing = await _db.GetCatalogItemByAioIdAsync(req.AioId);
-                if (existing != null)
+                if (existing != null
+                    && !string.IsNullOrEmpty(existing.StrmPath)
+                    && File.Exists(existing.StrmPath))
                 {
                     return new DiscoverAddToLibraryResponse
                     {
@@ -794,27 +1157,58 @@ namespace InfiniteDrive.Services
                 // Get current user ID for attribution
                 var callerUserId = TryGetCurrentUserId();
 
-                // Create catalog_item entry with PINNED state
+                // Pull metadata from discover_catalog so the item passes the
+                // raw_meta_json IS NOT NULL filter on the rails queries.
                 var now = DateTime.UtcNow.ToString("o");
-                var catalogItem = new CatalogItem
+                var discoverEntry = await _db.GetDiscoverCatalogEntryByAioIdAsync(req.AioId);
+                string? rawMetaJson = null;
+                if (discoverEntry != null)
                 {
-                    Id = Guid.NewGuid().ToString(),
-                    AioId = req.AioId,
-                    Title = req.Title,
-                    Year = req.Year,
-                    MediaType = req.Type.ToLowerInvariant(),
-                    Source = "discover",
-                    ItemState = ItemState.Pinned,
-                    PinSource = $"user:discover:{now}",
-                    PinnedAt = now
-                };
+                    rawMetaJson = System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        name       = discoverEntry.Title,
+                        poster     = discoverEntry.PosterUrl,
+                        background = discoverEntry.BackdropUrl,
+                        description = discoverEntry.Overview,
+                        imdbRating = discoverEntry.ImdbRating?.ToString(),
+                        genres     = discoverEntry.Genres?.Split(',').Select(g => g.Trim()).ToList(),
+                    });
+                }
+
+                // Reuse existing catalog item if present (just needs a .strm written).
+                // Create a new one only if the item isn't in the catalog at all.
+                CatalogItem catalogItem;
+                if (existing != null)
+                {
+                    catalogItem = existing;
+                    catalogItem.ItemState = ItemState.Pinned;
+                    catalogItem.PinSource = $"user:discover:{now}";
+                    catalogItem.PinnedAt = now;
+                    if (rawMetaJson != null) catalogItem.RawMetaJson = rawMetaJson;
+                }
+                else
+                {
+                    catalogItem = new CatalogItem
+                    {
+                        Id        = Guid.NewGuid().ToString(),
+                        AioId     = req.AioId,
+                        Title     = req.Title,
+                        Year      = req.Year,
+                        MediaType = req.Type.ToLowerInvariant(),
+                        Source    = "discover",
+                        ItemState = ItemState.Pinned,
+                        PinSource = $"user:discover:{now}",
+                        PinnedAt  = now,
+                        RawMetaJson = rawMetaJson,
+                    };
+                }
 
                 // Write .strm files via StrmWriterService (Sprint 156)
                 var strmPath = await _strmWriter.WriteAsync(
                     catalogItem,
                     SourceType.Aio,
                     callerUserId,
-                    ct);
+                    CancellationToken.None);
 
                 if (strmPath == null)
                 {
@@ -838,11 +1232,11 @@ namespace InfiniteDrive.Services
                 if (!string.IsNullOrEmpty(callerUserId))
                 {
                     var (providerKey, providerValue) = ParseAioIdForProvider(req.AioId);
-                    var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, ct);
+                    var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, CancellationToken.None);
                     if (mediaItem != null)
                     {
-                        await _db.UpsertUserSaveAsync(callerUserId, mediaItem.Id, "explicit", null, ct);
-                        await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
+                        await _db.UpsertUserSaveAsync(callerUserId, mediaItem.Id, "explicit", null, CancellationToken.None);
+                        await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, CancellationToken.None);
                         _logger.LogDebug("Per-user save: user {UserId} saved media item {ItemId}", callerUserId, mediaItem.Id);
                     }
                     else
@@ -859,8 +1253,9 @@ namespace InfiniteDrive.Services
 
                 return new DiscoverAddToLibraryResponse
                 {
-                    Ok = true,
-                    StrmPath = strmPath
+                    Ok        = true,
+                    StrmPath  = strmPath,
+                    IsPending = true   // stream not yet assigned; Marvin will populate on next pass
                 };
             }
             catch (Exception ex)
@@ -878,7 +1273,7 @@ namespace InfiniteDrive.Services
         /// Handles <c>POST /InfiniteDrive/Discover/RemoveFromLibrary</c>.
         /// Removes item from current user's saved library.
         /// </summary>
-        public async Task<object> Post(DiscoverRemoveFromLibraryRequest req, CancellationToken ct)
+        public async Task<object> Post(DiscoverRemoveFromLibraryRequest req)
         {
             var deny = AdminGuard.RequireAuthenticated(_authCtx, Request);
             if (deny != null) return deny;
@@ -905,7 +1300,7 @@ namespace InfiniteDrive.Services
                 }
 
                 var (providerKey, providerValue) = ParseAioIdForProvider(req.AioId);
-                var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, ct);
+                var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, CancellationToken.None);
                 if (mediaItem == null)
                 {
                     return new DiscoverRemoveFromLibraryResponse
@@ -915,8 +1310,8 @@ namespace InfiniteDrive.Services
                     };
                 }
 
-                await _db.DeleteUserSaveAsync(callerUserId, mediaItem.Id, ct);
-                await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, ct);
+                await _db.DeleteUserSaveAsync(callerUserId, mediaItem.Id, CancellationToken.None);
+                await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, CancellationToken.None);
                 await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.AioId, false);
 
                 _logger.LogInformation("Removed {AioId} from library for user {UserId}", req.AioId, callerUserId);
@@ -1003,7 +1398,7 @@ namespace InfiniteDrive.Services
                         new MediaBrowser.Controller.Entities.InternalItemsQuery
                         {
                             AnyProviderIdEquals = providerIds,
-                            IncludeItemTypes = meta.Type == "series"
+                            IncludeItemTypes = meta.Type == "series" || meta.Type == "anime"
                                 ? new[] { "Series" }
                                 : new[] { "Movie" },
                             Recursive = true
@@ -1032,6 +1427,125 @@ namespace InfiniteDrive.Services
                 EmbyItemId = embyItemId,
                 CatalogSource = "live"
             });
+        }
+
+        /// <summary>
+        /// Batch library lookup — one query for all items, returns map of aioId → (inLibrary, embyItemId).
+        /// Dramatically faster than N individual GetItemList calls.
+        /// </summary>
+        private Dictionary<string, (bool inLibrary, string? embyItemId)> BatchLibraryLookup(List<AioStreamsMeta> metas)
+        {
+            var result = new Dictionary<string, (bool, string?)>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                // Build provider ID pairs for all items
+                var allPairs = new List<KeyValuePair<string, string>>();
+                var aioIdList = new List<string>();
+                foreach (var meta in metas)
+                {
+                    var aioId = meta.ImdbId ?? meta.Id ?? "";
+                    aioIdList.Add(aioId);
+                    if (!string.IsNullOrWhiteSpace(aioId))
+                        allPairs.AddRange(BuildProviderIdPairs(aioId));
+                }
+
+                if (allPairs.Count == 0)
+                    return result;
+
+                // Single query for all provider IDs
+                var matches = _libraryManager.GetItemList(
+                    new MediaBrowser.Controller.Entities.InternalItemsQuery
+                    {
+                        AnyProviderIdEquals = allPairs.ToArray(),
+                        IncludeItemTypes = new[] { "Series", "Movie" },
+                        Recursive = true
+                    });
+
+                // Index matches by their provider IDs for fast lookup
+                var matchByProvider = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var item in matches)
+                {
+                    foreach (var kv in item.ProviderIds)
+                    {
+                        if (!string.IsNullOrEmpty(kv.Value))
+                        {
+                            // Store both "provider:value" and raw value as keys
+                            matchByProvider[$"{kv.Key}:{kv.Value}"] = item.Id.ToString("N");
+                            matchByProvider[kv.Value] = item.Id.ToString("N");
+                        }
+                    }
+                }
+
+                // Map each aioId to its library status
+                foreach (var aioId in aioIdList)
+                {
+                    if (string.IsNullOrWhiteSpace(aioId) || result.ContainsKey(aioId))
+                        continue;
+
+                    var pairs = BuildProviderIdPairs(aioId);
+                    var found = false;
+                    foreach (var p in pairs)
+                    {
+                        var key = $"{p.Key}:{p.Value}";
+                        if (matchByProvider.TryGetValue(key, out var embyId))
+                        {
+                            result[aioId] = (true, embyId);
+                            found = true;
+                            break;
+                        }
+                        if (matchByProvider.TryGetValue(p.Value, out embyId))
+                        {
+                            result[aioId] = (true, embyId);
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found)
+                        result[aioId] = (false, null);
+                }
+
+                // Fallback: check InfiniteDrive catalog_items for items written to disk
+                // but not yet scanned by Emby (covers the gap between add and library scan)
+                var catalogAioIds = _db.GetCatalogItemAioIdsWithStrmPath(aioIdList);
+                foreach (var aioId in catalogAioIds)
+                {
+                    if (!result.ContainsKey(aioId) || !result[aioId].Item1)
+                        result[aioId] = (true, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[InfiniteDrive] BatchLibraryLookup non-fatal error");
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Pure mapping function — no library lookup. Use after BatchLibraryLookup.
+        /// </summary>
+        private static DiscoverItem MapMetaToDiscoverItem(AioStreamsMeta meta,
+            Dictionary<string, (bool inLibrary, string? embyItemId)> libraryMap)
+        {
+            var aioId = meta.ImdbId ?? meta.Id ?? "";
+            var (inLibrary, embyItemId) = libraryMap.TryGetValue(aioId, out var v) ? v : (false, null);
+
+            return new DiscoverItem
+            {
+                AioId = aioId,
+                Title = meta.Name ?? "",
+                Year = ParseYear(meta.ReleaseInfo),
+                MediaType = meta.Type ?? "movie",
+                PosterUrl = meta.Poster,
+                BackdropUrl = meta.Background,
+                Overview = meta.Description,
+                Genres = meta.Genres != null && meta.Genres.Count > 0 ? string.Join(", ", meta.Genres) : null,
+                ImdbRating = string.IsNullOrEmpty(meta.ImdbRating) || !double.TryParse(meta.ImdbRating, out var r) ? null : r,
+                InLibrary = inLibrary,
+                EmbyItemId = embyItemId,
+                CatalogSource = "live"
+            };
         }
 
         /// <summary>
@@ -1209,9 +1723,8 @@ namespace InfiniteDrive.Services
                     };
                 }
 
-                // Use direct stream URL (proxy tokens removed in Sprint 137)
+                // Use direct stream URL
                 var streamUrl = cached.StreamUrl;
-                var port = ParsePort(config.EmbyBaseUrl) ?? 8096;
 
                 _logger.LogInformation("[Discover] Stream resolution successful for {AioId}", req.AioId);
 
@@ -1220,7 +1733,7 @@ namespace InfiniteDrive.Services
                     Success = true,
                     ProxyToken = null,
                     StreamUrl = streamUrl,
-                    EmbyUrl = $"http://127.0.0.1:{port}/web/#/details/{req.AioId}"
+                    EmbyUrl = $"http://127.0.0.1:8096/web/#/details/{req.AioId}"
                 };
             }
             catch (Exception ex)
@@ -1250,6 +1763,37 @@ namespace InfiniteDrive.Services
                     return (parts[0].ToLowerInvariant(), parts[1]);
             }
             return ("imdb", aioId);
+        }
+
+        /// <summary>
+        /// Detects anime-specific ID prefixes from AIOStreams IdParser.
+        /// </summary>
+        /// <summary>Strips punctuation/spaces/case for title-based dedup.</summary>
+        private static string NormalizeTitle(string? title)
+            => new string((title ?? "").ToLowerInvariant().Where(char.IsLetterOrDigit).ToArray());
+
+        private static bool IsAnimePrefixedId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return false;
+            var c = char.ToLowerInvariant(id[0]);
+            return c switch
+            {
+                'k' => id.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase),
+                'a' => id.StartsWith("anilist:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidb:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidb_id:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anidbid:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("animeplanet:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("ap:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("acd:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("anisearch:", StringComparison.OrdinalIgnoreCase),
+                'm' => id.StartsWith("mal:", StringComparison.OrdinalIgnoreCase),
+                'n' => id.StartsWith("notifymoe:", StringComparison.OrdinalIgnoreCase)
+                     || id.StartsWith("nm:", StringComparison.OrdinalIgnoreCase),
+                's' => id.StartsWith("simkl:", StringComparison.OrdinalIgnoreCase),
+                'l' => id.StartsWith("livechart:", StringComparison.OrdinalIgnoreCase),
+                _ => false
+            };
         }
 
         /// <summary>
