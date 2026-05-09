@@ -94,7 +94,10 @@ namespace InfiniteDrive.Services
                 foreach (var existing in existingStrms)
                 {
                     var existingName = Path.GetFileName(existing);
-                    if (!desiredNames.Contains(existingName))
+                    // Only clean up files that belong to this item (same base name prefix).
+                    // Scoping prevents cross-episode deletion when writing into a shared season directory.
+                    if (existingName.StartsWith(baseName, StringComparison.OrdinalIgnoreCase)
+                        && !desiredNames.Contains(existingName))
                     {
                         SafeDelete(existing);
                         staleDeleted++;
@@ -129,6 +132,42 @@ namespace InfiniteDrive.Services
             }
 
             return written;
+        }
+
+        /// <summary>
+        /// Deletes the primary .strm file at <paramref name="strmPath"/> plus any
+        /// multi-version variants sharing the same base name (e.g. "Title - 1080p.strm"),
+        /// then cleans up empty parent directories.
+        /// Safe to call on non-existent paths.
+        /// </summary>
+        public void DeleteWithVersions(string strmPath)
+        {
+            if (string.IsNullOrEmpty(strmPath)) return;
+
+            var dir = Path.GetDirectoryName(strmPath);
+            if (string.IsNullOrEmpty(dir)) return;
+
+            var baseName = Path.GetFileNameWithoutExtension(strmPath);
+
+            // Delete primary and all version-variant .strm files for this item
+            if (Directory.Exists(dir))
+            {
+                foreach (var file in Directory.GetFiles(dir, "*.strm"))
+                {
+                    var name = Path.GetFileNameWithoutExtension(file);
+                    if (string.Equals(name, baseName, StringComparison.OrdinalIgnoreCase)
+                        || name.StartsWith(baseName + " - ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        SafeDelete(file);
+                    }
+                }
+            }
+
+            // Clean up empty Season/show directories
+            CleanEmptyDir(dir);
+            var parentDir = Path.GetDirectoryName(dir);
+            if (!string.IsNullOrEmpty(parentDir))
+                CleanEmptyDir(parentDir);
         }
 
         /// <summary>

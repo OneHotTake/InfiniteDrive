@@ -516,10 +516,11 @@ namespace InfiniteDrive.Tasks
                 return;
             }
 
-            // Sprint 302-06: Update last_verified_at for items found in catalog
+            // Increment absent_syncs for missing items; reset for present items (Phase 2).
+            // Empty presentIds = catalog DOWN → skipped entirely (guard in IncrementAbsentSyncsAsync).
             foreach (var kvp in fetchedSourceIds)
             {
-                await db.UpdateLastVerifiedAtAsync(kvp.Value, kvp.Key, cancellationToken);
+                await db.IncrementAbsentSyncsAsync(kvp.Key, kvp.Value, cancellationToken);
             }
 
             foreach (var kvp in fetchedSourceIds)
@@ -552,42 +553,13 @@ namespace InfiniteDrive.Tasks
                 {
                     try
                     {
-                        DeleteStrmAndCleanupDirs(strmPath);
+                        Plugin.Instance!.StrmFileManager.DeleteWithVersions(strmPath);
                     }
                     catch (Exception ex)
                     {
                         _logger.LogDebug(ex,
                             "[InfiniteDrive] CatalogSyncTask: could not delete {Path}", strmPath);
                     }
-                }
-            }
-        }
-
-        /// <summary>
-        /// Deletes <paramref name="strmPath"/> and removes the parent directory
-        /// (and its parent) if they are left empty — prevents ghost Season/show folders.
-        /// </summary>
-        private static void DeleteStrmAndCleanupDirs(string strmPath)
-        {
-            if (!File.Exists(strmPath)) return;
-
-            File.Delete(strmPath);
-
-            // Remove empty Season directory
-            var seasonDir = Path.GetDirectoryName(strmPath);
-            if (!string.IsNullOrEmpty(seasonDir)
-                && Directory.Exists(seasonDir)
-                && !Directory.EnumerateFileSystemEntries(seasonDir).Any())
-            {
-                Directory.Delete(seasonDir);
-
-                // Remove empty show directory
-                var showDir = Path.GetDirectoryName(seasonDir);
-                if (!string.IsNullOrEmpty(showDir)
-                    && Directory.Exists(showDir)
-                    && !Directory.EnumerateFileSystemEntries(showDir).Any())
-                {
-                    Directory.Delete(showDir);
                 }
             }
         }

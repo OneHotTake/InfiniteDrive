@@ -745,6 +745,13 @@ namespace InfiniteDrive
         [DataMember]
         public bool RespectPlaylistsWhenPruning { get; set; } = true;
 
+        /// <summary>
+        /// Number of consecutive successful syncs an item must be absent before being pruned.
+        /// Default 3. Pinned and blocked items are always exempt.
+        /// </summary>
+        [DataMember]
+        public int AbsentSyncsThreshold { get; set; } = 3;
+
         /// <summary>When true, auto-deduplicate against physical media in other libraries. Default: true.</summary>
         [DataMember]
         public bool AutoDeduplicatePhysicalMedia { get; set; } = true;

@@ -1,4 +1,5 @@
 SCOPE_CEILING: Max 3 files | Deliverable: diff only | Stop after first working solution
+COMPLETE: Resilient Deletion Policy — absent_syncs column + IncrementAbsentSyncsAsync (two-phase, pin/block-safe) + PruneSourceAsync threshold gate + UpdateLastVerifiedAtAsync reset + DeleteWithVersions (version-variant cleanup) + AbsentSyncsThreshold config (default 3). Build: 0 errors.
 COMPLETE: Settings UX refinement — wording pass across 8 UI files (StatusUI, StatusTabView, ConnectUI, SetupUI, ContentControlsUI, ContentControlsTabView, SyncAndMarvinUI+TabView, AdvancedUI). Build: 0 errors.
 COMPLETE: Discover search — manifest-routed catalog IDs, Cinemeta supplement, local catalog + Emby library blend, aiostreamserror filter, primary→secondary failover. Build: 0 errors.
 COMPLETE: Discover rails — DB-first (Recently Added + In Your Library from catalog_items), Cinemeta background cache (6h TTL, interlocked refresh). Rails return in <50ms. Build: 0 errors.

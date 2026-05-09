@@ -360,8 +360,10 @@ namespace InfiniteDrive.Data
         /// longer present in <paramref name="currentAioIds"/> is soft-deleted by
         /// setting <c>removed_at = now()</c>.
         ///
-        /// Sprint 302-06: Only removes items not verified in >7 days. Items
-        /// that were recently verified are kept to handle transient source errors.
+        /// Removes items that have been absent from a catalog for at least
+        /// <c>AbsentSyncsThreshold</c> consecutive successful syncs.
+        /// Pinned items (pin_source IS NOT NULL) and blocked items (blocked_at IS NOT NULL)
+        /// are never pruned via catalog automation.
         ///
         /// Returns the list of <c>strm_path</c> values for the removed rows so the
         /// caller can delete the files from disk.
@@ -372,14 +374,13 @@ namespace InfiniteDrive.Data
             CancellationToken cancellationToken = default)
         {
             var existing = await GetCatalogItemsBySourceAsync(source);
-            var sevenDaysAgo = DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeSeconds();
+            var threshold = Plugin.Instance!.Configuration.AbsentSyncsThreshold;
 
-            // Sprint 302-06: Only remove items that:
-            // 1. Are not in current catalog AND
-            // 2. Have not been verified in >7 days OR never verified
             var toRemove = existing.Where(x =>
                 !currentAioIds.Contains(x.AioId) &&
-                (x.LastVerifiedAt == null || x.LastVerifiedAt < sevenDaysAgo)
+                string.IsNullOrEmpty(x.PinSource) &&
+                string.IsNullOrEmpty(x.BlockedAt) &&
+                x.AbsentSyncs >= threshold
             ).ToList();
 
             if (toRemove.Count == 0)
@@ -432,7 +433,8 @@ namespace InfiniteDrive.Data
 
             var sql = $@"
                 UPDATE catalog_items
-                SET last_verified_at = @verified_at
+                SET last_verified_at = @verified_at,
+                    absent_syncs = 0
                 WHERE aio_id IN ({idsParam}) AND source = @source;";
 
             await ExecuteWriteAsync(sql, cmd =>
@@ -444,6 +446,82 @@ namespace InfiniteDrive.Data
                     BindText(cmd, $"@id{i}", aioIds.ElementAt(i));
                 }
             }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Two-phase absent-sync counter update for a single source.
+        ///
+        /// Phase 1: increment absent_syncs for ALL active, unprotected items belonging to
+        ///          <paramref name="source"/> (no variable-length IN list — safe for large catalogs).
+        /// Phase 2: reset absent_syncs + last_verified_at for items that ARE present in this
+        ///          sync cycle (batched in chunks of 500 to stay under SQLite param limits).
+        ///
+        /// Guard: if <paramref name="presentIds"/> is empty we treat the catalog as DOWN and
+        /// skip both phases entirely — prevents mass-increment when a provider fails to return data.
+        ///
+        /// KNOWN LIMITATION (BACKLOG): sub-catalog flakiness within a multi-catalog provider
+        /// (e.g. one AIOStreams catalog hiccups while others succeed) will still increment
+        /// absent_syncs for that catalog's items, because the provider-level safety valve only
+        /// guards against full-provider failure. Items from a persistently flaky sub-catalog
+        /// may be pruned after `threshold` consecutive partial failures.
+        /// Fix: track per-sub-catalog last-successful-fetch timestamps and scope increment to
+        /// catalogs that actually succeeded this cycle. Out of scope for alpha.
+        /// </summary>
+        public async Task IncrementAbsentSyncsAsync(
+            string source,
+            HashSet<string> presentIds,
+            CancellationToken cancellationToken = default)
+        {
+            if (presentIds.Count == 0)
+                return; // empty = catalog DOWN — never increment
+
+            var now = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+            await _dbWriteGate.WaitAsync(cancellationToken);
+            try
+            {
+                using var conn = OpenConnection();
+                conn.RunInTransaction(c =>
+                {
+                    // Phase 1: increment counter for all active, unprotected items for this source
+                    const string phase1Sql = @"
+                        UPDATE catalog_items
+                        SET absent_syncs = absent_syncs + 1
+                        WHERE source = @source
+                          AND removed_at IS NULL
+                          AND pin_source IS NULL
+                          AND blocked_at IS NULL";
+
+                    using (var stmt = c.PrepareStatement(phase1Sql))
+                    {
+                        BindText(stmt, "@source", source);
+                        while (stmt.MoveNext()) { }
+                    }
+
+                    // Phase 2: reset counter for items present in this sync cycle (batched)
+                    foreach (var batch in presentIds.Chunk(500))
+                    {
+                        var placeholders = string.Join(",", batch.Select((_, i) => $"@id{i}"));
+                        var phase2Sql = $@"
+                            UPDATE catalog_items
+                            SET absent_syncs = 0,
+                                last_verified_at = @now
+                            WHERE source = @source
+                              AND aio_id IN ({placeholders})";
+
+                        using var stmt2 = c.PrepareStatement(phase2Sql);
+                        BindInt(stmt2, "@now", now);
+                        BindText(stmt2, "@source", source);
+                        for (int i = 0; i < batch.Length; i++)
+                            BindText(stmt2, $"@id{i}", batch[i]);
+                        while (stmt2.MoveNext()) { }
+                    }
+                });
+            }
+            finally
+            {
+                _dbWriteGate.Release();
+            }
         }
 
         /// <summary>
@@ -1242,6 +1320,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     episodes_expanded       INTEGER,
     last_expanded_at        INTEGER,
     last_verified_at        INTEGER,
+    absent_syncs            INTEGER NOT NULL DEFAULT 0,
     source_manifest_url     TEXT,
     selected_versions_json  TEXT,
     last_version_refresh_at TEXT,
@@ -1904,6 +1983,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 EpisodesExpanded  = GetBool(m, r, "episodes_expanded"),
                 LastExpandedAt    = GetLong(m, r, "last_expanded_at"),
                 LastVerifiedAt    = GetLong(m, r, "last_verified_at"),
+                AbsentSyncs       = GetInt(m, r, "absent_syncs") ?? 0,
                 SourceManifestUrl = GetStr(m, r, "source_manifest_url"),
                 SelectedVersionsJson = GetStr(m, r, "selected_versions_json"),
                 LastVersionRefreshAt = GetStr(m, r, "last_version_refresh_at"),
