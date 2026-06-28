@@ -43,6 +43,12 @@ namespace InfiniteDrive.Models
         public DateTimeOffset? LastSyncedAt { get; set; }
 
         /// <summary>
+        /// Unix timestamp of the last successful sync for this collection.
+        /// Used to derive staleness — not auto-cleaned.
+        /// </summary>
+        public long? LastSuccessfulSync { get; set; }
+
+        /// <summary>
         /// When this collection was created.
         /// </summary>
         public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

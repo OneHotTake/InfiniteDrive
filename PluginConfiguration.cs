@@ -63,6 +63,14 @@ namespace InfiniteDrive
         public string PrimaryManifestUrl { get; set; } = string.Empty;
 
         /// <summary>
+        /// Password for the primary AIOStreams instance (the one set in QuackStart).
+        /// Used only for the opt-in "Apply recommended formatter &amp; sort" action, which
+        /// calls AIOStreams' own /api/v1/user API as an outbound client. Optional.
+        /// </summary>
+        [DataMember]
+        public string PrimaryManifestPassword { get; set; } = string.Empty;
+
+        /// <summary>
         /// Optional full manifest URL of a secondary (backup) AIOStreams instance.
         ///
         /// Used only when the primary instance is unreachable. Configure this
@@ -746,11 +754,12 @@ namespace InfiniteDrive
         public bool RespectPlaylistsWhenPruning { get; set; } = true;
 
         /// <summary>
-        /// Number of consecutive successful syncs an item must be absent before being pruned.
-        /// Default 3. Pinned and blocked items are always exempt.
+        /// Number of consecutive successful syncs an item must be absent from ALL sources
+        /// before being pruned. Default 3. Items with collection membership and blocked
+        /// items are always exempt.
         /// </summary>
         [DataMember]
-        public int AbsentSyncsThreshold { get; set; } = 3;
+        public int GlobalAbsentSyncsThreshold { get; set; } = 3;
 
         /// <summary>When true, auto-deduplicate against physical media in other libraries. Default: true.</summary>
         [DataMember]

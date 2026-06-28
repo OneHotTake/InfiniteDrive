@@ -183,6 +183,23 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
+        /// Removes all per-user data owned by a deleted Emby user: their lists,
+        /// collection memberships, and saves. Called from the OnUserDeleted hook so a
+        /// deleted user's memberships no longer keep shared items pinned forever. Items
+        /// shared with other users stay protected by those users' own rows; items left
+        /// with no membership and never watched become prune-eligible.
+        /// </summary>
+        public async Task DeleteAllUserDataAsync(string userId, CancellationToken ct = default)
+        {
+            await ExecuteWriteAsync("DELETE FROM user_catalogs WHERE owner_user_id = @u;",
+                cmd => BindText(cmd, "@u", userId), ct);
+            await ExecuteWriteAsync("DELETE FROM collection_membership WHERE user_id = @u;",
+                cmd => BindText(cmd, "@u", userId), ct);
+            await ExecuteWriteAsync("DELETE FROM user_item_saves WHERE user_id = @u;",
+                cmd => BindText(cmd, "@u", userId), ct);
+        }
+
+        /// <summary>
         /// Updates last_synced_at after a sync run.
         /// </summary>
         public async Task UpdateUserCatalogSyncStatusAsync(
@@ -236,7 +253,7 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 SELECT id, name, emby_collection_id, source_id,
-                       enabled, collection_name, last_synced_at, created_at, updated_at
+                       enabled, collection_name, last_synced_at, last_successful_sync, created_at, updated_at
                 FROM collections
                 ORDER BY name;";
 
@@ -250,7 +267,7 @@ namespace InfiniteDrive.Data
         {
             const string sql = @"
                 SELECT id, name, emby_collection_id, source_id,
-                       enabled, collection_name, last_synced_at, created_at, updated_at
+                       enabled, collection_name, last_synced_at, last_successful_sync, created_at, updated_at
                 FROM collections
                 WHERE source_id = @SourceId
                 LIMIT 1;";
@@ -266,8 +283,8 @@ namespace InfiniteDrive.Data
         public async Task UpsertCollectionAsync(Models.Collection collection, CancellationToken cancellationToken = default)
         {
             const string sql = @"
-                INSERT INTO collections (id, name, emby_collection_id, source_id, enabled, collection_name, last_synced_at, created_at, updated_at)
-                VALUES (@Id, @Name, @EmbyCollectionId, @SourceId, @Enabled, @CollectionName, @LastSyncedAt, @CreatedAt, @UpdatedAt)
+                INSERT INTO collections (id, name, emby_collection_id, source_id, enabled, collection_name, last_synced_at, last_successful_sync, created_at, updated_at)
+                VALUES (@Id, @Name, @EmbyCollectionId, @SourceId, @Enabled, @CollectionName, @LastSyncedAt, @LastSuccessfulSync, @CreatedAt, @UpdatedAt)
                 ON CONFLICT(id) DO UPDATE SET
                     name = excluded.name,
                     emby_collection_id = excluded.emby_collection_id,
@@ -275,6 +292,7 @@ namespace InfiniteDrive.Data
                     enabled = excluded.enabled,
                     collection_name = excluded.collection_name,
                     last_synced_at = excluded.last_synced_at,
+                    last_successful_sync = COALESCE(excluded.last_successful_sync, collections.last_successful_sync),
                     updated_at = excluded.updated_at;";
 
             await ExecuteWriteAsync(sql, cmd =>
@@ -286,6 +304,10 @@ namespace InfiniteDrive.Data
                 cmd.BindParameters["@Enabled"].Bind(collection.Enabled ? 1 : 0);
                 BindNullableText(cmd, "@CollectionName", collection.CollectionName);
                 BindNullableText(cmd, "@LastSyncedAt", collection.LastSyncedAt?.ToString("o"));
+                if (collection.LastSuccessfulSync.HasValue)
+                    cmd.BindParameters["@LastSuccessfulSync"].Bind(collection.LastSuccessfulSync.Value);
+                else
+                    cmd.BindParameters["@LastSuccessfulSync"].BindNull();
                 BindText(cmd, "@CreatedAt", collection.CreatedAt.ToString("o"));
                 BindText(cmd, "@UpdatedAt", collection.UpdatedAt.ToString("o"));
             }, cancellationToken);
@@ -405,8 +427,9 @@ namespace InfiniteDrive.Data
                 Enabled = r.GetInt(4) == 1,
                 CollectionName = r.IsDBNull(5) ? null : r.GetString(5),
                 LastSyncedAt = r.IsDBNull(6) ? null : DateTimeOffset.Parse(r.GetString(6)),
-                CreatedAt = DateTimeOffset.Parse(r.GetString(7)),
-                UpdatedAt = DateTimeOffset.Parse(r.GetString(8))
+                LastSuccessfulSync = r.IsDBNull(7) ? null : r.GetInt64(7),
+                CreatedAt = DateTimeOffset.Parse(r.GetString(8)),
+                UpdatedAt = DateTimeOffset.Parse(r.GetString(9))
             };
         }
 

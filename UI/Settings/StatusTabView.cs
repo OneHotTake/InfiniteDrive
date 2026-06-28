@@ -99,6 +99,52 @@ namespace InfiniteDrive.UI.Settings
                 ui.QualityStatus.Status = ItemStatus.Warning;
             }
 
+            // ── Content readiness (headline) ─────────────────────────────────
+            // GREEN  = provider + library configured AND (catalog source OR ≥1 list)
+            // YELLOW = configured but no catalog source AND no lists (no content yet)
+            // RED    = provider or library not configured
+            // Catalogs and lists are EITHER-OR: either alone yields a working system.
+            bool providerConfigured = hasPrimary || hasSecondary;
+            bool libraryConfigured = configured.Count > 0;
+            bool hasCatalogs =
+                (cfg.EnableAioStreamsCatalog && providerConfigured && !cfg.AioStreamsIsStreamOnly)
+                || cfg.EnableCinemetaDefault;
+
+            bool hasLists = false;
+            try
+            {
+                var db = Plugin.Instance.DatabaseManager;
+                if (db != null)
+                {
+                    var admin = db.GetUserCatalogsByOwnerAsync("SERVER", activeOnly: true).GetAwaiter().GetResult();
+                    var users = db.GetActiveUserCatalogCountAsync().GetAwaiter().GetResult();
+                    hasLists = (admin?.Count ?? 0) > 0 || users > 0;
+                }
+            }
+            catch { /* best effort — readiness must never break the page */ }
+
+            if (!providerConfigured || !libraryConfigured)
+            {
+                ui.ContentReadiness.StatusText = !providerConfigured
+                    ? "Add your AIOStreams manifest on the Providers tab"
+                    : "Set your library paths on the Libraries tab";
+                ui.ContentReadiness.Status = ItemStatus.Failed;
+            }
+            else if (hasCatalogs || hasLists)
+            {
+                ui.ContentReadiness.StatusText =
+                    hasCatalogs && hasLists ? "Ready — catalogs and lists are feeding your library"
+                    : hasCatalogs ? "Ready — catalog source active"
+                    : "Ready — list(s) active";
+                ui.ContentReadiness.Status = ItemStatus.Succeeded;
+            }
+            else
+            {
+                ui.ContentReadiness.StatusText =
+                    "Set up, but no content yet — add a catalog in AIOStreams, or add a list";
+                ui.ContentReadiness.Status = ItemStatus.Warning;
+            }
+
             return ui;
         }
 

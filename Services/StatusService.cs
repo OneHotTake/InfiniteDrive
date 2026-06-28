@@ -139,9 +139,6 @@ namespace InfiniteDrive.Services
         /// <summary>Items in RETIRED state (real file in library, .strm deleted).</summary>
         public int RetiredCount { get; set; }
 
-        /// <summary>Items in PINNED state (user-added via Discover, protected).</summary>
-        public int PinnedCount { get; set; }
-
         /// <summary>Items in ORPHANED state (.strm exists but not in catalog).</summary>
         public int OrphanedCount { get; set; }
 
@@ -242,6 +239,19 @@ namespace InfiniteDrive.Services
 
         /// <summary>True when library paths exist on disk (from state engine).</summary>
         public bool LibraryAccessible { get; set; }
+
+        // ── Content-readiness state engine (traffic light) ───────────────────
+        /// <summary>"green" | "yellow" | "red" — current ability to serve content.</summary>
+        public string ContentReadiness { get; set; } = "red";
+
+        /// <summary>Plain-language, don't-panic explanation of the current readiness light.</summary>
+        public string ContentReadinessReason { get; set; } = string.Empty;
+
+        /// <summary>True when a browsable catalog source (AIOStreams or Cinemeta default) is configured.</summary>
+        public bool HasCatalogs { get; set; }
+
+        /// <summary>True when ≥1 list exists (admin system-wide OR any user).</summary>
+        public bool HasLists { get; set; }
     }
 
     /// <summary>Connection status for an upstream service.</summary>
@@ -563,7 +573,6 @@ namespace InfiniteDrive.Services
                 response.PresentCount    = await db.GetCatalogItemCountByItemStateAsync(ItemState.Present);
                 response.ResolvedCount   = await db.GetCatalogItemCountByItemStateAsync(ItemState.Resolved);
                 response.RetiredCount    = await db.GetCatalogItemCountByItemStateAsync(ItemState.Retired);
-                response.PinnedCount     = await db.GetCatalogItemCountByItemStateAsync(ItemState.Pinned);
                 response.OrphanedCount   = await db.GetCatalogItemCountByItemStateAsync(ItemState.Orphaned);
             }
             catch (Exception ex)
@@ -642,6 +651,51 @@ namespace InfiniteDrive.Services
                 && (!string.IsNullOrWhiteSpace(config.PrimaryManifestUrl)
                     || !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                 && !config.AioStreamsIsStreamOnly;
+
+            // ── Content-readiness traffic light ──────────────────────────────────
+            // GREEN  = backend reachable + configured + (catalogs OR ≥1 list)
+            // YELLOW = backend reachable + configured but no catalogs AND no lists
+            // RED    = not configured / backend unreachable / library error
+            // Catalogs and lists are EITHER-OR: either alone yields a working system.
+            bool hasCatalogs = hasAioStreamsCatalog || config.EnableCinemetaDefault;
+
+            bool hasLists = false;
+            try
+            {
+                var adminLists = await db.GetUserCatalogsByOwnerAsync("SERVER", activeOnly: true);
+                var userListCount = await db.GetActiveUserCatalogCountAsync();
+                hasLists = (adminLists?.Count ?? 0) > 0 || userListCount > 0;
+            }
+            catch (Exception ex) { Plugin.Instance?.Logger.LogDebug(ex, "[InfiniteDrive] Non-fatal: {Context}", "count lists for readiness"); }
+
+            response.HasCatalogs = hasCatalogs;
+            response.HasLists = hasLists;
+
+            bool backendReachable = response.AioStreams.Ok
+                || (response.Providers?.Exists(p => p.Ok) ?? false);
+            bool stateError = string.Equals(response.SystemState, "error", StringComparison.OrdinalIgnoreCase);
+
+            if (!response.IsConfigured || stateError || !backendReachable)
+            {
+                response.ContentReadiness = "red";
+                response.ContentReadinessReason = !response.IsConfigured
+                    ? "Not configured yet — add your AIOStreams manifest URL and library paths."
+                    : stateError
+                        ? (string.IsNullOrWhiteSpace(response.SystemStateDescription)
+                            ? "Library paths are not accessible." : response.SystemStateDescription)
+                        : "Your AIOStreams backend isn't reachable right now. If you configured a backup, InfiniteDrive fails over automatically; otherwise check the manifest URL.";
+            }
+            else if (hasCatalogs || hasLists)
+            {
+                response.ContentReadiness = "green";
+                response.ContentReadinessReason = "Ready and serving content.";
+            }
+            else
+            {
+                response.ContentReadiness = "yellow";
+                response.ContentReadinessReason = "You're set up and the backend works, but there's no content source yet. "
+                    + "Add a catalog in AIOStreams, or add a list (you or any user) to start pulling titles.";
+            }
 
             if (!hasAioStreamsCatalog)
             {

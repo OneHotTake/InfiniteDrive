@@ -19,16 +19,19 @@ namespace InfiniteDrive.Services
     {
         private readonly IPlaylistManager _playlistManager;
         private readonly ILibraryManager _libraryManager;
+        private readonly IUserManager? _userManager;
         private readonly ILogger<PlaylistService> _logger;
 
         public PlaylistService(
             IPlaylistManager playlistManager,
             ILibraryManager libraryManager,
-            ILogger<PlaylistService> logger)
+            ILogger<PlaylistService> logger,
+            IUserManager? userManager = null)
         {
             _playlistManager = playlistManager;
             _libraryManager = libraryManager;
             _logger = logger;
+            _userManager = userManager;
         }
 
         /// <summary>
@@ -130,7 +133,10 @@ namespace InfiniteDrive.Services
 
         // ── Private helpers ──────────────────────────────────────────────────
 
-        private Playlist? FindPlaylist(string name)
+        /// <summary>
+        /// Finds a playlist by name. Optionally filters by user.
+        /// </summary>
+        public Playlist? FindPlaylist(string name, string? userId = null)
         {
             var query = new InternalItemsQuery
             {
@@ -139,9 +145,93 @@ namespace InfiniteDrive.Services
                 Recursive = true
             };
 
-            return _libraryManager.GetItemList(query)
-                .OfType<Playlist>()
-                .FirstOrDefault();
+            var results = _libraryManager.GetItemList(query)
+                .OfType<Playlist>();
+
+            // Note: Emby playlists are shared — user filtering is best-effort.
+            // For alpha, just find by name.
+            return results.FirstOrDefault();
+        }
+
+        /// <summary>
+        /// Finds or creates a playlist with the given name for a user.
+        /// </summary>
+        public async Task<Playlist?> FindOrCreatePlaylistAsync(string name, User user)
+        {
+            var existing = FindPlaylist(name);
+            if (existing != null) return existing;
+
+            return await CreatePlaylistAsync(name, user);
+        }
+
+        /// <summary>
+        /// Adds an Emby item to a named playlist. User lookup is deferred to Marvin if user not found.
+        /// </summary>
+        public async Task AddItemToPlaylistAsync(string playlistName, Guid embyItemId, string userId, CancellationToken ct = default)
+        {
+            var playlist = FindPlaylist(playlistName);
+            if (playlist == null)
+            {
+                // Create the playlist for the owning user so the item actually surfaces.
+                var user = ResolveUser(userId);
+                if (user == null)
+                {
+                    _logger.LogWarning("[PlaylistService] Cannot create playlist '{Name}' — user {UserId} not resolvable", playlistName, userId);
+                    return;
+                }
+                playlist = await CreatePlaylistAsync(playlistName, user);
+                if (playlist == null) return;
+            }
+
+            var item = _libraryManager.GetItemById(embyItemId);
+            if (item == null) return;
+
+            try
+            {
+                await _playlistManager.AddToPlaylist(
+                    playlist, new[] { item.InternalId }, true, null, ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[PlaylistService] Failed to add {ItemId} to playlist {Name}", embyItemId, playlistName);
+            }
+        }
+
+        /// <summary>
+        /// Removes an Emby item from a named playlist.
+        /// </summary>
+        public async Task RemoveItemFromPlaylistAsync(string playlistName, Guid embyItemId, string userId, CancellationToken ct = default)
+        {
+            var playlist = FindPlaylist(playlistName);
+            if (playlist == null) return;
+
+            var item = _libraryManager.GetItemById(embyItemId);
+            if (item == null) return;
+
+            await RemoveFromPlaylistAsync(playlist, embyItemId);
+        }
+
+        /// <summary>
+        /// Resolves an Emby user from the stored user-id string ("N" format). Falls back
+        /// to the first administrator if the specific user can't be found, so playlists
+        /// still materialise rather than silently vanishing.
+        /// </summary>
+        private User? ResolveUser(string? userId)
+        {
+            if (_userManager == null) return null;
+            try
+            {
+                if (!string.IsNullOrEmpty(userId))
+                {
+                    var u = _userManager.GetUserById(userId);
+                    if (u != null) return u;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[PlaylistService] GetUserById failed for {UserId}", userId);
+            }
+            return null;
         }
 
         private async Task<Playlist?> CreatePlaylistAsync(string name, User user)
@@ -162,15 +252,13 @@ namespace InfiniteDrive.Services
                     return null;
                 }
 
-                // result.Id is string — parse to Guid for GetItemById
-                if (!Guid.TryParse(result.Id, out var playlistGuid))
-                {
-                    _logger.LogWarning("[PlaylistService] CreatePlaylist returned invalid ID '{Id}'", result.Id);
-                    return null;
-                }
-
-                var playlist = _libraryManager.GetItemById(playlistGuid) as Playlist;
-                _logger.LogInformation("[PlaylistService] Created playlist '{Name}' ({Id})", name, result.Id);
+                // Emby returns the numeric INTERNAL id here (e.g. "175201"), not a Guid —
+                // so re-find the freshly-created playlist by name to get the Playlist object.
+                var playlist = FindPlaylist(name);
+                if (playlist == null)
+                    _logger.LogWarning("[PlaylistService] Playlist '{Name}' not found after creation (id {Id})", name, result.Id);
+                else
+                    _logger.LogInformation("[PlaylistService] Created playlist '{Name}' ({Id})", name, result.Id);
                 return playlist;
             }
             catch (Exception ex)

@@ -119,26 +119,6 @@ namespace InfiniteDrive.Models
         /// </summary>
         public ItemState ItemState { get; set; } = ItemState.Catalogued;
 
-        /// <summary>
-        /// Source of PIN state when <see cref="ItemState"/> = <see cref="ItemState.Pinned"/>.
-        /// Format: "user:discover:ISO8601_timestamp" or similar.
-        /// Null for non-pinned items.
-        /// </summary>
-        public string? PinSource { get; set; }
-
-        /// <summary>
-        /// UTC timestamp when the item was pinned.
-        /// Null for non-pinned items.
-        /// </summary>
-        public string? PinnedAt { get; set; }
-
-        /// <summary>
-            /// Emby user ID of user who first added this item.
-            /// Set when writing .strm via StrmWriterService (Sprint 156).
-            /// Null for system-synced items.
-            /// </summary>
-            public string? FirstAddedByUserId { get; set; }
-
         // ── Sprint 142: Refresh Lifecycle Properties ─────────────────────────────
 
         /// <summary>Enrichment status for metadata lifecycle.</summary>
@@ -189,12 +169,13 @@ namespace InfiniteDrive.Models
         public long? LastVerifiedAt { get; set; }
 
         /// <summary>
-        /// Number of consecutive successful catalog syncs in which this item was absent.
-        /// Incremented by IncrementAbsentSyncsAsync Phase 1; reset to 0 by Phase 2 when the
-        /// item reappears. Items are pruned when this reaches AbsentSyncsThreshold.
-        /// Pinned and blocked items are excluded from increment and prune.
+        /// Number of consecutive successful catalog syncs in which this item was absent
+        /// across ALL sources (global union). Incremented by IncrementGlobalAbsentSyncsAsync
+        /// Phase 1; reset to 0 by Phase 2 when the item reappears in any source.
+        /// Items are pruned when this reaches GlobalAbsentSyncsThreshold.
+        /// Items with collection_membership rows are excluded from increment and prune.
         /// </summary>
-        public int AbsentSyncs { get; set; }
+        public int GlobalAbsentSyncs { get; set; }
 
         /// <summary>
         /// The manifest URL that originally provided this item (primary or secondary).

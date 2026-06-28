@@ -1,11 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Net.Http;
-using System.Text.Json;
 using System.Text.RegularExpressions;
-using System.Threading;
 using System.Threading.Tasks;
 using Emby.Web.GenericEdit.Elements;
+using InfiniteDrive.Services;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
 
@@ -46,6 +45,14 @@ namespace InfiniteDrive.UI.Settings
                         await TestSingleAsync("Secondary manifest", UI.SecondaryManifestUrl).ConfigureAwait(false);
                     return this;
 
+                case ConnectUI.PreviewRecommendedCommand:
+                    await ApplyRecommendedAsync(dryRun: true).ConfigureAwait(false);
+                    return this;
+
+                case ConnectUI.ApplyRecommendedCommand:
+                    await ApplyRecommendedAsync(dryRun: false).ConfigureAwait(false);
+                    return this;
+
             }
 
             return await base.RunCommand(itemId, commandId, data);
@@ -65,28 +72,86 @@ namespace InfiniteDrive.UI.Settings
 
             try
             {
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                var resp = await http.GetAsync(url, cts.Token).ConfigureAwait(false);
-                resp.EnsureSuccessStatusCode();
+                // Read-only diagnostic probe: manifest census + stream-signal tiers.
+                var v = await ManifestUrlParser.ValidateManifestUrlAsync(url).ConfigureAwait(false);
+                if (!v.IsValid)
+                {
+                    UpdateResult($"{label}: FAILED — {v.ErrorMessage}", ItemStatus.Failed);
+                    return;
+                }
 
-                var json = await resp.Content.ReadAsStringAsync(cts.Token).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
+                var parts = new List<string>
+                {
+                    $"OK — {v.AddonName ?? "AIOStreams"} v{v.AddonVersion ?? "?"}",
+                    v.HasStreamResource ? "streams ✓" : "no stream resource ✗",
+                };
 
-                var name = root.TryGetProperty("name", out var n) ? n.GetString() : null;
-                var ver = root.TryGetProperty("version", out var v) ? v.GetString() : null;
-                var id = root.TryGetProperty("id", out var i) ? i.GetString() : null;
+                // Catalog census — catch the "advertises catalog resource but empty" trap.
+                parts.Add(v.CatalogCount == 0
+                    ? "0 catalogs (browse via lists, or enable catalogs in AIOStreams)"
+                    : $"{v.BrowsableCatalogCount} browsable / {v.SearchOnlyCatalogCount} search-only catalogs");
 
-                if (id != null)
-                    UpdateResult($"{label}: OK — {name ?? "AIOStreams"} v{ver ?? "?"}", ItemStatus.Succeeded);
-                else
-                    UpdateResult($"{label}: Response received but no plugin ID — check URL", ItemStatus.Warning);
+                // Stream-signal probe (read-only) — what quality detection to expect.
+                var probe = await ManifestUrlParser.ProbeStreamSignalsAsync(url).ConfigureAwait(false);
+                if (probe.Ok && probe.StreamCount > 0)
+                    parts.Add($"quality: filename {(probe.HasFilename ? "✓" : "✗")}, size {(probe.HasVideoSize ? "✓" : "✗")}");
+
+                // Warn (not fail) when something will degrade quality/browse, but streaming still works.
+                var status = (!v.HasStreamResource || (probe.Ok && probe.StreamCount > 0 && !probe.HasFilename))
+                    ? ItemStatus.Warning : ItemStatus.Succeeded;
+
+                UpdateResult($"{label}: " + string.Join(" · ", parts), status);
             }
             catch (Exception ex)
             {
                 UpdateResult($"{label}: FAILED — {ex.Message}", ItemStatus.Failed);
             }
+        }
+
+        // ── Recommended formatter & sort (opt-in, formatter+sort ONLY) ──────
+
+        private async Task ApplyRecommendedAsync(bool dryRun)
+        {
+            UI.RecommendedResult.StatusText = dryRun ? "Previewing…" : "Applying…";
+            UI.RecommendedResult.Status = ItemStatus.InProgress;
+            RaiseUIViewInfoChanged();
+
+            if (string.IsNullOrWhiteSpace(UI.PrimaryManifestUrl))
+            {
+                SetRecommended("Add a primary manifest URL first.", ItemStatus.Unavailable);
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(UI.PrimaryManifestPassword))
+            {
+                SetRecommended("Enter your AIOStreams password, then Preview.", ItemStatus.Unavailable);
+                return;
+            }
+
+            try
+            {
+                var r = await AioStreamsConfigClient.ApplyRecommendedAsync(
+                    UI.PrimaryManifestUrl, UI.PrimaryManifestPassword, dryRun).ConfigureAwait(false);
+
+                var status = !r.Ok ? ItemStatus.Failed
+                    : (dryRun || r.Changed) ? ItemStatus.Warning : ItemStatus.Succeeded;
+
+                var text = r.Message;
+                if (r.Ok && !string.IsNullOrEmpty(r.Diff) && (dryRun || r.Changed))
+                    text += "\n\n" + r.Diff;
+
+                SetRecommended(text, status);
+            }
+            catch (Exception ex)
+            {
+                SetRecommended($"Failed: {ex.Message}", ItemStatus.Failed);
+            }
+        }
+
+        private void SetRecommended(string text, ItemStatus status)
+        {
+            UI.RecommendedResult.StatusText = text;
+            UI.RecommendedResult.Status = status;
+            RaiseUIViewInfoChanged();
         }
 
         // ── URL info ───────────────────────────────────────────────────────
@@ -154,6 +219,7 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             cfg.PrimaryManifestUrl = UI.PrimaryManifestUrl ?? string.Empty;
             cfg.SecondaryManifestUrl = UI.SecondaryManifestUrl ?? string.Empty;
+            cfg.PrimaryManifestPassword = UI.PrimaryManifestPassword ?? string.Empty;
             cfg.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl);
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();

@@ -22,6 +22,25 @@ namespace InfiniteDrive.Services
 
         /// <summary>True if the URL uses http:// without localhost/127.0.0.1/::1 (needs warning).</summary>
         public bool UsesInsecureHttp { get; set; }
+
+        // ── Read-only probe (populated when IsValid) ─────────────────────────
+        /// <summary>Addon display name from the manifest.</summary>
+        public string? AddonName { get; set; }
+
+        /// <summary>Addon version from the manifest.</summary>
+        public string? AddonVersion { get; set; }
+
+        /// <summary>True when the manifest advertises the "stream" resource.</summary>
+        public bool HasStreamResource { get; set; }
+
+        /// <summary>Total catalogs in the manifest's catalog array (0 = the QuackStart "advertises catalog resource but empty" trap).</summary>
+        public int CatalogCount { get; set; }
+
+        /// <summary>Catalogs that can be browsed without a required search term.</summary>
+        public int BrowsableCatalogCount { get; set; }
+
+        /// <summary>Catalogs that require a search term (not browsable on their own).</summary>
+        public int SearchOnlyCatalogCount { get; set; }
     }
 
     public static class ManifestUrlParser
@@ -110,6 +129,9 @@ namespace InfiniteDrive.Services
                         return result;
                     }
 
+                    // Read-only census: name, version, resources, catalog breakdown.
+                    Census(doc.RootElement, result);
+
                     result.IsValid = true;
                     return result;
                 }
@@ -137,6 +159,144 @@ namespace InfiniteDrive.Services
                 result.ErrorType = "unknown";
                 result.ErrorMessage = $"Unexpected error: {ex.Message}";
                 return result;
+            }
+        }
+
+        /// <summary>
+        /// Read-only census of a manifest JSON document: addon name/version, whether
+        /// the "stream" resource is advertised, and the catalog breakdown. Catches the
+        /// QuackStart trap where the "catalog" resource is advertised but the catalog
+        /// array is empty (CatalogCount == 0).
+        /// </summary>
+        private static void Census(JsonElement root, ManifestUrlValidationResult result)
+        {
+            try
+            {
+                if (root.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String)
+                    result.AddonName = nameEl.GetString();
+                if (root.TryGetProperty("version", out var verEl) && verEl.ValueKind == JsonValueKind.String)
+                    result.AddonVersion = verEl.GetString();
+
+                // resources: array of strings OR objects with a "name" field.
+                if (root.TryGetProperty("resources", out var resEl) && resEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var r in resEl.EnumerateArray())
+                    {
+                        string? rname = r.ValueKind == JsonValueKind.String
+                            ? r.GetString()
+                            : (r.ValueKind == JsonValueKind.Object && r.TryGetProperty("name", out var rn) ? rn.GetString() : null);
+                        if (string.Equals(rname, "stream", StringComparison.OrdinalIgnoreCase))
+                            result.HasStreamResource = true;
+                    }
+                }
+
+                // catalogs: each has an optional "extra" array of { name, isRequired }.
+                if (root.TryGetProperty("catalogs", out var catsEl) && catsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var c in catsEl.EnumerateArray())
+                    {
+                        result.CatalogCount++;
+                        bool searchRequired = false;
+                        if (c.TryGetProperty("extra", out var extraEl) && extraEl.ValueKind == JsonValueKind.Array)
+                        {
+                            foreach (var ex in extraEl.EnumerateArray())
+                            {
+                                if (ex.ValueKind != JsonValueKind.Object) continue;
+                                var exName = ex.TryGetProperty("name", out var en) ? en.GetString() : null;
+                                var isReq = ex.TryGetProperty("isRequired", out var ir)
+                                            && ir.ValueKind == JsonValueKind.True;
+                                if (isReq && string.Equals(exName, "search", StringComparison.OrdinalIgnoreCase))
+                                    searchRequired = true;
+                            }
+                        }
+                        if (searchRequired) result.SearchOnlyCatalogCount++;
+                        else result.BrowsableCatalogCount++;
+                    }
+                }
+            }
+            catch { /* census is best-effort; never fail validation over it */ }
+        }
+
+        /// <summary>
+        /// Result of probing a single stream response for which metadata signal tiers
+        /// are actually populated. AIOStreams cosmetic formatters vary wildly but
+        /// behaviorHints.filename/videoSize are the reliable backbone.
+        /// </summary>
+        public class StreamSignalProbe
+        {
+            public bool Ok { get; set; }
+            public int StreamCount { get; set; }
+            public bool HasFilename { get; set; }
+            public bool HasVideoSize { get; set; }
+            public bool HasParsedFile { get; set; }
+            public string Message { get; set; } = string.Empty;
+        }
+
+        /// <summary>
+        /// Read-only: fetches the stream response for one well-known IMDb id from the
+        /// same AIOStreams instance and reports which signal tiers are present. Used by
+        /// the connect UI to tell the user (and us) what quality detection to expect.
+        /// Outbound client call only — no new endpoint.
+        /// </summary>
+        public static async Task<StreamSignalProbe> ProbeStreamSignalsAsync(
+            string manifestUrl, string imdbId = "tt0111161", HttpClient? httpClient = null)
+        {
+            var probe = new StreamSignalProbe();
+            var components = Parse(manifestUrl);
+            if (components == null || string.IsNullOrWhiteSpace(components.BaseUrl))
+            {
+                probe.Message = "Could not derive stream URL from manifest.";
+                return probe;
+            }
+
+            // Stream base = {BaseUrl}/stremio/{userId}/{configToken}  →  /stream/movie/{id}.json
+            var streamBase = $"{components.BaseUrl}/stremio/{components.UserId}/{components.ConfigToken}";
+            var streamUrl = $"{streamBase}/stream/movie/{imdbId}.json";
+            var http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            try
+            {
+                var resp = await http.GetAsync(streamUrl);
+                if (!resp.IsSuccessStatusCode)
+                {
+                    probe.Message = $"Stream probe returned HTTP {(int)resp.StatusCode}.";
+                    return probe;
+                }
+                var json = await resp.Content.ReadAsStringAsync();
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("streams", out var streams)
+                    || streams.ValueKind != JsonValueKind.Array)
+                {
+                    probe.Message = "Stream response had no streams array.";
+                    return probe;
+                }
+
+                probe.Ok = true;
+                probe.StreamCount = streams.GetArrayLength();
+                foreach (var s in streams.EnumerateArray())
+                {
+                    if (s.TryGetProperty("behaviorHints", out var bh) && bh.ValueKind == JsonValueKind.Object)
+                    {
+                        if (bh.TryGetProperty("filename", out var fn) && fn.ValueKind == JsonValueKind.String
+                            && !string.IsNullOrWhiteSpace(fn.GetString()))
+                            probe.HasFilename = true;
+                        if (bh.TryGetProperty("videoSize", out var vs)
+                            && (vs.ValueKind == JsonValueKind.Number))
+                            probe.HasVideoSize = true;
+                    }
+                    if (s.TryGetProperty("parsedFile", out var pf) && pf.ValueKind == JsonValueKind.Object)
+                        probe.HasParsedFile = true;
+                }
+
+                probe.Message = probe.StreamCount == 0
+                    ? "No streams for the probe title (try a more popular title)."
+                    : $"{probe.StreamCount} streams · filename {(probe.HasFilename ? "✓" : "✗")} · "
+                      + $"size {(probe.HasVideoSize ? "✓" : "✗")} · parsedFile {(probe.HasParsedFile ? "present" : "absent")}";
+                return probe;
+            }
+            catch (Exception ex)
+            {
+                probe.Message = $"Stream probe failed: {ex.Message}";
+                return probe;
             }
         }
 

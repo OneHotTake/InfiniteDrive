@@ -21,6 +21,11 @@ namespace InfiniteDrive.UI.Settings
             "(3) Providers — connect your AIOStreams manifest. " +
             "Marvin starts syncing automatically once all three are green.");
 
+        // ── Content readiness (headline traffic light) ───────────────────────
+
+        public StatusItem ContentReadiness { get; set; } = new StatusItem(
+            "Content", "Checking…", ItemStatus.None);
+
         // ── Libraries ────────────────────────────────────────────────────────
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();

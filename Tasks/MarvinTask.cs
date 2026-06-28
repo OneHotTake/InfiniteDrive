@@ -9,6 +9,7 @@ using InfiniteDrive.Data;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using InfiniteDrive.Services;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Logging;
@@ -38,6 +39,7 @@ namespace InfiniteDrive.Tasks
 
         private readonly ILogger<MarvinTask> _logger;
         private readonly ILibraryManager       _libraryManager;
+        private readonly IUserManager          _userManager;
         private readonly ILogManager           _logManager;
 
         private static readonly SemaphoreSlim _runningGate = new(1, 1);
@@ -46,10 +48,12 @@ namespace InfiniteDrive.Tasks
 
         public MarvinTask(
             ILogManager logManager,
-            ILibraryManager libraryManager)
+            ILibraryManager libraryManager,
+            IUserManager userManager)
         {
             _logger         = new EmbyLoggerAdapter<MarvinTask>(logManager.GetLogger("InfiniteDrive"));
             _libraryManager = libraryManager;
+            _userManager    = userManager;
             _logManager     = logManager;
         }
 
@@ -133,7 +137,7 @@ namespace InfiniteDrive.Tasks
 
 #pragma warning disable CS0618 // CatalogSyncTask is obsolete but still functional
                 var syncProgress = new Progress<double>(p => progress?.Report(p * 0.35));
-                var syncTask = new CatalogSyncTask(_libraryManager, _logManager)
+                var syncTask = new CatalogSyncTask(_libraryManager, _userManager, _logManager)
                     .RunSyncAsync(cancellationToken, syncProgress);
 #pragma warning restore CS0618
 
@@ -190,7 +194,16 @@ namespace InfiniteDrive.Tasks
 
                 progress?.Report(0.85);
 
-                // ── Phase 4: Repair (85-100%) ────────────────────────────────
+                // ── Phase 3c: Collection Population (85-87%) ─────────────────
+                Plugin.Pipeline.SetPhase("Marvin", "CollectionPopulation");
+                _logger.LogInformation("[InfiniteDrive] Marvin Phase 3c: Collection Population");
+                phaseSw.Restart();
+                await CollectionPopulationPassAsync(cancellationToken);
+                _logger.LogDebug("[Marvin] Phase 3c (CollectionPopulation) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+
+                progress?.Report(0.87);
+
+                // ── Phase 4: Repair (87-100%) ────────────────────────────────
                 Plugin.Pipeline.SetPhase("Marvin", "Repair");
                 _logger.LogInformation("[InfiniteDrive] Marvin Phase 4: Repair");
 
@@ -252,6 +265,123 @@ namespace InfiniteDrive.Tasks
             {
                 Plugin.Pipeline.Clear();
             }
+        }
+
+        // ── Phase 3c: Collection Population ────────────────────────────────────
+
+        /// <summary>
+        /// Resolves pending collection_membership rows (emby_item_id IS NULL)
+        /// by looking up the Emby item via provider ID, then adding it to the
+        /// appropriate BoxSet (user_id NULL) or playlist (user_id non-NULL).
+        /// </summary>
+        private async Task CollectionPopulationPassAsync(CancellationToken cancellationToken)
+        {
+            var db = Plugin.Instance?.DatabaseManager;
+            if (db == null) return;
+
+            var pending = await db.GetPendingCollectionMembershipsAsync(cancellationToken);
+            if (pending.Count == 0) return;
+
+            _logger.LogInformation("[CollectionPopulation] Resolving {Count} pending memberships", pending.Count);
+
+            var libraryManager = Plugin.Instance?.LibraryManager;
+            var boxSetService = Plugin.Instance?.BoxSetService;
+            if (libraryManager == null) return;
+
+            int resolved = 0;
+            foreach (var row in pending)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                // Look up the catalog item to get provider IDs
+                var catalogItem = await db.GetCatalogItemByAioIdAsync(row.AioId);
+                if (catalogItem == null) continue;
+
+                // Try to find Emby item via provider ID lookup
+                string? embyItemId = null;
+                try
+                {
+                    // Build provider ID pairs from CatalogItem's known IDs
+                    var providerIds = new List<KeyValuePair<string, string>>();
+                    if (!string.IsNullOrEmpty(catalogItem.TmdbId))
+                        providerIds.Add(new KeyValuePair<string, string>("Tmdb", catalogItem.TmdbId));
+                    if (!string.IsNullOrEmpty(catalogItem.AioId) && catalogItem.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                        providerIds.Add(new KeyValuePair<string, string>("Imdb", catalogItem.AioId));
+
+                    // Also try UniqueIdsJson if available
+                    if (!string.IsNullOrEmpty(catalogItem.UniqueIdsJson) && providerIds.Count == 0)
+                    {
+                        try
+                        {
+                            using var doc = System.Text.Json.JsonDocument.Parse(catalogItem.UniqueIdsJson);
+                            foreach (var el in doc.RootElement.EnumerateArray())
+                            {
+                                var prov = el.TryGetProperty("provider", out var p) ? p.GetString() : null;
+                                var val = el.TryGetProperty("id", out var v) ? v.GetString() : null;
+                                if (!string.IsNullOrEmpty(prov) && !string.IsNullOrEmpty(val))
+                                    providerIds.Add(new KeyValuePair<string, string>(prov, val));
+                            }
+                        }
+                        catch { /* best effort */ }
+                    }
+
+                    if (providerIds.Count > 0)
+                    {
+                        var query = new InternalItemsQuery
+                        {
+                            AnyProviderIdEquals = providerIds,
+                            IncludeItemTypes = new[] { "Movie", "Series" },
+                            Limit = 1,
+                        };
+                        var results = libraryManager.GetItemList(query);
+                        if (results != null && results.Length > 0 && results[0] != null)
+                            embyItemId = results[0]!.Id.ToString("N");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[CollectionPopulation] Provider lookup failed for {AioId}", row.AioId);
+                }
+
+                if (embyItemId == null) continue; // will retry next cycle
+
+                // Add to BoxSet or playlist
+                try
+                {
+                    if (row.UserId == null)
+                    {
+                        // BoxSet membership
+                        if (boxSetService != null)
+                        {
+                            var boxSet = await boxSetService.FindOrCreateBoxSetAsync(row.CollectionName, cancellationToken);
+                            if (boxSet != null && Guid.TryParse(embyItemId, out var itemId))
+                            {
+                                await boxSetService.AddItemToBoxSetAsync(boxSet.Id, itemId, cancellationToken);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // Playlist membership
+                        var playlistService = Plugin.Instance?.PlaylistService;
+                        if (playlistService != null && Guid.TryParse(embyItemId, out var itemId))
+                        {
+                            await playlistService.AddItemToPlaylistAsync(row.CollectionName, itemId, row.UserId, cancellationToken);
+                        }
+                    }
+
+                    // Update emby_item_id in membership row
+                    await db.UpdateCollectionMembershipEmbyItemIdAsync(row.Id, embyItemId, cancellationToken);
+                    resolved++;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "[CollectionPopulation] Failed to add {AioId} to {Collection}", row.AioId, row.CollectionName);
+                }
+            }
+
+            if (resolved > 0)
+                _logger.LogInformation("[CollectionPopulation] Resolved {Resolved}/{Total} pending memberships", resolved, pending.Count);
         }
 
         // ── Phase 4 sub-operations ────────────────────────────────────────────

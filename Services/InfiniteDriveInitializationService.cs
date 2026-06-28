@@ -26,6 +26,8 @@ namespace InfiniteDrive.Services
         private readonly ILogManager _logManager;
         private readonly ILibraryManager _libraryManager;
         private readonly IPlaylistManager _playlistManager;
+        private readonly MediaBrowser.Controller.Collections.ICollectionManager? _collectionManager;
+        private readonly IUserManager _userManager;
         private readonly ILocalizationManager _localizationManager;
         private readonly IProviderManager _providerManager;
         private readonly IFileSystem _fileSystem;
@@ -35,14 +37,18 @@ namespace InfiniteDrive.Services
             ILogManager logManager,
             ILibraryManager libraryManager,
             IPlaylistManager playlistManager,
+            MediaBrowser.Controller.Collections.ICollectionManager? collectionManager,
             ILocalizationManager localizationManager,
             IProviderManager providerManager,
             IFileSystem fileSystem,
-            INotificationManager notificationManager)
+            INotificationManager notificationManager,
+            IUserManager userManager)
         {
             _logManager = logManager;
             _libraryManager = libraryManager;
             _playlistManager = playlistManager;
+            _collectionManager = collectionManager;
+            _userManager = userManager;
             _localizationManager = localizationManager;
             _providerManager = providerManager;
             _fileSystem = fileSystem;
@@ -88,7 +94,7 @@ namespace InfiniteDrive.Services
                 instance.CooldownGate.ProgressStreamer = Plugin.ProgressStreamer;
 
                 // Initialize PlaylistService with SDK interfaces
-                instance.InitializePlaylistService(_playlistManager, _libraryManager);
+                instance.InitializePlaylistService(_playlistManager, _libraryManager, _collectionManager, _userManager);
 
                 // Ensure at least one quality bucket exists — never let Marvin run blind
                 var cfg = instance.Configuration;

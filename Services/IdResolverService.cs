@@ -19,7 +19,7 @@ namespace InfiniteDrive.Services
         string? ImdbId,
         string? TmdbId,
         string? TvdbId,
-        string? AniDbId,
+        string? NativeAnimeId,
         string? RawMetaJson);
 
     /// <summary>
@@ -69,7 +69,7 @@ namespace InfiniteDrive.Services
             string? imdbId  = null;
             string? tmdbId  = null;
             string? tvdbId  = null;
-            string? aniDbId = null;
+            string? nativeAnimeId = null;
 
             var lower = manifestId.ToLowerInvariant();
 
@@ -82,7 +82,7 @@ namespace InfiniteDrive.Services
                 }
                 imdbId = manifestId;
                 _logger.LogDebug("[IdResolver] Fast path: {Id} is already a tt ID", manifestId);
-                return new ResolvedIds(manifestId, imdbId, tmdbId, tvdbId, aniDbId, null);
+                return new ResolvedIds(manifestId, imdbId, tmdbId, tvdbId, nativeAnimeId, null);
             }
             else if (lower.StartsWith("tmdb_") || lower.StartsWith("tmdb:"))
             {
@@ -94,23 +94,23 @@ namespace InfiniteDrive.Services
             }
             else if (lower.StartsWith("kitsu:") || lower.StartsWith("kitsu_"))
             {
-                aniDbId = manifestId.Substring(6);
+                nativeAnimeId = manifestId.Substring(6);
             }
             else if (lower.StartsWith("mal:") || lower.StartsWith("mal_"))
             {
-                aniDbId = manifestId.Substring(4); // MAL → use AniDb slot for AIOMetadata lookup
+                nativeAnimeId = manifestId.Substring(4); // MAL native ID — triggers AIOMetadata lookup
             }
             else if (lower.StartsWith("anilist:") || lower.StartsWith("anilist_"))
             {
-                aniDbId = manifestId.Substring(8); // AniList → same resolution path as kitsu/mal
+                nativeAnimeId = manifestId.Substring(8); // AniList native ID — triggers AIOMetadata lookup
             }
             else if (lower.StartsWith("anidb:") || lower.StartsWith("anidb_"))
             {
-                aniDbId = manifestId.Substring(6); // AniDB → anime resolution path
+                nativeAnimeId = manifestId.Substring(6); // AniDB native ID
             }
             else if (lower.StartsWith("simkl:") || lower.StartsWith("simkl_"))
             {
-                aniDbId = manifestId.Substring(5); // SIMKL → anime resolution path
+                nativeAnimeId = manifestId.Substring(5); // SIMKL native ID — triggers AIOMetadata lookup
             }
             else if (lower.StartsWith("imdb:"))
             {
@@ -144,7 +144,7 @@ namespace InfiniteDrive.Services
                             _logger.LogInformation(
                                 "[IdResolver] Resolved {ManifestId} → {ImdbId} via source addon meta",
                                 manifestId, imdbId);
-                            return BuildResult(manifestId, imdbId, tmdbId, tvdbId, aniDbId, rawMetaJson);
+                            return BuildResult(manifestId, imdbId, tmdbId, tvdbId, nativeAnimeId, rawMetaJson);
                         }
                     }
                     else
@@ -164,8 +164,8 @@ namespace InfiniteDrive.Services
                 }
             }
 
-            // ── Step 3: AIOMetadata fallback for tmdb/kitsu/mal IDs ───────────────
-            if (imdbId == null && (tmdbId != null || aniDbId != null))
+            // ── Step 3: AIOMetadata fallback for tmdb / native-anime IDs ─────────
+            if (imdbId == null && (tmdbId != null || nativeAnimeId != null))
             {
                 try
                 {
@@ -200,7 +200,7 @@ namespace InfiniteDrive.Services
                     manifestId);
             }
 
-            return BuildResult(manifestId, imdbId, tmdbId, tvdbId, aniDbId, rawMetaJson);
+            return BuildResult(manifestId, imdbId, tmdbId, tvdbId, nativeAnimeId, rawMetaJson);
         }
 
         // ── Private helpers ───────────────────────────────────────────────────────
@@ -210,7 +210,7 @@ namespace InfiniteDrive.Services
             string? imdbId,
             string? tmdbId,
             string? tvdbId,
-            string? aniDbId,
+            string? nativeAnimeId,
             string? rawMetaJson)
         {
             // Canonical: tt > tmdb_ > tvdb_ > native
@@ -219,7 +219,7 @@ namespace InfiniteDrive.Services
                 ?? (tvdbId != null ? "tvdb_" + tvdbId : null)
                 ?? manifestId;
 
-            return new ResolvedIds(canonical, imdbId, tmdbId, tvdbId, aniDbId, rawMetaJson);
+            return new ResolvedIds(canonical, imdbId, tmdbId, tvdbId, nativeAnimeId, rawMetaJson);
         }
 
         private readonly record struct ParsedMeta(string? ImdbId, string? TmdbId, string? TvdbId);

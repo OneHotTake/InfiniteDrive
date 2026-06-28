@@ -805,7 +805,7 @@ namespace InfiniteDrive.Services
         /// OpenMediaSource is not used — .strm files contain direct CDN URLs.
         /// Emby plays them natively without going through this provider.
         /// </summary>
-        public Task<ILiveStream> OpenMediaSource(string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
+        public Task<ILiveStream> OpenMediaSource(string openToken, string consumerId, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {
             throw new NotSupportedException("OpenMediaSource is not used by InfiniteDrive — .strm files play natively.");
         }

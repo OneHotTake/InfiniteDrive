@@ -255,7 +255,9 @@ namespace InfiniteDrive.Services
 
             var displayName = !string.IsNullOrWhiteSpace(req.DisplayName)
                 ? req.DisplayName
-                : (!string.IsNullOrWhiteSpace(fetchResult.DisplayName) ? fetchResult.DisplayName : req.ListUrl);
+                : (!string.IsNullOrWhiteSpace(fetchResult.DisplayName)
+                    ? fetchResult.DisplayName
+                    : FriendlyNameFromUrl(req.ListUrl));
 
             // Insert catalog row
             var catalogId = await _db.CreateUserCatalogAsync(
@@ -347,6 +349,26 @@ namespace InfiniteDrive.Services
         }
 
         // ── Private helpers ───────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Derives a human-friendly list name from a list URL's last path slug,
+        /// e.g. ".../top-watched-movies-of-the-week" → "Top Watched Movies Of The Week".
+        /// Falls back to the raw URL only if no usable slug is found. Used as the Emby
+        /// playlist name, so it must never be empty.
+        /// </summary>
+        public static string FriendlyNameFromUrl(string url)
+        {
+            try
+            {
+                var path = new Uri(url).AbsolutePath.Trim('/');
+                var slug = path.Split('/').LastOrDefault(s => !string.IsNullOrWhiteSpace(s));
+                if (string.IsNullOrWhiteSpace(slug)) return url;
+                slug = slug.Replace('-', ' ').Replace('_', ' ').Trim();
+                if (string.IsNullOrWhiteSpace(slug)) return url;
+                return System.Globalization.CultureInfo.InvariantCulture.TextInfo.ToTitleCase(slug);
+            }
+            catch { return url; }
+        }
 
         private string? GetCurrentUserId()
         {

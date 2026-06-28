@@ -157,3 +157,15 @@ Everything else archived. Max 3 files per subtask. Never re-read.
 - Modified: RefreshTask.cs (multi-version write in ProcessMovieItemAsync), MarvinTask.cs (Phase 3b VersionRefreshPassAsync), DatabaseManager.cs (selected_versions_json + last_version_refresh_at columns), PluginConfiguration.cs (DesiredVersions, MaxVersionsPerItem), Plugin.cs (StrmFileManager singleton)
 - Deprecated: AioMediaSourceProvider.GetMediaSources/OpenMediaSource, ResolverService, BuildSignedStrmUrl
 - Build: 0 errors, 0 warnings
+
+## AIOStreams Adoption + User-Flow Hardening (2026-06-28)
+- SDK upgrade 4.10.0.8 → 4.10.0.16-Beta (libs/ swapped; IMediaSourceProvider.OpenMediaSource gained consumerId param)
+- Parser hardening: CandidateNormalizer NFKC unicode-fold (cosmetic formatters), fixed ExtractResolution attached-`p` bug. parsedFile is null on real v2.30 instances — behaviorHints.filename is the real primary signal.
+- Content-readiness state engine: StatusService.ContentReadiness green/yellow/red (catalogs OR lists), StatusUI headline. Layered over SystemStateService.
+- Read-only manifest probe: ManifestUrlParser census (catalog count/browsable/search-only) + ProbeStreamSignalsAsync; surfaced in Providers Test button.
+- Opt-in formatter+sort config write: NEW Services/AioStreamsConfigClient.cs (outbound GET/PUT /api/v1/user Basic auth; touches ONLY formatter+sortCriteria). ConnectUI password + Preview/Apply. NO new endpoints (plugin-context client only).
+- User flows fixed: AddToLibrary short-circuit now surfaces per-user; RemoveFromLibrary no longer requires media_items row (membership/playlist based); Discover/Detail 8s timeout (was 30s hang); UserCatalogSync SQLite crash (source clobber vs ON CONFLICT(aio_id,source)); list-add per-user playlist surfacing; FriendlyNameFromUrl for list names; PlaylistService.CreatePlaylist re-find by name (Emby returns numeric id, not Guid) + IUserManager wired for creation.
+- Deletion/prune: EmbyEventHandler UserDeleted hook → DeleteAllUserDataAsync; PruneAbsentItems split into GetAbsentPruneCandidatesAsync + SoftDeleteCatalogItemsAsync with ever-watched protection (collection_membership + playback_log + Emby IsPlayed-by-any-user); revived dead playback_log write in OnPlaybackStopped.
+- List providers: fixed ListFetcher missing User-Agent (Trakt Cloudflare HTML 403); TMDB list DisplayName from API. All 4 providers (mdblist/anilist/trakt/tmdb) verified end-to-end.
+- New: Services/AioStreamsConfigClient.cs, scripts/e2e-playback-test.sh, InfiniteDrive.Tests (CandidateNormalizer/AioStreamsConfigClient/UserCatalogsService + live LiveConfigIntegrationTests). 44/44 unit tests pass.
+- Build: 0 errors. Verified live on Emby 4.10.0.16 (configure→sync→strm→playback HTTP 206; all 8 settings tabs render+save; Discover page).

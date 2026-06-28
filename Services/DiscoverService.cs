@@ -8,6 +8,7 @@ using InfiniteDrive.Data;
 using InfiniteDrive.Logging;
 using InfiniteDrive.Models;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Model.Logging;
@@ -165,6 +166,10 @@ namespace InfiniteDrive.Services
         /// <summary>Release year (optional, used for .strm filename).</summary>
         [ApiMember(Name = "year", Description = "Release year", DataType = "int", ParameterType = "query")]
         public int? Year { get; set; }
+
+        /// <summary>User-chosen playlist name. Defaults to "My InfiniteDrive" if not specified.</summary>
+        [ApiMember(Name = "playlistName", Description = "Playlist name", DataType = "string", ParameterType = "query")]
+        public string? PlaylistName { get; set; }
     }
 
     /// <summary>Response from <c>POST /InfiniteDrive/Discover/AddToLibrary</c>.</summary>
@@ -194,6 +199,10 @@ namespace InfiniteDrive.Services
         /// <summary>AIOStreams primary ID.</summary>
         [ApiMember(Name = "aioId", Description = "AIOStreams ID", IsRequired = true, DataType = "string", ParameterType = "query")]
         public string AioId { get; set; } = string.Empty;
+
+        /// <summary>User-chosen playlist name. Defaults to "My InfiniteDrive" if not specified.</summary>
+        [ApiMember(Name = "playlistName", Description = "Playlist name", DataType = "string", ParameterType = "query")]
+        public string? PlaylistName { get; set; }
     }
 
     /// <summary>Response from <c>POST /InfiniteDrive/Discover/RemoveFromLibrary</c>.</summary>
@@ -1022,7 +1031,10 @@ namespace InfiniteDrive.Services
                         : entry?.MediaType ?? "movie";
                     try
                     {
-                        var metaResp = await client.GetMetaAsyncTyped(type, req.AioId, CancellationToken.None);
+                        // Bound the live enrichment fetch — a detail view must not hang the
+                        // UI for 30s. If AIOStreams is slow/cooldowned, degrade gracefully.
+                        using var detailCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+                        var metaResp = await client.GetMetaAsyncTyped(type, req.AioId, detailCts.Token);
                         if (metaResp?.Meta != null)
                         {
                             var m = metaResp.Meta;
@@ -1112,17 +1124,20 @@ namespace InfiniteDrive.Services
                     };
                 }
 
-                // Check if already in library — only skip if .strm file is actually on disk
+                // Check if already in library — only skip the .strm write if the file is
+                // actually on disk. Even then, still surface it in THIS user's playlist/saves
+                // (the item may be globally present but not yet in the caller's collection).
                 var existing = await _db.GetCatalogItemByAioIdAsync(req.AioId);
                 if (existing != null
                     && !string.IsNullOrEmpty(existing.StrmPath)
                     && File.Exists(existing.StrmPath))
                 {
+                    await AddPerUserSurfaceAsync(req.AioId, req.PlaylistName, existing.StrmPath, TryGetCurrentUserId());
                     return new DiscoverAddToLibraryResponse
                     {
                         Ok = true,
                         StrmPath = existing.StrmPath,
-                        Error = "Item is already in library"
+                        Error = "Item is already in your library"
                     };
                 }
 
@@ -1181,9 +1196,6 @@ namespace InfiniteDrive.Services
                 if (existing != null)
                 {
                     catalogItem = existing;
-                    catalogItem.ItemState = ItemState.Pinned;
-                    catalogItem.PinSource = $"user:discover:{now}";
-                    catalogItem.PinnedAt = now;
                     if (rawMetaJson != null) catalogItem.RawMetaJson = rawMetaJson;
                 }
                 else
@@ -1196,9 +1208,6 @@ namespace InfiniteDrive.Services
                         Year      = req.Year,
                         MediaType = req.Type.ToLowerInvariant(),
                         Source    = "discover",
-                        ItemState = ItemState.Pinned,
-                        PinSource = $"user:discover:{now}",
-                        PinnedAt  = now,
                         RawMetaJson = rawMetaJson,
                     };
                 }
@@ -1228,22 +1237,8 @@ namespace InfiniteDrive.Services
                 // Update discover_catalog to mark as in library
                 await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.AioId, true);
 
-                // Per-user save: resolve AIO ID → media_item, then save for calling user
-                if (!string.IsNullOrEmpty(callerUserId))
-                {
-                    var (providerKey, providerValue) = ParseAioIdForProvider(req.AioId);
-                    var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, CancellationToken.None);
-                    if (mediaItem != null)
-                    {
-                        await _db.UpsertUserSaveAsync(callerUserId, mediaItem.Id, "explicit", null, CancellationToken.None);
-                        await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, CancellationToken.None);
-                        _logger.LogDebug("Per-user save: user {UserId} saved media item {ItemId}", callerUserId, mediaItem.Id);
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Media item not yet indexed for AIO ID {AioId}, per-user save deferred to SyncTask", req.AioId);
-                    }
-                }
+                // Surface in the caller's playlist + per-user saves.
+                await AddPerUserSurfaceAsync(req.AioId, req.PlaylistName, strmPath, callerUserId);
 
                 _logger.LogInformation("Added {AioId} to library", req.AioId);
 
@@ -1266,6 +1261,75 @@ namespace InfiniteDrive.Services
                     Ok = false,
                     Error = "An internal error occurred. Check server logs."
                 };
+            }
+        }
+
+        /// <summary>
+        /// Surfaces an item in the caller's per-user collection: writes the
+        /// collection_membership row (so it joins the user's playlist on reconcile),
+        /// adds it to the Emby playlist immediately if the item is already indexed,
+        /// and records a per-user save. Safe to call for already-in-library items.
+        /// Never throws — surfacing failures must not fail the add.
+        /// </summary>
+        private async Task AddPerUserSurfaceAsync(string aioId, string? playlistName, string? strmPath, string? callerUserId)
+        {
+            if (string.IsNullOrEmpty(callerUserId)) return;
+            var pl = !string.IsNullOrWhiteSpace(playlistName) ? playlistName! : "My InfiniteDrive";
+
+            try
+            {
+                await _db.UpsertCollectionMembershipBatchAsync(
+                    new List<(string, string?, string, string, string?)>
+                    {
+                        (pl, null, aioId, "discover", callerUserId)
+                    }, CancellationToken.None);
+
+                // If the Emby item already exists, add it to the playlist now.
+                if (Plugin.Instance?.PlaylistService != null)
+                {
+                    var libraryManager = Plugin.Instance.LibraryManager;
+                    if (libraryManager != null)
+                    {
+                        var query = new InternalItemsQuery
+                        {
+                            AnyProviderIdEquals = BuildProviderIdPairs(aioId),
+                            IncludeItemTypes = new[] { "Movie", "Series" },
+                            Limit = 1,
+                        };
+                        var results = libraryManager.GetItemList(query);
+                        if (results != null && results.Length > 0 && results[0] != null)
+                        {
+                            var embyItemId = results[0]!.Id;
+                            await Plugin.Instance.PlaylistService.AddItemToPlaylistAsync(
+                                pl, embyItemId, callerUserId, CancellationToken.None);
+
+                            var pending = await _db.GetPendingCollectionMembershipsAsync(CancellationToken.None);
+                            var match = pending.FirstOrDefault(p => p.AioId == aioId && p.UserId == callerUserId);
+                            if (match != default)
+                                await _db.UpdateCollectionMembershipEmbyItemIdAsync(match.Id, embyItemId.ToString("N"), CancellationToken.None);
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Per-user playlist surface deferred for {AioId} — Marvin will reconcile", aioId);
+            }
+
+            // Per-user save (best-effort; deferred to SyncTask if not yet indexed).
+            try
+            {
+                var (providerKey, providerValue) = ParseAioIdForProvider(aioId);
+                var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, CancellationToken.None);
+                if (mediaItem != null)
+                {
+                    await _db.UpsertUserSaveAsync(callerUserId, mediaItem.Id, "explicit", null, CancellationToken.None);
+                    await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, CancellationToken.None);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Per-user save deferred for {AioId}", aioId);
             }
         }
 
@@ -1299,23 +1363,63 @@ namespace InfiniteDrive.Services
                     };
                 }
 
+                var playlistName = !string.IsNullOrWhiteSpace(req.PlaylistName) ? req.PlaylistName : "My InfiniteDrive";
+
+                // The user-facing "remove" is membership + playlist, mirroring how Add
+                // surfaced it. media_items is OPTIONAL enrichment — do NOT require it
+                // (Add writes membership even when no media_item row exists yet).
+                bool hadMembership = false;
+                try
+                {
+                    hadMembership = await _db.CollectionMembershipExistsAsync(req.AioId, callerUserId, CancellationToken.None);
+                }
+                catch { /* best-effort presence check */ }
+
+                // Resolve the Emby item (for playlist removal) via provider id.
+                try
+                {
+                    var libraryManager = Plugin.Instance?.LibraryManager;
+                    var playlistService = Plugin.Instance?.PlaylistService;
+                    if (libraryManager != null && playlistService != null)
+                    {
+                        var results = libraryManager.GetItemList(new InternalItemsQuery
+                        {
+                            AnyProviderIdEquals = BuildProviderIdPairs(req.AioId),
+                            IncludeItemTypes = new[] { "Movie", "Series" },
+                            Limit = 1,
+                        });
+                        if (results != null && results.Length > 0 && results[0] != null)
+                            await playlistService.RemoveItemFromPlaylistAsync(playlistName, results[0]!.Id, callerUserId, CancellationToken.None);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogDebug(ex, "Playlist removal failed for {AioId}", req.AioId);
+                }
+
+                // Always clear the user's membership for this item.
+                await _db.RemoveCollectionMembershipAsync(req.AioId, callerUserId, CancellationToken.None);
+                await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.AioId, false);
+
+                // Optional: clear per-user save if a media_item exists.
                 var (providerKey, providerValue) = ParseAioIdForProvider(req.AioId);
                 var mediaItem = await _db.FindMediaItemByProviderIdAsync(providerKey, providerValue, CancellationToken.None);
-                if (mediaItem == null)
+                if (mediaItem != null)
+                {
+                    await _db.DeleteUserSaveAsync(callerUserId, mediaItem.Id, CancellationToken.None);
+                    await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, CancellationToken.None);
+                }
+
+                if (!hadMembership && mediaItem == null)
                 {
                     return new DiscoverRemoveFromLibraryResponse
                     {
                         Ok = false,
-                        Error = "Item not found in library"
+                        Error = "That item isn't in your library."
                     };
                 }
 
-                await _db.DeleteUserSaveAsync(callerUserId, mediaItem.Id, CancellationToken.None);
-                await _db.SyncGlobalSavedFlagAsync(mediaItem.Id, CancellationToken.None);
-                await _db.UpdateDiscoverCatalogLibraryStatusAsync(req.AioId, false);
-
                 _logger.LogInformation("Removed {AioId} from library for user {UserId}", req.AioId, callerUserId);
-
                 return new DiscoverRemoveFromLibraryResponse { Ok = true };
             }
             catch (Exception ex)

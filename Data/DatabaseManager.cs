@@ -103,18 +103,18 @@ namespace InfiniteDrive.Data
                 (id, aio_id, tmdb_id, unique_ids_json, title, year, media_type,
                  source, source_list_id, seasons_json, strm_path,
                  added_at, updated_at, removed_at,
-                 local_path, local_source, item_state, pin_source, pinned_at,
+                 local_path, local_source, item_state,
                  enrichment_status, retry_count, next_retry_at,
-                 blocked_at, blocked_by, first_added_by_user_id,
+                 blocked_at, blocked_by,
                  tvdb_id, raw_meta_json, catalog_type, videos_json, episodes_expanded, last_expanded_at, last_verified_at,
                  source_manifest_url, selected_versions_json, last_version_refresh_at)
             VALUES
                 (@id, @aio_id, @tmdb_id, @unique_ids_json, @title, @year, @media_type,
                  @source, @source_list_id, @seasons_json, @strm_path,
                  @added_at, @updated_at, @removed_at,
-                 @local_path, @local_source, @item_state, @pin_source, @pinned_at,
+                 @local_path, @local_source, @item_state,
                  @enrichment_status, @retry_count, @next_retry_at,
-                 @blocked_at, @blocked_by, @first_added_by_user_id,
+                 @blocked_at, @blocked_by,
                  @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_expanded_at, @last_verified_at,
                  @source_manifest_url, @selected_versions_json, @last_version_refresh_at)
             ON CONFLICT(aio_id, source) DO UPDATE SET
@@ -128,8 +128,6 @@ namespace InfiniteDrive.Data
                 local_path    = COALESCE(catalog_items.local_path,   excluded.local_path),
                 local_source  = COALESCE(catalog_items.local_source, excluded.local_source),
                 item_state    = COALESCE(excluded.item_state,    catalog_items.item_state),
-                pin_source    = COALESCE(excluded.pin_source,    catalog_items.pin_source),
-                pinned_at     = COALESCE(excluded.pinned_at,     catalog_items.pinned_at),
                 enrichment_status = COALESCE(excluded.enrichment_status, catalog_items.enrichment_status),
                 retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
                 next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
@@ -171,8 +169,6 @@ namespace InfiniteDrive.Data
             BindNullableText(cmd, "@local_path",     item.LocalPath);
             BindNullableText(cmd, "@local_source",   item.LocalSource);
             cmd.BindParameters["@item_state"].Bind((int)item.ItemState);
-            BindNullableText(cmd, "@pin_source",     item.PinSource);
-            BindNullableText(cmd, "@pinned_at",      item.PinnedAt);
             BindNullableText(cmd, "@enrichment_status", item.EnrichmentStatus);
             BindInt(cmd,         "@retry_count",    item.RetryCount);
             if (item.NextRetryAt.HasValue)
@@ -181,7 +177,6 @@ namespace InfiniteDrive.Data
                 cmd.BindParameters["@next_retry_at"].BindNull();
             BindNullableText(cmd, "@blocked_at", item.BlockedAt);
             BindNullableText(cmd, "@blocked_by", item.BlockedBy);
-            BindNullableText(cmd, "@first_added_by_user_id", item.FirstAddedByUserId);
             BindNullableText(cmd, "@tvdb_id", item.TvdbId);
             BindNullableText(cmd, "@raw_meta_json", item.RawMetaJson);
             BindNullableText(cmd, "@catalog_type", item.CatalogType);
@@ -232,28 +227,6 @@ namespace InfiniteDrive.Data
             {
                 _dbWriteGate.Release();
             }
-        }
-
-        /// <summary>
-        /// Sets first_added_by_user_id only if not already set (first-writer-wins).
-        /// Called by StrmWriterService when writing .strm files for user-added items.
-        /// </summary>
-        public async Task SetFirstAddedByUserIdIfNotSetAsync(
-            string mediaItemId,
-            string userId,
-            CancellationToken cancellationToken = default)
-        {
-            const string sql = @"
-                UPDATE catalog_items
-                SET first_added_by_user_id = @user_id
-                WHERE id = @media_id
-                  AND first_added_by_user_id IS NULL;";
-
-            await ExecuteWriteAsync(sql, cmd =>
-            {
-                BindText(cmd, "@media_id", mediaItemId);
-                BindText(cmd, "@user_id", userId);
-            }, cancellationToken);
         }
 
         /// <summary>
@@ -355,64 +328,86 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Compares <paramref name="currentAioIds"/> against the active rows for
-        /// <paramref name="source"/> in the database.  Any row whose AIO ID is no
-        /// longer present in <paramref name="currentAioIds"/> is soft-deleted by
-        /// setting <c>removed_at = now()</c>.
-        ///
-        /// Removes items that have been absent from a catalog for at least
-        /// <c>AbsentSyncsThreshold</c> consecutive successful syncs.
-        /// Pinned items (pin_source IS NOT NULL) and blocked items (blocked_at IS NOT NULL)
-        /// are never pruned via catalog automation.
-        ///
-        /// Returns the list of <c>strm_path</c> values for the removed rows so the
-        /// caller can delete the files from disk.
+        /// Returns prune CANDIDATES: items whose global_absent_syncs has reached the
+        /// threshold, excluding admin-blocked items and items still referenced by ANY
+        /// user's collection/list (collection_membership) or recorded in playback_log.
+        /// Does NOT delete — the caller additionally filters out anything Emby marks as
+        /// played (ever-watched protection) before soft-deleting via
+        /// <see cref="SoftDeleteCatalogItemsAsync"/>. Returns (strm_path, aio_id) pairs.
         /// </summary>
-        public async Task<List<string>> PruneSourceAsync(
-            string          source,
-            HashSet<string> currentAioIds,
+        public async Task<List<(string? StrmPath, string AioId)>> GetAbsentPruneCandidatesAsync(
             CancellationToken cancellationToken = default)
         {
-            var existing = await GetCatalogItemsBySourceAsync(source);
-            var threshold = Plugin.Instance!.Configuration.AbsentSyncsThreshold;
+            var threshold = Plugin.Instance!.Configuration.GlobalAbsentSyncsThreshold;
 
-            var toRemove = existing.Where(x =>
-                !currentAioIds.Contains(x.AioId) &&
-                string.IsNullOrEmpty(x.PinSource) &&
-                string.IsNullOrEmpty(x.BlockedAt) &&
-                x.AbsentSyncs >= threshold
-            ).ToList();
+            const string selectSql = @"
+                SELECT strm_path, aio_id FROM catalog_items
+                WHERE global_absent_syncs >= @threshold
+                  AND removed_at IS NULL
+                  AND blocked_at IS NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM collection_membership cm
+                      WHERE cm.aio_id = catalog_items.aio_id
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1 FROM playback_log pl
+                      WHERE pl.aio_id = catalog_items.aio_id
+                  );";
 
-            if (toRemove.Count == 0)
-                return new List<string>();
-
-            // Batch update all items in single query (fixes N+1)
-            var aioIds = toRemove.Select(x => x.AioId).ToList();
-            var idsParam = string.Join(",", aioIds.Select((_, i) => $"@id{i}"));
-
-            var sql = $@"
-                UPDATE catalog_items
-                SET removed_at = datetime('now')
-                WHERE aio_id IN ({idsParam}) AND source = @source;";
-
-            var removed = new List<string>();
-            await ExecuteWriteAsync(sql, cmd =>
+            var candidates = new List<(string? StrmPath, string AioId)>();
+            await _dbWriteGate.WaitAsync(cancellationToken);
+            try
             {
-                BindText(cmd, "@source", source);
-                for (int i = 0; i < aioIds.Count; i++)
+                using var conn = OpenConnection();
+                using var stmt = conn.PrepareStatement(selectSql);
+                BindInt(stmt, "@threshold", threshold);
+                foreach (var row in stmt.AsRows())
                 {
-                    BindText(cmd, $"@id{i}", aioIds[i]);
+                    candidates.Add((
+                        row.IsDBNull(0) ? null : row.GetString(0),
+                        row.GetString(1)));
                 }
-            });
-
-            // Collect strm paths for file deletion
-            foreach (var item in toRemove)
+            }
+            finally
             {
-                if (!string.IsNullOrEmpty(item.StrmPath))
-                    removed.Add(item.StrmPath);
+                _dbWriteGate.Release();
             }
 
-            return removed;
+            return candidates;
+        }
+
+        /// <summary>
+        /// Soft-deletes the given catalog items (sets removed_at). Used after the caller
+        /// has filtered prune candidates for ever-watched protection.
+        /// </summary>
+        public async Task SoftDeleteCatalogItemsAsync(
+            IReadOnlyList<string> aioIds,
+            CancellationToken cancellationToken = default)
+        {
+            if (aioIds.Count == 0) return;
+
+            await _dbWriteGate.WaitAsync(cancellationToken);
+            try
+            {
+                using var conn = OpenConnection();
+                foreach (var batch in aioIds.Chunk(500))
+                {
+                    var idsParam = string.Join(",", batch.Select((_, i) => $"@id{i}"));
+                    var deleteSql = $@"
+                        UPDATE catalog_items
+                        SET removed_at = datetime('now')
+                        WHERE aio_id IN ({idsParam});";
+
+                    using var delStmt = conn.PrepareStatement(deleteSql);
+                    for (int i = 0; i < batch.Length; i++)
+                        BindText(delStmt, $"@id{i}", batch[i]);
+                    while (delStmt.MoveNext()) { }
+                }
+            }
+            finally
+            {
+                _dbWriteGate.Release();
+            }
         }
 
         /// <summary>
@@ -434,7 +429,7 @@ namespace InfiniteDrive.Data
             var sql = $@"
                 UPDATE catalog_items
                 SET last_verified_at = @verified_at,
-                    absent_syncs = 0
+                    global_absent_syncs = 0
                 WHERE aio_id IN ({idsParam}) AND source = @source;";
 
             await ExecuteWriteAsync(sql, cmd =>
@@ -449,31 +444,23 @@ namespace InfiniteDrive.Data
         }
 
         /// <summary>
-        /// Two-phase absent-sync counter update for a single source.
+        /// Two-phase global absent-sync counter update across ALL sources.
         ///
-        /// Phase 1: increment absent_syncs for ALL active, unprotected items belonging to
-        ///          <paramref name="source"/> (no variable-length IN list — safe for large catalogs).
-        /// Phase 2: reset absent_syncs + last_verified_at for items that ARE present in this
-        ///          sync cycle (batched in chunks of 500 to stay under SQLite param limits).
+        /// Phase 1: increment global_absent_syncs for all active, non-blocked items
+        ///          that are NOT in the union of present IDs and NOT protected by
+        ///          collection_membership.
+        /// Phase 2: reset global_absent_syncs for items that ARE present in at least
+        ///          one source.
         ///
-        /// Guard: if <paramref name="presentIds"/> is empty we treat the catalog as DOWN and
-        /// skip both phases entirely — prevents mass-increment when a provider fails to return data.
-        ///
-        /// KNOWN LIMITATION (BACKLOG): sub-catalog flakiness within a multi-catalog provider
-        /// (e.g. one AIOStreams catalog hiccups while others succeed) will still increment
-        /// absent_syncs for that catalog's items, because the provider-level safety valve only
-        /// guards against full-provider failure. Items from a persistently flaky sub-catalog
-        /// may be pruned after `threshold` consecutive partial failures.
-        /// Fix: track per-sub-catalog last-successful-fetch timestamps and scope increment to
-        /// catalogs that actually succeeded this cycle. Out of scope for alpha.
+        /// Guard: if <paramref name="allPresentAioIds"/> is empty we treat all catalogs
+        /// as DOWN and skip both phases entirely.
         /// </summary>
-        public async Task IncrementAbsentSyncsAsync(
-            string source,
-            HashSet<string> presentIds,
+        public async Task IncrementGlobalAbsentSyncsAsync(
+            HashSet<string> allPresentAioIds,
             CancellationToken cancellationToken = default)
         {
-            if (presentIds.Count == 0)
-                return; // empty = catalog DOWN — never increment
+            if (allPresentAioIds.Count == 0)
+                return; // empty = all catalogs DOWN — never increment
 
             var now = (int)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
@@ -483,35 +470,41 @@ namespace InfiniteDrive.Data
                 using var conn = OpenConnection();
                 conn.RunInTransaction(c =>
                 {
-                    // Phase 1: increment counter for all active, unprotected items for this source
-                    const string phase1Sql = @"
-                        UPDATE catalog_items
-                        SET absent_syncs = absent_syncs + 1
-                        WHERE source = @source
-                          AND removed_at IS NULL
-                          AND pin_source IS NULL
-                          AND blocked_at IS NULL";
-
-                    using (var stmt = c.PrepareStatement(phase1Sql))
+                    // Phase 1: increment counter for all unprotected absentees
+                    foreach (var batch in allPresentAioIds.Chunk(500))
                     {
-                        BindText(stmt, "@source", source);
-                        while (stmt.MoveNext()) { }
+                        var presentPlaceholders = string.Join(",", batch.Select((_, i) => $"@pid{i}"));
+                        var phase1Sql = $@"
+                            UPDATE catalog_items
+                            SET global_absent_syncs = global_absent_syncs + 1
+                            WHERE removed_at IS NULL
+                              AND blocked_at IS NULL
+                              AND aio_id NOT IN ({presentPlaceholders})
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM collection_membership cm
+                                  WHERE cm.aio_id = catalog_items.aio_id
+                              )";
+
+                        using (var stmt = c.PrepareStatement(phase1Sql))
+                        {
+                            for (int i = 0; i < batch.Length; i++)
+                                BindText(stmt, $"@pid{i}", batch[i]);
+                            while (stmt.MoveNext()) { }
+                        }
                     }
 
-                    // Phase 2: reset counter for items present in this sync cycle (batched)
-                    foreach (var batch in presentIds.Chunk(500))
+                    // Phase 2: reset counter for items present in at least one source
+                    foreach (var batch in allPresentAioIds.Chunk(500))
                     {
                         var placeholders = string.Join(",", batch.Select((_, i) => $"@id{i}"));
                         var phase2Sql = $@"
                             UPDATE catalog_items
-                            SET absent_syncs = 0,
+                            SET global_absent_syncs = 0,
                                 last_verified_at = @now
-                            WHERE source = @source
-                              AND aio_id IN ({placeholders})";
+                            WHERE aio_id IN ({placeholders})";
 
                         using var stmt2 = c.PrepareStatement(phase2Sql);
                         BindInt(stmt2, "@now", now);
-                        BindText(stmt2, "@source", source);
                         for (int i = 0; i < batch.Length; i++)
                             BindText(stmt2, $"@id{i}", batch[i]);
                         while (stmt2.MoveNext()) { }
@@ -1304,15 +1297,12 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     local_source            TEXT,
     resurrection_count      INTEGER DEFAULT 0,
     item_state              INTEGER NOT NULL DEFAULT 0,
-    pin_source              TEXT,
-    pinned_at               TEXT,
     unique_ids_json         TEXT,
     enrichment_status       TEXT,
     retry_count             INTEGER DEFAULT 0,
     next_retry_at           INTEGER,
     blocked_at              TEXT,
     blocked_by              TEXT,
-    first_added_by_user_id  TEXT NULL,
     tvdb_id                 TEXT,
     raw_meta_json           TEXT,
     catalog_type            TEXT,
@@ -1320,7 +1310,7 @@ CREATE TABLE IF NOT EXISTS catalog_items (
     episodes_expanded       INTEGER,
     last_expanded_at        INTEGER,
     last_verified_at        INTEGER,
-    absent_syncs            INTEGER NOT NULL DEFAULT 0,
+    global_absent_syncs     INTEGER NOT NULL DEFAULT 0,
     source_manifest_url     TEXT,
     selected_versions_json  TEXT,
     last_version_refresh_at TEXT,
@@ -1462,10 +1452,14 @@ END;
 CREATE TABLE IF NOT EXISTS collection_membership (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     collection_name     TEXT NOT NULL,
-    emby_item_id        TEXT NOT NULL,
+    emby_item_id        TEXT,
+    aio_id              TEXT NOT NULL,
     source              TEXT NOT NULL,
+    user_id             TEXT,
     last_seen           TEXT NOT NULL,
-    UNIQUE(collection_name, emby_item_id)
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL,
+    UNIQUE(collection_name, aio_id, user_id)
 );
 
 -- ── plugin_metadata ─────────────────────────────────────────────────────────
@@ -1587,14 +1581,15 @@ CREATE INDEX IF NOT EXISTS idx_sources_enabled ON sources(enabled);
 
 -- ── collections ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS collections (
-    id                  TEXT PRIMARY KEY,
-    source_id           TEXT NOT NULL,
-    name                TEXT NOT NULL,
-    emby_collection_id  TEXT,
-    collection_name     TEXT,
-    last_synced_at      TEXT,
-    created_at          TEXT NOT NULL,
-    updated_at          TEXT NOT NULL,
+    id                      TEXT PRIMARY KEY,
+    source_id               TEXT NOT NULL,
+    name                    TEXT NOT NULL,
+    emby_collection_id      TEXT,
+    collection_name         TEXT,
+    last_synced_at          TEXT,
+    last_successful_sync    INTEGER,
+    created_at              TEXT NOT NULL,
+    updated_at              TEXT NOT NULL,
     FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_collections_source_id ON collections(source_id);
@@ -1967,15 +1962,12 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 LocalSource       = GetStr(m, r, "local_source"),
                 ResurrectionCount = GetInt(m, r, "resurrection_count") ?? 0,
                 ItemState         = GetInt(m, r, "item_state") is int s ? (ItemState)s : ItemState.Catalogued,
-                PinSource         = GetStr(m, r, "pin_source"),
-                PinnedAt          = GetStr(m, r, "pinned_at"),
                 UniqueIdsJson     = GetStr(m, r, "unique_ids_json"),
                 EnrichmentStatus  = GetStr(m, r, "enrichment_status"),
                 RetryCount        = GetInt(m, r, "retry_count") ?? 0,
                 NextRetryAt       = GetLong(m, r, "next_retry_at"),
                 BlockedAt         = GetStr(m, r, "blocked_at"),
                 BlockedBy         = GetStr(m, r, "blocked_by"),
-                FirstAddedByUserId = GetStr(m, r, "first_added_by_user_id"),
                 TvdbId            = GetStr(m, r, "tvdb_id"),
                 RawMetaJson       = GetStr(m, r, "raw_meta_json"),
                 CatalogType       = GetStr(m, r, "catalog_type"),
@@ -1983,7 +1975,7 @@ CREATE INDEX IF NOT EXISTS idx_bi_anilist ON blocked_items(lower(anilist_id));
                 EpisodesExpanded  = GetBool(m, r, "episodes_expanded"),
                 LastExpandedAt    = GetLong(m, r, "last_expanded_at"),
                 LastVerifiedAt    = GetLong(m, r, "last_verified_at"),
-                AbsentSyncs       = GetInt(m, r, "absent_syncs") ?? 0,
+                GlobalAbsentSyncs = GetInt(m, r, "global_absent_syncs") ?? 0,
                 SourceManifestUrl = GetStr(m, r, "source_manifest_url"),
                 SelectedVersionsJson = GetStr(m, r, "selected_versions_json"),
                 LastVersionRefreshAt = GetStr(m, r, "last_version_refresh_at"),

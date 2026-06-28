@@ -1032,5 +1032,159 @@ namespace InfiniteDrive.Data
             }
             return Task.FromResult(rows);
         }
+
+        // ── collection_membership repository ────────────────────────────────────────
+
+        /// <summary>
+        /// Bulk upsert of collection membership rows.
+        /// ON CONFLICT updates last_seen and updated_at.
+        /// </summary>
+        public async Task UpsertCollectionMembershipBatchAsync(
+            List<(string CollectionName, string? EmbyItemId, string AioId, string Source, string? UserId)> batch,
+            CancellationToken ct = default)
+        {
+            if (batch.Count == 0) return;
+
+            var now = DateTime.UtcNow.ToString("o");
+            const string sql = @"
+                INSERT INTO collection_membership (collection_name, emby_item_id, aio_id, source, user_id, last_seen, created_at, updated_at)
+                VALUES (@cn, @eii, @aid, @src, @uid, @now, @now, @now)
+                ON CONFLICT(collection_name, aio_id, user_id) DO UPDATE SET
+                    emby_item_id = COALESCE(excluded.emby_item_id, collection_membership.emby_item_id),
+                    last_seen = excluded.last_seen,
+                    updated_at = excluded.updated_at;";
+
+            await ExecuteWriteAsync(sql, stmt =>
+            {
+                foreach (var item in batch)
+                {
+                    BindText(stmt, "@cn", item.CollectionName);
+                    BindNullableText(stmt, "@eii", item.EmbyItemId);
+                    BindText(stmt, "@aid", item.AioId);
+                    BindText(stmt, "@src", item.Source);
+                    BindNullableText(stmt, "@uid", item.UserId);
+                    BindText(stmt, "@now", now);
+                    while (stmt.MoveNext()) { }
+                    stmt.Reset();
+                }
+            }, ct);
+        }
+
+        /// <summary>
+        /// Returns collection membership rows where emby_item_id IS NULL (pending resolution).
+        /// </summary>
+        public async Task<List<(int Id, string CollectionName, string AioId, string Source, string? UserId)>> GetPendingCollectionMembershipsAsync(
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id, collection_name, aio_id, source, user_id
+                FROM collection_membership
+                WHERE emby_item_id IS NULL;";
+
+            return await QueryListAsync(sql, null, r => (
+                r.GetInt(0),
+                r.GetString(1),
+                r.GetString(2),
+                r.GetString(3),
+                r.IsDBNull(4) ? null : r.GetString(4)
+            ));
+        }
+
+        /// <summary>
+        /// Sets emby_item_id on a collection membership row.
+        /// </summary>
+        public async Task UpdateCollectionMembershipEmbyItemIdAsync(
+            int id, string embyItemId, CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE collection_membership
+                SET emby_item_id = @eii, updated_at = @now
+                WHERE id = @id;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@eii", embyItemId);
+                BindInt(cmd, "@id", id);
+                BindText(cmd, "@now", DateTime.UtcNow.ToString("o"));
+            }, ct);
+        }
+
+        /// <summary>
+        /// Returns true if the user has a collection_membership row for the item
+        /// (pending OR resolved). Used by RemoveFromLibrary to report accurately.
+        /// </summary>
+        public async Task<bool> CollectionMembershipExistsAsync(
+            string aioId, string userId, CancellationToken ct = default)
+        {
+            const string sql = "SELECT COUNT(*) FROM collection_membership WHERE aio_id = @aid AND user_id = @uid;";
+            return await QueryScalarIntAsync(sql, cmd =>
+            {
+                BindText(cmd, "@aid", aioId);
+                BindText(cmd, "@uid", userId);
+            }) > 0;
+        }
+
+        /// <summary>
+        /// Removes a specific collection membership row by aio_id and optional user_id.
+        /// </summary>
+        public async Task RemoveCollectionMembershipAsync(
+            string aioId, string? userId, CancellationToken ct = default)
+        {
+            if (userId != null)
+            {
+                const string sql = @"
+                    DELETE FROM collection_membership
+                    WHERE aio_id = @aid AND user_id = @uid;";
+
+                await ExecuteWriteAsync(sql, cmd =>
+                {
+                    BindText(cmd, "@aid", aioId);
+                    BindText(cmd, "@uid", userId);
+                }, ct);
+            }
+            else
+            {
+                const string sql = @"
+                    DELETE FROM collection_membership
+                    WHERE aio_id = @aid AND user_id IS NULL;";
+
+                await ExecuteWriteAsync(sql, cmd =>
+                {
+                    BindText(cmd, "@aid", aioId);
+                }, ct);
+            }
+        }
+
+        /// <summary>
+        /// Returns true if an item has any collection membership row (protected from pruning).
+        /// </summary>
+        public async Task<bool> HasCollectionMembershipAsync(string aioId, CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT COUNT(*) FROM collection_membership
+                WHERE aio_id = @aid LIMIT 1;";
+
+            return await QueryScalarIntAsync(sql, cmd => BindText(cmd, "@aid", aioId)) > 0;
+        }
+
+        /// <summary>
+        /// Updates last_successful_sync for a collection identified by source_id.
+        /// Called on successful sync.
+        /// </summary>
+        public async Task UpdateCollectionLastSuccessfulSyncAsync(
+            string sourceId, long timestamp, CancellationToken ct = default)
+        {
+            const string sql = @"
+                UPDATE collections
+                SET last_successful_sync = @ts, updated_at = @now
+                WHERE source_id = @sid;";
+
+            await ExecuteWriteAsync(sql, cmd =>
+            {
+                BindInt(cmd, "@ts", (int)timestamp);
+                BindText(cmd, "@sid", sourceId);
+                BindText(cmd, "@now", DateTime.UtcNow.ToString("o"));
+            }, ct);
+        }
     }
 }

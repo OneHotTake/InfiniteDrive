@@ -11,6 +11,8 @@ namespace InfiniteDrive.UI.Settings
     {
         public const string TestPrimaryCommand = nameof(TestPrimaryCommand);
         public const string TestSecondaryCommand = nameof(TestSecondaryCommand);
+        public const string PreviewRecommendedCommand = nameof(PreviewRecommendedCommand);
+        public const string ApplyRecommendedCommand = nameof(ApplyRecommendedCommand);
 
         public override string EditorTitle => "Providers";
         public override string EditorDescription => string.Empty;
@@ -62,5 +64,35 @@ namespace InfiniteDrive.UI.Settings
 
         public LabelItem SecondaryServerUrl { get; set; } = new LabelItem("—");
         public StatusItem SecondaryUserId { get; set; } = new StatusItem("User ID", "—", ItemStatus.None);
+
+        // ── Section 2: Recommended setup (optional, opt-in) ───────────────────
+
+        public SpacerItem Spacer2 { get; set; } = new SpacerItem();
+        public CaptionItem CaptionRecommended { get; set; } = new CaptionItem("Recommended setup (optional)");
+
+        public LabelItem RecommendedText { get; set; } = new LabelItem(
+            "InfiniteDrive works with any AIOStreams config. If you'd like, it can set a " +
+            "predictable stream FORMAT and SORT order on your primary instance for the cleanest results. " +
+            "It touches ONLY the formatter and sort order — never your catalogs, lists, providers, or keys. " +
+            "Enter your AIOStreams password (the one you set in QuackStart) and Preview first.");
+
+        [DisplayName("AIOStreams Password")]
+        [Description("Password for your primary AIOStreams instance. Used only to read and update the formatter + sort order. Stored locally in plugin config.")]
+        [MediaBrowser.Model.Attributes.IsPassword]
+        public string PrimaryManifestPassword { get; set; } = string.Empty;
+
+        public ButtonItem PreviewRecommendedButton { get; set; } = new ButtonItem("Preview changes")
+        {
+            Icon = IconNames.preview,
+            Data1 = PreviewRecommendedCommand,
+        };
+
+        public ButtonItem ApplyRecommendedButton { get; set; } = new ButtonItem("Apply formatter & sort")
+        {
+            Icon = IconNames.done,
+            Data1 = ApplyRecommendedCommand,
+        };
+
+        public StatusItem RecommendedResult { get; set; } = new StatusItem("Result", "Not run yet", ItemStatus.None);
     }
 }
