@@ -154,11 +154,17 @@ namespace InfiniteDrive
         /// <summary>Playlist management (requires IPlaylistManager, set via InitializePlaylistService).</summary>
         public Services.PlaylistService? PlaylistService { get; private set; }
 
+        /// <summary>BoxSet management for collection sync (requires ICollectionManager).</summary>
+        public Services.BoxSetService? BoxSetService { get; private set; }
+
         /// <summary>Unified add pipeline (requires ILibraryManager, set via InitializePlaylistService).</summary>
         public Services.UnifiedItemService? UnifiedItemService { get; private set; }
 
         /// <summary>ILibraryManager reference for triggering tasks from UI.</summary>
         public ILibraryManager? LibraryManager { get; private set; }
+
+        /// <summary>Emby user manager (set via InitializePlaylistService). Used for per-user playlist creation and ever-watched prune checks.</summary>
+        public MediaBrowser.Controller.Library.IUserManager? UserManager { get; private set; }
 
         /// <summary>ILogManager reference for triggering tasks from UI.</summary>
         public ILogManager LogManager => _logManager;
@@ -442,18 +448,31 @@ namespace InfiniteDrive
         /// </summary>
         public void InitializePlaylistService(
             MediaBrowser.Controller.Playlists.IPlaylistManager playlistManager,
-            MediaBrowser.Controller.Library.ILibraryManager libraryManager)
+            MediaBrowser.Controller.Library.ILibraryManager libraryManager,
+            MediaBrowser.Controller.Collections.ICollectionManager? collectionManager = null,
+            MediaBrowser.Controller.Library.IUserManager? userManager = null)
         {
             LibraryManager = libraryManager;
+            UserManager = userManager;
 
             LibraryProvisioningService = new Services.LibraryProvisioningService(
                 libraryManager,
                 new Logging.EmbyLoggerAdapter<Services.LibraryProvisioningService>(_logManager.GetLogger("InfiniteDrive")));
 
+            if (collectionManager != null)
+            {
+                BoxSetService = new Services.BoxSetService(
+                    collectionManager,
+                    libraryManager,
+                    new Logging.EmbyLoggerAdapter<Services.BoxSetService>(_logManager.GetLogger("BoxSetService")));
+                _logger.LogInformation("[InfiniteDrive] BoxSetService initialised");
+            }
+
             PlaylistService = new Services.PlaylistService(
                 playlistManager,
                 libraryManager,
-                new Logging.EmbyLoggerAdapter<Services.PlaylistService>(_logManager.GetLogger("PlaylistService")));
+                new Logging.EmbyLoggerAdapter<Services.PlaylistService>(_logManager.GetLogger("PlaylistService")),
+                userManager);
             _logger.LogInformation("[InfiniteDrive] PlaylistService initialised");
 
             UnifiedItemService = new Services.UnifiedItemService(
@@ -477,7 +496,7 @@ namespace InfiniteDrive
                 try
                 {
                     _logger.LogInformation("[InfiniteDrive] Post-save sync triggered");
-                    var marvin = new Tasks.MarvinTask(_logManager, LibraryManager);
+                    var marvin = new Tasks.MarvinTask(_logManager, LibraryManager, UserManager!);
                     await marvin.Execute(CancellationToken.None, new Progress<double>()).ConfigureAwait(false);
                     _logger.LogInformation("[InfiniteDrive] Post-save sync complete");
                 }

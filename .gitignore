@@ -51,3 +51,6 @@ _retired/
 # Tool config / debug artifacts
 .opencode/
 playback*.txt
+
+# Playwright CLI session artifacts
+.playwright-cli/

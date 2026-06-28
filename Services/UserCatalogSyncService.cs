@@ -104,6 +104,11 @@ namespace InfiniteDrive.Services
             var skippedNoImdb = 0;
             var sourceId = "external_list_" + catalog.OwnerUserId;
 
+            // Per-user surfacing: each list item is linked to a per-list playlist so it
+            // shows up in the owner's Emby playlist (reconciled from collection_membership).
+            var memberships = new List<(string, string?, string, string, string?)>();
+            var playlistName = string.IsNullOrWhiteSpace(catalog.DisplayName) ? "My InfiniteDrive" : catalog.DisplayName!;
+
             // Ensure parent source row exists for FK integrity
             await _db.UpsertSourceAsync(new Source
             {
@@ -151,7 +156,10 @@ namespace InfiniteDrive.Services
 
                 catalogItem.Title = item.Title;
                 if (item.Year.HasValue) catalogItem.Year = item.Year;
-                catalogItem.Source = "external_list";
+                // Only stamp the source on genuinely-new rows. Overwriting an existing
+                // item's source breaks the ON CONFLICT(aio_id, source) upsert (the row is
+                // reused by id, so a changed source forces an INSERT that collides on id).
+                if (isNew) catalogItem.Source = "external_list";
                 catalogItem.SourceListId = catalog.Id;
 
                 await _db.UpsertCatalogItemAsync(catalogItem, ct);
@@ -159,7 +167,48 @@ namespace InfiniteDrive.Services
                 // Write .strm file
                 await _strmWriter.WriteAsync(catalogItem, SourceType.UserRss, catalog.OwnerUserId, ct);
 
+                // Surface per-user: link to the owner's per-list playlist.
+                memberships.Add((playlistName, null, resolvedId, "external_list", catalog.OwnerUserId));
+
                 if (isNew) added++; else updated++;
+            }
+
+            // Persist per-user memberships so the list shows up as the user's playlist.
+            if (memberships.Count > 0)
+            {
+                try { await _db.UpsertCollectionMembershipBatchAsync(memberships, ct); }
+                catch (Exception ex) { _logger.LogWarning(ex, "[UserCatalogSync] {CatalogId} — membership upsert failed", catalogId); }
+
+                // Immediate surfacing: add already-indexed items to the owner's playlist now.
+                // Marvin's CollectionPopulationPass reconciles any not-yet-scanned items later.
+                try
+                {
+                    var playlistService = Plugin.Instance?.PlaylistService;
+                    var lm = Plugin.Instance?.LibraryManager;
+                    if (playlistService != null && lm != null)
+                    {
+                        foreach (var m in memberships)
+                        {
+                            if (ct.IsCancellationRequested) break;
+                            var aio = m.Item3;
+                            if (string.IsNullOrEmpty(aio) || !aio.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                                continue; // non-tt ids surface via Marvin after id resolution
+                            var q = new MediaBrowser.Controller.Entities.InternalItemsQuery
+                            {
+                                AnyProviderIdEquals = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<string, string>>
+                                {
+                                    new System.Collections.Generic.KeyValuePair<string, string>("Imdb", aio)
+                                },
+                                IncludeItemTypes = new[] { "Movie", "Series" },
+                                Limit = 1,
+                            };
+                            var res = lm.GetItemList(q);
+                            if (res != null && res.Length > 0 && res[0] != null)
+                                await playlistService.AddItemToPlaylistAsync(playlistName, res[0]!.Id, catalog.OwnerUserId, ct);
+                        }
+                    }
+                }
+                catch (Exception ex) { _logger.LogDebug(ex, "[UserCatalogSync] immediate playlist surface failed for {CatalogId}", catalogId); }
             }
 
             // Sync status

@@ -105,6 +105,7 @@ namespace InfiniteDrive.Services
                     CollectionName = source.CollectionName, // Override name from source
                     Enabled = true,
                     LastSyncedAt = DateTimeOffset.UtcNow,
+                    LastSuccessfulSync = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                     UpdatedAt = DateTimeOffset.UtcNow
                 };
 

@@ -47,7 +47,7 @@ namespace InfiniteDrive.Services
         /// <param name="ownerUserId">Optional user ID who first added this item.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Path to written .strm file, or null if paths not configured.</returns>
-        public async Task<string?> WriteAsync(
+        public Task<string?> WriteAsync(
             CatalogItem item,
             SourceType originSourceType,
             string? ownerUserId,
@@ -57,7 +57,7 @@ namespace InfiniteDrive.Services
             if (config == null)
             {
                 _logger.LogWarning("[InfiniteDrive] StrmWriterService: Plugin configuration not available");
-                return null;
+                return Task.FromResult<string?>(null);
             }
 
             var isAnime = string.Equals(item.CatalogType, "anime", StringComparison.OrdinalIgnoreCase)
@@ -73,8 +73,7 @@ namespace InfiniteDrive.Services
                     Directory.CreateDirectory(animeFolder);
                     var animePath = Path.Combine(animeFolder, NamingPolicyService.BuildStrmFileName(item));
                     WriteStrmFile(animePath, string.Empty);
-                    await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
-                    return animePath;
+                    return Task.FromResult<string?>(animePath);
                 }
                 else
                 {
@@ -82,14 +81,13 @@ namespace InfiniteDrive.Services
                     Directory.CreateDirectory(animeSeasonDir);
                     var animeStrmPath = Path.Combine(animeSeasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
                     WriteStrmFile(animeStrmPath, string.Empty);
-                    await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
-                    return animeStrmPath;
+                    return Task.FromResult<string?>(animeStrmPath);
                 }
             }
 
             if (item.MediaType == "movie")
             {
-                if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return null;
+                if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return Task.FromResult<string?>(null);
                 var folderBareName = NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item));
                 var folder = Path.Combine(config.SyncPathMovies, folderBareName);
                 Directory.CreateDirectory(folder);
@@ -97,20 +95,18 @@ namespace InfiniteDrive.Services
                 var fileName = NamingPolicyService.BuildStrmFileName(item);
                 var path = Path.Combine(folder, fileName);
                 WriteStrmFile(path, string.Empty);
-                await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
-                return path;
+                return Task.FromResult<string?>(path);
             }
 
             // Series — seed S01E01
-            if (string.IsNullOrWhiteSpace(config.SyncPathShows)) return null;
+            if (string.IsNullOrWhiteSpace(config.SyncPathShows)) return Task.FromResult<string?>(null);
             var showDir = Path.Combine(config.SyncPathShows,
                 NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
             var seasonDir = Path.Combine(showDir, "Season 01");
             Directory.CreateDirectory(seasonDir);
             var strmPath = Path.Combine(seasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
             WriteStrmFile(strmPath, string.Empty);
-            await PersistFirstAddedByUserIdIfNotSetAsync(item, ownerUserId, ct);
-            return strmPath;
+            return Task.FromResult<string?>(strmPath);
         }
 
         /// <summary>
@@ -190,20 +186,6 @@ namespace InfiniteDrive.Services
             File.WriteAllText(path, url, new UTF8Encoding(false));
             try { _libraryMonitor?.ReportFileSystemChanged(path); }
             catch (Exception ex) { _logger.LogDebug(ex, "[StrmWriterService] ReportFileSystemChanged failed (non-fatal) for {Path}", path); }
-        }
-
-        private async Task PersistFirstAddedByUserIdIfNotSetAsync(
-            CatalogItem item,
-            string? ownerUserId,
-            CancellationToken ct)
-        {
-            if (string.IsNullOrEmpty(ownerUserId))
-                return; // System-sourced items pass null
-
-            if (!string.IsNullOrEmpty(item.FirstAddedByUserId))
-                return; // Already set, first-writer-wins
-
-            await _db.SetFirstAddedByUserIdIfNotSetAsync(item.Id, ownerUserId, ct);
         }
 
         // ── Public: centralized delete helpers (FIX-353-01) ────────────────────

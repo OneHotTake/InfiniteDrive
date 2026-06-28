@@ -38,10 +38,16 @@ namespace InfiniteDrive.Services
     /// </summary>
     public static class ListFetcher
     {
-        private static readonly HttpClient _http = new()
+        private static readonly HttpClient _http = CreateHttpClient();
+
+        private static HttpClient CreateHttpClient()
         {
-            Timeout = TimeSpan.FromSeconds(30)
-        };
+            var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            // A User-Agent is required: Trakt (and its Cloudflare front) returns an HTML
+            // 403 for requests with no UA. Set a default for all list-provider calls.
+            http.DefaultRequestHeaders.TryAddWithoutValidation("User-Agent", "InfiniteDrive/1.0 (+https://github.com/InfiniteDrive)");
+            return http;
+        }
 
         private static string GetTmdbLanguage()
         {
@@ -393,7 +399,10 @@ namespace InfiniteDrive.Services
                 if (items.Count == 0)
                     return Fail("This TMDB list is empty.");
 
-                return new ListFetchResult { Ok = true, Items = items };
+                // Use the list's real name (the URL slug for TMDB is just a numeric id).
+                var listName = doc.RootElement.TryGetProperty("name", out var nm) ? nm.GetString() : null;
+
+                return new ListFetchResult { Ok = true, Items = items, DisplayName = listName };
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)

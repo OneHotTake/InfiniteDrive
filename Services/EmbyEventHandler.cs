@@ -40,6 +40,7 @@ namespace InfiniteDrive.Services
 
         private readonly ISessionManager          _sessionManager;
         private readonly ILibraryManager          _libraryManager;
+        private readonly IUserManager             _userManager;
         private readonly ILogger<EmbyEventHandler> _logger;
 
         // Episode count cache to prevent repeated queries during binge sessions.
@@ -64,10 +65,12 @@ namespace InfiniteDrive.Services
         public EmbyEventHandler(
             ISessionManager  sessionManager,
             ILibraryManager  libraryManager,
+            IUserManager     userManager,
             ILogManager      logManager)
         {
             _sessionManager = sessionManager;
             _libraryManager = libraryManager;
+            _userManager    = userManager;
             _logger         = new EmbyLoggerAdapter<EmbyEventHandler>(logManager.GetLogger("InfiniteDrive"));
         }
 
@@ -80,7 +83,8 @@ namespace InfiniteDrive.Services
             _sessionManager.PlaybackStopped += OnPlaybackStopped;
             _libraryManager.ItemAdded       += OnItemAdded;
             _libraryManager.ItemUpdated     += OnItemUpdated;
-            _logger.LogInformation("[InfiniteDrive] EmbyEventHandler started — watching playback, library, and metadata events");
+            _userManager.UserDeleted        += OnUserDeleted;
+            _logger.LogInformation("[InfiniteDrive] EmbyEventHandler started — watching playback, library, metadata, and user events");
         }
 
         /// <inheritdoc/>
@@ -90,6 +94,35 @@ namespace InfiniteDrive.Services
             _sessionManager.PlaybackStopped -= OnPlaybackStopped;
             _libraryManager.ItemAdded       -= OnItemAdded;
             _libraryManager.ItemUpdated     -= OnItemUpdated;
+            _userManager.UserDeleted        -= OnUserDeleted;
+        }
+
+        // ── User deletion cleanup ────────────────────────────────────────────────
+
+        /// <summary>
+        /// When an Emby user is deleted, remove their InfiniteDrive data (lists,
+        /// collection memberships, saves) so nothing is orphaned and their memberships
+        /// stop protecting shared items. Best-effort; never throws into Emby.
+        /// </summary>
+        private void OnUserDeleted(object? sender, MediaBrowser.Model.Events.GenericEventArgs<User> e)
+        {
+            var user = e?.Argument;
+            if (user == null) return;
+            var userId = user.Id.ToString("N");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var db = Plugin.Instance?.DatabaseManager;
+                    if (db == null) return;
+                    await db.DeleteAllUserDataAsync(userId).ConfigureAwait(false);
+                    _logger.LogInformation("[InfiniteDrive] Cleaned up InfiniteDrive data for deleted user {UserId}", userId);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[InfiniteDrive] Failed cleaning up data for deleted user {UserId}", userId);
+                }
+            });
         }
 
         // ── Private: item-added handler ─────────────────────────────────────────
@@ -474,6 +507,25 @@ namespace InfiniteDrive.Services
                 _logger.LogInformation(
                     "[InfiniteDrive] Playback stopped: {AioId} S{S}E{E} client={Client}",
                     aioId, season, episode, clientType);
+
+                // Record the play: powers the RecentPlays dashboard stat and the
+                // ever-watched fast-path guard used by the absent-item prune.
+                try
+                {
+                    await db.LogPlaybackAsync(new PlaybackEntry
+                    {
+                        AioId          = aioId,
+                        Title          = e.Item?.Name,
+                        Season         = season,
+                        Episode        = episode,
+                        ResolutionMode = "direct",
+                        ClientType     = clientType,
+                    }).ConfigureAwait(false);
+                }
+                catch (Exception logEx)
+                {
+                    _logger.LogDebug(logEx, "[InfiniteDrive] playback_log write failed for {AioId}", aioId);
+                }
 
                 // ── Next-Up pre-warm ─────────────────────────────────────────────
 

@@ -41,14 +41,14 @@
   <ItemGroup>
     <!--
       MediaBrowser.Server.Core provides IChannel and all plugin interfaces.
-      Version 4.9.1.90 is compatible with .NET 8.0 and Emby 4.10.0.6+
-      NOTE: Sprint 118 (Home Screen Rails) requires 4.10.0.8-beta APIs which are not yet publicly available.
-      The AddHomeSection API exists in 4.10.0.8-beta SDK documentation but the DLLs are not published.
+      The local libs/ DLLs below override the core assemblies at 4.10.0.16-Beta
+      (sourced from emby-beta/opt/emby-server/system, deb 4.10.0.16). The NuGet
+      package only supplies plugin/IChannel interfaces not present in libs/.
     -->
     <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
     <!--
-      Emby Server assemblies — NOT from NuGet.
-      These are referenced from Emby installation or local libs/ folder.
+      Emby Server assemblies — NOT from NuGet. Version 4.10.0.16-Beta.
+      Sourced from emby-beta/opt/emby-server/system (the installed 4.10.0.16 server).
       Do NOT convert these to PackageReference — build will fail to find them.
     -->
     <Reference Include="MediaBrowser.Controller">

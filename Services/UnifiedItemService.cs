@@ -92,9 +92,6 @@ namespace InfiniteDrive.Services
                 Year = year,
                 MediaType = type.ToLowerInvariant(),
                 Source = "discover",
-                ItemState = ItemState.Pinned,
-                PinSource = $"user:discover:{DateTime.UtcNow:o}",
-                PinnedAt = DateTime.UtcNow.ToString("o")
             };
 
             var strmPath = await _strmWriter.WriteAsync(catalogItem, SourceType.Aio, userId, ct);

@@ -884,12 +884,10 @@ namespace InfiniteDrive.Tasks
                     LocalPath = row.IsDBNull(13) ? null : row.GetString(13),
                     LocalSource = row.IsDBNull(14) ? null : row.GetString(14),
                     ItemState = (ItemState)row.GetInt(16),
-                    PinSource = row.IsDBNull(17) ? null : row.GetString(17),
-                    PinnedAt = row.IsDBNull(18) ? null : row.GetString(18),
-                    UniqueIdsJson = row.IsDBNull(19) ? null : row.GetString(19),
-                    EnrichmentStatus = row.IsDBNull(20) ? null : row.GetString(20),
-                    RetryCount = row.GetInt(21),
-                    NextRetryAt = row.IsDBNull(22) ? (long?)null : row.GetInt64(22),
+                    UniqueIdsJson = row.IsDBNull(17) ? null : row.GetString(17),
+                    EnrichmentStatus = row.IsDBNull(18) ? null : row.GetString(18),
+                    RetryCount = row.GetInt(19),
+                    NextRetryAt = row.IsDBNull(20) ? (long?)null : row.GetInt64(20),
                 });
 
             if (!noIdItems.Any())

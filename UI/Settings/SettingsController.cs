@@ -71,6 +71,7 @@ namespace InfiniteDrive.UI.Settings
             {
                 PrimaryManifestUrl = c.PrimaryManifestUrl ?? string.Empty,
                 SecondaryManifestUrl = c.SecondaryManifestUrl ?? string.Empty,
+                PrimaryManifestPassword = c.PrimaryManifestPassword ?? string.Empty,
             };
         }
 

@@ -10,9 +10,12 @@ namespace InfiniteDrive.Services
     /// <summary>
     /// Three-tier technical metadata parser for raw <see cref="AioStreamsStream"/> payloads.
     /// Parsing priority:
-    ///   1. parsedFile fields (most reliable — AIOStreams parser output)
-    ///   2. behaviorHints.filename (parse filename for quality markers)
-    ///   3. title / description (parse quality string from stream title)
+    ///   1. parsedFile fields (opportunistic enrichment — empirically NULL on real
+    ///      AIOStreams v2.30 instances, so do NOT rely on it being present)
+    ///   2. behaviorHints.filename (the real primary — present on ~100% of streams
+    ///      regardless of the user's cosmetic formatter; parse for quality markers)
+    ///   3. title / name (last resort; cosmetic formatters may use unicode-styled
+    ///      text, which ParseQualityString folds to ASCII via NFKC)
     /// </summary>
     public class CandidateNormalizer
     {
@@ -92,8 +95,15 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrEmpty(input))
                 return new TechnicalMetadata();
 
+            // Fold unicode-styled text to ASCII so cosmetic AIOStreams formatters
+            // don't defeat parsing: math-bold "𝗙𝗛𝗗" → "FHD", superscripts "ʰᵈʳ" → "hdr",
+            // "ᵈᵛ" → "dv". No-op for plain ASCII filenames (the common case).
+            string folded;
+            try { folded = input.Normalize(System.Text.NormalizationForm.FormKC); }
+            catch (ArgumentException) { folded = input; }
+
             // Normalize separators: dots, underscores, dashes → spaces
-            var normalized = input
+            var normalized = folded
                 .Replace('.', ' ')
                 .Replace('_', ' ')
                 .Replace('-', ' ')
@@ -151,10 +161,12 @@ namespace InfiniteDrive.Services
 
         private static string ExtractResolution(string normalized)
         {
-            // Order matters: check 2160 before 1080 before 720
-            if (Regex.IsMatch(normalized, @"\b(2160|4k|uhd)\b", RegexOptions.IgnoreCase))
+            // Order matters: check 2160 before 1080 before 720.
+            // Allow an attached "p" (e.g. "2160p"/"1080p") — \b1080\b would miss it
+            // because the trailing 'p' is a word char, so the boundary never matches.
+            if (Regex.IsMatch(normalized, @"\b(2160p?|4k|uhd)\b", RegexOptions.IgnoreCase))
                 return "2160p";
-            if (Regex.IsMatch(normalized, @"\b1080[i]?\b"))
+            if (Regex.IsMatch(normalized, @"\b1080[ip]?\b"))
                 return normalized.Contains("1080i") ? "1080i" : "1080p";
             if (Regex.IsMatch(normalized, @"\b720[p]?\b"))
                 return "720p";
