@@ -71,7 +71,8 @@ namespace InfiniteDrive.UI.Settings
             {
                 PrimaryManifestUrl = c.PrimaryManifestUrl ?? string.Empty,
                 SecondaryManifestUrl = c.SecondaryManifestUrl ?? string.Empty,
-                PrimaryManifestPassword = c.PrimaryManifestPassword ?? string.Empty,
+                // Password field is intentionally left blank — never loaded from config
+                // (it's a one-time secret, entered fresh each time it's needed).
             };
         }
 

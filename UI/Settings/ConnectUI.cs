@@ -77,7 +77,7 @@ namespace InfiniteDrive.UI.Settings
             "Enter your AIOStreams password (the one you set in QuackStart) and Preview first.");
 
         [DisplayName("AIOStreams Password")]
-        [Description("Password for your primary AIOStreams instance. Used only to read and update the formatter + sort order. Stored locally in plugin config.")]
+        [Description("Your AIOStreams instance password. Used once, in-memory, to read and update the formatter + sort order — never saved. Re-enter it each time you Preview or Apply.")]
         [MediaBrowser.Model.Attributes.IsPassword]
         public string PrimaryManifestPassword { get; set; } = string.Empty;
 

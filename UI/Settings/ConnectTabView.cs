@@ -219,7 +219,8 @@ namespace InfiniteDrive.UI.Settings
             var cfg = Plugin.Instance.Configuration;
             cfg.PrimaryManifestUrl = UI.PrimaryManifestUrl ?? string.Empty;
             cfg.SecondaryManifestUrl = UI.SecondaryManifestUrl ?? string.Empty;
-            cfg.PrimaryManifestPassword = UI.PrimaryManifestPassword ?? string.Empty;
+            // The AIOStreams password is deliberately NOT persisted — it's a one-time,
+            // per-environment secret used only for the Preview/Apply action in-memory.
             cfg.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl);
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
