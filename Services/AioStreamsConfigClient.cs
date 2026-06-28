@@ -95,7 +95,10 @@ namespace InfiniteDrive.Services
             }
 
             var apiUrl = $"{components.BaseUrl}/api/v1/user";
-            var http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+            // AIOStreams instances can be slow (large configs) or briefly return 502s when
+            // overloaded — give the GET+PUT round-trip generous headroom so a slow-but-working
+            // instance doesn't error out mid-apply.
+            var http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(45) };
             var authValue = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{components.UserId}:{password}"));
 
             // 1. GET current config.
@@ -109,6 +112,11 @@ namespace InfiniteDrive.Services
                     || getResp.StatusCode == System.Net.HttpStatusCode.Forbidden)
                 {
                     result.Message = "Authentication failed — check the password for this AIOStreams instance.";
+                    return result;
+                }
+                if ((int)getResp.StatusCode == 502 || (int)getResp.StatusCode == 503 || (int)getResp.StatusCode == 504)
+                {
+                    result.Message = $"Your AIOStreams instance is temporarily unavailable (HTTP {(int)getResp.StatusCode}). It may be overloaded — wait a moment and try again.";
                     return result;
                 }
                 if (!getResp.IsSuccessStatusCode)
@@ -125,6 +133,11 @@ namespace InfiniteDrive.Services
                     return result;
                 }
                 userData = ud;
+            }
+            catch (OperationCanceledException)
+            {
+                result.Message = "Timed out reading your AIOStreams config — the instance is slow or unreachable. Try again.";
+                return result;
             }
             catch (Exception ex)
             {
@@ -166,6 +179,11 @@ namespace InfiniteDrive.Services
                 putReq.Headers.Authorization = new AuthenticationHeaderValue("Basic", authValue);
                 using var putResp = await http.SendAsync(putReq, ct).ConfigureAwait(false);
                 var putJson = await putResp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+                if ((int)putResp.StatusCode == 502 || (int)putResp.StatusCode == 503 || (int)putResp.StatusCode == 504)
+                {
+                    result.Message = $"Your AIOStreams instance is temporarily unavailable (HTTP {(int)putResp.StatusCode}) and couldn't save the change. Nothing was applied — try again shortly.";
+                    return result;
+                }
                 if (!putResp.IsSuccessStatusCode)
                 {
                     result.Message = $"Write failed (HTTP {(int)putResp.StatusCode}): {Trunc(putJson, 160)}";
@@ -176,6 +194,11 @@ namespace InfiniteDrive.Services
                 result.Message = ok
                     ? "Applied — your AIOStreams now uses InfiniteDrive's formatter & sort. Existing manifest URL still works."
                     : $"Server rejected the update: {Trunc(putJson, 160)}";
+                return result;
+            }
+            catch (OperationCanceledException)
+            {
+                result.Message = "Timed out saving to your AIOStreams instance — it's slow or unreachable. Nothing was applied; try again.";
                 return result;
             }
             catch (Exception ex)

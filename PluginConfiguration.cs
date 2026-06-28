@@ -62,13 +62,9 @@ namespace InfiniteDrive
         [DataMember]
         public string PrimaryManifestUrl { get; set; } = string.Empty;
 
-        /// <summary>
-        /// Password for the primary AIOStreams instance (the one set in QuackStart).
-        /// Used only for the opt-in "Apply recommended formatter &amp; sort" action, which
-        /// calls AIOStreams' own /api/v1/user API as an outbound client. Optional.
-        /// </summary>
-        [DataMember]
-        public string PrimaryManifestPassword { get; set; } = string.Empty;
+        // NOTE: the AIOStreams instance password is intentionally NOT stored here. It is a
+        // one-time, per-environment secret entered in the Providers tab and used only
+        // in-memory for the Preview/Apply formatter+sort action — never persisted.
 
         /// <summary>
         /// Optional full manifest URL of a secondary (backup) AIOStreams instance.
