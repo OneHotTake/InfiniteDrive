@@ -31,7 +31,7 @@ namespace InfiniteDrive.UI.Settings
             Data1 = SyncCatalogsCommand,
         };
 
-        public StatusItem CatalogSyncStatus { get; set; } = new StatusItem("Sync", "—", ItemStatus.None);
+        public StatusItem CatalogSyncStatus { get; set; } = new StatusItem("Sync", "Not run yet", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
         // Section 2: List Provider API Keys
@@ -76,7 +76,7 @@ namespace InfiniteDrive.UI.Settings
             Data1 = AddSystemListCommand,
         };
 
-        public StatusItem SystemListStatus { get; set; } = new StatusItem("System Lists", "—", ItemStatus.None);
+        public StatusItem SystemListStatus { get; set; } = new StatusItem("System Lists", "None added yet", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
         // Section 4: User Lists (read-only for admins)

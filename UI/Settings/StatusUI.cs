@@ -37,7 +37,7 @@ namespace InfiniteDrive.UI.Settings
         // ── Quality ──────────────────────────────────────────────────────────
 
         public SpacerItem Spacer2 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Version Strategy");
+        public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Quality");
 
         public StatusItem QualityStatus { get; set; } = new StatusItem(
             "Quality Buckets", "Not configured", ItemStatus.None);

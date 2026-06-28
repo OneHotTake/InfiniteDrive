@@ -51,7 +51,7 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionPruning { get; set; } = new CaptionItem("Pruning");
 
         [DisplayName("Respect user playlists when pruning")]
-        [Description("When enabled, items in user playlists and self-managed collections are never pruned.")]
+        [Description("When enabled, items in any user's list or collection are never pruned. Content that anyone has watched is always protected, regardless of this setting.")]
         public bool RespectPlaylistsWhenPruning { get; set; } = true;
 
         [DisplayName("Auto-deduplicate against physical media in other libraries")]

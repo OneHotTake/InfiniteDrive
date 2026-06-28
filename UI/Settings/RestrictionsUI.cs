@@ -37,7 +37,7 @@ namespace InfiniteDrive.UI.Settings
             Data1 = AddToBlockListCommand,
         };
 
-        public StatusItem BlockListStatus { get; set; } = new StatusItem("Block List", "—", ItemStatus.None);
+        public StatusItem BlockListStatus { get; set; } = new StatusItem("Block List", "Nothing blocked", ItemStatus.None);
 
         public GenericItemList BlockedItemList { get; set; } = new GenericItemList();
     }

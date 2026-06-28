@@ -89,8 +89,28 @@ namespace InfiniteDrive.UI.Settings
             {
                 var db = Plugin.Instance.DatabaseManager;
                 var paths = await db.ResetAllAsync();
-                SetStatus($"All data reset — {paths.Count} path(s) cleaned. Settings preserved.", ItemStatus.Succeeded);
-                Plugin.Instance.Logger.LogInformation("[Advanced] All data reset");
+
+                // ResetAllAsync clears the DB rows and returns the .strm paths — actually
+                // delete those files (and their version variants), otherwise "Wipe Library
+                // Data" leaves thousands of orphaned .strm files on disk.
+                int filesDeleted = 0;
+                var strmManager = Plugin.Instance.StrmFileManager;
+                foreach (var path in paths)
+                {
+                    if (string.IsNullOrEmpty(path)) continue;
+                    try
+                    {
+                        strmManager?.DeleteWithVersions(path);
+                        filesDeleted++;
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Instance.Logger.LogDebug(ex, "[Advanced] Failed to delete .strm during wipe: {Path}", path);
+                    }
+                }
+
+                SetStatus($"All data reset — {filesDeleted} .strm file(s) deleted. Settings preserved.", ItemStatus.Succeeded);
+                Plugin.Instance.Logger.LogInformation("[Advanced] All data reset — {Count} .strm files deleted", filesDeleted);
             }
             catch (Exception ex)
             {

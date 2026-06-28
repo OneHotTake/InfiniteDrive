@@ -340,15 +340,24 @@ namespace InfiniteDrive.Data
         {
             var threshold = Plugin.Instance!.Configuration.GlobalAbsentSyncsThreshold;
 
-            const string selectSql = @"
+            // The "Respect user playlists when pruning" setting (Marvin tab) gates the
+            // collection_membership guard: when on (default), items in any user's
+            // list/collection are never pruned. The playback_log guard (ever-watched)
+            // is always applied regardless.
+            var respectPlaylists = Plugin.Instance!.Configuration.RespectPlaylistsWhenPruning;
+            var membershipGuard = respectPlaylists
+                ? @"AND NOT EXISTS (
+                      SELECT 1 FROM collection_membership cm
+                      WHERE cm.aio_id = catalog_items.aio_id
+                  )"
+                : string.Empty;
+
+            var selectSql = $@"
                 SELECT strm_path, aio_id FROM catalog_items
                 WHERE global_absent_syncs >= @threshold
                   AND removed_at IS NULL
                   AND blocked_at IS NULL
-                  AND NOT EXISTS (
-                      SELECT 1 FROM collection_membership cm
-                      WHERE cm.aio_id = catalog_items.aio_id
-                  )
+                  {membershipGuard}
                   AND NOT EXISTS (
                       SELECT 1 FROM playback_log pl
                       WHERE pl.aio_id = catalog_items.aio_id
