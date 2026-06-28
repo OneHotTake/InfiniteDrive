@@ -83,7 +83,10 @@ namespace InfiniteDrive.Services
             }
 
             // Sprint 100A-02: HTTP validation - check URL is reachable and returns valid manifest
-            var http = httpClient ?? new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            // Large AIOStreams manifests (100+ catalogs) can legitimately take >10s to
+            // return. Use a generous timeout so a slow-but-working instance isn't reported
+            // as a failure (catalog sync itself uses a long timeout — keep these aligned).
+            var http = httpClient ?? new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(30) };
             try
             {
                 var response = await http.GetAsync(manifestUrl);
@@ -145,7 +148,7 @@ namespace InfiniteDrive.Services
             catch (System.OperationCanceledException)
             {
                 result.ErrorType = "timeout";
-                result.ErrorMessage = "Request timed out. Check your network connection.";
+                result.ErrorMessage = "Timed out waiting for the manifest. Your AIOStreams instance may be slow or overloaded — try again, or check that the URL is reachable.";
                 return result;
             }
             catch (System.Net.Http.HttpRequestException ex)
@@ -252,7 +255,7 @@ namespace InfiniteDrive.Services
             // Stream base = {BaseUrl}/stremio/{userId}/{configToken}  →  /stream/movie/{id}.json
             var streamBase = $"{components.BaseUrl}/stremio/{components.UserId}/{components.ConfigToken}";
             var streamUrl = $"{streamBase}/stream/movie/{imdbId}.json";
-            var http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+            var http = httpClient ?? new HttpClient { Timeout = TimeSpan.FromSeconds(25) };
             try
             {
                 var resp = await http.GetAsync(streamUrl);

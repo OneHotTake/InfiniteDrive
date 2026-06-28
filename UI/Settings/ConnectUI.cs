@@ -29,7 +29,7 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionConnect { get; set; } = new CaptionItem("Connect your sources");
 
         public LabelItem WelcomeText { get; set; } = new LabelItem(
-            "Paste your AIOStreams manifest URL and Emby server address below. " +
+            "Paste your AIOStreams manifest URL below and click Test Primary to verify it. " +
             "Then go to the Libraries tab to tell InfiniteDrive where to save your files.");
 
         // ── Section 1: AIOStreams Providers ───────────────────────────────────

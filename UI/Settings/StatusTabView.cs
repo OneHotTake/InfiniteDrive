@@ -11,6 +11,8 @@ namespace InfiniteDrive.UI.Settings
         public StatusTabView(string pluginId, StatusUI ui) : base(pluginId)
         {
             ContentData = ui;
+            // Overview is a read-only status dashboard — no fields to persist, so hide Save.
+            ShowSave = false;
         }
 
         private StatusUI UI => (StatusUI)ContentData;
