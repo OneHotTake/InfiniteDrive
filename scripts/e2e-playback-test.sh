@@ -136,7 +136,10 @@ if [ -n "$STRM" ]; then
         fail "no playable URL in .strm"
     else
         info "stream URL: ${URL:0:80}…"
-        HDRS=$(curl -s -D - -o /dev/null --max-time 30 -r 0-1048575 "$URL" 2>/dev/null)
+        # -L: many providers (meteor/comet proxies) 302-redirect to the real CDN file;
+        # Emby follows redirects natively, so the harness must too. We check the FINAL
+        # response after redirects for playable bytes.
+        HDRS=$(curl -sL -D - -o /dev/null --max-time 40 -r 0-1048575 "$URL" 2>/dev/null)
         CODE=$(echo "$HDRS" | grep -aoE "HTTP/[0-9.]+ [0-9]+" | tail -1 | grep -oE "[0-9]+$")
         CTYPE=$(echo "$HDRS" | grep -aiE "^content-type:" | tail -1)
         if [ "${CODE:-0}" = "200" ] || [ "${CODE:-0}" = "206" ]; then
