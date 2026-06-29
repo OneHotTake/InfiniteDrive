@@ -121,30 +121,58 @@ namespace InfiniteDrive.UI.Settings
                 SetRecommended("Add a primary manifest URL first.", ItemStatus.Unavailable);
                 return;
             }
-            if (string.IsNullOrWhiteSpace(UI.PrimaryManifestPassword))
+            if (string.IsNullOrWhiteSpace(UI.PrimaryManifestPassword)
+                && string.IsNullOrWhiteSpace(UI.SecondaryManifestPassword))
             {
-                SetRecommended("Enter your AIOStreams password, then Preview.", ItemStatus.Unavailable);
+                SetRecommended("Enter the password for at least one instance, then Preview.", ItemStatus.Unavailable);
                 return;
             }
 
-            try
+            // Each instance authenticates independently, so run them as separate targets
+            // and aggregate the results. A configured-but-no-password target is skipped
+            // with a clear note rather than failing the whole run.
+            var targets = new List<(string Label, string Url, string Password)>
             {
-                var r = await AioStreamsConfigClient.ApplyRecommendedAsync(
-                    UI.PrimaryManifestUrl, UI.PrimaryManifestPassword, dryRun).ConfigureAwait(false);
+                ("Primary", UI.PrimaryManifestUrl, UI.PrimaryManifestPassword),
+            };
+            if (!string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl))
+                targets.Add(("Backup", UI.SecondaryManifestUrl, UI.SecondaryManifestPassword));
 
-                var status = !r.Ok ? ItemStatus.Failed
-                    : (dryRun || r.Changed) ? ItemStatus.Warning : ItemStatus.Succeeded;
+            var blocks = new List<string>();
+            var anyFailed = false;
+            var anyChanged = false;
 
-                var text = r.Message;
-                if (r.Ok && !string.IsNullOrEmpty(r.Diff) && (dryRun || r.Changed))
-                    text += "\n\n" + r.Diff;
-
-                SetRecommended(text, status);
-            }
-            catch (Exception ex)
+            foreach (var (label, url, password) in targets)
             {
-                SetRecommended($"Failed: {ex.Message}", ItemStatus.Failed);
+                if (string.IsNullOrWhiteSpace(password))
+                {
+                    blocks.Add($"{label}: skipped — no password entered.");
+                    continue;
+                }
+
+                try
+                {
+                    var r = await AioStreamsConfigClient.ApplyRecommendedAsync(
+                        url, password, dryRun).ConfigureAwait(false);
+
+                    if (!r.Ok) anyFailed = true;
+                    if (r.Changed) anyChanged = true;
+
+                    var block = $"{label}: {r.Message}";
+                    if (r.Ok && !string.IsNullOrEmpty(r.Diff) && (dryRun || r.Changed))
+                        block += "\n" + r.Diff;
+                    blocks.Add(block);
+                }
+                catch (Exception ex)
+                {
+                    anyFailed = true;
+                    blocks.Add($"{label}: Failed — {ex.Message}");
+                }
             }
+
+            var status = anyFailed ? ItemStatus.Failed
+                : (dryRun || anyChanged) ? ItemStatus.Warning : ItemStatus.Succeeded;
+            SetRecommended(string.Join("\n\n", blocks), status);
         }
 
         private void SetRecommended(string text, ItemStatus status)

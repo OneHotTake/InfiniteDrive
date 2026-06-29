@@ -193,25 +193,46 @@ namespace InfiniteDrive.UI.Settings
 
                 var db = Plugin.Instance.DatabaseManager;
 
-                // For now, just show a message that user lists are managed by users
-                // TODO: Add admin endpoint to view all user lists if needed
-                var userCatalogCount = await db.GetActiveUserCatalogCountAsync();
+                // Enumerate the actual user-owned lists (everything except SERVER, which
+                // is the System Lists section above). The summary count alone was
+                // misleading — it claimed "1" while showing nothing.
+                var all = await db.GetAllActiveUserCatalogsAsync().ConfigureAwait(false);
+                var userLists = all.Where(c => !string.Equals(c.OwnerUserId, "SERVER", StringComparison.Ordinal)).ToList();
 
-                UI.UserListTable.Add(new GenericListItem
-                {
-                    PrimaryText = $"Total User Lists: {userCatalogCount}",
-                    SecondaryText = $"Max per user: {UI.MaxListsPerUser}",
-                    Icon = IconNames.people,
-                    IconMode = ItemListIconMode.SmallRegular,
-                });
+                UI.UserListStatus.StatusText = userLists.Count == 0
+                    ? "No user lists yet"
+                    : $"{userLists.Count} list(s) across all users · max {UI.MaxListsPerUser} per user";
+                UI.UserListStatus.Status = ItemStatus.None;
 
-                UI.UserListTable.Add(new GenericListItem
+                if (userLists.Count == 0)
                 {
-                    PrimaryText = "User lists are managed by individual users",
-                    SecondaryText = "Each user can add/manage their own lists via the Discover page",
-                    Icon = IconNames.info,
-                    IconMode = ItemListIconMode.SmallRegular,
-                });
+                    UI.UserListTable.Add(new GenericListItem
+                    {
+                        PrimaryText = "No user lists yet",
+                        SecondaryText = "Users add their own lists from the Discover page.",
+                        Icon = IconNames.info,
+                        IconMode = ItemListIconMode.SmallRegular,
+                    });
+                }
+                else
+                {
+                    foreach (var c in userLists)
+                    {
+                        var details = c.Service ?? "list";
+                        details += $" · {ResolveUserName(c.OwnerUserId)}";
+                        if (!string.IsNullOrEmpty(c.LastSyncedAt))
+                            details += $" · synced {FormatTimeAgo(c.LastSyncedAt)}";
+
+                        UI.UserListTable.Add(new GenericListItem
+                        {
+                            PrimaryText = c.DisplayName ?? c.ListUrl,
+                            SecondaryText = details,
+                            Icon = IconNames.people,
+                            IconMode = ItemListIconMode.SmallRegular,
+                            Status = ItemStatus.Succeeded,
+                        });
+                    }
+                }
 
                 RaiseUIViewInfoChanged();
             }
@@ -397,6 +418,17 @@ namespace InfiniteDrive.UI.Settings
         // ═══════════════════════════════════════════════════════════════
         // Helpers
         // ═══════════════════════════════════════════════════════════════
+
+        private static string ResolveUserName(string ownerUserId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(ownerUserId)) return "unknown user";
+                var user = Plugin.Instance.UserManager?.GetUserById(ownerUserId);
+                return user?.Name ?? ownerUserId;
+            }
+            catch { return ownerUserId; }
+        }
 
         private static string FormatTimeAgo(string isoTime)
         {

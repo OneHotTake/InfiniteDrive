@@ -76,7 +76,7 @@ namespace InfiniteDrive.UI.Settings
             Data1 = AddSystemListCommand,
         };
 
-        public StatusItem SystemListStatus { get; set; } = new StatusItem("System Lists", "None added yet", ItemStatus.None);
+        public StatusItem SystemListStatus { get; set; } = new StatusItem("Add status", "Ready", ItemStatus.None);
 
         // ═══════════════════════════════════════════════════════════════
         // Section 4: User Lists (read-only for admins)
