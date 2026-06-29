@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using InfiniteDrive.Models;
 
 namespace InfiniteDrive.Services
@@ -58,7 +59,14 @@ namespace InfiniteDrive.Services
             var sizeGiB = ExtractSizeGiB(raw);
             var visualTags = raw.ParsedFile?.VisualTags;
             var encode = raw.ParsedFile?.Encode;
+            // ParsedFile is null on real AIOStreams instances, so recover the edition from the
+            // filename (then description/title) — otherwise extended/director's-cut releases are
+            // never tagged, collapse into the theatrical version, and never appear in the dropdown.
             var edition = raw.ParsedFile?.Edition;
+            if (string.IsNullOrEmpty(edition))
+                edition = ExtractEditionFromText(raw.BehaviorHints?.Filename)
+                       ?? ExtractEditionFromText(raw.Description)
+                       ?? ExtractEditionFromText(raw.Title ?? raw.Name);
             var isLibrary = raw.Library == true || raw.Passthrough == true;
             var isSeadexBest = raw.Seadex?.IsBest == true;
             var isSeadex = raw.Seadex?.IsSeadex == true;
@@ -104,6 +112,32 @@ namespace InfiniteDrive.Services
                 IsSeadexBest = isSeadexBest,
                 IsSeadex = isSeadex,
             };
+        }
+
+        // ── Edition extraction (filename fallback) ────────────────────────────
+
+        // Canonical edition labels, matched in priority order against release text.
+        // Word boundaries (\b) work across the dot/underscore separators in filenames.
+        private static readonly (Regex Pattern, string Label)[] _editionPatterns =
+        {
+            (new Regex(@"\bdirector'?s?[._ ]?cut\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), "Director's Cut"),
+            (new Regex(@"\bextended\b",              RegexOptions.IgnoreCase | RegexOptions.Compiled), "Extended"),
+            (new Regex(@"\bultimate[._ ]?edition\b", RegexOptions.IgnoreCase | RegexOptions.Compiled), "Ultimate Edition"),
+            (new Regex(@"\bfinal[._ ]?cut\b",        RegexOptions.IgnoreCase | RegexOptions.Compiled), "Final Cut"),
+            (new Regex(@"\bredux\b",                 RegexOptions.IgnoreCase | RegexOptions.Compiled), "Redux"),
+            (new Regex(@"\bspecial[._ ]?edition\b",  RegexOptions.IgnoreCase | RegexOptions.Compiled), "Special Edition"),
+            (new Regex(@"\bunrated\b",               RegexOptions.IgnoreCase | RegexOptions.Compiled), "Unrated"),
+            (new Regex(@"\bremastered\b",            RegexOptions.IgnoreCase | RegexOptions.Compiled), "Remastered"),
+            (new Regex(@"\bimax\b",                  RegexOptions.IgnoreCase | RegexOptions.Compiled), "IMAX"),
+            (new Regex(@"\btheatrical\b",            RegexOptions.IgnoreCase | RegexOptions.Compiled), "Theatrical"),
+        };
+
+        private static string? ExtractEditionFromText(string? text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return null;
+            foreach (var (pattern, label) in _editionPatterns)
+                if (pattern.IsMatch(text)) return label;
+            return null;
         }
 
         // ── Resolution normalisation ──────────────────────────────────────────

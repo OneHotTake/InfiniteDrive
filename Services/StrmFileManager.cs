@@ -80,8 +80,20 @@ namespace InfiniteDrive.Services
             {
                 var v = versions[i];
                 var label = string.IsNullOrEmpty(v.VersionLabel) ? $"v{i + 1}" : v.VersionLabel;
-                // Emby convention: "basename - suffix.strm"
-                desiredFiles[$"{baseName} - {SanitiseFileName(label)}.strm"] = v;
+                // Emby convention: "basename - suffix.strm". Guard against two versions
+                // producing the same label — the dictionary key would otherwise silently
+                // overwrite, dropping a real version (e.g. an extended edition) from the
+                // dropdown. On collision, disambiguate with a numeric suffix.
+                var fileName = $"{baseName} - {SanitiseFileName(label)}.strm";
+                if (desiredFiles.ContainsKey(fileName))
+                {
+                    var n = 2;
+                    string candidate;
+                    do { candidate = $"{baseName} - {SanitiseFileName(label)} ({n++}).strm"; }
+                    while (desiredFiles.ContainsKey(candidate));
+                    fileName = candidate;
+                }
+                desiredFiles[fileName] = v;
             }
 
             // Delete stale .strm files that are no longer desired

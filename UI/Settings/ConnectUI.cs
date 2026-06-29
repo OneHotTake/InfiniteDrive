@@ -72,14 +72,20 @@ namespace InfiniteDrive.UI.Settings
 
         public LabelItem RecommendedText { get; set; } = new LabelItem(
             "InfiniteDrive works with any AIOStreams config. If you'd like, it can set a " +
-            "predictable stream FORMAT and SORT order on your primary instance for the cleanest results. " +
+            "predictable stream FORMAT and SORT order on your instances for the cleanest results. " +
             "It touches ONLY the formatter and sort order — never your catalogs, lists, providers, or keys. " +
-            "Enter your AIOStreams password (the one you set in QuackStart) and Preview first.");
+            "Each instance has its own password (the one you set in QuackStart). Enter the password for " +
+            "each instance you want updated, then Preview first. A backup instance needs its own password.");
 
-        [DisplayName("AIOStreams Password")]
-        [Description("Your AIOStreams instance password. Used once, in-memory, to read and update the formatter + sort order — never saved. Re-enter it each time you Preview or Apply.")]
+        [DisplayName("Primary AIOStreams Password")]
+        [Description("Password for your PRIMARY AIOStreams instance. Used once, in-memory, to read and update its formatter + sort order — never saved. Re-enter it each time you Preview or Apply.")]
         [MediaBrowser.Model.Attributes.IsPassword]
         public string PrimaryManifestPassword { get; set; } = string.Empty;
+
+        [DisplayName("Backup AIOStreams Password")]
+        [Description("Password for your BACKUP (secondary) AIOStreams instance, if you set one above. Only needed to apply the recommended formatter + sort to the backup. Used once, in-memory, never saved.")]
+        [MediaBrowser.Model.Attributes.IsPassword]
+        public string SecondaryManifestPassword { get; set; } = string.Empty;
 
         public ButtonItem PreviewRecommendedButton { get; set; } = new ButtonItem("Preview changes")
         {

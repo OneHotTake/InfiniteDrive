@@ -402,6 +402,28 @@ namespace InfiniteDrive.Services
                 // 3. Emby library title search — catches items not managed by InfiniteDrive
                 items.AddRange(SearchEmbyLibrary(req.Query, type, 20));
 
+                // 3b. Relevance gate. AIOStreams/Cinemeta live search is fuzzy and returns
+                //     titles that share nothing with the query (e.g. "spider" → "What We Hide").
+                //     Keep an item only if its title shares at least one significant token
+                //     (≥3 normalized chars) with the query. Permissive by design — we only
+                //     drop results with zero overlap, never legitimate fuzzy matches.
+                var qTokens = (req.Query ?? string.Empty)
+                    .Split(new[] { ' ', '\t', '-', ':', '.' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(NormalizeTitle)
+                    .Where(t => t.Length >= 3)
+                    .Distinct()
+                    .ToList();
+                if (qTokens.Count > 0)
+                {
+                    items = items
+                        .Where(i =>
+                        {
+                            var nt = NormalizeTitle(i.Title);
+                            return nt.Length > 0 && qTokens.Any(t => nt.Contains(t));
+                        })
+                        .ToList();
+                }
+
                 // 4. Batch library lookup to fill InLibrary on live results not already marked
                 var allMetas = items
                     .Where(i => !i.InLibrary && !i.IsPending)
@@ -433,17 +455,49 @@ namespace InfiniteDrive.Services
                 //    Pass 1: by AioId (same ID from multiple sources)
                 //    Pass 2: by normalized title+year (same content with different IDs, e.g. IMDB vs kitsu)
                 //    When collapsing, prefer: anime > series > movie, then InLibrary, then higher rating
-                var deduped = items
+                var byAioId = items
                     .GroupBy(i => i.AioId, StringComparer.OrdinalIgnoreCase)
                     .Select(g => g.OrderByDescending(x => x.InLibrary ? 2 : x.IsPending ? 1 : 0).First())
-                    .GroupBy(i => NormalizeTitle(i.Title) + "|" + (i.Year?.ToString() ?? ""))
+                    .ToList();
+
+                // A TMDB-sourced copy often has a null Year while its IMDB twin carries one,
+                // which split them into two cards. Resolve a null year to the title's single
+                // known year so the copies collapse; titles with several distinct years
+                // (e.g. remakes) keep a "—" bucket so genuinely different films stay separate.
+                // Keyed by media-type family (movie vs series/anime) so a movie and a like-named
+                // series never merge — but anime and series, which are the same kind of work
+                // across ID systems, still collapse together.
+                static string Family(DiscoverItem i) => i.MediaType == "movie" ? "m" : "s";
+
+                var yearsByTitle = byAioId
+                    .Where(i => i.Year.HasValue)
+                    .GroupBy(i => NormalizeTitle(i.Title) + "" + Family(i))
+                    .ToDictionary(g => g.Key, g => g.Select(x => x.Year!.Value).Distinct().ToList());
+
+                string DedupKey(DiscoverItem i)
+                {
+                    var fam = Family(i);
+                    var nt = NormalizeTitle(i.Title);
+                    if (i.Year.HasValue) return nt + "|" + fam + "|" + i.Year.Value;
+                    if (yearsByTitle.TryGetValue(nt + "" + fam, out var ys) && ys.Count == 1)
+                        return nt + "|" + fam + "|" + ys[0];
+                    return nt + "|" + fam + "|—";
+                }
+
+                var deduped = byAioId
+                    .GroupBy(DedupKey)
                     .Select(g =>
                     {
                         var winner = g
                             .OrderByDescending(x => x.MediaType switch { "anime" => 3, "series" => 2, _ => 1 })
                             .ThenByDescending(x => x.InLibrary ? 2 : x.IsPending ? 1 : 0)
+                            .ThenByDescending(x => x.Year.HasValue ? 1 : 0)
                             .ThenByDescending(x => x.ImdbRating ?? 0)
                             .First();
+                        // Merge facts across the collapsed copies so the surviving card is complete.
+                        winner.InLibrary = g.Any(x => x.InLibrary);
+                        winner.IsPending = !winner.InLibrary && g.Any(x => x.IsPending);
+                        winner.Year ??= g.FirstOrDefault(x => x.Year.HasValue)?.Year;
                         // Anime ID is the primary driver — if any duplicate has an anime-prefixed ID,
                         // the canonical entry is anime regardless of what the winner's stored type says
                         if (winner.MediaType != "anime" && g.Any(x => IsAnimePrefixedId(x.AioId)))
@@ -480,8 +534,11 @@ namespace InfiniteDrive.Services
                 var rails = new List<DiscoverRail>();
 
                 // ── DB rails (instant, ~2 ms each) ─────────────────────────────
-                var recentItems  = await _db.GetRecentCatalogItemsAsync(20, type);
-                var libraryItems = await _db.GetLibraryCatalogItemsAsync(20, type);
+                // "Recently Added" only. The former "In Your Library" rail was redundant:
+                // nearly every catalog item is InLibrary, every card already carries an
+                // "In Library" badge, and Emby's own library views cover browsing what you
+                // own — Discover is for finding new titles.
+                var recentItems = await _db.GetRecentCatalogItemsAsync(20, type);
 
                 if (recentItems.Count > 0)
                 {
@@ -489,19 +546,6 @@ namespace InfiniteDrive.Services
                     foreach (var ci in recentItems)
                         rail.Items.Add(CatalogItemToDiscoverItem(ci));
                     rails.Add(rail);
-                }
-
-                if (libraryItems.Count > 0)
-                {
-                    // Deduplicate against Recently Added
-                    var recentIds = new HashSet<string>(
-                        recentItems.Select(x => x.AioId), StringComparer.OrdinalIgnoreCase);
-                    var libRail = new DiscoverRail { Title = "In Your Library", Type = type ?? "movie" };
-                    foreach (var ci in libraryItems)
-                        if (!recentIds.Contains(ci.AioId))
-                            libRail.Items.Add(CatalogItemToDiscoverItem(ci));
-                    if (libRail.Items.Count > 0)
-                        rails.Add(libRail);
                 }
 
                 // ── Cinemeta rails (cache hit = instant, miss = background refresh) ──

@@ -5,7 +5,7 @@
   "overview": "InfiniteDrive discovers your AIOStreams catalog, writes .strm files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably. No external processes needed.",
   "owner": "InfiniteDrive",
   "category": "General",
-  "version": "0.40.0.0",
+  "version": "0.42.0.0",
   "targetAbi": "4.10.0.6",
   "framework": "net8.0",
   "imageUrl": ""

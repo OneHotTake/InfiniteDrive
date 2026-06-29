@@ -88,10 +88,13 @@ define([], function () {
         var results = $('id-results');
         var title = $('id-results-title');
 
-        if (!query) { hide(results); return; }
+        var browseRails = $('id-rails');
+
+        if (!query) { hide(results); if (browseRails) show(browseRails); return; }
 
         title.textContent = 'Results for "' + query + '"';
         show(results);
+        if (browseRails) hide(browseRails);
         hide(moviesRail); hide(seriesRail); hide(animeRail); hide(empty);
         moviesScroll.innerHTML = '<div class="id-loading"><div class="spinner"></div></div>';
         seriesScroll.innerHTML = ''; animeScroll.innerHTML = '';
