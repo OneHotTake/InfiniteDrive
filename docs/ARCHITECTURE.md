@@ -26,11 +26,18 @@ InfiniteDrive is built on the principle of **Immediate Availability**. We do not
 
 **MarvinTask** is the sole Emby-visible scheduled task. It orchestrates all background work through phased execution:
 
-* **CatalogSyncTask** — internal helper that ingests catalogs from AIOStreams, Trakt, MDBList, and custom addons into the `catalog_items` table.
-* **RefreshTask** — internal helper that validates library state, processes membership changes, and triggers metadata refreshes.
+* **CatalogSyncTask** — the sole upstream catalog reader. It applies provider
+  enablement, catalog allowlists, item caps, interval guards, and health policy,
+  then queues rows in `catalog_items`.
+* **RefreshTask** — a database-queue consumer. During Marvin sync it polls only
+  for queued/unwritten rows and due series expansion; it must never recrawl a
+  manifest because that would bypass CatalogSyncTask policy.
 * **PreCacheAioStreamsTask** — internal helper that proactively resolves stream metadata and subtitles for uncached library items. Includes batch jitter and post-loop dead-link probing.
 
-All three helpers are invoked by MarvinTask on its configurable interval. They are not registered as independent `IScheduledTask` implementations.
+All three helpers are invoked by MarvinTask. They are not registered as
+independent `IScheduledTask` implementations. The current registered default is
+10 minutes; see the settings coverage matrix before relying on compatibility
+schedule fields.
 
 ## 4. Stream Resolution Cache
 
@@ -93,5 +100,12 @@ All playback is gated by `RequiresOpening=true`:
 See [REQUIRES_OPENING_PIPELINE.md](REQUIRES_OPENING_PIPELINE.md) and [STREAM_RESOLUTION.md](STREAM_RESOLUTION.md) for full details.
 
 ## 7. Dependency Management
+
+The plugin must compile against assemblies extracted from the exact target Emby
+runtime. A `MediaBrowser.Server.Core` NuGet reference is not ABI-safe: the 4.9
+package can silently override 4.10 references and produce a DLL that compiles but
+fails to load. `scripts/build-container.sh` extracts the required assemblies from
+the pinned image, runs tests, and publishes the artifact in an isolated .NET 8
+SDK container.
 
 The project is moving away from `Plugin.Instance` as a service locator. New logic should favor constructor injection where possible to improve testability and reduce the blast radius of refactors.

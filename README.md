@@ -4,7 +4,9 @@
 
 > *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
 
-⚠️ **WARNING:** This project is currently under heavy development. It does not work. It may never work. It might make your Emby server question its own existence. You have been warned. Bring a towel.
+⚠️ **BETA:** Version 0.43.0 has automated and isolated Emby 4.10.0.40
+staging coverage, but it is not yet a published stable release. Back up the Emby
+plugin configuration and InfiniteDrive database before upgrading.
 
 An Emby plugin that discovers streaming catalogs from [AIOStreams](https://github.com/aiostreams), writes `.strm` files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably.
 
@@ -15,6 +17,8 @@ An Emby plugin that discovers streaming catalogs from [AIOStreams](https://githu
 - [ARCHITECTURE.md](./ARCHITECTURE.md) – High-level system design
 - [MARVIN_STATE_MACHINE.md](./MARVIN_STATE_MACHINE.md) – How the core engine works
 - [SETTINGS_DESIGN.md](./SETTINGS_DESIGN.md) – Current 5-tab settings UI design
+- [settings-matrix.md](./docs/settings-matrix.md) – Generated persistence and runtime wiring inventory
+- [overnight hardening report](./docs/overnight-hardening-report-2026-09-10.md) – 0.43 staging evidence and remaining release gates
 
 ---
 
@@ -41,7 +45,7 @@ InfiniteDrive bridges your AIOStreams manifest to Emby:
 
 ## Requirements
 
-- Emby Server 4.10.0.6+
+- Emby Server 4.10.0.40 (the ABI verified by the current build)
 - An [AIOStreams](https://github.com/aiostreams) manifest URL (self-hosted or configured)
 - A Real-Debrid, AllDebrid, or compatible debrid service account configured in AIOStreams
 - .NET 8.0 runtime (bundled with Emby)
@@ -50,9 +54,10 @@ InfiniteDrive bridges your AIOStreams manifest to Emby:
 
 ## Installation
 
-1. Build the plugin: `dotnet publish -c Release`
-2. Copy `bin/Release/net8.0/publish/InfiniteDrive.dll` to your Emby plugins directory
-3. Copy `plugin.json` alongside the DLL
+1. On a Docker-capable host, run `./scripts/build-container.sh`. It extracts
+   compile references from the exact pinned Emby image and runs the test suite.
+2. Copy `artifacts/InfiniteDrive.dll` to your Emby plugins directory.
+3. Preserve a rollback copy of the previous DLL, configuration, and database.
 4. Restart Emby Server
 5. Navigate to **Plugins → InfiniteDrive** to configure
 
@@ -74,8 +79,8 @@ http://localhost:8096/web/configurationpage?name=InfiniteDrive
 ```
 
 **Required settings:**
-- **AIOStreams Manifest URL** — your full manifest URL (includes your API key)
-- **Emby Base URL** — the URL Emby uses for internal stream signing (usually `http://localhost:8096`)
+- **AIOStreams Manifest URL** — your private manifest URL. Treat it as a
+  credential; do not paste it into issues or logs.
 
 **Optional:**
 - **AIOMetadata Manifest URL** — for additional ID resolution via AIOMetadata
@@ -127,29 +132,35 @@ For detailed documentation, see [USER_DISCOVER_UI.md](docs/USER_DISCOVER_UI.md).
 ```
 AIOStreams API
      │
-     ├── CatalogSyncTask        (scheduled: discovers catalogs, writes .strm files)
-     ├── CatalogDiscoverService (resolves catalog items, normalizes IDs)
+     ├── CatalogSyncTask        (sole upstream catalog reader; queues database rows)
+     ├── RefreshTask            (consumes queued rows; writes .strm + NFO files)
      ├── IdResolverService      (tt/tmdb/tvdb resolution chain)
      └── StrmWriterService      (writes .strm + NFO files with Emby scanner hints)
 
-Emby Player → ResolverService  (real-time: picks streams, probes URLs, returns M3U8)
-                └── StreamProbeService  (HEAD → GET-range, 500ms/probe, 1.5s budget)
+Emby Player → AioMediaSourceProvider (ranked, filtered Emby media sources)
+                └── StreamProbeService (HEAD → bounded range GET fallback)
 ```
 
 ### Key Design Decisions
 
 - **No cross-service ID translation at browse time** — IDs are passed as-is to the source addon's own `/meta` endpoint (same approach as Nuvio). Cross-resolution happens lazily at sync time.
-- **Dead streams sink, not drop** — stream probing reorders the M3U8 playlist so working streams come first, but dead URLs remain as last-resort fallback for the player
+- **Rejected releases stay rejected** — CAM/telesync captures are excluded.
+  REMUX releases require the explicit opt-in and cannot re-enter through cached
+  candidates or secondary URLs.
 - **Emby does its own metadata job** — we write scanner hints (`[imdbid-tt...]`, `[tmdbid-xxx]`) and NFO files; we don't try to replicate Emby's metadata logic
-- **Fresh install required** — this is a breaking change from InfiniteDrive. No migration path. Start clean.
+- **Secrets are log-redacted** — manifest credentials, signed CDN paths, query
+  strings, and ffprobe diagnostics are sanitized before logging.
+- **Mycelium boundary** — Mycelium remains the TorBox/Zilean materializer and
+  resolver for its existing library. InfiniteDrive does not expose Mycelium or
+  silently redirect permanent Seerr requests.
 
 ---
 
 ## Development
 
 ```bash
-# Build
-dotnet build -c Release
+# Clean ABI-matched build + tests + publish
+./scripts/build-container.sh
 
 # Watch server logs
 tail -f ~/emby-dev-data/logs/embyserver.txt
@@ -164,7 +175,7 @@ The `.ai/` directory contains sprint planning documents and the repository map. 
 
 ## Version
 
-**0.40.0.0** — "almost 0.42"
+**0.43.0.0** — Emby 4.10 ABI and bounded-pipeline hardening
 
 *(The answer is 42. We're still working on what the question is.)*
 

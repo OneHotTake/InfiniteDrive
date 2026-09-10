@@ -236,6 +236,18 @@ Comma-separated provider priority order. Within the same quality tier, InfiniteD
 
 Quality tier **always** overrides provider priority: a 4K TorBox stream beats a 1080p Real-Debrid stream regardless of this setting.
 
+### `UseRemuxForAutoSelection`
+
+**Type:** bool · **Default:** `false`
+
+When false, REMUX candidates are excluded from unattended version writing,
+live resolution, pre-cache, and secondary fallback assignment. Enabling it is an
+explicit opt-in. CAM, HDCAM, HDTS, telesync, and telecine captures are always
+excluded from those paths.
+
+The rejection is applied again at the resolver boundary so a disallowed stream
+cannot re-enter through cache or fallback behavior.
+
 ### Per-Tier Source Limits
 
 Six properties control how many streams each quality tier contributes to the version picker:
