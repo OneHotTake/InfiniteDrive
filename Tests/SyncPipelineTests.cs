@@ -20,7 +20,7 @@ namespace InfiniteDrive.Tests
         {
             // Arrange
             var dbPath = Path.Combine(Path.GetTempPath(), $"embystreams_test_{Guid.NewGuid()}.db");
-            var dbDir = Path.GetDirectoryName(dbPath);
+            var dbDir = Path.GetDirectoryName(dbPath)!;
 
             try
             {
@@ -54,7 +54,7 @@ namespace InfiniteDrive.Tests
         {
             // Arrange
             var dbPath = Path.Combine(Path.GetTempPath(), $"embystreams_test_{Guid.NewGuid()}.db");
-            var dbDir = Path.GetDirectoryName(dbPath);
+            var dbDir = Path.GetDirectoryName(dbPath)!;
             var source = new Source
             {
                 Name = "Test Source",
@@ -107,7 +107,7 @@ namespace InfiniteDrive.Tests
         {
             // Arrange
             var dbPath = Path.Combine(Path.GetTempPath(), $"embystreams_test_{Guid.NewGuid()}.db");
-            var dbDir = Path.GetDirectoryName(dbPath);
+            var dbDir = Path.GetDirectoryName(dbPath)!;
             var source = new Source
             {
                 Name = "Test Source",
@@ -154,7 +154,7 @@ namespace InfiniteDrive.Tests
         {
             // Arrange
             var dbPath = Path.Combine(Path.GetTempPath(), $"embystreams_test_{Guid.NewGuid()}.db");
-            var dbDir = Path.GetDirectoryName(dbPath);
+            var dbDir = Path.GetDirectoryName(dbPath)!;
             var testItem = new MediaItem
             {
                 PrimaryId = "imdb:tt123456",

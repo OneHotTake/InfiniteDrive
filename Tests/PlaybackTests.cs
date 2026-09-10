@@ -51,7 +51,7 @@ namespace InfiniteDrive.Tests
         {
             // Arrange
             var dbPath = Path.Combine(Path.GetTempPath(), $"embystreams_test_{Guid.NewGuid()}.db");
-            var dbDir = Path.GetDirectoryName(dbPath);
+            var dbDir = Path.GetDirectoryName(dbPath)!;
 
             try
             {
@@ -84,7 +84,7 @@ namespace InfiniteDrive.Tests
         {
             // Arrange
             var dbPath = Path.Combine(Path.GetTempPath(), $"embystreams_test_{Guid.NewGuid()}.db");
-            var dbDir = Path.GetDirectoryName(dbPath);
+            var dbDir = Path.GetDirectoryName(dbPath)!;
 
             try
             {
@@ -140,7 +140,7 @@ namespace InfiniteDrive.Tests
         {
             // Arrange
             var dbPath = Path.Combine(Path.GetTempPath(), $"embystreams_test_{Guid.NewGuid()}.db");
-            var dbDir = Path.GetDirectoryName(dbPath);
+            var dbDir = Path.GetDirectoryName(dbPath)!;
 
             try
             {
