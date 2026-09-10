@@ -108,6 +108,24 @@ Production had no InfiniteDrive DLL, XML, or database before this pass and was
 left in that state. Sportarr Metadata and Home Screen Companion remained present.
 Because no production change was made, production rollback is “no action.”
 
+## Branch delivery
+
+- Branch: `codex/overnight-hardening-20260910`
+- Runtime hardening commit: `96bc57a`
+- Build/test foundation commit: `4488b64`
+- Evidence/documentation commit: `af33a13`
+- Push status: blocked by GitHub authorization. The active account
+  `geofftrembley` has `READ` permission on `OneHotTake/InfiniteDrive`; the
+  server rejected the push with HTTP 403.
+- Complete verified Git bundle:
+  `/Users/geoff/Documents/InfiniteDrive-codex-overnight-hardening-20260910.bundle`
+
+After repository write access is granted, push without rewriting history:
+
+```bash
+git push -u origin codex/overnight-hardening-20260910
+```
+
 ## Required next engineering step
 
 Define and implement a versioned, authenticated, LAN-only Mycelium contract that
