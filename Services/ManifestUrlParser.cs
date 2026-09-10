@@ -151,16 +151,16 @@ namespace InfiniteDrive.Services
                 result.ErrorMessage = "Timed out waiting for the manifest. Your AIOStreams instance may be slow or overloaded — try again, or check that the URL is reachable.";
                 return result;
             }
-            catch (System.Net.Http.HttpRequestException ex)
+            catch (System.Net.Http.HttpRequestException)
             {
                 result.ErrorType = "connection";
-                result.ErrorMessage = $"Connection failed: {ex.Message}";
+                result.ErrorMessage = "Connection failed while fetching the manifest.";
                 return result;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 result.ErrorType = "unknown";
-                result.ErrorMessage = $"Unexpected error: {ex.Message}";
+                result.ErrorMessage = "Unexpected error while fetching the manifest.";
                 return result;
             }
         }

@@ -129,7 +129,8 @@ namespace InfiniteDrive.Services
                     using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                     cts.CancelAfter(TimeSpan.FromSeconds(1.5));
 
-                    _logger.LogDebug("[IdResolver] Calling source addon meta: {Url}", metaUrl);
+                    _logger.LogDebug("[IdResolver] Calling source addon meta: {Url}",
+                        SensitiveUrlRedactor.Redact(metaUrl));
                     using var resp = await _http.GetAsync(metaUrl, cts.Token);
                     if (resp.IsSuccessStatusCode)
                     {

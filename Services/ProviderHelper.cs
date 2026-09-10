@@ -35,7 +35,8 @@ namespace InfiniteDrive.Services
                     providers.Add(new ProviderInfo { DisplayName = "Primary", Url = url, Uuid = uuid ?? "", Token = token ?? "" });
             }
 
-            if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            if (config.EnableBackupAioStreams
+                && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
             {
                 var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
                 if (!string.IsNullOrWhiteSpace(url))

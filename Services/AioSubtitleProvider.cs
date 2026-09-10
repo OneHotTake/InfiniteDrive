@@ -129,7 +129,7 @@ namespace InfiniteDrive.Services
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[Subtitles] Download failed for subtitle URL");
+                _logger.LogWarning("[Subtitles] Download failed for subtitle URL: {ErrorType}", ex.GetType().Name);
                 return new SubtitleResponse { Format = "srt" };
             }
         }

@@ -234,7 +234,8 @@ namespace InfiniteDrive.Tasks
                 response, item.AioId, item.Season, item.Episode,
                 config.ProviderPriorityOrder ?? "",
                 0, // unlimited — let SelectBest's bucket algorithm curate per tier
-                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
+                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360,
+                config.UseRemuxForAutoSelection);
 
             var best = StreamHelpers.RankCandidates(ranked);
             if (best.Count == 0) return null;

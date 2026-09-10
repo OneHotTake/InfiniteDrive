@@ -54,7 +54,8 @@ namespace InfiniteDrive.Services
 
             try
             {
-                _logger.LogDebug("[StreamProbe] Probing {Url}", url);
+                var safeUrl = SensitiveUrlRedactor.Redact(url);
+                _logger.LogDebug("[StreamProbe] Probing {Url}", safeUrl);
 
                 // Try HEAD first with 2s timeout
                 using var headCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -67,37 +68,37 @@ namespace InfiniteDrive.Services
                 if (IsSuccess(headResponse.StatusCode))
                 {
                     _logger.LogDebug("[StreamProbe] HEAD OK for {Url} — {StatusCode}",
-                        url, headResponse.StatusCode);
+                        safeUrl, headResponse.StatusCode);
                     return new ProbeResult(Ok: true, (int)headResponse.StatusCode, "ok");
                 }
 
                 // 405 Method Not Allowed — fall back to GET with Range
                 if (headResponse.StatusCode == System.Net.HttpStatusCode.MethodNotAllowed)
                 {
-                    _logger.LogDebug("[StreamProbe] HEAD returned 405, trying GET with Range for {Url}", url);
+                    _logger.LogDebug("[StreamProbe] HEAD returned 405, trying GET with Range for {Url}", safeUrl);
                     return await GetWithRangeAsync(url, ct);
                 }
 
                 // Any other non-success status
                 _logger.LogDebug("[StreamProbe] HEAD failed for {Url} — {StatusCode}",
-                    url, headResponse.StatusCode);
+                    safeUrl, headResponse.StatusCode);
                 return new ProbeResult(Ok: false, (int)headResponse.StatusCode,
                     $"http_{(int)headResponse.StatusCode}");
             }
             catch (TaskCanceledException)
             {
                 // External cancellation or our timeout expired
-                _logger.LogDebug("[StreamProbe] Probe canceled/timeout for {Url}", url);
+                _logger.LogDebug("[StreamProbe] Probe canceled/timeout for {Url}", SensitiveUrlRedactor.Redact(url));
                 return new ProbeResult(Ok: false, null, "timeout");
             }
             catch (HttpRequestException ex)
             {
-                _logger.LogDebug(ex, "[StreamProbe] HTTP error probing {Url}", url);
+                _logger.LogDebug("[StreamProbe] HTTP error probing {Url}: {ErrorType}", SensitiveUrlRedactor.Redact(url), ex.GetType().Name);
                 return new ProbeResult(Ok: false, null, "error");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[StreamProbe] Unexpected error probing {Url}", url);
+                _logger.LogWarning("[StreamProbe] Unexpected error probing {Url}: {ErrorType}", SensitiveUrlRedactor.Redact(url), ex.GetType().Name);
                 return new ProbeResult(Ok: false, null, "error");
             }
         }
@@ -107,6 +108,7 @@ namespace InfiniteDrive.Services
         /// </summary>
         private async Task<ProbeResult> GetWithRangeAsync(string url, CancellationToken ct)
         {
+            var safeUrl = SensitiveUrlRedactor.Redact(url);
             try
             {
                 using var rangeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -120,23 +122,23 @@ namespace InfiniteDrive.Services
                 if (IsSuccess(response.StatusCode) || response.StatusCode == System.Net.HttpStatusCode.PartialContent)
                 {
                     _logger.LogDebug("[StreamProbe] GET Range OK for {Url} — {StatusCode}",
-                        url, response.StatusCode);
+                        safeUrl, response.StatusCode);
                     return new ProbeResult(Ok: true, (int)response.StatusCode, "ok");
                 }
 
                 _logger.LogDebug("[StreamProbe] GET Range failed for {Url} — {StatusCode}",
-                    url, response.StatusCode);
+                    safeUrl, response.StatusCode);
                 return new ProbeResult(Ok: false, (int)response.StatusCode,
                     $"http_{(int)response.StatusCode}");
             }
             catch (OperationCanceledException) when (!ct.IsCancellationRequested)
             {
-                _logger.LogDebug("[StreamProbe] GET Range timeout for {Url}", url);
+                _logger.LogDebug("[StreamProbe] GET Range timeout for {Url}", safeUrl);
                 return new ProbeResult(Ok: false, null, "timeout");
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[StreamProbe] GET Range error for {Url}", url);
+                _logger.LogDebug("[StreamProbe] GET Range error for {Url}: {ErrorType}", safeUrl, ex.GetType().Name);
                 return new ProbeResult(Ok: false, null, "error");
             }
         }

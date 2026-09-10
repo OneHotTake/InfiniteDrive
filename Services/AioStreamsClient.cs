@@ -134,8 +134,10 @@ namespace InfiniteDrive.Services
             // Attempt to parse the primary manifest URL.
             var (baseUrl, uuid, token) = TryParseManifestUrl(config.PrimaryManifestUrl);
 
-            // Fall back to secondary manifest URL if configured (URL presence is the toggle).
-            if (string.IsNullOrWhiteSpace(baseUrl) && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            // Fall back only when the explicit backup-provider toggle is enabled.
+            if (string.IsNullOrWhiteSpace(baseUrl)
+                && config.EnableBackupAioStreams
+                && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                 (baseUrl, uuid, token) = TryParseManifestUrl(config.SecondaryManifestUrl);
 
             // Build the base Stremio path segment.
@@ -582,7 +584,7 @@ namespace InfiniteDrive.Services
         /// Returns the stream URL for a TV episode without making an HTTP call.
         /// </summary>
         public string GetSeriesStreamUrl(string aioId, int season, int episode)
-            => $"{_stremioBase}/stream/series/{Uri.EscapeDataString($"{aioId}:{season}:{episode}")}.json";
+            => $"{_stremioBase}/stream/series/{Uri.EscapeDataString(aioId)}:{season}:{episode}.json";
 
         /// <summary>
         /// ── FIX-100B-05: Kitsu/AniList absolute episode numbering ────
@@ -594,7 +596,7 @@ namespace InfiniteDrive.Services
         /// <param name="seriesId">Series ID from the provider.</param>
         /// <param name="absoluteEpisode">Absolute episode number across all seasons.</param>
         public string GetAnimeStreamUrl(string provider, string seriesId, int absoluteEpisode)
-            => $"{_stremioBase}/stream/series/{Uri.EscapeDataString($"{provider}:{seriesId}:{absoluteEpisode}")}.json";
+            => $"{_stremioBase}/stream/series/{Uri.EscapeDataString(provider)}:{Uri.EscapeDataString(seriesId)}:{absoluteEpisode}.json";
 
         /// <summary>
         /// ── FIX-100B-05: Absolute episode calculation ────────────────────
@@ -666,7 +668,11 @@ namespace InfiniteDrive.Services
                     && string.Equals(segs[0], "stremio", StringComparison.OrdinalIgnoreCase))
                 {
                     var baseUrl = $"{uri.Scheme}://{uri.Authority}";
-                    return (baseUrl, segs[1], segs[2]);
+                    // Config tokens can legally contain unescaped '/' characters. Preserve
+                    // every segment between the UUID and manifest.json rather than silently
+                    // truncating the credential at the first slash.
+                    var token = string.Join('/', segs.Skip(2).Take(segs.Length - 3));
+                    return (baseUrl, segs[1], token);
                 }
 
                 if (segs.Length >= 2
@@ -838,7 +844,7 @@ namespace InfiniteDrive.Services
                 }
                 catch (HttpRequestException ex)
                 {
-                    _logger.LogWarning("[InfiniteDrive] Connection failed for {Url}: {Msg}", safeUrl, ex.Message);
+                    _logger.LogWarning("[InfiniteDrive] Connection failed for {Url}: {ErrorType}", safeUrl, ex.GetType().Name);
                     if (attempt < maxAttempts)
                     {
                         int delayMs = attempt == 1 ? 1000 : (attempt == 2 ? 4000 : 16000);
@@ -848,9 +854,11 @@ namespace InfiniteDrive.Services
                         continue;
                     }
                     totalSw.Stop();
-                    _logger.LogError(ex, "[GetRawStringAsync] CONNECTION FAILED after {TotalMs}ms for {Url}",
-                        totalSw.ElapsedMilliseconds, safeUrl);
-                    if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, ex);
+                    _logger.LogError("[GetRawStringAsync] CONNECTION FAILED after {TotalMs}ms for {Url}: {ErrorType}",
+                        totalSw.ElapsedMilliseconds, safeUrl, ex.GetType().Name);
+                    // HttpRequestException messages can embed the original signed URL.
+                    // Preserve the failure class without retaining that exception chain.
+                    if (throwOnUnreachable) throw new AioStreamsUnreachableException(safeUrl, null);
                     return null;
                 }
                 catch (AioStreamsRateLimitException) { throw; }
@@ -910,13 +918,7 @@ namespace InfiniteDrive.Services
         /// Replaces the token segment in <c>/stremio/{uuid}/{token}/…</c>
         /// paths with <c>[token]</c> so credentials never appear in log files.
         /// </summary>
-        private string SanitizeUrl(string url)
-        {
-            if (_rawToken == null || string.IsNullOrEmpty(url))
-                return url;
-
-            return url.Replace(_rawToken, "[token]");
-        }
+        private string SanitizeUrl(string url) => SensitiveUrlRedactor.Redact(url);
 
         private static void Append(System.Text.StringBuilder sb, string part)
         {

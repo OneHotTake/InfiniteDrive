@@ -760,7 +760,8 @@ namespace InfiniteDrive.Services
                 resolvedClient  = primaryClient;
                 resolvedManifest = primaryManifest;
             }
-            else if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            else if (config.EnableBackupAioStreams
+                     && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
             {
                 _logger.LogWarning("[Discover] Primary manifest empty/unreachable — trying secondary");
                 var secondaryClient = AioStreamsClientFactory.TryCreateForManifest(config.SecondaryManifestUrl, _logger);

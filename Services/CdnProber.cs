@@ -23,7 +23,7 @@ namespace InfiniteDrive.Services
             string cdnUrl, ILogger logger, CancellationToken ct)
         {
             var sw = Stopwatch.StartNew();
-            logger.LogInformation("[CdnProber] START: Probing {Url}", TruncateUrl(cdnUrl));
+            logger.LogInformation("[CdnProber] START: Probing {Url}", SensitiveUrlRedactor.Redact(cdnUrl));
 
             try
             {
@@ -52,7 +52,7 @@ namespace InfiniteDrive.Services
                 {
                     try { proc.Kill(); } catch { }
                     sw.Stop();
-                    logger.LogWarning("[CdnProber] TIMED OUT after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, TruncateUrl(cdnUrl));
+                    logger.LogWarning("[CdnProber] TIMED OUT after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, SensitiveUrlRedactor.Redact(cdnUrl));
                     return null;
                 }
 
@@ -60,7 +60,7 @@ namespace InfiniteDrive.Services
                 {
                     sw.Stop();
                     logger.LogWarning("[CdnProber] FAILED after {ElapsedMs}ms - ExitCode={Code} for {Url}: {Err}",
-                        sw.ElapsedMilliseconds, proc.ExitCode, TruncateUrl(cdnUrl), Truncate(stderr, 200));
+                        sw.ElapsedMilliseconds, proc.ExitCode, SensitiveUrlRedactor.Redact(cdnUrl), Truncate(SensitiveUrlRedactor.RedactText(stderr), 200));
                     return null;
                 }
 
@@ -68,20 +68,21 @@ namespace InfiniteDrive.Services
                 if (streams == null || streams.Count == 0)
                 {
                     sw.Stop();
-                    logger.LogWarning("[CdnProber] NO STREAMS after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, TruncateUrl(cdnUrl));
+                    logger.LogWarning("[CdnProber] NO STREAMS after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, SensitiveUrlRedactor.Redact(cdnUrl));
                     return null;
                 }
 
                 sw.Stop();
                 logger.LogInformation("[CdnProber] SUCCESS after {ElapsedMs}ms - {Count} streams found for {Url}",
-                    sw.ElapsedMilliseconds, streams.Count, TruncateUrl(cdnUrl));
+                    sw.ElapsedMilliseconds, streams.Count, SensitiveUrlRedactor.Redact(cdnUrl));
 
                 return streams;
             }
             catch (Exception ex)
             {
                 sw.Stop();
-                logger.LogError(ex, "[CdnProber] EXCEPTION after {ElapsedMs}ms for {Url}", sw.ElapsedMilliseconds, TruncateUrl(cdnUrl));
+                logger.LogError("[CdnProber] EXCEPTION after {ElapsedMs}ms for {Url}: {ErrorType}",
+                    sw.ElapsedMilliseconds, SensitiveUrlRedactor.Redact(cdnUrl), ex.GetType().Name);
                 return null;
             }
         }
@@ -258,9 +259,6 @@ namespace InfiniteDrive.Services
                 _ => codec
             };
         }
-
-        private static string TruncateUrl(string url) =>
-            url.Length > 80 ? url[..80] + "..." : url;
 
         private static string Truncate(string s, int max) =>
             string.IsNullOrEmpty(s) ? "" : s.Length <= max ? s : s[..max] + "...";

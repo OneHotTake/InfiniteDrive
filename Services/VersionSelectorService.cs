@@ -29,6 +29,9 @@ namespace InfiniteDrive.Services
         {
             if (rankedStreams.Count == 0) return new();
 
+            rankedStreams = FilterEligibleStreams(rankedStreams, config);
+            if (rankedStreams.Count == 0) return new();
+
             var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var results = new List<SelectedVersion>();
             var prioritizeExtended = config?.PrioritizeExtendedEditions == true;
@@ -129,9 +132,14 @@ namespace InfiniteDrive.Services
         /// Assigns a secondary CDN URL to each selected version from the unclaimed stream pool.
         /// Prefers streams matching the same resolution + audio group for relevance.
         /// </summary>
-        public static void AssignSecondaryUrls(List<SelectedVersion> selected, List<ParsedStream> allStreams)
+        public static void AssignSecondaryUrls(
+            List<SelectedVersion> selected,
+            List<ParsedStream> allStreams,
+            PluginConfiguration? config = null)
         {
             if (selected.Count == 0 || allStreams.Count == 0) return;
+
+            allStreams = FilterEligibleStreams(allStreams, config);
 
             // Track which URLs are already claimed as primary or secondary
             var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -156,6 +164,20 @@ namespace InfiniteDrive.Services
                 }
             }
         }
+
+        /// <summary>
+        /// Applies release safety policy before both primary and fallback selection.
+        /// CAM/telesync captures are never appropriate for an unattended family
+        /// library. REMUX files require the explicit quality toggle.
+        /// </summary>
+        public static List<ParsedStream> FilterEligibleStreams(
+            IEnumerable<ParsedStream> streams,
+            PluginConfiguration? config) =>
+            streams
+                .Where(s => !string.Equals(s.SourceTag, "CAM/TS", StringComparison.OrdinalIgnoreCase))
+                .Where(s => config?.UseRemuxForAutoSelection == true
+                    || !s.SourceTag.Contains("remux", StringComparison.OrdinalIgnoreCase))
+                .ToList();
 
         /// <summary>
         /// Compares stored versions against a newly proposed selection.

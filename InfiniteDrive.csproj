@@ -2,16 +2,16 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0</TargetFramework>
-    <AssemblyVersion>0.42.0.0</AssemblyVersion>
-    <FileVersion>0.42.0.0</FileVersion>
-    <Version>0.42.0.0</Version>
+    <AssemblyVersion>0.43.0.0</AssemblyVersion>
+    <FileVersion>0.43.0.0</FileVersion>
+    <Version>0.43.0.0</Version>
     <Nullable>enable</Nullable>
     <RootNamespace>InfiniteDrive</RootNamespace>
     <AssemblyName>InfiniteDrive</AssemblyName>
     <Optimize>false</Optimize>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <Deterministic>false</Deterministic>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <Deterministic>true</Deterministic>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <!-- Suppress nullable warnings for Emby interfaces that lack annotations -->
     <NoWarn>CS8618,CS8601,CS8603,CS8604,CS0612,CS0618</NoWarn>
   </PropertyGroup>
@@ -28,10 +28,13 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- Exclude node_modules from compilation -->
+    <Compile Remove="Tests\**\*.cs" />
+    <Compile Remove="tools\**\*.cs" />
     <Compile Remove="node_modules\**" />
     <Content Remove="node_modules\**" />
     <EmbeddedResource Remove="node_modules\**" />
@@ -40,15 +43,8 @@
 
   <ItemGroup>
     <!--
-      MediaBrowser.Server.Core provides IChannel and all plugin interfaces.
-      The local libs/ DLLs below override the core assemblies at 4.10.0.16-Beta
-      (sourced from emby-beta/opt/emby-server/system, deb 4.10.0.16). The NuGet
-      package only supplies plugin/IChannel interfaces not present in libs/.
-    -->
-    <PackageReference Include="MediaBrowser.Server.Core" Version="4.9.1.90" />
-    <!--
-      Emby Server assemblies — NOT from NuGet. Version 4.10.0.16-Beta.
-      Sourced from emby-beta/opt/emby-server/system (the installed 4.10.0.16 server).
+      Emby Server assemblies — NOT from NuGet. Copy these from the exact target
+      Emby server with scripts/prepare-emby-refs.sh before building.
       Do NOT convert these to PackageReference — build will fail to find them.
     -->
     <Reference Include="MediaBrowser.Controller">
@@ -120,12 +116,12 @@
       because at runtime .NET 8 bindings are used, not .netstandard2.0 ones.
     -->
     <Reference Include="SQLitePCL.pretty">
-      <HintPath>../emby-beta/opt/emby-server/system/SQLitePCL.pretty.dll</HintPath>
+      <HintPath>libs/SQLitePCL.pretty.dll</HintPath>
       <Private>false</Private>
     </Reference>
 
     <Reference Include="SQLitePCLRawEx.core">
-      <HintPath>../emby-beta/opt/emby-server/system/SQLitePCLRawEx.core.dll</HintPath>
+      <HintPath>libs/SQLitePCLRawEx.core.dll</HintPath>
       <Private>false</Private>
     </Reference>
 

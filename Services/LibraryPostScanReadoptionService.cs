@@ -17,12 +17,10 @@ namespace InfiniteDrive.Services
     /// <summary>
     /// Detects when real media files supersede InfiniteDrive .strm files and retires the .strm.
     /// Fires after every Emby library scan for immediate re-adoption detection.
-    /// Complements the scheduled LibraryReadoptionTask (24h safety net).
+    /// Also runs from Marvin as the scheduled safety net.
     /// </summary>
     public class LibraryPostScanReadoptionService : ILibraryPostScanTask
     {
-        private const int MaxItemsPerPostScanRun = 500;
-
         private readonly ILogger<LibraryPostScanReadoptionService> _logger;
         private readonly ILibraryManager _libraryManager;
         private readonly ILogManager _logManager;
@@ -57,6 +55,13 @@ namespace InfiniteDrive.Services
         {
             try
             {
+                if (Plugin.Instance?.Configuration?.AutoDeduplicatePhysicalMedia != true)
+                {
+                    _logger.LogDebug("[InfiniteDrive] Physical-media de-duplication is disabled");
+                    progress?.Report(100);
+                    return;
+                }
+
                 // Bounded: only process items currently served as .strm
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null)
@@ -71,19 +76,7 @@ namespace InfiniteDrive.Services
                     return;
                 }
 
-                // Cap processing for large catalogs
                 int processedCount = strmItems.Count;
-                bool capped = false;
-                if (strmItems.Count > MaxItemsPerPostScanRun)
-                {
-                    _logger.LogWarning(
-                        "[InfiniteDrive] Large catalog ({Count} strm items) — post-scan re-adoption " +
-                        "limited to {Max} items. Remainder handled by scheduled task.",
-                        strmItems.Count, MaxItemsPerPostScanRun);
-                    strmItems = strmItems.Take(MaxItemsPerPostScanRun).ToList();
-                    capped = true;
-                }
-
                 int processed = 0;
                 int readopted = 0;
 
@@ -108,7 +101,7 @@ namespace InfiniteDrive.Services
                     _logger.LogInformation(
                         "[InfiniteDrive] Post-scan re-adoption complete: {Count} items retired",
                         readopted);
-                else if (!capped)
+                else
                     _logger.LogDebug(
                         "[InfiniteDrive] Post-scan re-adoption: {Count} items checked, no real files found",
                         processedCount);

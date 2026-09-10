@@ -193,209 +193,45 @@ namespace InfiniteDrive.Tasks
 
         private async Task<List<CatalogItem>> CollectStepAsync(CancellationToken cancellationToken)
         {
-            var newItems = new List<CatalogItem>();
-
-            // For now, we only process AIOStreams source
-            // In future sprints, this will iterate over all configured sources
-            var sourceId = "aiostreams";
-
-            // Load ingestion state
-            var ingestionState = await Plugin.Instance!.DatabaseManager.GetIngestionStateAsync(sourceId, cancellationToken);
-
-            // Fetch AIOStreams catalog (full fetch + diff)
-            var config = Plugin.Instance!.Configuration;
-            if (string.IsNullOrWhiteSpace(config.PrimaryManifestUrl))
-            {
-                _logger.LogWarning("[InfiniteDrive] AIOStreams URL is not configured");
-                return newItems;
-            }
-
-            using var client = AioStreamsClientFactory.Create(_logger);
-            client.Cooldown = Plugin.Instance?.CooldownGate;
-            if (!client.IsConfigured)
-            {
-                _logger.LogWarning("[InfiniteDrive] AIOStreams client could not be configured");
-                return newItems;
-            }
-
-            // Fetch catalog items
-            var catalogItems = await FetchCatalogItemsAsync(client, cancellationToken);
-            if (catalogItems.Count == 0)
-                return newItems;
-
-            // Get existing catalog items for comparison
+            // CatalogSyncTask is the sole upstream catalog reader.  Marvin runs it in
+            // parallel with Populate, so this method deliberately consumes only the
+            // durable queue.  Fetching the manifest here used to bypass the provider's
+            // allowlist, item caps, backup toggle, and interval guard on every 5-second
+            // poll, causing an unbounded duplicate crawl.
             var existingItems = await Plugin.Instance!.DatabaseManager.GetActiveCatalogItemsAsync();
-            var existingByAio = existingItems.ToLookup(i => i.AioId).ToDictionary(g => g.Key, g => g.First());
+            cancellationToken.ThrowIfCancellationRequested();
 
-            // Also collect queued items that don't have .strm files yet
-            // This handles the case where CatalogSyncTask has already created items
-            // but RefreshTask hasn't processed them yet
-            var queuedWithoutStrm = existingItems
-                .Where(i => i.ItemState == ItemState.Queued && string.IsNullOrEmpty(i.StrmPath))
-                .ToList();
+            var work = SelectPopulateWork(existingItems, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            var queuedCount = work.Count(i => string.IsNullOrEmpty(i.StrmPath));
+            var expansionCount = work.Count - queuedCount;
 
-            if (queuedWithoutStrm.Count > 0)
-            {
-                _logger.LogInformation("[InfiniteDrive] Found {Count} queued items without .strm files, adding to processing queue", queuedWithoutStrm.Count);
-                foreach (var item in queuedWithoutStrm)
-                {
-                    newItems.Add(item);
-                }
-            }
+            if (queuedCount > 0)
+                _logger.LogInformation("[InfiniteDrive] Found {Count} queued items without .strm files", queuedCount);
+            if (expansionCount > 0)
+                _logger.LogInformation("[InfiniteDrive] Found {Count} series items needing episode expansion", expansionCount);
 
-            // Also re-collect series items that need episode expansion (never expanded or eligible for re-expansion)
-            const int ReExpansionIntervalSec = 6 * 3600; // 6 hours
-            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-
-            var seriesNeedingExpansion = existingItems
-                .Where(i => (i.MediaType == "series" || i.MediaType == "anime")
-                         && !string.IsNullOrEmpty(i.AioId)
-                         && !string.IsNullOrEmpty(i.StrmPath)
-                         && (i.EpisodesExpanded != true
-                             || i.LastExpandedAt == null
-                             || now - i.LastExpandedAt >= ReExpansionIntervalSec))
-                .ToList();
-
-            if (seriesNeedingExpansion.Count > 0)
-            {
-                _logger.LogInformation("[InfiniteDrive] Found {Count} series items needing episode expansion", seriesNeedingExpansion.Count);
-                foreach (var item in seriesNeedingExpansion)
-                {
-                    if (!newItems.Any(i => i.Id == item.Id))
-                        newItems.Add(item);
-                }
-            }
-
-            // Diff: identify new and changed items from manifest
-            foreach (var catalogItem in catalogItems)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                if (existingByAio.TryGetValue(catalogItem.AioId, out var existing))
-                {
-                    // Check if changed (title or year)
-                    if (existing.Title != catalogItem.Title || existing.Year != catalogItem.Year)
-                    {
-                        existing.Title = catalogItem.Title;
-                        existing.Year = catalogItem.Year;
-                        existing.ItemState = ItemState.Queued;
-                        existing.UpdatedAt = DateTime.UtcNow.ToString("o");
-                        await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(existing, cancellationToken);
-                        // Only add if not already in newItems (from queuedWithoutStrm)
-                        if (!newItems.Any(i => i.Id == existing.Id))
-                            newItems.Add(existing);
-                        _logger.LogDebug("[InfiniteDrive] Changed item: {AioId}", catalogItem.AioId);
-                    }
-                }
-                else
-                {
-                    // New item
-                    catalogItem.ItemState = ItemState.Queued;
-                    await Plugin.Instance!.DatabaseManager.UpsertCatalogItemAsync(catalogItem, cancellationToken);
-                    newItems.Add(catalogItem);
-                    _logger.LogDebug("[InfiniteDrive] New item: {AioId}", catalogItem.AioId);
-                }
-            }
-
-            // Update ingestion state watermark
-            var state = new IngestionState
-            {
-                SourceId = sourceId,
-                LastPollAt = DateTime.UtcNow.ToString("o"),
-                LastFoundAt = DateTime.UtcNow.ToString("o"),
-                Watermark = DateTime.UtcNow.Ticks.ToString()
-            };
-            await Plugin.Instance!.DatabaseManager.UpsertIngestionStateAsync(state, cancellationToken);
-
-            return newItems;
+            return work;
         }
 
-        private async Task<List<CatalogItem>> FetchCatalogItemsAsync(
-            AioStreamsClient client,
-            CancellationToken cancellationToken)
+        internal static List<CatalogItem> SelectPopulateWork(
+            IEnumerable<CatalogItem> items,
+            long nowUnixSeconds)
         {
-            var items = new ConcurrentBag<CatalogItem>();
+            const int ReExpansionIntervalSec = 6 * 3600;
 
-            try
-            {
-                // Fetch manifest
-                var manifest = await client.GetManifestAsync(cancellationToken);
-                if (manifest == null || manifest.Catalogs == null || manifest.Catalogs.Count == 0)
-                    return items.ToList();
-
-                // Filter to movie/series catalogs only
-                var catalogs = manifest.Catalogs
-                    .Where(c => c.Type == "movie" || c.Type == "series")
-                    .ToList();
-
-                _logger.LogInformation("[InfiniteDrive] Fetching {Count} catalogs in parallel (max 4 concurrent)", catalogs.Count);
-
-                // Fetch all catalogs concurrently, capped at 4
-                using var catalogGate = new SemaphoreSlim(4);
-                var fetchTasks = catalogs.Select(catalog => FetchSingleCatalogAsync(client, catalog, items, catalogGate, cancellationToken));
-                await Task.WhenAll(fetchTasks);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[InfiniteDrive] Failed to fetch AIOStreams catalog");
-            }
-
-            // Deduplicate by (imdb_id, source) to prevent INSERT conflicts
-            var deduplicated = items.GroupBy(i => (i.AioId, i.Source)).Select(g => g.First()).ToList();
-            return deduplicated;
-        }
-
-        private async Task FetchSingleCatalogAsync(
-            AioStreamsClient client,
-            AioStreamsCatalogDef catalog,
-            ConcurrentBag<CatalogItem> results,
-            SemaphoreSlim gate,
-            CancellationToken cancellationToken)
-        {
-            var catalogId = catalog.Id ?? "unknown";
-            var catalogType = catalog.Type ?? "movie";
-
-            await gate.WaitAsync(cancellationToken);
-            try
-            {
-                _logger.LogDebug("[InfiniteDrive] Fetching catalog: {CatalogId}, Type: {CatalogType}", catalogId, catalogType);
-                var catalogData = await client.GetCatalogAsync(catalogType, catalogId, cancellationToken);
-                if (catalogData?.Metas == null) return;
-
-                foreach (var meta in catalogData.Metas)
-                {
-                    var aioId = meta.ImdbId ?? meta.Id;
-                    if (string.IsNullOrEmpty(aioId))
-                        continue;
-
-                    var now = DateTime.UtcNow.ToString("o");
-                    var year = ParseYear(meta.ReleaseInfo);
-                    results.Add(new CatalogItem
-                    {
-                        Id = GenerateDeterministicId(aioId, "aiostreams"),
-                        AioId = aioId,
-                        Title = meta.Name ?? string.Empty,
-                        Year = year,
-                        MediaType = catalogType,
-                        Source = "aiostreams",
-                        SourceListId = catalogId,
-                        UniqueIdsJson = BuildUniqueIdsJson(meta),
-                        TmdbId = meta.TmdbId ?? meta.TmdbIdAlt,
-                        AddedAt = now,
-                        UpdatedAt = now
-                    });
-                }
-
-                _logger.LogDebug("[InfiniteDrive] Catalog {CatalogId} returned {Count} items", catalogId, catalogData.Metas.Count);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "[InfiniteDrive] Failed to fetch catalog {CatalogId}", catalogId);
-            }
-            finally
-            {
-                gate.Release();
-            }
+            return items
+                .Where(i =>
+                    (i.ItemState == ItemState.Queued && string.IsNullOrEmpty(i.StrmPath))
+                    || ((string.Equals(i.MediaType, "series", StringComparison.OrdinalIgnoreCase)
+                         || string.Equals(i.MediaType, "anime", StringComparison.OrdinalIgnoreCase))
+                        && !string.IsNullOrEmpty(i.AioId)
+                        && !string.IsNullOrEmpty(i.StrmPath)
+                        && (i.EpisodesExpanded != true
+                            || i.LastExpandedAt == null
+                            || nowUnixSeconds - i.LastExpandedAt >= ReExpansionIntervalSec)))
+                .GroupBy(i => i.Id, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .ToList();
         }
 
         // ── Step 2: Write ────────────────────────────────────────────────────────
@@ -500,7 +336,7 @@ namespace InfiniteDrive.Tasks
                                     config.DesiredVersions,
                                     config.MaxVersionsPerItem,
                                     config);
-                                VersionSelectorService.AssignSecondaryUrls(versions, parsed);
+                                VersionSelectorService.AssignSecondaryUrls(versions, parsed, config);
                             }
                         }
                         else
@@ -768,7 +604,7 @@ namespace InfiniteDrive.Tasks
                 parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
             if (versions.Count == 0) return (0, null);
 
-            VersionSelectorService.AssignSecondaryUrls(versions, parsed);
+            VersionSelectorService.AssignSecondaryUrls(versions, parsed, config);
 
             var seasonDir = Path.Combine(seriesPath, $"Season {season:D2}");
             var epBaseName = NamingPolicyService.BuildStrmFileName(item, season, episode);
@@ -1124,18 +960,6 @@ namespace InfiniteDrive.Tasks
 
 
 
-        private static int? ParseYear(string? releaseInfo)
-        {
-            if (string.IsNullOrEmpty(releaseInfo))
-                return null;
-
-            var yearStr = releaseInfo.Split('–', '—')[0].Trim();
-            if (int.TryParse(yearStr, out var year))
-                return year;
-
-            return null;
-        }
-
         /// <summary>
         /// Fetches episode lists from metadata providers.
         /// Tries AIOStreams first, then falls back to Cinemeta (for IMDB IDs)
@@ -1295,48 +1119,5 @@ namespace InfiniteDrive.Tasks
             return null;
         }
 
-        private static string? BuildUniqueIdsJson(AioStreamsMeta meta)
-        {
-            var ids = new List<object>();
-
-            // Collect all available provider IDs
-            if (!string.IsNullOrEmpty(meta.ImdbId))
-                ids.Add(new { provider = "imdb", id = meta.ImdbId });
-
-            var tmdbId = meta.TmdbId ?? meta.TmdbIdAlt;
-            if (!string.IsNullOrEmpty(tmdbId))
-                ids.Add(new { provider = "tmdb", id = tmdbId });
-
-            if (!string.IsNullOrEmpty(meta.Id))
-            {
-                // Use ID as fallback if it starts with a known prefix
-                var id = meta.Id;
-                if (id.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
-                    ids.Add(new { provider = "imdb", id = id });
-                else if (id.StartsWith("kitsu:", StringComparison.OrdinalIgnoreCase))
-                    ids.Add(new { provider = "kitsu", id = id.Replace("kitsu:", "") });
-            }
-
-            if (ids.Count == 0)
-                return null;
-
-            return System.Text.Json.JsonSerializer.Serialize(ids);
-        }
-
-        /// <summary>
-        /// Generates a deterministic ID based on imdb_id and source.
-        /// This ensures the same item always gets the same ID, preventing
-        /// UNIQUE constraint violations during upsert operations.
-        /// </summary>
-        private static string GenerateDeterministicId(string aioId, string source)
-        {
-            // Use a hash of (aio_id + source) to create a deterministic ID
-            // Format: {first 8 chars of hash}-{aio_id}
-            using var hash = System.Security.Cryptography.MD5.Create();
-            var input = $"{aioId}:{source}";
-            var hashBytes = hash.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-            var hashString = BitConverter.ToString(hashBytes).Replace("-", "").Substring(0, 8);
-            return $"{hashString}-{aioId}";
-        }
     }
 }

@@ -147,6 +147,16 @@ namespace InfiniteDrive.Services
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         }
 
+        /// <summary>Detects CAM, telesync, and telecine release markers.</summary>
+        public static bool IsLowQualityCapture(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return false;
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                name,
+                @"(?:^|[. _\-])(CAM(?:RIP)?|HDCAM|HDTS|TELESYNC|TELECINE)(?:$|[. _\-])",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
         /// <summary>
         /// Returns a secondary codec score used for tie-breaking within the same quality tier.
         /// Higher score = preferred (Dolby Vision &gt; HDR10+ &gt; HDR10 &gt; HLG &gt; HEVC &gt; H.264).
@@ -378,7 +388,8 @@ namespace InfiniteDrive.Services
             int?   episode,
             string providerPriorityOrder,
             int    candidatesPerProvider,
-            int    debridCacheLifetimeMinutes)
+            int    debridCacheLifetimeMinutes,
+            bool   includeRemux = false)
         {
             var streams = response.Streams ?? new List<AioStreamsStream>();
 
@@ -389,6 +400,10 @@ namespace InfiniteDrive.Services
             var playable = streams
                 .Where(s => !string.IsNullOrEmpty(s.Url)
                          && s.StreamType != "torrent")
+                .Where(s => !IsLowQualityCapture(
+                    s.BehaviorHints?.Filename ?? s.Description ?? s.Title))
+                .Where(s => includeRemux || !IsRemuxFile(
+                    s.BehaviorHints?.Filename ?? s.Description ?? s.Title))
                 .ToList();
 
             // Sort: quality tier descending, then codec score descending (HDR/DV),

@@ -272,7 +272,8 @@ namespace InfiniteDrive.Services
                 response, aioId, season, episode,
                 config.ProviderPriorityOrder ?? "",
                 0, // unlimited — let SelectBest's bucket algorithm curate
-                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
+                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360,
+                config.UseRemuxForAutoSelection);
 
             return StreamHelpers.RankCandidates(ranked);
         }
@@ -804,6 +805,14 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// OpenMediaSource is not used — .strm files contain direct CDN URLs.
         /// Emby plays them natively without going through this provider.
+        /// </summary>
+        public Task<ILiveStream> OpenMediaSource(string openToken, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
+        {
+            return OpenMediaSource(openToken, string.Empty, currentLiveStreams, cancellationToken);
+        }
+
+        /// <summary>
+        /// Compatibility overload for older 4.10 beta ABIs that included a consumer ID.
         /// </summary>
         public Task<ILiveStream> OpenMediaSource(string openToken, string consumerId, List<ILiveStream> currentLiveStreams, CancellationToken cancellationToken)
         {

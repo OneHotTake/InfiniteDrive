@@ -211,7 +211,7 @@ namespace InfiniteDrive.Services
             Plugin.Manifest.CheckStale();
 
             _logger.LogInformation("[InfiniteDrive] RefreshManifest: Force-refreshing manifest from {Url}",
-                config.PrimaryManifestUrl);
+                SensitiveUrlRedactor.Redact(config.PrimaryManifestUrl));
 
             try
             {

@@ -83,7 +83,8 @@ namespace InfiniteDrive.Services
                         response, req.AioId, req.Season, req.Episode,
                         config.ProviderPriorityOrder,
                         0, // unlimited — let SelectBest's bucket algorithm curate per tier
-                        config.CacheLifetimeMinutes);
+                        config.CacheLifetimeMinutes,
+                        config.UseRemuxForAutoSelection);
 
                     if (candidates.Count == 0) continue;
 
@@ -207,4 +208,3 @@ namespace InfiniteDrive.Services
         public int? Season { get; set; }
         public int? Episode { get; set; }
     }
-

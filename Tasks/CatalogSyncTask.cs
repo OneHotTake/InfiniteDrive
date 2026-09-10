@@ -249,7 +249,8 @@ namespace InfiniteDrive.Tasks
             if (config.EnableAioStreamsCatalog)
             {
                 list.Add(new AioStreamsCatalogProvider());
-                if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+                if (config.EnableBackupAioStreams
+                    && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                     list.Add(new AioStreamsCatalogProvider(config.SecondaryManifestUrl));
             }
 

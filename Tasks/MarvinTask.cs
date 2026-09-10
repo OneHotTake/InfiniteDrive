@@ -220,12 +220,17 @@ namespace InfiniteDrive.Tasks
                 _logger.LogDebug("[Marvin] Phase 4a (Validation) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 
                 phaseSw.Restart();
+                var readoption = new LibraryPostScanReadoptionService(_libraryManager, _logManager);
+                await readoption.Run(new Progress<double>(), cancellationToken);
+                _logger.LogDebug("[Marvin] Phase 4b (PhysicalMediaReconciliation) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+
+                phaseSw.Restart();
                 await EnrichmentTrickleAsync(cancellationToken);
-                _logger.LogDebug("[Marvin] Phase 4b (Enrichment) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+                _logger.LogDebug("[Marvin] Phase 4c (Enrichment) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 
                 phaseSw.Restart();
                 await TokenRenewalAsync(cancellationToken);
-                _logger.LogDebug("[Marvin] Phase 4c (TokenRenewal) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
+                _logger.LogDebug("[Marvin] Phase 4d (TokenRenewal) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
                 progress?.Report(0.90);
 
                 // Sprint 530: removed SaveMaintenancePassAsync (user_item_saves deprecated)
@@ -518,7 +523,7 @@ namespace InfiniteDrive.Tasks
 
                     newVersions = Services.VersionSelectorService.SelectBestVersions(
                         parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
-                    Services.VersionSelectorService.AssignSecondaryUrls(newVersions, parsed);
+                    Services.VersionSelectorService.AssignSecondaryUrls(newVersions, parsed, config);
                 }
 
                 if (newVersions.Count == 0)
@@ -724,7 +729,7 @@ namespace InfiniteDrive.Tasks
 
                     var epVersions = Services.VersionSelectorService.SelectBestVersions(
                         epParsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
-                    Services.VersionSelectorService.AssignSecondaryUrls(epVersions, epParsed);
+                    Services.VersionSelectorService.AssignSecondaryUrls(epVersions, epParsed, config);
                     if (epVersions.Count == 0) continue;
 
                     var epBaseName = Services.NamingPolicyService.BuildStrmFileName(item, seasonNum, ep.Episode);
