@@ -33,7 +33,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 ### F-01: Valid cache hit — normal fast path
 
-**Trigger:** Cache entry exists, `status = 'valid'`, not expired, age < 70% of `CacheLifetimeMinutes`.
+**Trigger:** Cache entry exists, `status = 'valid'`, and is inside its derived freshness window.
 
 **Behaviour:** Stream URL served immediately via redirect or proxy. No external calls made. Playback begins in < 100 ms.
 
@@ -43,7 +43,7 @@ This document describes every failure state the plugin can encounter and exactly
 
 ### F-02: Aging cache — proactive range probe
 
-**Trigger:** Cache entry is valid and not expired, but age > 70% of `CacheLifetimeMinutes` (≈ 252 min for the 360-min default).
+**Trigger:** Cache entry is valid but has crossed 70% of the bounded runtime freshness window.
 
 **Why it happens:** Real-Debrid CDN URLs expire server-side at ~4–6 hours, independent of the 6-hour cache TTL. Proactive probing prevents silently serving a dead URL during hours 4–6.
 
@@ -180,9 +180,9 @@ This document describes every failure state the plugin can encounter and exactly
 **Trigger:** All of the above paths exhausted with no stream URL.
 
 **Behaviour:**
-1. Returns HTTP 503
-2. If `DontPanic = false`: standard JSON error response
-3. If the Emby client follows the body as a stream: it will get a redirect to `GET /InfiniteDrive/Panic` which returns a Hitchhiker's Guide–styled HTML error page
+1. Returns HTTP 503 with a standard JSON error response.
+2. The optional diagnostic page at `GET /InfiniteDrive/Panic` remains available
+   for an administrator, but there is no behavior switch named `DontPanic`.
 
 **Error codes returned:**
 | Code | Meaning |
@@ -383,11 +383,12 @@ This document describes every failure state the plugin can encounter and exactly
 
 ## Background Task Failures
 
-### T-01: LinkResolverTask exceeds API daily budget
+### T-01: Provider backoff becomes active
 
-**Trigger:** `api_budget` table shows >= `ApiDailyBudget` calls today (UTC).
+**Trigger:** Provider response state indicates throttling or Retry-After backoff.
 
-**Behaviour:** The resolver pauses for the rest of the day. On-demand playback resolution is not affected.
+**Behaviour:** Background resolution pauses for the observed backoff period and
+resumes automatically. The `api_budget` table is call telemetry, not a rule.
 
 ---
 
@@ -417,13 +418,13 @@ This document describes every failure state the plugin can encounter and exactly
 
 ---
 
-### T-05: PreCacheAioStreamsTask — API budget exhausted mid-batch
+### T-05: PreCacheAioStreamsTask — provider backoff mid-batch
 
 **Trigger:** `IsBudgetExhaustedAsync()` returns true while the pre-cache task is running.
 
-**Behaviour:** The task logs how many items were resolved before exhaustion and stops. Remaining items are retried on the next scheduled run. No items are lost.
+**Behaviour:** The task logs how many items were resolved before backoff and stops. Remaining items are retried on the next scheduled run. No items are lost.
 
-**Logging:** `[PreCache] Budget exhausted after {N} items — {M} remaining` (Warning)
+**Logging:** `[PreCache] Provider backoff activated after {N} items — {M} remaining` (Warning)
 
 ---
 

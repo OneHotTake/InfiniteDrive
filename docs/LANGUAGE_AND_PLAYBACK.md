@@ -23,12 +23,15 @@ InfiniteDrive populates audio language and subtitle tracks from AIOStreams strea
 
 ## Language Fallback Priority
 
-When sorting versions and selecting streams, InfiniteDrive uses this priority chain:
+For catalog creation, images, certification, and non-user-specific search,
+InfiniteDrive uses this priority chain:
 
-1. **User's PreferredMetadataLanguage** — your Emby user setting (per-user)
-2. **Plugin's MetadataLanguage** — admin config (global default)
-3. **Library's PreferredMetadataLanguage** — per-library setting in Emby admin
-4. **Rank-order** — no preference, best available version first
+1. **Matching library's Emby preferences**
+2. **Another configured Emby library's preferences**
+3. **Bounded fallback** — English metadata/images and US certifications
+
+There is no separate InfiniteDrive metadata, image, certification, or subtitle
+language setting. Per-user playback audio/subtitle choices remain Emby's job.
 
 ## For Admins: Per-Library Language
 

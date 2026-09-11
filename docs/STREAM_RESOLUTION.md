@@ -31,9 +31,12 @@ When the cache has no entry for an item:
 4. The top-ranked streams become `MediaSourceInfo[]` with `RequiresOpening=true`.
 5. Stream data is written to `stream_resolution_cache` via fire-and-forget `ProbeAndCacheAsync` for future lookups.
 
-### Multi-Manifest Failover
+### Multi-manifest peers
 
-If the primary manifest (`PrimaryManifestUrl`) returns `ProviderDown` or `ContentMissing`, the system attempts resolution against the secondary manifest (`SecondaryManifestUrl`). An item is only considered "dead" if both manifests return `ContentMissing`.
+Every non-empty configured manifest participates in resolution. A provider error
+on one peer does not prevent another peer from supplying candidates. Duplicate
+candidate URLs collapse, and no separately persisted dynamic secondary version
+is exposed to the user.
 
 ## 4. OpenMediaSource Flow
 
@@ -145,4 +148,6 @@ When multiple cached candidates exist, `ResolverService` applies a language fall
 * `IsExternal = true`, `DeliveryUrl` and `Path` set to subtitle URL
 * Language from `subtitle.Lang`
 
-**Language sorting** — sources sorted by: `PluginConfiguration.DefaultSubtitleLanguage` → library's `PreferredMetadataLanguage` (via `ILibraryManager.GetVirtualFolders()`) → no sort. Matching audio streams marked `IsDefault = true`.
+**Language sorting** — library-level metadata/image/certification defaults are
+derived from Emby. Per-user audio and subtitle selection remains native Emby
+behavior; InfiniteDrive does not maintain a duplicate subtitle-language rule.

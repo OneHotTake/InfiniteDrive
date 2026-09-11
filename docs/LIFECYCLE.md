@@ -23,7 +23,7 @@ Every content item follows a specific state progression from discovery to full l
 **The Contract:**
 - **Success:** Do nothing.
 - **Throttled (429):** Sleep and skip. Do **NOT** delete the item.
-- **ProviderDown (5xx):** Attempt failover to secondary manifest.
-- **ContentMissing (404):** Only if 404 is confirmed on **ALL** manifest sources is the item marked for "Pessimistic Deletion."
-
+- **ProviderDown (5xx):** Continue across the other configured manifest peers.
+- **ContentMissing (404):** Only if absence is confirmed across all configured
+  peers and repeated state checks may a managed item become eligible for pruning.
 

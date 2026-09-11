@@ -128,11 +128,12 @@ For a complete list of all settings, see **[Configuration Guide](./configuration
 
 ### Key Settings
 
-- **PrimaryManifestUrl** — Your AIOStreams manifest URL (configured in wizard)
-- **SecondaryManifestUrl** — Optional backup AIOStreams for failover
+- **Manifest 1** — Your AIOStreams manifest URL (configured in wizard)
+- **Manifest 2** — Optional active peer; its catalogs and streams are unioned
 - **SyncPathMovies / SyncPathShows** — Folders where `.strm` files are written (configured in wizard)
-- **ProxyMode** — `auto` (recommended) / `redirect` / `proxy` for client compatibility
-- **CacheLifetimeMinutes** — How long resolved URLs are cached (default: 6 hours)
+- **Allow REMUX / Allow CAM/TS** — explicit quality opt-ins, both off by default
+- **Lists** — MDBList, AniList, Trakt and other list sources remain useful even
+  when the manifest itself exposes no catalogs
 
 ---
 

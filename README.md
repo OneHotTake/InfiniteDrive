@@ -144,15 +144,19 @@ Emby Player → AioMediaSourceProvider (ranked, filtered Emby media sources)
 ### Key Design Decisions
 
 - **No cross-service ID translation at browse time** — IDs are passed as-is to the source addon's own `/meta` endpoint (same approach as Nuvio). Cross-resolution happens lazily at sync time.
-- **Rejected releases stay rejected** — CAM/telesync captures are excluded.
-  REMUX releases require the explicit opt-in and cannot re-enter through cached
-  candidates or secondary URLs.
+- **Rejected releases stay rejected** — CAM/telesync and REMUX candidates are
+  excluded by default. The Quality page exposes separate **Allow CAM/TS** and
+  **Allow REMUX** opt-ins; rejected candidates cannot re-enter through cache or
+  another manifest.
 - **Emby does its own metadata job** — we write scanner hints (`[imdbid-tt...]`, `[tmdbid-xxx]`) and NFO files; we don't try to replicate Emby's metadata logic
 - **Secrets are log-redacted** — manifest credentials, signed CDN paths, query
   strings, and ffprobe diagnostics are sanitized before logging.
-- **Mycelium boundary** — Mycelium remains the TorBox/Zilean materializer and
-  resolver for its existing library. InfiniteDrive does not expose Mycelium or
-  silently redirect permanent Seerr requests.
+- **State, not Mycelium policy** — InfiniteDrive never assumes Mycelium exists
+  and never lets it drive behavior. External entries are ordinary duplicates;
+  only InfiniteDrive-managed virtual files are eligible for reconciliation.
+- **Catalog-less is not content-less** — MDBList, AniList, Trakt and other lists
+  continue to sync when a manifest has no catalogs. If neither a list nor a
+  manifest supplies content, a small starter catalog is derived for that run.
 
 ---
 

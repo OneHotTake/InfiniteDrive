@@ -458,20 +458,20 @@ Or manually: open `InfiniteDrive.xml` and set `<IsFirstRunComplete>false</IsFirs
 
 ---
 
-## API Budget Management
+## Provider backoff management
 
-### Budget exceeded — resolver has stopped
+### Provider backoff — background resolver has paused
 
-**Symptom:** Health Dashboard shows "Daily API budget exceeded". New items don't resolve overnight.
+**Symptom:** Health Dashboard reports provider backoff and new items temporarily stop resolving in the background.
 
-**Fix 1 (immediate):** Increase `ApiDailyBudget` in plugin settings. Default is 2000; for large catalogs 5000–10000 is reasonable.
+**First action:** Check the provider response and Retry-After time. InfiniteDrive resumes automatically; there is no daily-budget setting.
 
 **Fix 2 (reduce consumption):**
 - Reduce the number of AIOStreams catalogs synced (set specific `AioStreamsCatalogIds`)
 - Reduce `CatalogItemCap` to limit items per catalog
-- Set `NextUpLookaheadEpisodes = 0` to disable episode pre-warming
+- Reduce `PreCacheBatchSize` if the provider is repeatedly rate limiting
 
-**Note:** On-demand playback (cache miss at play time) is **never** subject to the budget limit — it always resolves.
+**Note:** Call counts remain visible as telemetry and do not act as a rules budget.
 
 ---
 
@@ -613,11 +613,11 @@ sqlite3 /var/lib/emby/data/InfiniteDrive/infinitedrive.db \
 grep "\[PreCache\]" /var/log/emby/embyserver.txt | tail -20
 ```
 
-### Pre-cache is consuming too much API budget
+### Pre-cache is causing frequent provider backoff
 
 **Fix 1:** Reduce `PreCacheBatchSize` (default 42, range 1-500).
 
-**Fix 2:** Increase `ApiDailyBudget` if you have room.
+**Fix 2:** Reduce concurrent resolutions and allow the provider's backoff to clear.
 
 ---
 
