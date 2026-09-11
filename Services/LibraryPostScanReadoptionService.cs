@@ -1,6 +1,4 @@
 using System;
-using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -73,13 +71,13 @@ namespace InfiniteDrive.Services
                 int processed = 0;
                 int readopted = 0;
 
+                var preference = new OwnedMediaPreferenceService(_libraryManager, _logger);
                 foreach (var item in strmItems)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    if (IsSupersededByRealFile(item))
+                    if (await preference.RetireIfOwnedAsync(db, item, cancellationToken))
                     {
-                        await ReadoptItemAsync(db, item, cancellationToken);
                         readopted++;
                         _logger.LogInformation(
                             "[InfiniteDrive] Re-adopted {Title} — real file detected post-scan",
@@ -111,63 +109,5 @@ namespace InfiniteDrive.Services
             }
         }
 
-        /// <summary>
-        /// Checks if Emby library contains a real media file matching this item's provider ID.
-        /// </summary>
-        private bool IsSupersededByRealFile(CatalogItem item)
-        {
-            // Build provider ID list: AioId might be tt-prefix (IMDB) or another format
-            var providerIds = new List<KeyValuePair<string, string>>();
-
-            if (!string.IsNullOrEmpty(item.AioId))
-            {
-                if (item.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
-                    providerIds.Add(new KeyValuePair<string, string>("imdb", item.AioId));
-                else if (item.AioId.Contains(':'))
-                {
-                    var parts = item.AioId.Split(':');
-                    if (parts.Length == 2)
-                        providerIds.Add(new KeyValuePair<string, string>(parts[0], parts[1]));
-                }
-                else
-                    providerIds.Add(new KeyValuePair<string, string>("imdb", item.AioId));
-            }
-            if (!string.IsNullOrEmpty(item.TmdbId))
-                providerIds.Add(new KeyValuePair<string, string>("tmdb", item.TmdbId));
-
-            if (providerIds.Count == 0)
-                return false; // Cannot match without a provider ID
-
-            var query = new MediaBrowser.Controller.Entities.InternalItemsQuery
-            {
-                AnyProviderIdEquals = providerIds.ToArray(),
-                IsVirtualItem = false,
-                Recursive = true
-            };
-
-            var matches = _libraryManager.GetItemList(query);
-
-            // A real file exists if there's a non-.strm match
-            return matches.Any(m =>
-                m.Path != null &&
-                !m.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase));
-        }
-
-        /// <summary>
-        /// Retires the item by deleting .strm (if configured) and updating catalog state.
-        /// </summary>
-        private async Task ReadoptItemAsync(Data.DatabaseManager db, CatalogItem item, CancellationToken ct)
-        {
-            // InfiniteDrive only deletes resolver files it owns. External virtual
-            // libraries are merely duplicate state and never drive this policy.
-            StrmWriterService.DeleteWithVersions(item.StrmPath);
-            _logger.LogDebug("[InfiniteDrive] Deleted managed .strm + versions for re-adopted item: {Path}",
-                item.StrmPath);
-
-            // Update catalog item state
-            item.ItemState = ItemState.Retired;
-            item.LocalSource = "library";
-            await db.UpsertCatalogItemAsync(item, ct);
-        }
     }
 }

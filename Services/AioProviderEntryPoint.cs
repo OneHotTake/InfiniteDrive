@@ -1,8 +1,6 @@
-using System;
 using System.Collections.Generic;
 using System.Text.Json;
 using InfiniteDrive.Logging;
-using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Plugins;
 using MediaBrowser.Model.Logging;
 using Microsoft.Extensions.Logging;
@@ -10,43 +8,25 @@ using Microsoft.Extensions.Logging;
 namespace InfiniteDrive.Services
 {
     /// <summary>
-    /// Registers AioMediaSourceProvider with Emby's media source manager.
-    /// Called at server startup via IServerEntryPoint.
+    /// Reports provider readiness at server startup.
     ///
-    /// AioSeriesMetadataProvider and AioMovieMetadataProvider are
-    /// auto-discovered by Emby via assembly scanning — no explicit
-    /// registration needed here.
+    /// All InfiniteDrive providers, including AioMediaSourceProvider, are
+    /// discovered by Emby's assembly scan. Do not call IMediaSourceManager.AddParts
+    /// here: on Emby 4.10 that method replaces the complete provider set and would
+    /// remove Live TV and channel providers registered by the server.
     /// </summary>
     public class AioProviderEntryPoint : IServerEntryPoint
     {
         private readonly ILogger<AioProviderEntryPoint> _logger;
-        private readonly IMediaSourceManager _mediaSourceManager;
-        private readonly ILibraryManager _libraryManager;
-        private readonly ILogManager _logManager;
 
-        public AioProviderEntryPoint(
-            IMediaSourceManager mediaSourceManager,
-            ILibraryManager libraryManager,
-            ILogManager logManager)
+        public AioProviderEntryPoint(ILogManager logManager)
         {
-            _mediaSourceManager = mediaSourceManager;
-            _libraryManager = libraryManager;
-            _logManager = logManager;
             _logger = new EmbyLoggerAdapter<AioProviderEntryPoint>(logManager.GetLogger("InfiniteDrive"));
         }
 
         public void Run()
         {
-            try
-            {
-                var provider = new AioMediaSourceProvider(_logManager, _mediaSourceManager, _libraryManager);
-                _mediaSourceManager.AddParts(new[] { provider });
-                _logger.LogInformation("[InfiniteDrive] Registered AioMediaSourceProvider");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[InfiniteDrive] Failed to register AioMediaSourceProvider");
-            }
+            _logger.LogInformation("[InfiniteDrive] AioMediaSourceProvider available through Emby provider discovery");
 
             // Log census state for diagnostics
             try

@@ -4,7 +4,7 @@
 
 > *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
 
-**CURRENT RELEASE:** Version 0.42.1 is built and tested against Emby 4.10.0.40.
+**CURRENT RELEASE:** Version 0.42.2 is built and tested against Emby 4.10.0.40.
 Back up the Emby plugin configuration, database, and managed library state
 before upgrading.
 
@@ -40,6 +40,20 @@ InfiniteDrive bridges your AIOStreams manifest to Emby:
 3. **Stream Probing** — quickly checks if candidate streams actually respond before serving them to your player
 4. **Subtitle Fetching** — fetches external subtitles from AIOStreams and registers as an Emby `ISubtitleProvider` for the native subtitle picker
 5. **ID Normalization** — retains provider-native stream IDs while preferring IMDb/TMDB/TVDB cross-references for Emby naming and matching
+
+### Owned media always wins
+
+InfiniteDrive never competes with a physical movie or series already owned by
+the Emby server. Before any streamed file is written, InfiniteDrive compares
+the catalog item's IMDb, TMDB, TVDB, and other stable provider IDs with Emby's
+physical library. A matching item outside InfiniteDrive's configured roots is
+recorded as `Retired`, its managed stream tree is removed, and no `.strm` is
+created.
+
+Catalog and list refreshes preserve that retirement. The item is eligible for
+streaming again only when Marvin verifies that the recorded physical file or
+series directory has genuinely disappeared. The post-library-scan check remains
+as a safety net, but it is not the primary deduplication boundary.
 
 ---
 
@@ -166,6 +180,9 @@ Emby Player → AioMediaSourceProvider (ranked, filtered Emby media sources)
 - **State, not Mycelium policy** — InfiniteDrive never assumes Mycelium exists
   and never lets it drive behavior. External entries are ordinary duplicates;
   only InfiniteDrive-managed virtual files are eligible for reconciliation.
+- **Owned before streamed** — matching physical Emby media outside the three
+  InfiniteDrive roots is authoritative. The streamed representation is retired
+  before write and cannot be resurrected by an ordinary catalog refresh.
 - **Catalog-less is not content-less** — MDBList, AniList, Trakt and other lists
   continue to sync when a manifest has no catalogs. If neither a list nor a
   manifest supplies content, a small starter catalog is derived for that run.
@@ -191,7 +208,7 @@ The `.ai/` directory contains sprint planning documents and the repository map. 
 
 ## Version
 
-**0.42.1.0** — Emby 4.10 ABI and bounded-pipeline hardening
+**0.42.2.0** — Owned-media precedence and Live TV provider isolation
 
 *(The answer is 42. We're still working on what the question is.)*
 

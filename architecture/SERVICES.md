@@ -59,6 +59,12 @@ Each class is a standalone service file under `Services/Api/`:
 
 **Purpose:** Populates Emby's version picker with live AIOStreams streams. Implements `IMediaSourceProvider`. Secure playback via `RequiresOpening = true`.
 
+Emby discovers this provider during its normal assembly scan. Do not register it
+manually with `IMediaSourceManager.AddParts`: Emby 4.10 replaces the complete
+provider set in that method, which removes Live TV/channel playback providers.
+The provider accepts only `Movie` and `Episode` objects; anime uses those same
+Emby types inside the configured anime library.
+
 | File | Lines | Purpose |
 |------|-------|---------|
 | `AioMediaSourceProvider.cs` | 966 | `GetMediaSources()` — main entry point |
@@ -103,6 +109,13 @@ Each class is a standalone service file under `Services/Api/`:
 ### StreamResolutionHelper
 
 **Purpose:** Shared stream resolution with provider fallback.
+
+### OwnedMediaPreferenceService
+
+**Purpose:** Enforces owned-media precedence before every streamed write and
+again after Emby library scans. It matches stable provider IDs, excludes all
+InfiniteDrive-managed roots, removes only the matching managed stream tree, and
+durably records the real external Emby path as `Retired`.
 
 | Method | Description |
 |--------|-------------|

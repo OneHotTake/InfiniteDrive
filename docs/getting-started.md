@@ -5,7 +5,7 @@ lists into managed `.strm` libraries, then resolves playable streams on demand.
 
 ## Prerequisites
 
-- Emby Server 4.10.0.40 (the ABI verified by release 0.42.1).
+- Emby Server 4.10.0.40 (the ABI verified by release 0.42.2).
 - One configured AIOStreams manifest.
 - A working debrid provider configured behind that manifest.
 - Writable movie, series, and anime folders that are visible inside Emby.

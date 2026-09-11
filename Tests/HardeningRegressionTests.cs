@@ -10,12 +10,28 @@ using System.Threading.Tasks;
 using InfiniteDrive.Services;
 using InfiniteDrive.Models;
 using InfiniteDrive.Tasks;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
+using MediaBrowser.Controller.LiveTv;
 using Xunit;
 
 namespace InfiniteDrive.Tests;
 
 public sealed class HardeningRegressionTests
 {
+    [Fact]
+    public void PlaybackProviderIsStrictlyLimitedToMoviesAndEpisodes()
+    {
+        Assert.True(AioMediaSourceProvider.SupportsPlaybackItem(new Movie()));
+        Assert.True(AioMediaSourceProvider.SupportsPlaybackItem(new Episode()));
+
+        Assert.False(AioMediaSourceProvider.SupportsPlaybackItem(new Series()));
+        Assert.False(AioMediaSourceProvider.SupportsPlaybackItem(new Season()));
+        Assert.False(AioMediaSourceProvider.SupportsPlaybackItem(new LiveTvChannel()));
+        Assert.False(AioMediaSourceProvider.SupportsPlaybackItem(null));
+    }
+
     [Fact]
     public async Task ManifestValidationAcceptsObjectResourcesAndClassifiesCatalogs()
     {
@@ -331,6 +347,48 @@ public sealed class HardeningRegressionTests
             "/mycelium/movies/Title/movie.strm", config));
         Assert.False(DiscoverInitializationService.IsManagedPath(
             "/media/infinitedrive-other/movies/Title/movie.strm", config));
+    }
+
+    [Fact]
+    public void OwnedMediaMatchingUsesAllStableProviderIds()
+    {
+        var item = new CatalogItem
+        {
+            AioId = "tt0169547",
+            TmdbId = "14",
+            TvdbId = "445",
+            UniqueIdsJson = "[{\"provider\":\"imdb\",\"id\":\"tt0169547\"},{\"provider\":\"kitsu\",\"id\":\"123\"}]",
+        };
+
+        var ids = OwnedMediaPreferenceService.BuildProviderIds(item);
+
+        Assert.Contains(ids, id => id.Key == "Imdb" && id.Value == "tt0169547");
+        Assert.Contains(ids, id => id.Key == "Tmdb" && id.Value == "14");
+        Assert.Contains(ids, id => id.Key == "Tvdb" && id.Value == "445");
+        Assert.Contains(ids, id => id.Key == "Kitsu" && id.Value == "123");
+        Assert.Equal(4, ids.Count);
+    }
+
+    [Fact]
+    public void OwnedMediaMustBeOutsideEveryInfiniteDriveRoot()
+    {
+        var roots = new[]
+        {
+            "/media/infinitedrive/movies",
+            "/media/infinitedrive/shows",
+            "/media/infinitedrive/anime",
+        };
+
+        Assert.True(OwnedMediaPreferenceService.IsPathWithinRoots(
+            "/media/infinitedrive/movies/American Beauty/movie.strm", roots));
+        Assert.False(OwnedMediaPreferenceService.IsPathWithinRoots(
+            "/media/media/movies/curated/American Beauty/movie.mkv", roots));
+        Assert.Null(OwnedMediaPreferenceService.ResolveManagedItemDirectory(
+            "/media/media/movies/curated/American Beauty/movie.mkv", roots));
+        Assert.Equal(
+            "/media/infinitedrive/shows/Example",
+            OwnedMediaPreferenceService.ResolveManagedItemDirectory(
+                "/media/infinitedrive/shows/Example/Season 01/episode.strm", roots));
     }
 
     private sealed class StaticHandler : HttpMessageHandler

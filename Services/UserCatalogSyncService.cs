@@ -167,7 +167,8 @@ namespace InfiniteDrive.Services
                 // provider selection, and multi-version writer are used everywhere.
                 // Writing an empty placeholder here used to leave StrmPath unset; the
                 // repair phase then correctly (but disastrously) deleted it as orphaned.
-                if (string.IsNullOrEmpty(catalogItem.StrmPath))
+                if (catalogItem.ItemState != ItemState.Retired
+                    && string.IsNullOrEmpty(catalogItem.StrmPath))
                     catalogItem.ItemState = ItemState.Queued;
                 await _db.UpsertCatalogItemAsync(catalogItem, ct);
 

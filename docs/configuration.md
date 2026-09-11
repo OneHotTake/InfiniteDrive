@@ -82,7 +82,11 @@ provider backoff, pruning threshold, and playlist protection are internal or
 derived state. The page intentionally exposes status rather than tuning knobs.
 
 Owned physical media wins identity reconciliation over an InfiniteDrive-managed
-virtual resolver file. Only InfiniteDrive-managed files may be removed by this
+virtual resolver file. The check runs before every streamed write using stable
+provider identity; a match is stored with the real external file/directory path
+and the catalog row remains `Retired` across later manifest and list updates.
+Only an explicit resurrection check after that recorded owned path disappears
+may queue it again. Only InfiniteDrive-managed files may be removed by this
 process. Mycelium is neither required nor consulted; if its entries are visible
 to Emby they are simply external duplicates.
 

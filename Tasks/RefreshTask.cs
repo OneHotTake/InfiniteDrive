@@ -98,7 +98,9 @@ namespace InfiniteDrive.Tasks
                     var written = await WriteStepAsync(collected, cancellationToken);
                     _logger.LogDebug("[Refresh] Write step completed in {Ms}ms — {Count} files written", stepSw.ElapsedMilliseconds, written);
                     _logger.LogInformation("[InfiniteDrive] RefreshTask: Wrote {Count} .strm files", written);
-                    writtenItems.AddRange(collected);
+                    writtenItems.AddRange(collected.Where(item =>
+                        item.ItemState == ItemState.Written
+                        && !string.IsNullOrEmpty(item.StrmPath)));
                     totalItemsAffected += written;
                     await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("refresh_items_processed", totalItemsAffected.ToString(), cancellationToken);
                 }
@@ -305,6 +307,14 @@ namespace InfiniteDrive.Tasks
             await gate.WaitAsync(cancellationToken);
             try
             {
+                var ownedMedia = new OwnedMediaPreferenceService(_libraryManager, _logger);
+                if (await ownedMedia.RetireIfOwnedAsync(
+                    Plugin.Instance!.DatabaseManager, item, cancellationToken).ConfigureAwait(false))
+                {
+                    results.Add((true, item));
+                    return;
+                }
+
                 var itemSw = System.Diagnostics.Stopwatch.StartNew();
                 var folderName = NamingPolicyService.BuildFolderName(item);
                 var basePath = GetLibraryPath(config, item.MediaType);
@@ -407,6 +417,14 @@ namespace InfiniteDrive.Tasks
             await gate.WaitAsync(cancellationToken);
             try
             {
+                var ownedMedia = new OwnedMediaPreferenceService(_libraryManager, _logger);
+                if (await ownedMedia.RetireIfOwnedAsync(
+                    Plugin.Instance!.DatabaseManager, item, cancellationToken).ConfigureAwait(false))
+                {
+                    results.Add((true, item));
+                    return;
+                }
+
                 var itemSw = System.Diagnostics.Stopwatch.StartNew();
                 var basePath = GetLibraryPath(config, item.MediaType);
 

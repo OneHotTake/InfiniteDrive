@@ -13,6 +13,8 @@ using InfiniteDrive.Models;
 using InfiniteDrive.Tasks;
 
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Movies;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
@@ -59,6 +61,7 @@ namespace InfiniteDrive.Services
             _logger = new EmbyLoggerAdapter<AioMediaSourceProvider>(logManager.GetLogger("InfiniteDrive"));
             _mediaSourceManager = mediaSourceManager;
             _libraryManager = libraryManager;
+            _logger.LogInformation("[AioMediaSourceProvider] Constructed by Emby provider discovery");
         }
 
         /// <summary>
@@ -89,7 +92,12 @@ namespace InfiniteDrive.Services
 
         private async Task<List<MediaSourceInfo>> GetMediaSourcesCoreAsync(BaseItem item, CancellationToken ct)
         {
-            if (item == null) return new List<MediaSourceInfo>();
+            // IMediaSourceProvider is a global Emby extension point, so Emby asks
+            // every registered provider about Live TV, audio, photos, and other
+            // item types. InfiniteDrive must be a strict movie/episode provider:
+            // anime is represented by those same Emby types inside the configured
+            // anime root. Reject everything else before logging or resolution.
+            if (!SupportsPlaybackItem(item)) return new List<MediaSourceInfo>();
 
             _logger.LogInformation("[AioMediaSourceProvider] GetMediaSources called for {Name} (Type={Type}, Path={Path})",
                 item.Name, item.GetType().Name, item.Path);
@@ -154,6 +162,9 @@ namespace InfiniteDrive.Services
                 _keyLocks.TryRemove(cacheKey, out _);
             }
         }
+
+        internal static bool SupportsPlaybackItem(BaseItem? item) =>
+            item is Movie || item is Episode;
 
         private async Task<List<MediaSourceInfo>> ResolveWithCacheAsync(
             string cacheKey, string aioId, string mediaType, int? season, int? episode,
@@ -603,7 +614,7 @@ namespace InfiniteDrive.Services
             if (string.IsNullOrEmpty(aioId)) return (null, mediaType, null, null);
 
             // Detect series
-            if (item is MediaBrowser.Controller.Entities.TV.Episode ep)
+            if (item is Episode ep)
             {
                 mediaType = "series";
                 season = ep.ParentIndexNumber ?? 0;

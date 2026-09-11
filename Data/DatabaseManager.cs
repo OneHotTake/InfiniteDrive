@@ -124,10 +124,14 @@ namespace InfiniteDrive.Data
                 year          = excluded.year,
                 media_type    = excluded.media_type,
                 seasons_json  = COALESCE(excluded.seasons_json, catalog_items.seasons_json),
-                strm_path     = COALESCE(excluded.strm_path,    catalog_items.strm_path),
-                local_path    = COALESCE(catalog_items.local_path,   excluded.local_path),
-                local_source  = COALESCE(catalog_items.local_source, excluded.local_source),
-                item_state    = COALESCE(excluded.item_state,    catalog_items.item_state),
+                strm_path     = CASE WHEN catalog_items.item_state = 3 THEN NULL
+                                     ELSE COALESCE(excluded.strm_path, catalog_items.strm_path) END,
+                local_path    = CASE WHEN catalog_items.item_state = 3 THEN catalog_items.local_path
+                                     ELSE COALESCE(catalog_items.local_path, excluded.local_path) END,
+                local_source  = CASE WHEN catalog_items.item_state = 3 THEN catalog_items.local_source
+                                     ELSE COALESCE(catalog_items.local_source, excluded.local_source) END,
+                item_state    = CASE WHEN catalog_items.item_state = 3 THEN 3
+                                     ELSE excluded.item_state END,
                 enrichment_status = COALESCE(excluded.enrichment_status, catalog_items.enrichment_status),
                 retry_count   = COALESCE(excluded.retry_count, catalog_items.retry_count),
                 next_retry_at = COALESCE(excluded.next_retry_at, catalog_items.next_retry_at),
@@ -198,6 +202,57 @@ namespace InfiniteDrive.Data
         public async Task UpsertCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken = default)
         {
             await ExecuteWriteAsync(UpsertCatalogItemSql, cmd => BindCatalogItemParams(cmd, item));
+        }
+
+        /// <summary>
+        /// Atomically records that a real Emby file supersedes this catalog item.
+        /// Clears every streamed-path field so a later catalog upsert cannot revive it.
+        /// </summary>
+        public Task RetireCatalogItemForOwnedMediaAsync(
+            string itemId,
+            string ownedPath,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET item_state = 3,
+                    local_source = 'library',
+                    local_path = @owned_path,
+                    strm_path = NULL,
+                    selected_versions_json = NULL,
+                    last_version_refresh_at = NULL,
+                    updated_at = @updated_at
+                WHERE id = @id;";
+
+            return ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", itemId);
+                BindText(cmd, "@owned_path", ownedPath);
+                BindText(cmd, "@updated_at", DateTime.UtcNow.ToString("o"));
+            }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Explicitly leaves Retired after the recorded owned file is genuinely gone.
+        /// Ordinary catalog upserts intentionally cannot make this transition.
+        /// </summary>
+        public Task QueueRetiredItemForResurrectionAsync(
+            string itemId,
+            CancellationToken cancellationToken = default)
+        {
+            const string sql = @"
+                UPDATE catalog_items
+                SET item_state = 6,
+                    local_source = NULL,
+                    local_path = NULL,
+                    updated_at = @updated_at
+                WHERE id = @id AND item_state = 3;";
+
+            return ExecuteWriteAsync(sql, cmd =>
+            {
+                BindText(cmd, "@id", itemId);
+                BindText(cmd, "@updated_at", DateTime.UtcNow.ToString("o"));
+            }, cancellationToken);
         }
 
         /// <summary>

@@ -1,6 +1,6 @@
 # InfiniteDrive settings coverage matrix
 
-Verified against the 0.42.1 source and isolated Emby 4.10.0.40 staging on
+Verified against the 0.42.2 source and isolated Emby 4.10.0.40 staging on
 2026-09-11. This table describes the supported UI contract; persisted discovery
 snapshots and migration fields are intentionally not presented as user rules.
 
@@ -25,7 +25,7 @@ snapshots and migration fields are intentionally not presented as user rules.
 | Provider pressure | None | Retry/backoff state | Background work pauses and resumes automatically | Source + regression coverage |
 | Next episode | None | Indexed Emby episodes and premiere dates | Queues exactly the next released indexed episode | Source + clean build |
 | Maximum versions | None | Emby capability | Hard ceiling of 8; editions preserved first | Regression tests |
-| Physical duplicate | None | Emby identities and managed-path ownership | Owned file wins only over InfiniteDrive-managed resolver | Source + scope regression |
+| Physical duplicate | None | Emby identities and managed-path ownership | Pre-write retirement; owned path remains durable across catalog refresh; only verified disappearance resurrects streaming | Source + scope + durable-state regression |
 | Logging/maintenance | Advanced | Plugin XML/user action | Changes verbosity or runs explicit maintenance | Chromium inspection |
 
 ## Removed rule fields

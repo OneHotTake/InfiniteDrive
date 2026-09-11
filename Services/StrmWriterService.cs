@@ -47,17 +47,25 @@ namespace InfiniteDrive.Services
         /// <param name="ownerUserId">Optional user ID who first added this item.</param>
         /// <param name="ct">Cancellation token.</param>
         /// <returns>Path to written .strm file, or null if paths not configured.</returns>
-        public Task<string?> WriteAsync(
+        public async Task<string?> WriteAsync(
             CatalogItem item,
             SourceType originSourceType,
             string? ownerUserId,
             CancellationToken ct)
         {
+            var libraryManager = Plugin.Instance?.LibraryManager;
+            if (libraryManager != null)
+            {
+                var ownedMedia = new OwnedMediaPreferenceService(libraryManager, _logger);
+                if (await ownedMedia.RetireIfOwnedAsync(_db, item, ct).ConfigureAwait(false))
+                    return null;
+            }
+
             var config = Plugin.Instance?.Configuration;
             if (config == null)
             {
                 _logger.LogWarning("[InfiniteDrive] StrmWriterService: Plugin configuration not available");
-                return Task.FromResult<string?>(null);
+                return null;
             }
 
             var isAnime = string.Equals(item.CatalogType, "anime", StringComparison.OrdinalIgnoreCase)
@@ -73,7 +81,7 @@ namespace InfiniteDrive.Services
                     Directory.CreateDirectory(animeFolder);
                     var animePath = Path.Combine(animeFolder, NamingPolicyService.BuildStrmFileName(item));
                     WriteStrmFile(animePath, string.Empty);
-                    return Task.FromResult<string?>(animePath);
+                    return animePath;
                 }
                 else
                 {
@@ -81,13 +89,13 @@ namespace InfiniteDrive.Services
                     Directory.CreateDirectory(animeSeasonDir);
                     var animeStrmPath = Path.Combine(animeSeasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
                     WriteStrmFile(animeStrmPath, string.Empty);
-                    return Task.FromResult<string?>(animeStrmPath);
+                    return animeStrmPath;
                 }
             }
 
             if (item.MediaType == "movie")
             {
-                if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return Task.FromResult<string?>(null);
+                if (string.IsNullOrWhiteSpace(config.SyncPathMovies)) return null;
                 var folderBareName = NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item));
                 var folder = Path.Combine(config.SyncPathMovies, folderBareName);
                 Directory.CreateDirectory(folder);
@@ -95,18 +103,18 @@ namespace InfiniteDrive.Services
                 var fileName = NamingPolicyService.BuildStrmFileName(item);
                 var path = Path.Combine(folder, fileName);
                 WriteStrmFile(path, string.Empty);
-                return Task.FromResult<string?>(path);
+                return path;
             }
 
             // Series — seed S01E01
-            if (string.IsNullOrWhiteSpace(config.SyncPathShows)) return Task.FromResult<string?>(null);
+            if (string.IsNullOrWhiteSpace(config.SyncPathShows)) return null;
             var showDir = Path.Combine(config.SyncPathShows,
                 NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
             var seasonDir = Path.Combine(showDir, "Season 01");
             Directory.CreateDirectory(seasonDir);
             var strmPath = Path.Combine(seasonDir, NamingPolicyService.BuildStrmFileName(item, 1, 1));
             WriteStrmFile(strmPath, string.Empty);
-            return Task.FromResult<string?>(strmPath);
+            return strmPath;
         }
 
         /// <summary>

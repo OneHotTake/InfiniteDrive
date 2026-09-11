@@ -82,9 +82,19 @@ The system uses a registry of domain-specific services stitched together by a si
 2. **Global sync lock**: `Plugin.SyncLock` (SemaphoreSlim) serializes catalog operations.
 3. **Secure playback via RequiresOpening**:
    - `AioMediaSourceProvider` implements `IMediaSourceProvider`
+   - Emby's assembly scan discovers it; plugin entry points must never call
+     `IMediaSourceManager.AddParts`, which replaces all providers on Emby 4.10
+   - It accepts only `Movie` and `Episode` objects and returns immediately for
+     Live TV, audio, photos, and folder/container objects
    - `RequiresOpening = true` forces Emby to call `OpenMediaSource()` behind auth layer
    - CDN URLs materialize server-side only, never in .strm files or picker display
-4. **Stream identity**: `infoHash + fileIdx` survives CDN URL rotation.
+4. **Owned media precedes streamed media**:
+   - Provider-ID matching runs before any `.strm` write
+   - Matches beneath InfiniteDrive's own roots are excluded
+   - A retired row stores the real external Emby path and ordinary catalog
+     refreshes cannot revive it
+   - Resurrection is explicit and occurs only after that path disappears
+5. **Stream identity**: `infoHash + fileIdx` survives CDN URL rotation.
 
 ## What This Is NOT
 

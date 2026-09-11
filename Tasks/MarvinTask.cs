@@ -674,11 +674,15 @@ namespace InfiniteDrive.Tasks
                 }
                 else if (item.ItemState == ItemState.Retired)
                 {
-                    if (!string.IsNullOrEmpty(item.LocalPath) && !File.Exists(item.LocalPath))
+                    if (!string.IsNullOrEmpty(item.LocalPath)
+                        && !File.Exists(item.LocalPath)
+                        && !Directory.Exists(item.LocalPath))
                     {
                         item.ItemState = ItemState.Queued;
+                        item.LocalSource = null;
+                        item.LocalPath = null;
                         item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                        await db.UpsertCatalogItemAsync(item, cancellationToken);
+                        await db.QueueRetiredItemForResurrectionAsync(item.Id, cancellationToken);
                         _logger.LogInformation(
                             "[InfiniteDrive] Resurrection: {AioId} real file missing, reset to Queued",
                             item.AioId);
