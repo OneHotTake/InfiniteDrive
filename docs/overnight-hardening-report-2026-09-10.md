@@ -109,12 +109,10 @@ Commits:
 - `a072a10` — state-engine implementation and regression coverage
 - `c9f0453` — configuration and production-verification documentation
 
-The authorized push was attempted and GitHub returned HTTP 403: account
-`geofftrembley` has no write permission on `OneHotTake/InfiniteDrive`. A complete
-verified bundle is retained at
+The verified branch was pushed successfully to `OneHotTake/InfiniteDrive` using
+the repository-owner account. A complete offline bundle is also retained at
 `/Users/geoff/Documents/InfiniteDrive-codex-overnight-hardening-20260910.bundle`.
-The branch can be pushed without rewriting history once write permission is
-granted:
+The published branch can be refreshed without rewriting history with:
 
 ```bash
 git push -u origin codex/overnight-hardening-20260910
