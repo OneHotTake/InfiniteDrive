@@ -29,12 +29,12 @@ namespace InfiniteDrive.UI.Settings
             var hasSecondary = !string.IsNullOrWhiteSpace(cfg.SecondaryManifestUrl);
             if (hasPrimary && hasSecondary)
             {
-                ui.ProviderStatus.StatusText = "Primary + failover configured";
+                ui.ProviderStatus.StatusText = "2 manifest peers configured";
                 ui.ProviderStatus.Status = ItemStatus.Succeeded;
             }
             else if (hasPrimary)
             {
-                ui.ProviderStatus.StatusText = "Primary only · no failover";
+                ui.ProviderStatus.StatusText = "1 manifest configured";
                 ui.ProviderStatus.Status = ItemStatus.Warning;
             }
             else

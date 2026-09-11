@@ -108,8 +108,8 @@ All resolution attempts return a `ResolutionResult` object (never null):
 |---|---|---|
 | **Success** | URL found and validated | Play immediately / update cache |
 | **Throttled** | Provider returned 429 | Cease attempts for this item; retry in next cycle |
-| **ProviderDown** | Provider 5xx or connection timeout | Trigger failover to secondary manifest |
-| **ContentMissing** | Provider returned 404 | Check other manifest; if both 404, mark for deletion |
+| **ProviderDown** | Provider 5xx or connection timeout | Continue across other configured manifest peers |
+| **ContentMissing** | Provider returned 404 | Check every active peer; repeated catalog absence may later become pruning evidence |
 
 ## 9. Pre-Cache Background Task
 
@@ -119,9 +119,9 @@ All resolution attempts return a `ResolutionResult` object (never null):
 * **TTL:** `PreCacheTTLDays` (default 14 days, range 1-90)
 * **Jitter:** batch order is randomized to spread API calls across the cycle
 * **Dead-link probe:** after each batch, probes 5 recent entries with HEAD+Range, marks stale on failure
-* Budget-gated: checks `IsBudgetExhaustedAsync()` before each item
+* Backoff-gated: the legacy-named `IsBudgetExhaustedAsync()` checks provider backoff, not a local call quota
 * Rate-limit aware: respects CooldownGate on 429 responses
-* Provider failover: tries all configured providers per item via `ResolverHealthTracker`
+* Provider peers: tries all configured providers per item via `ResolverHealthTracker`
 * Subtitle decoration: fetches subtitles from AIOStreams `/subtitles/` endpoint, scores via Jaccard matching against release name, stores in `subtitles_json` column
 
 ## 10. Language-Aware Resolution
@@ -130,7 +130,7 @@ When multiple cached candidates exist, `ResolverService` applies a language fall
 
 1. Parse `X-Emby-Token` from request headers via `IAuthorizationContext`.
 2. Read the user's `PreferredMetadataLanguage`.
-3. If empty, fall back to `Config.DefaultSubtitleLanguage` (global plugin setting).
+3. If empty, use the matching Emby library preference and then the conservative runtime fallback.
 4. If candidates have different `Languages` fields, prefer those matching the resolved language.
 5. Falls through to rank-order selection if no language match found.
 

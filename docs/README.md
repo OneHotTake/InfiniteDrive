@@ -1,147 +1,50 @@
-# Documentation Index
+# InfiniteDrive documentation
 
-Welcome to InfiniteDrive documentation. Choose the guide that matches your needs:
+## Start here
 
----
+- [Getting started](getting-started.md) — installation and first setup.
+- [Configuration](configuration.md) — the supported, state-driven settings contract.
+- [Settings matrix](settings-matrix.md) — user intent, derived state, and evidence.
+- [Architecture](../ARCHITECTURE.md) — current system design.
+- [Troubleshooting](troubleshooting.md) — current operational checks and recovery.
+- [Security](SECURITY.md) — credentials, playback URLs, and deployment boundaries.
+- [Hardening report](overnight-hardening-report-2026-09-10.md) — exact 0.43 build,
+  staging, production, UI, and rollback evidence.
 
-## 🚀 First Time Users
+## Current settings pages
 
-**Start here if you're new to InfiniteDrive:**
+InfiniteDrive uses Emby's native Generic UI:
 
-→ **[Configuration Guide](./configuration.md)**
-- How to install the plugin
-- Initial setup with the wizard
-- Configuring AIOStreams, debrid provider, library paths
-- Understanding settings options
+| Page | Purpose |
+|---|---|
+| Overview | Readiness and setup guidance |
+| Libraries | Movie, Series, and Anime names/paths; locale follows Emby |
+| Quality | Desired versions, Allow REMUX, and Allow CAM/TS |
+| Providers | Masked Manifest 1/2 active-peer connections and tests |
+| Sources | Manifest catalogs, masked list credentials, system/user lists |
+| Restrictions | Discover/search restrictions and blocked content |
+| Marvin | Automatic-state summary and Run Marvin Now |
+| Advanced | Logging and scoped maintenance |
 
----
+## Feature guides
 
-## ❓ Troubleshooting
+- [Discover](features/discover.md)
+- [External lists](EXTERNAL_LISTS.md)
+- [Anime identity](anime-id-handling.md) and [anime library setup](anime-library-setup.md)
+- [Playback pipeline](REQUIRES_OPENING_PIPELINE.md)
+- [Stream resolution](STREAM_RESOLUTION.md)
+- [Catalog identity and deduplication](CATALOG_AND_DEDUPLICATION.md)
 
-**Something isn't working?**
+## Historical engineering documents
 
-→ **[Troubleshooting Guide](./troubleshooting.md)**
-- Common problems and solutions
-- Debug commands and logs
-- How to check plugin health
-- When to contact support
+Documents not listed as current above, especially files with `Sprint`,
+`FINDINGS`, `HISTORY`, `ANALYSIS`, `MIGRATION_PLAN`, or `*_SUMMARY` in their
+names, preserve design history and investigation evidence. They may describe
+removed settings, prototype APIs, older Emby versions, or superseded
+architecture. They are not configuration instructions. Prefer the current
+documents listed above whenever they disagree.
 
-→ **[Failure Scenarios](./failure-scenarios.md)**
-- What happens when AIOStreams is down
-- How the failover system works
-- Expected behavior during outages
-- Recovery procedures
+`failure-scenarios.md` is a pre-0.43 behavior inventory and is retained only as
+historical test input.
 
----
-
-## ✨ Features
-
-**Detailed guides for specific features:**
-
-→ **[Discover Feature](./features/discover.md)**
-- How to use the Netflix-style Discover sidebar
-- Browse and search available content
-- Add movies/shows to your library with one click
-- Architecture and implementation details
-
----
-
-## Settings
-
-Plugin configuration uses Emby's native declarative UI system (IHasUIPages). All settings tabs render with Emby's standard look and feel — no custom HTML/JS required.
-
-**7 configuration tabs:**
-
-| Tab | Purpose |
-|-----|---------|
-| Health | Live dashboard with connection status, coverage, API budget, recent plays |
-| Providers | AIOStreams manifest URLs, connection test |
-| Libraries | Storage paths, metadata preferences, library provisioning |
-| Sources | Catalog sync settings, cache tuning, proxy mode |
-| Security | Plugin secret rotation, signature validity |
-| Parental Controls | TMDB API key, unrated content filter |
-| Repair | Diagnostic triggers, destructive actions (with confirmation) |
-
-The Health tab refreshes server-side — clicking "Refresh Status" fetches live data from the plugin and returns a fresh view. No client-side polling.
-
----
-
-## 🔧 For Developers
-
-**If you're contributing to InfiniteDrive:**
-
-→ **[../CLAUDE.md](../CLAUDE.md)** — Developer guide
-- Project structure and architecture
-- Setting up the dev environment
-- Common development tasks
-- Testing checklist
-
-→ **[../RUNBOOK.md](../RUNBOOK.md)** — Development server setup
-- Building and running the dev server
-- Troubleshooting dev environment
-- Port configuration
-- Verification commands
-
-→ **[../HISTORY.md](../HISTORY.md)** — Release history and sprints
-- Completed features by version
-- Sprint tracking
-- Backlog and roadmap
-- Contributing guidelines
-
-→ **[../SECURITY.md](../SECURITY.md)** — Security model
-- API key authentication
-- Threat model
-- Best practices for secure deployment
-
----
-
-## 📚 Quick Reference
-
-| Document | For | Purpose |
-|----------|-----|---------|
-| **configuration.md** | Users | Setup and settings |
-| **troubleshooting.md** | Users | Problems and solutions |
-| **failure-scenarios.md** | DevOps | How system fails gracefully |
-| **features/discover.md** | Users & Developers | Discover feature details |
-| **../README.md** | Users | Product overview |
-| **../CLAUDE.md** | Developers | Development guide |
-| **../RUNBOOK.md** | Developers | Dev environment setup |
-| **../HISTORY.md** | Developers | Sprints and releases |
-| **../SECURITY.md** | Everyone | Security and auth |
-
----
-
-## 🤔 Not Sure Where to Start?
-
-**Ask yourself:**
-
-- **"How do I install/configure this?"** → Configuration Guide
-- **"Something isn't working"** → Troubleshooting Guide
-- **"What does the Discover feature do?"** → Discover Feature
-- **"How do I set up development?"** → RUNBOOK.md
-- **"What are the security implications?"** → SECURITY.md
-- **"What was in the last release?"** → HISTORY.md
-
----
-
-## 🔗 Related Documents
-
-**Root-level documentation:**
-- **README.md** — Product overview, features, getting started
-- **CLAUDE.md** — Developer guide and project principles
-- **RUNBOOK.md** — Dev server setup and testing
-- **SECURITY.md** — Security model and best practices
-- **HISTORY.md** — Release notes, sprint history, roadmap
-
-**Architecture documentation:**
-- **[../architecture/OVERVIEW.md](../architecture/OVERVIEW.md)** — High-level system architecture
-- **[../architecture/CONTROL_FLOW.md](../architecture/CONTROL_FLOW.md)** — Pipeline and flow diagrams
-- **[../architecture/SERVICES.md](../architecture/SERVICES.md)** — Service inventory and contracts
-
-**Playback and security:**
-- **[REQUIRES_OPENING_PIPELINE.md](REQUIRES_OPENING_PIPELINE.md)** — Secure playback via RequiresOpening + OpenMediaSource (Sprint 410)
-- **[STREAM_RESOLUTION.md](STREAM_RESOLUTION.md)** — Deprecated resolution pipeline (pre-Sprint 410)
-
----
-
-**Last Updated:** 2026-04-23
+Last updated: 2026-09-11.

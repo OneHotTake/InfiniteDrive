@@ -4,9 +4,9 @@
 
 > *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
 
-⚠️ **BETA:** Version 0.43.0 has automated and isolated Emby 4.10.0.40
-staging coverage, but it is not yet a published stable release. Back up the Emby
-plugin configuration and InfiniteDrive database before upgrading.
+⚠️ **RELEASE CANDIDATE:** Version 0.43.0 is deployed and operationally verified
+on Emby 4.10.0.40, but is not yet a tagged stable release. Back up the Emby
+plugin configuration, database, and managed library state before upgrading.
 
 An Emby plugin that discovers streaming catalogs from [AIOStreams](https://github.com/aiostreams), writes `.strm` files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably.
 
@@ -16,9 +16,10 @@ An Emby plugin that discovers streaming catalogs from [AIOStreams](https://githu
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) – High-level system design
 - [MARVIN_STATE_MACHINE.md](./MARVIN_STATE_MACHINE.md) – How the core engine works
-- [SETTINGS_DESIGN.md](./SETTINGS_DESIGN.md) – Current 5-tab settings UI design
-- [settings-matrix.md](./docs/settings-matrix.md) – Generated persistence and runtime wiring inventory
-- [overnight hardening report](./docs/overnight-hardening-report-2026-09-10.md) – 0.43 staging evidence and remaining release gates
+- [SETTINGS_DESIGN.md](./SETTINGS_DESIGN.md) – Current state-driven settings UI
+- [configuration.md](./docs/configuration.md) – Supported configuration contract
+- [settings-matrix.md](./docs/settings-matrix.md) – Intent, derived state, and verification matrix
+- [hardening report](./docs/overnight-hardening-report-2026-09-10.md) – 0.43 staging and production evidence
 
 ---
 
@@ -34,7 +35,7 @@ When making architectural decisions: prefer the simple approach that works over 
 
 InfiniteDrive bridges your AIOStreams manifest to Emby:
 
-1. **Catalog Sync** — pulls movie/series/anime catalogs from your AIOStreams manifest and writes `.strm` files into Emby libraries
+1. **Catalog Sync** — unions catalogs from every configured manifest and from MDBList, AniList, Trakt, and TMDB-backed lists
 2. **Stream Resolution** — resolves `.strm` playback requests against AIOStreams in real time, selecting the best debrid link
 3. **Stream Probing** — quickly checks if candidate streams actually respond before serving them to your player
 4. **Subtitle Fetching** — fetches external subtitles from AIOStreams and registers as an Emby `ISubtitleProvider` for the native subtitle picker
@@ -78,13 +79,21 @@ After installation, open the InfiniteDrive configuration page in Emby:
 http://localhost:8096/web/configurationpage?name=InfiniteDrive
 ```
 
-**Required settings:**
-- **AIOStreams Manifest URL** — your private manifest URL. Treat it as a
-  credential; do not paste it into issues or logs.
+**Required setting:**
+- **Manifest 1** — an AIOStreams manifest URL. Treat it as a credential; do not
+  paste it into issues, screenshots, or logs.
 
 **Optional:**
-- **AIOMetadata Manifest URL** — for additional ID resolution via AIOMetadata
-- Quality tier preferences, sync schedule, stream probe settings
+- **Manifest 2** — a second active peer. Presence enables it; there is no backup
+  toggle.
+- **Lists** — MDBList and AniList work without provider keys; Trakt and TMDB need
+  their respective credentials.
+- **Allow REMUX** and **Allow CAM/TS** — both default off.
+- Desired-version buckets and Discover restrictions.
+
+If a manifest exposes no catalogs, configured lists still supply content. When
+neither a manifest nor a list yields content, InfiniteDrive derives a small
+starter catalog for that sync so the library is not silently empty.
 
 ---
 

@@ -1,144 +1,74 @@
-# Getting Started with InfiniteDrive
+# Getting started with InfiniteDrive
 
-InfiniteDrive syncs your AIOStreams catalog into Emby, enabling Netflix-style discovery and one-click playback from debrid services.
-
----
+InfiniteDrive is an Emby plugin that turns AIOStreams catalogs and external
+lists into managed `.strm` libraries, then resolves playable streams on demand.
 
 ## Prerequisites
 
-- **Emby Server** 4.8 or later
-- **AIOStreams instance** (self-hosted or via [DuckKota's wizard](https://duckkota.gitlab.io/stremio-tools/quickstart/))
-- **Active debrid subscription** (Real-Debrid, TorBox, Premiumize, or AllDebrid)
+- Emby Server 4.10.0.40 (the ABI verified by release 0.43).
+- One configured AIOStreams manifest.
+- A working debrid provider configured behind that manifest.
+- Writable movie, series, and anime folders that are visible inside Emby.
 
----
+Treat every manifest URL as a credential. Do not paste one into logs, issues, or
+screenshots.
 
-## Step 1: Get Your AIOStreams Manifest URL
+## Install
 
-### Option A: Use DuckKota's Hosted Wizard (fastest)
+1. Build with `./scripts/build-container.sh`, or obtain the matching release
+   artifact.
+2. Back up the existing InfiniteDrive DLL, XML configuration, database, and
+   managed library folders.
+3. Copy `artifacts/InfiniteDrive.dll` into Emby's plugin directory.
+4. Restart Emby and confirm InfiniteDrive appears under **Dashboard → Plugins**.
 
-1. Open [duckkota.gitlab.io/stremio-tools/quickstart/](https://duckkota.gitlab.io/stremio-tools/quickstart/)
-2. Enter your debrid API key
-3. Choose quality preferences (or accept defaults)
-4. Copy the manifest URL — it looks like: `https://aiostreams.example.com/stremio/uuid/token/manifest.json`
+The build script compiles and tests against the exact pinned Emby image; a
+locally installed SDK alone does not prove ABI compatibility.
 
-### Option B: Self-Host AIOStreams
+## Configure
 
-1. Install AIOStreams via Docker or binary from [github.com/Viren070/AIOStreams](https://github.com/Viren070/AIOStreams)
-2. Configure your debrid service and addon preferences in AIOStreams web UI
-3. Copy your manifest URL from: **AIOStreams UI → Settings → Manifest**
+Open **Dashboard → Plugins → InfiniteDrive**.
 
----
+1. On **Libraries**, choose the names and writable paths for Movies, Series,
+   and Anime. InfiniteDrive derives language, image, and certification choices
+   from Emby.
+2. On **Providers**, enter **Manifest 1**. Add **Manifest 2** only when you have
+   one; every non-empty manifest is an active peer, not a disabled backup.
+3. On **Sources**, choose manifest catalogs and add any MDBList, AniList, Trakt,
+   or TMDB-backed lists. Lists remain active when a manifest exposes no
+   catalogs. If no real source produces content, the first sync derives a small
+   starter catalog so setup does not silently create an empty library.
+4. On **Quality**, leave **Allow REMUX** and **Allow CAM/TS** off unless you
+   explicitly want those candidates. Configure desired-version buckets if the
+   defaults do not fit.
+5. Save changed pages, then open **Marvin** and select **Run Marvin Now**.
 
-## Step 2: Install the Plugin
+There is no sync-schedule, backup-provider, API-budget, or future-episode rules
+panel. Marvin derives cadence, batching, backoff, pruning protection, and next
+episode warming from runtime state.
 
-1. Create the plugin folder:
-   ```bash
-   # Linux
-   mkdir -p /var/lib/emby/plugins/InfiniteDrive
+## Verify
 
-   # Windows
-   mkdir "C:\ProgramData\Emby-Server\plugins\InfiniteDrive"
-   ```
+1. Confirm the Marvin page reports configured libraries and at least one
+   provider.
+2. Confirm `.strm` and `.nfo` files appear beneath the configured roots.
+3. Run an Emby library scan if indexing has not begun automatically.
+4. Open a title and confirm the version picker excludes REMUX and CAM/TS while
+   their switches are off.
+5. Play a version and confirm playback starts. HTTP range playback should return
+   `206 Partial Content` when tested directly.
 
-2. Copy all files from `bin/Release/net8.0/publish/`:
-   - `InfiniteDrive.dll`
-   - `plugin.json`
-   - All `.dll` dependencies (Microsoft.Data.Sqlite, SQLitePCLRaw, Newtonsoft.Json, System.* shims)
+If the library remains empty, first verify list/catalog selection and provider
+reachability; a manifest with zero catalogs is valid and should not suppress
+configured lists. Continue with the [troubleshooting guide](troubleshooting.md).
 
-3. Ensure SQLite is available (Linux):
-   ```bash
-   apt-get install -y libsqlite3-0
-   ```
+## Safe upgrade and rollback
 
-4. Restart Emby Server:
-   ```bash
-   systemctl restart emby-server
-   ```
+Stop Emby before replacing the DLL. Preserve the previous DLL, configuration,
+database, and managed folders together so rollback restores one coherent state.
+Never delete external or physical media while diagnosing InfiniteDrive; its
+reconciliation ownership is limited to files it manages beneath configured
+roots.
 
-5. Verify: Open **Emby Dashboard → Plugins** and confirm InfiniteDrive appears.
-
----
-
-## Step 3: Initial Setup via Wizard
-
-1. Open **Emby Dashboard → Plugins → InfiniteDrive** → **Settings**
-
-2. Run the **Setup Wizard** (first tab):
-   - **Step 1:** Paste your manifest URL from Step 1
-     - The plugin auto-extracts base URL, UUID, and token
-   - **Step 2:** Set your media folders (create them on disk first; add as Emby libraries)
-     - Movies: `/media/infinitedrive/movies` (or your preference)
-     - TV Shows: `/media/infinitedrive/shows` (or your preference)
-   - **Step 3:** Review settings
-   - **Step 4:** Click **Save & Start Sync**
-
-3. Wait ~1 minute — `.strm` files will appear in your Emby library
-
----
-
-## Step 4: Verify Playback
-
-1. Open Emby and browse to your Movies or TV Shows library
-2. Click Play on any title
-3. The stream resolves in <100 ms and plays directly from your debrid CDN
-
-### What happens in the background
-
-| Time | Event |
-|------|-------|
-| ~30 s | First `.strm` files appear in Emby library |
-| ~5 min | Popular titles pre-cached for instant playback |
-| ~1 hour | Full catalog cached; all titles play instantly |
-
----
-
-## Next Steps
-
-### Enable Discover (optional)
-
-The plugin includes a Discover feature for browsing and searching the catalog. This is accessed via REST API endpoints and can be integrated into third-party Emby clients.
-
-### Configure Failover (optional)
-
-For production setups, add a **Secondary AIOStreams instance** in the plugin settings for redundancy. This ensures playback continues if your primary instance goes down.
-
-### Adjust Sync Schedule (optional)
-
-By default, the plugin syncs catalogs at 3 AM UTC. Customize this in **Settings → Sync Schedule** if needed.
-
----
-
-## Troubleshooting
-
-| Problem | Solution |
-|---------|----------|
-| Library is empty | Open Health Dashboard → click Force Sync |
-| Play gives "Don't Panic" error | Verify AIOStreams is reachable; check debrid subscription is active |
-| Stream starts then dies | Real-Debrid CDN URLs expire ~6h; cache will auto-refresh |
-| No poster art | Wait for Emby's scraper to process; trigger library scan from Dashboard |
-| Plugin not visible in Dashboard | Verify DLL and `plugin.json` are in correct subfolder; restart Emby |
-
-For more detailed help, see **[Troubleshooting Guide](./troubleshooting.md)**.
-
----
-
-## Configuration Reference
-
-For a complete list of all settings, see **[Configuration Guide](./configuration.md)**.
-
-### Key Settings
-
-- **Manifest 1** — Your AIOStreams manifest URL (configured in wizard)
-- **Manifest 2** — Optional active peer; its catalogs and streams are unioned
-- **SyncPathMovies / SyncPathShows** — Folders where `.strm` files are written (configured in wizard)
-- **Allow REMUX / Allow CAM/TS** — explicit quality opt-ins, both off by default
-- **Lists** — MDBList, AniList, Trakt and other list sources remain useful even
-  when the manifest itself exposes no catalogs
-
----
-
-## Next: Advanced Topics
-
-- **[Discover Feature](./features/discover.md)** — Netflix-style browsing
-- **[Failure Scenarios](./failure-scenarios.md)** — What happens when things break
-- **[Security Model](../SECURITY.md)** — API key rotation, threat model
+See [configuration](configuration.md), [settings architecture](SETTINGS_ARCHITECTURE.md),
+and the [hardening report](overnight-hardening-report-2026-09-10.md).

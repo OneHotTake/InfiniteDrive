@@ -35,14 +35,14 @@ namespace InfiniteDrive.UI.Settings
             switch (cmd)
             {
                 case ConnectUI.TestPrimaryCommand:
-                    await TestSingleAsync("Primary manifest", UI.PrimaryManifestUrl).ConfigureAwait(false);
+                    await TestSingleAsync("Manifest 1", UI.PrimaryManifestUrl).ConfigureAwait(false);
                     return this;
 
                 case ConnectUI.TestSecondaryCommand:
                     if (string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl))
-                        UpdateResult("Secondary manifest: Not configured", ItemStatus.None);
+                        UpdateResult("Manifest 2: Not configured", ItemStatus.None);
                     else
-                        await TestSingleAsync("Secondary manifest", UI.SecondaryManifestUrl).ConfigureAwait(false);
+                        await TestSingleAsync("Manifest 2", UI.SecondaryManifestUrl).ConfigureAwait(false);
                     return this;
 
                 case ConnectUI.PreviewRecommendedCommand:
@@ -119,7 +119,7 @@ namespace InfiniteDrive.UI.Settings
 
             if (string.IsNullOrWhiteSpace(UI.PrimaryManifestUrl))
             {
-                SetRecommended("Add a primary manifest URL first.", ItemStatus.Unavailable);
+                SetRecommended("Add a Manifest 1 URL first.", ItemStatus.Unavailable);
                 return;
             }
             if (string.IsNullOrWhiteSpace(UI.PrimaryManifestPassword)

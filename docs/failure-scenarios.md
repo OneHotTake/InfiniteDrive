@@ -1,5 +1,12 @@
 # InfiniteDrive — Failure Scenarios
 
+> **Historical pre-0.43 test inventory.** This document preserves scenarios
+> used to challenge older designs; it is not the current operating contract.
+> In particular, layered failover controls, plugin-owned language settings,
+> and health-dashboard instructions below were superseded by the state engine.
+> Use [configuration](configuration.md), [provider health](PROVIDER_HEALTH_AND_CIRCUIT_BREAKER.md),
+> and [troubleshooting](troubleshooting.md) for current behavior.
+
 This document describes every failure state the plugin can encounter and exactly what happens in each case. The goal is zero silent failures — every problem either resolves itself automatically or surfaces a clear error.
 
 ---

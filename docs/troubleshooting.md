@@ -1,638 +1,127 @@
-# InfiniteDrive — Troubleshooting Guide
+# InfiniteDrive troubleshooting
+
+Start with the **Overview** page in Emby's InfiniteDrive settings. It reports
+provider, library, quality, and content readiness without exposing internal
+rules. Manifest URLs and API keys are credentials: keep them out of screenshots,
+commands saved to shell history, and issue reports.
+
+## Plugin does not load
+
+1. Confirm the DLL is in Emby's plugin directory and readable by the Emby user.
+2. Confirm the server is Emby 4.10.0.40, the ABI used by the release build.
+3. Restart Emby and inspect its startup log for `InfiniteDrive`,
+   `TypeLoadException`, `MissingMethodException`, or dependency-load errors.
+4. Rebuild with `./scripts/build-container.sh` rather than compiling against an
+   arbitrary server-core package.
+
+If an upgrade fails, stop Emby and restore the previous DLL, XML configuration,
+database, and managed folders as one rollback set.
+
+## Provider is unavailable
 
-This guide covers every operational issue you might encounter — from installation through day-to-day maintenance, including complete clean-slate procedures and database management.
+Use the masked connection tests on **Providers**. Every non-empty manifest is an
+active peer; there is no primary/backup toggle. A failure on one peer does not
+disable another configured peer or independent lists.
+
+- A timeout or 5xx response leaves the peer temporarily unavailable.
+- A 429 or `Retry-After` response pauses background work until provider backoff
+  expires. Playback remains higher priority.
+- Call counts in the historically named `api_budget` table are telemetry, not a
+  configurable quota; only observed backoff affects work.
+
+Do not replace a working manifest merely because it has no catalogs. A
+stream-only manifest can resolve playback while lists supply library content.
+
+## Library is empty
+
+1. On **Libraries**, verify the configured roots exist, are writable by Emby,
+   and are visible inside the server/container.
+2. On **Providers**, test each configured manifest.
+3. On **Sources**, confirm at least one manifest catalog or external list is
+   enabled. Public MDBList and AniList sources need no provider credential;
+   Trakt and TMDB-backed sources do.
+4. Run **Marvin → Run Marvin Now**.
+5. Confirm `.strm` and `.nfo` files appear under the managed roots, then start an
+   Emby library scan.
+
+Lists are evaluated even when every manifest advertises zero catalogs. If no
+real catalog or list produces content, InfiniteDrive derives a small starter
+catalog for that sync. If even the starter is absent, inspect sanitized logs for
+network, database, or filesystem errors rather than enabling a nonexistent
+catalog-failover rule.
+
+## Items exist but metadata or artwork is missing
+
+InfiniteDrive writes provider IDs and NFO scanner hints; Emby owns metadata and
+artwork policy. Check that the item has a usable IMDb/TMDB/TVDB identity and
+that the matching Emby library has metadata providers and language preferences
+configured. Trigger an Emby metadata refresh after correcting library settings.
+
+Do not add duplicate plugin language fields. InfiniteDrive derives metadata
+language, image language, and certification country from Emby, with conservative
+runtime fallbacks only when Emby exposes no preference.
+
+## No playable versions
+
+1. Test the provider connections.
+2. Check whether the title's provider ID and episode coordinates are correct.
+3. Inspect logs for provider backoff, `ContentMissing`, or failed range probes.
+4. Remember that REMUX and CAM/TS are excluded by default. Enable either switch
+   on **Quality** only if that format is genuinely acceptable.
+
+Rejected REMUX/CAM candidates cannot re-enter through cache or another manifest.
+When accepted candidates exist, InfiniteDrive preserves distinct editions and
+then fills desired quality buckets up to Emby's eight-version ceiling.
+
+## Playback buffers
+
+Leave **Allow REMUX** off; exceptionally large remuxes are a common cause of
+buffering even when their headline quality is highest. Prefer a smaller 4K or
+1080p encode in the version picker. If all versions buffer, test client direct
+play capability, server-to-provider throughput, and the selected URL's range
+response independently.
+
+A healthy direct stream normally accepts a small range request and returns
+`206 Partial Content`. InfiniteDrive falls back from HEAD to a bounded range GET
+when probing candidates.
+
+## Next episode is not pre-warmed
+
+InfiniteDrive asks Emby for the next numbered episode that is already indexed
+and released. It deliberately ignores future-dated placeholders and does not
+fabricate season counts. Verify the next episode exists in Emby with correct
+season/episode metadata; there are no `SkipFutureEpisodes` or
+`FutureEpisodeBufferDays` controls.
+
+## Duplicate or owned media
+
+Physical owned media wins over an InfiniteDrive-managed virtual file with the
+same provider identity. Reconciliation may remove only files InfiniteDrive owns
+beneath its configured roots. Mycelium and every other external virtual library
+are ordinary duplicate state; InfiniteDrive never assumes they are installed
+and never modifies their files.
 
----
+If an unexpected file disappears, stop automated work, restore from the managed
+folder/database backup, and verify the configured roots and ownership marker
+before running Marvin again.
 
-## File System Layout
+## Cache and rebuild recovery
 
-Understanding where files live is the first step in diagnosing problems.
+Use **Advanced → Clear Stream Cache** when signed candidates are stale or probe
+state is clearly wrong. Marvin will repopulate the cache. Use the scoped rebuild
+action when catalog/database state must be reconciled with managed files.
 
-### Plugin files
+Treat full reset as destructive: take a rollback backup first and verify the
+displayed scope. Never point an InfiniteDrive root at a physical or external
+media library.
 
-| File | Default location | Purpose |
-|------|-----------------|---------|
-| `InfiniteDrive.dll` | `{PluginsDir}/InfiniteDrive/InfiniteDrive.dll` | Plugin binary |
-| `plugin.json` | `{PluginsDir}/InfiniteDrive/plugin.json` | Plugin metadata (required by Emby 4.8+) |
-| Support DLLs | `{PluginsDir}/InfiniteDrive/` | `Microsoft.Data.Sqlite.dll`, `SQLitePCLRaw.*.dll`, `Newtonsoft.Json.dll`, `System.*.dll` |
+## Logs and safe support bundles
 
-**Linux default:** `/var/lib/emby/plugins/InfiniteDrive/`
-**Windows default:** `C:\ProgramData\Emby-Server\plugins\InfiniteDrive\`
+Search the Emby server log for `InfiniteDrive`, `Marvin`, `CatalogSync`,
+`PreCache`, and `StreamProbe`. Private manifest paths, signed URLs, query strings,
+passwords, Trakt IDs, TMDB keys, and authorization headers must be redacted.
+Report the plugin version, Emby version, timestamp, status class, and sanitized
+message instead of the raw URL.
 
-### Configuration
-
-| File | Default location |
-|------|-----------------|
-| `InfiniteDrive.xml` | `{DataPath}/plugins/configurations/InfiniteDrive.xml` |
-
-**Linux default:** `/var/lib/emby/data/plugins/configurations/InfiniteDrive.xml`
-**Windows default:** `C:\ProgramData\Emby-Server\data\plugins\configurations\InfiniteDrive.xml`
-
-### Database
-
-| File | Default location |
-|------|-----------------|
-| `infinitedrive.db` | `{DataPath}/InfiniteDrive/infinitedrive.db` |
-| `infinitedrive.db-shm` | same folder (SQLite WAL shared memory — temporary) |
-| `infinitedrive.db-wal` | same folder (SQLite WAL log — temporary) |
-
-**Linux default:** `/var/lib/emby/data/InfiniteDrive/infinitedrive.db`
-**Windows default:** `C:\ProgramData\Emby-Server\data\InfiniteDrive\infinitedrive.db`
-
-### .strm and .nfo files
-
-Written to the paths you configure in `SyncPathMovies` and `SyncPathShows`.
-
-**Defaults:**
-- Movies: `/media/infinitedrive/movies`
-- Shows: `/media/infinitedrive/shows`
-
-**Movies structure:**
-```
-/media/infinitedrive/movies/
-└── Dune (2021)/
-    ├── Dune (2021).strm
-    └── Dune (2021).nfo
-```
-
-**Shows structure:**
-```
-/media/infinitedrive/shows/
-└── The Bear (2022)/
-    ├── tvshow.nfo
-    ├── Season 1/
-    │   ├── The Bear - S01E01.strm
-    │   ├── The Bear - S01E01.nfo
-    │   ├── The Bear - S01E02.strm
-    │   └── ...
-    └── Season 2/
-        └── ...
-```
-
-### Emby logs
-
-**Linux:** `/var/log/emby/` (look for `embyserver.txt` or `embyserver-YYYYMMDD.txt`)
-**Windows:** `C:\ProgramData\Emby-Server\logs\`
-
-InfiniteDrive log lines are prefixed with `[InfiniteDrive]`.
-
-```bash
-# Tail InfiniteDrive log lines in real time
-journalctl -u emby-server -f | grep InfiniteDrive
-
-# Or from log file
-tail -f /var/log/emby/embyserver.txt | grep InfiniteDrive
-```
-
----
-
-## Installation Problems
-
-### Plugin doesn't appear in Dashboard → Plugins
-
-**Check 1: Is `plugin.json` present?**
-```bash
-ls /var/lib/emby/plugins/InfiniteDrive/plugin.json
-```
-Emby 4.8+ requires `plugin.json` to recognise a plugin. If it's missing, the plugin folder is ignored entirely.
-
-**Check 2: Is the DLL in a subfolder?**
-The entire `InfiniteDrive/` folder must be inside the plugins directory. Placing `InfiniteDrive.dll` directly in the plugins root will not work.
-
-**Check 3: Emby was restarted?**
-```bash
-systemctl restart emby-server
-```
-
-**Check 4: Windows DLL blocked?**
-On Windows, downloaded DLLs may be blocked by the OS. Right-click each DLL → Properties → Unblock.
-
-**Check 5: Check Emby startup logs**
-```bash
-journalctl -u emby-server | grep -i "infinitedrive\|plugin\|error"
-```
-
----
-
-### Plugin loads but throws on startup
-
-**Symptom:** Plugin appears briefly then crashes, or Health Dashboard shows errors immediately.
-
-**Check: SQLite library present?**
-```bash
-apt-get install -y libsqlite3-0   # Debian/Ubuntu
-```
-
-**Check: All support DLLs present?**
-The publish directory must contain not just `InfiniteDrive.dll` but also:
-- `Microsoft.Data.Sqlite.dll`
-- `SQLitePCLRaw.core.dll`
-- `SQLitePCLRaw.nativelibrary.dll`
-- `SQLitePCLRaw.provider.dynamic_cdecl.dll`
-- `Newtonsoft.Json.dll`
-
-Check logs for `DllNotFoundException` or `FileNotFoundException`.
-
----
-
-## Empty Library
-
-### No items appear after first sync
-
-**Step 1: Open Health Dashboard**
-Dashboard → Plugins → InfiniteDrive → Health Dashboard tab. Check:
-- AIOStreams connection status (green = connected)
-- Last sync time and item count
-- Any error messages
-
-**Step 2: Verify AIOStreams connection**
-```bash
-curl -s "http://your-aiostreams-host:7860/stremio/manifest.json"
-```
-Should return JSON. If it times out, AIOStreams is not reachable from the Emby host.
-
-**Step 3: Verify the Emby library path**
-The `SyncPathMovies` and `SyncPathShows` directories must exist **and** be configured as Emby library paths. Creating the directories is not enough — you must add them as libraries in Emby.
-
-**Step 4: Force a sync**
-In the Health Dashboard, click **Force Sync**, or:
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=force_sync" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=catalog_sync" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-**Step 5: Check for .strm files on disk**
-```bash
-find /media/infinitedrive/movies -name "*.strm" | head -5
-```
-If .strm files exist but Emby doesn't show them, trigger a library scan in Emby Dashboard → Libraries.
-
----
-
-### Items in library but wrong metadata / missing posters
-
-**Cause:** Emby's scraper couldn't match the filename to a TMDB entry.
-
-**Fix 1: Verify .nfo files exist**
-```bash
-ls /media/infinitedrive/movies/Dune\ \(2021\)/
-# Should show both Dune (2021).strm and Dune (2021).nfo
-```
-
-**Fix 2: Inspect the .nfo content**
-```bash
-cat "/media/infinitedrive/movies/Dune (2021)/Dune (2021).nfo"
-```
-Should contain `<uniqueid type="imdb">tt1160419</uniqueid>`. If the file is empty or missing the IMDB tag, enable `EnableNfoHints = true` in settings and re-sync.
-
-**Fix 3: Trigger metadata refresh in Emby**
-In Emby, right-click the item → Refresh Metadata → Replace All Metadata.
-
-**Fix 4: Wait for MetadataFallbackTask**
-If `EnableMetadataFallback = true`, the daily background task will fetch full metadata (including poster URL) from Cinemeta for any item that Emby's scraper couldn't match. Check the Health Dashboard for last run time.
-
----
-
-## Playback Problems
-
-### "No stream available" or Don't Panic error page
-
-**Step 1: Check Health Dashboard**
-Look at "AIOStreams Status" and the recent errors list.
-
-**Step 2: Test AIOStreams directly**
-```bash
-# Replace with your actual imdb ID and AIOStreams URL
-curl -s "http://your-aiostreams-host:7860/stremio/UUID/TOKEN/stream/movie/tt1160419.json"
-```
-If this returns `{"streams":[]}`, AIOStreams has no streams for this item — typically because the torrent isn't in your debrid service's cache.
-
-**Step 3: Check your debrid subscription**
-Log into your debrid service directly and verify the subscription is active and not expired.
-
-**Step 4: Inspect a specific item**
-```bash
-curl -s "http://localhost:8096/InfiniteDrive/Inspect?imdb=tt1160419" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-Shows cached URL, expiry, quality, all ranked candidates, and last resolution time.
-
-**Step 5: Force re-resolve**
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Invalidate" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""  \
-     -H "Content-Type: application/json" \
-     -d '{"imdb":"tt1160419"}'
-```
-Then press Play again — this forces a fresh AIOStreams call.
-
----
-
-### Video stutters or buffers
-
-**Cause A: Client cannot follow HTTP 302 redirects to external hosts**
-Samsung TV, LG webOS, and some Android TV devices cannot follow redirects to external CDN URLs.
-
-**Fix:** Change `ProxyMode` to `proxy` in plugin settings. The stream will be routed through the Emby server, which adds overhead but works for all clients.
-
-**Cause B: Bitrate exceeds network capacity**
-4K HDR streams can be 40–80 Mbps. If your internet uplink or LAN is too slow for the CDN download rate, the stream will stutter.
-
-**Fix:** Use AIOStreams quality filters to cap resolution, or switch the debrid service to a CDN region closer to your server.
-
-**Cause C: CDN URL expired mid-stream**
-The debrid CDN URL expired while the stream was playing (typically > 4h after generation).
-
-**Fix:** Stop and restart playback — this triggers a fresh URL resolution. The client-compat learning system will remember the safe bitrate for next time.
-
----
-
-### Video plays but seeking fails
-
-**Cause:** The stream source does not support `Accept-Ranges: bytes` (uncommon for debrid streams, but possible for some usenet/http sources).
-
-**Diagnosis:** Check the `stream_url` field in the Inspect endpoint. If the URL is from Easynews or a direct HTTP source, seeking may not be supported.
-
-**Fix:** There is no plugin-side fix — this is a limitation of the source. Switch to a different quality tier or provider in AIOStreams.
-
----
-
-## .nfo File Management
-
-### What are .nfo files?
-
-`.nfo` files are Kodi-format metadata hints written by InfiniteDrive. They contain XML with IMDB/TMDB IDs that tell Emby's built-in scraper exactly which database entry to use.
-
-There are two types:
-
-**1. Minimal ID hint** (written by `EnableNfoHints` at sync time):
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<movie>
-  <uniqueid type="imdb" default="true">tt1160419</uniqueid>
-  <uniqueid type="tmdb">438631</uniqueid>
-</movie>
-```
-
-**2. Rich .nfo** (written by `MetadataFallbackTask` for items Emby can't match):
-```xml
-<?xml version="1.0" encoding="utf-8"?>
-<movie>
-  <title>Dune: Part One</title>
-  <year>2021</year>
-  <plot>Paul Atreides, a brilliant and gifted young man...</plot>
-  <uniqueid type="imdb" default="true">tt1160419</uniqueid>
-  <thumb>https://image.tmdb.org/t/p/w500/d5NXSklXo0qyIYkgV94XAgMIckY.jpg</thumb>
-  <genre>Science Fiction</genre>
-  <genre>Adventure</genre>
-</movie>
-```
-
-### Regenerating .nfo files
-
-If `.nfo` files are missing or corrupted:
-
-1. Enable `EnableNfoHints = true` in settings
-2. Run a catalog sync — sync writes `.nfo` alongside new `.strm` files but does NOT overwrite existing `.nfo` files by default
-3. To regenerate **all** `.nfo` files: run a Purge Catalog (see below) which wipes both `.strm` and `.nfo` files, then re-sync
-
-### .nfo files are not being written
-
-**Check:** Is `EnableNfoHints = true` in plugin settings?
-
-**Check:** Does the Emby process have write permission to `SyncPathMovies` and `SyncPathShows`?
-```bash
-sudo -u emby touch /media/infinitedrive/movies/test_write
-```
-
-### Emby ignores .nfo files
-
-**Check Emby setting:** Emby → Dashboard → Libraries → Edit library → NFO/Kodi settings.
-Emby must have "Kodi nfo" readers enabled for the library type.
-
-**Check file name:** Movie `.nfo` must have the same base name as the `.strm` file. Series `.nfo` must be named `tvshow.nfo` in the series root folder.
-
----
-
-## Database Management
-
-### Viewing database statistics
-
-Open the Health Dashboard in the InfiniteDrive plugin page. The **DB Stats** card shows:
-- Total catalog items
-- Active items (not soft-deleted)
-- Resolution cache entries
-- Stream candidates stored
-- Database file size
-- Last VACUUM time
-
-Via API:
-```bash
-curl -s "http://localhost:8096/InfiniteDrive/Status" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-### Clearing the resolution cache
-
-Clears all cached stream URLs and their ranked candidates. Items will still appear in your library but will need to re-resolve at play time.
-
-**Via UI:** Health Dashboard → Settings tab → **Clear Resolution Cache** button
-
-**Via API:**
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=clear_cache" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-This also runs SQLite VACUUM automatically.
-
-**When to use:**
-- You've changed your AIOStreams quality filters and want all items to resolve with the new preferences
-- You suspect stale URLs are causing widespread playback failures
-- After changing `CandidatesPerProvider` and wanting fresh candidates
-
----
-
-### Clearing the client compatibility profiles
-
-Removes all learned per-device proxy/redirect preferences. Each device will re-learn on the next play.
-
-**Via API:**
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=clear_client_profiles" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-**When to use:** After changing clients (new TV, new device), or if `ProxyMode = auto` is making wrong decisions for a device.
-
----
-
-### Purging the catalog (keep resolution cache)
-
-Removes all catalog items and sync state from the database, then deletes all `.strm` and `.nfo` files from disk. The resolution cache is preserved — if you re-sync the same catalog, existing cached URLs are reused.
-
-**Via API:**
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=purge_catalog" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-After completion, run a catalog sync to repopulate:
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=catalog_sync" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-**When to use:**
-- You changed `SyncPathMovies` or `SyncPathShows` — old `.strm` files reference the wrong path
-- You changed `EmbyBaseUrl` — all `.strm` files contain the wrong playback URL
-- The catalog is in a stale or inconsistent state and you want to start fresh
-- After moving Emby to a new server with different paths
-
----
-
-### Full clean-slate reset (nuclear option)
-
-Removes **everything**: catalog items, resolution cache, stream candidates, playback log, client profiles, sync state, and all `.strm`/`.nfo` files on disk. The database structure is preserved (schema is not dropped).
-
-**Via API:**
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=reset_all" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-This automatically runs SQLite VACUUM at the end.
-
-Then re-run the wizard if needed:
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=reset_wizard" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-Then re-sync:
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=catalog_sync" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-**When to use:**
-- Migrating to a completely new configuration
-- Persistent database issues that survive a cache clear
-- Starting over after changing debrid providers entirely
-
----
-
-### Manually deleting the database
-
-If the plugin won't start due to database corruption and the auto-recovery didn't work:
-
-```bash
-# Stop Emby first
-systemctl stop emby-server
-
-# Delete the database (plugin will recreate on next startup)
-rm /var/lib/emby/data/InfiniteDrive/infinitedrive.db
-rm -f /var/lib/emby/data/InfiniteDrive/infinitedrive.db-shm
-rm -f /var/lib/emby/data/InfiniteDrive/infinitedrive.db-wal
-
-# Start Emby — plugin will initialise a fresh database automatically
-systemctl start emby-server
-```
-
-> The plugin's `DatabaseManager.Initialise()` automatically runs `PRAGMA integrity_check` on startup and deletes + recreates the DB if corruption is detected. Manual deletion is usually not needed.
-
----
-
-### Re-running the Setup Wizard
-
-To show the wizard again (e.g. after changing the AIOStreams instance):
-
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=reset_wizard" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-Or manually: open `InfiniteDrive.xml` and set `<IsFirstRunComplete>false</IsFirstRunComplete>`, then restart Emby (or reload the plugin config page).
-
----
-
-## Provider backoff management
-
-### Provider backoff — background resolver has paused
-
-**Symptom:** Health Dashboard reports provider backoff and new items temporarily stop resolving in the background.
-
-**First action:** Check the provider response and Retry-After time. InfiniteDrive resumes automatically; there is no daily-budget setting.
-
-**Fix 2 (reduce consumption):**
-- Reduce the number of AIOStreams catalogs synced (set specific `AioStreamsCatalogIds`)
-- Reduce `CatalogItemCap` to limit items per catalog
-- Reduce `PreCacheBatchSize` if the provider is repeatedly rate limiting
-
-**Note:** Call counts remain visible as telemetry and do not act as a rules budget.
-
----
-
-## High Availability / Failover
-
-### Simulate failover dry-run
-
-Test all three layers without affecting any cached data:
-
-1. Open the High Availability tab in the plugin settings
-2. Enter an IMDB ID in the "Simulate Failover" input (e.g. `tt0111161`)
-3. Click **Simulate Failover**
-
-The results table shows which layers would succeed and why.
-
-Via API:
-```bash
-curl -s "http://localhost:8096/InfiniteDrive/TestFailover?imdb=tt0111161" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
----
-
-### AIOStreams is down — Layer 2 not configured
-
-**Symptom:** AIOStreams goes down; all playback fails immediately.
-
-**Fix:** Add a fallback AIOStreams URL in Settings → AIOStreams Connection → Fallback URLs.
-The fastest option: use DuckKota to create a second manifest (takes 2 minutes) and paste it as the fallback.
-
----
-
-### Layer 3 fails — "not instantly available"
-
-**Symptom:** AIOStreams is down, fallback manifest also unreachable, debrid API keys configured, but Layer 3 still fails.
-
-**Cause:** The torrent for the requested item is not in your debrid service's cache (has never been downloaded by any debrid user recently). Layer 3 is instant-only — it will never trigger a download.
-
-**Fix:** None at runtime. Wait for AIOStreams to recover. Alternatively, add the item to your debrid provider's cache manually (via the debrid web UI).
-
----
-
-## Webhook Integration
-
-### Jellyseerr/Overseerr not triggering sync
-
-**Check 1:** Is the webhook URL correct?
-```
-POST http://your-emby-host:8096/InfiniteDrive/Webhook/Sync
-```
-
-**Check 2:** Is `WebhookSecret` configured?
-If a secret is set, Jellyseerr/Overseerr must send it as `Authorization: Bearer <secret>` or via `X-Api-Key`.
-
-**Check 3:** Test the webhook manually:
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Webhook/Sync" \
-     -H "Content-Type: application/json" \
-     -d '{"notification_type":"MEDIA_APPROVED","media":{"imdbId":"tt15299712"}}'
-```
-
----
-
-## Diagnostic API Endpoints
-
-All require admin authentication (`X-Emby-Authorization: MediaBrowser Token="YOUR_KEY"`).
-
-| Endpoint | What it shows |
-|----------|--------------|
-| `GET /InfiniteDrive/Status` | Full health snapshot: AIOStreams status, DB stats, recent errors, version |
-| `GET /InfiniteDrive/Inspect?imdb=tt1160419` | Cached URL, expiry, all candidates, last play, play count for one item |
-| `GET /InfiniteDrive/RawStreams?imdb=tt1160419` | Raw AIOStreams JSON response for an item — useful to check what streams AIOStreams is returning |
-| `GET /InfiniteDrive/Search?q=dune` | Search catalog items by title |
-| `GET /InfiniteDrive/Catalogs` | All AIOStreams catalogs found in the manifest |
-| `GET /InfiniteDrive/UnhealthyItems` | Items in permanent failed-resolution state |
-| `GET /InfiniteDrive/TestFailover?imdb=tt1160419` | Dry-run all three failover layers |
-
----
-
-## Complete Task Reference
-
-All available trigger keys for `POST /InfiniteDrive/Trigger?task={key}`:
-
-| Task key | What it does |
-|----------|-------------|
-| `catalog_sync` | Run catalog sync immediately (all sources) |
-| `link_resolver` | Run background URL pre-resolution pass |
-| `precache` | Run stream pre-cache task — resolves AIO streams for uncached library items |
-| `file_resurrection` | Write `.strm` files for DB items that are missing them |
-| `library_readoption` | Detect real media files and optionally remove redundant `.strm` files |
-| `episode_expand` | Expand next-episode queue for active series |
-| `force_sync` | Reset sync interval guard — next catalog sync fetches all sources regardless of `CatalogSyncIntervalHours` |
-| `clear_cache` | Delete all resolution cache entries + VACUUM |
-| `dead_link_scan` | Range-probe all valid cached URLs; mark stale those returning 4xx |
-| `clear_client_profiles` | Delete all learned per-device proxy/redirect preferences |
-| `purge_catalog` | ⚠️ Delete all catalog items from DB + delete all `.strm`/`.nfo` files from disk |
-| `reset_all` | ⚠️ Delete everything (catalog + cache + logs) + delete all `.strm`/`.nfo` files from disk + VACUUM |
-| `reset_wizard` | Reset `IsFirstRunComplete` to show Setup Wizard again |
-
-> **⚠️ Warning:** `purge_catalog` and `reset_all` are irreversible. The database rows are hard-deleted; disk files are permanently removed. Run `catalog_sync` after either to repopulate.
-
----
-
-## Stream Pre-Cache
-
-### Version picker is slow (20-40s) for some items
-
-**Cause:** The item has not been pre-cached yet. The pre-cache task runs on a schedule and may not have reached this item.
-
-**Fix 1:** Wait for the next scheduled pre-cache run (every 6 hours by default).
-
-**Fix 2:** Trigger an immediate pre-cache run:
-```bash
-curl -X POST "http://localhost:8096/InfiniteDrive/Trigger?task=precache" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"YOUR_API_KEY\""
-```
-
-**Fix 3:** Check if pre-cache is enabled:
-```bash
-grep EnablePreCache /var/lib/emby/data/plugins/configurations/InfiniteDrive.xml
-```
-
-### Pre-cache task completes with 0 items resolved
-
-**Step 1:** Check if there are uncached items:
-```bash
-sqlite3 /var/lib/emby/data/InfiniteDrive/infinitedrive.db \
-  "SELECT COUNT(*) FROM media_items WHERE imdb_id NOT IN (SELECT imdb_id FROM cached_streams)"
-```
-
-**Step 2:** Check if API budget is exhausted:
-```bash
-sqlite3 /var/lib/emby/data/InfiniteDrive/infinitedrive.db \
-  "SELECT * FROM api_budget WHERE date = date('now')"
-```
-
-**Step 3:** Check for rate-limit backoff in logs:
-```bash
-grep "\[PreCache\]" /var/log/emby/embyserver.txt | tail -20
-```
-
-### Pre-cache is causing frequent provider backoff
-
-**Fix 1:** Reduce `PreCacheBatchSize` (default 42, range 1-500).
-
-**Fix 2:** Reduce concurrent resolutions and allow the provider's backoff to clear.
-
----
-
-## Getting an API Token for Curl
-
-To use the diagnostic/trigger endpoints from the command line, you need an Emby admin API token.
-
-**Option 1:** Use the Emby Dashboard
-Dashboard → Advanced → API Keys → New API Key → copy the token.
-
-**Option 2:** From `InfiniteDrive.xml`
-The config page uses the Emby session token when you're logged in. The API key from Dashboard → API Keys is easier for scripting.
-
-**Using the token:**
-```bash
-curl -s "http://localhost:8096/InfiniteDrive/Status" \
-     -H "X-Emby-Authorization: MediaBrowser Token=\"abc123yourtokenhere\""
-```
+See [configuration](configuration.md), [provider health](PROVIDER_HEALTH_AND_CIRCUIT_BREAKER.md),
+and [stream resolution](STREAM_RESOLUTION.md).

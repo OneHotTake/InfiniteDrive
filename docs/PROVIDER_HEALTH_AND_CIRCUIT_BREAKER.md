@@ -1,14 +1,22 @@
-# Provider Health & Circuit Breakers
+# Provider health and backoff
 
-## 1. The Health Tracker
-`ResolverHealthTracker` is a singleton that monitors every outgoing request to AIOStreams.
+Every configured manifest is an active peer. InfiniteDrive does not model one as
+primary and another as a disabled backup.
 
-## 2. Circuit Breaker States
-- **Closed (Healthy):** Requests flow normally.
-- **Open (Failing):** If 5 consecutive timeouts or 500-errors occur, the circuit opens. All Primary requests are immediately diverted to the Backup Manifest without hitting the network.
-- **Half-Open (Testing):** After 5 minutes, the system allows ONE "probe" request. If successful, the circuit closes.
+## Observed states
 
-## 3. Rate Limit Management (The 429 Guard)
-Throttling is NOT a failure; it is a signal.
-- When a 429 is detected, the provider is marked `Throttled` for the duration of the `Retry-After` header.
-- All background tasks (Marvin, Expansion) must yield to Playback requests during a throttle window.
+- **Healthy:** requests and candidate resolution proceed normally.
+- **Throttled:** HTTP 429 and Retry-After state pause background work.
+- **Unavailable:** connection or 5xx failures leave that peer temporarily
+  unavailable while another configured peer may still answer.
+- **Recovering:** a later successful request clears transient failure state.
+
+Playback remains higher priority than background cache warming. Background work
+uses bounded concurrency and respects provider backoff. The database call count
+is telemetry; there is no configurable daily API-budget rule.
+
+An item is not pruned because one provider is down, throttled, or temporarily
+missing. Absence must be observed across active catalog state and repeated safe
+reconciliation, with playlist/watched protection and managed-path ownership.
+
+See [COOLDOWN.md](COOLDOWN.md) and [stream resolution](STREAM_RESOLUTION.md).

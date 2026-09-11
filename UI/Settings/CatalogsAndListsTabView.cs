@@ -99,8 +99,8 @@ namespace InfiniteDrive.UI.Settings
                     var typeName = state.CatalogType ?? "unknown";
                     var name = state.CatalogName ?? state.SourceKey;
                     var source = state.SourceKey.StartsWith("aio2:")
-                        ? "Secondary Manifest"
-                        : "Primary Manifest";
+                        ? "Manifest 2"
+                        : "Manifest 1";
 
                     var details = $"{typeName} · {source} · {state.ItemCount} items";
                     if (!string.IsNullOrEmpty(state.LastSyncAt))
