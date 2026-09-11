@@ -109,12 +109,9 @@ recoverable.
 
 ## Delivery
 
-Key commits:
-
-- `a072a10` — state-engine implementation and regression coverage
-- `c9f0453` — configuration and production-verification documentation
-- `a406763` — final documentation and Manifest 1/2 UI wording
-
-The verified work was fast-forwarded to `main` in `OneHotTake/InfiniteDrive`.
+The state-engine implementation, regression coverage, production-verification
+documentation, and final Manifest 1/2 UI wording are published on `main` in
+`OneHotTake/InfiniteDrive`. Historical commit IDs are intentionally omitted
+because the repository underwent a credential-removal history rewrite.
 A complete offline bundle is also retained at
 `/Users/geoff/Documents/InfiniteDrive-codex-overnight-hardening-20260910.bundle`.
