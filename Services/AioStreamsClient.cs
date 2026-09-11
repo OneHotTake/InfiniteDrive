@@ -134,9 +134,8 @@ namespace InfiniteDrive.Services
             // Attempt to parse the primary manifest URL.
             var (baseUrl, uuid, token) = TryParseManifestUrl(config.PrimaryManifestUrl);
 
-            // Fall back only when the explicit backup-provider toggle is enabled.
+            // A malformed first entry must not hide another configured manifest.
             if (string.IsNullOrWhiteSpace(baseUrl)
-                && config.EnableBackupAioStreams
                 && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                 (baseUrl, uuid, token) = TryParseManifestUrl(config.SecondaryManifestUrl);
 

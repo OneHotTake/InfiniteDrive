@@ -55,13 +55,6 @@ namespace InfiniteDrive.Services
         {
             try
             {
-                if (Plugin.Instance?.Configuration?.AutoDeduplicatePhysicalMedia != true)
-                {
-                    _logger.LogDebug("[InfiniteDrive] Physical-media de-duplication is disabled");
-                    progress?.Report(100);
-                    return;
-                }
-
                 // Bounded: only process items currently served as .strm
                 var db = Plugin.Instance?.DatabaseManager;
                 if (db == null)
@@ -165,13 +158,11 @@ namespace InfiniteDrive.Services
         /// </summary>
         private async Task ReadoptItemAsync(Data.DatabaseManager db, CatalogItem item, CancellationToken ct)
         {
-            // Delete .strm + version variants if configured to do so
-            if (Plugin.Instance?.Configuration?.DeleteStrmOnReadoption == true)
-            {
-                StrmWriterService.DeleteWithVersions(item.StrmPath);
-                _logger.LogDebug("[InfiniteDrive] Deleted .strm + versions for re-adopted item: {Path}",
-                    item.StrmPath);
-            }
+            // InfiniteDrive only deletes resolver files it owns. External virtual
+            // libraries are merely duplicate state and never drive this policy.
+            StrmWriterService.DeleteWithVersions(item.StrmPath);
+            _logger.LogDebug("[InfiniteDrive] Deleted managed .strm + versions for re-adopted item: {Path}",
+                item.StrmPath);
 
             // Update catalog item state
             item.ItemState = ItemState.Retired;

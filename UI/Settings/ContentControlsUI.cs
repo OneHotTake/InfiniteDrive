@@ -17,7 +17,7 @@ namespace InfiniteDrive.UI.Settings
         public override string EditorDescription =>
             "Buckets tell Marvin what to collect. Each one defines a resolution, an audio profile, and a version count. " +
             "Priority 1 is filled first. If nothing matches, Marvin falls back to the best available 1080p stream. " +
-            "Emby caps at 8 versions per title — all buckets share that limit.";
+            "Distinct editions are preserved within Emby's fixed 8-version limit. REMUX and CAM/TS are excluded unless explicitly allowed.";
 
         // ── Bucket summary (top of page) ─────────────────────────────────────
 
@@ -30,13 +30,13 @@ namespace InfiniteDrive.UI.Settings
         public SpacerItem SpacerTop { get; set; } = new SpacerItem();
         public CaptionItem CaptionQuality { get; set; } = new CaptionItem("Quality");
 
-        [DisplayName("Use REMUX files for auto-selection")]
-        [Description("When available, prefer remux sources over encodes of the same resolution.")]
-        public bool UseRemuxForAutoSelection { get; set; } = false;
+        [DisplayName("Allow REMUX")]
+        [Description("Off by default because very large REMUX files commonly buffer. This admits them; it does not force them to rank first.")]
+        public bool AllowRemux { get; set; } = false;
 
-        [DisplayName("Prioritize Extended Editions")]
-        [Description("Reserve half your version slots for Extended and Director's Cut editions, when they exist. You always get your full version count.")]
-        public bool PrioritizeExtendedEditions { get; set; } = false;
+        [DisplayName("Allow CAM/TS")]
+        [Description("Off by default. Enable only if you intentionally want low-quality theatrical captures.")]
+        public bool AllowCam { get; set; } = false;
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 

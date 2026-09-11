@@ -101,8 +101,14 @@ namespace InfiniteDrive.Services
                 if (item?.Path == null)
                     return;
 
-                // Check if this is a .strm file we created
+                // Check if this is a .strm file we created. External virtual
+                // libraries (Mycelium or anything else) are ordinary Emby state,
+                // never InfiniteDrive-owned input.
                 if (!item.Path.EndsWith(".strm", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                var config = Plugin.Instance?.Configuration;
+                if (config == null || !IsManagedPath(item.Path, config))
                     return;
 
                 _logger.LogInformation("[Discover] New .strm file detected: {Path}", item.Path);
@@ -114,6 +120,25 @@ namespace InfiniteDrive.Services
             {
                 _logger.LogError(ex, "[Discover] Error handling item addition");
             }
+        }
+
+        internal static bool IsManagedPath(string path, PluginConfiguration config)
+        {
+            return IsUnder(path, config.SyncPathMovies)
+                || IsUnder(path, config.SyncPathShows)
+                || IsUnder(path, config.SyncPathAnime);
+        }
+
+        private static bool IsUnder(string path, string? root)
+        {
+            if (string.IsNullOrWhiteSpace(root)) return false;
+            var normalizedRoot = root.TrimEnd(System.IO.Path.DirectorySeparatorChar,
+                System.IO.Path.AltDirectorySeparatorChar);
+            return path.Equals(normalizedRoot, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(normalizedRoot + System.IO.Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(normalizedRoot + System.IO.Path.AltDirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase);
         }
     }
 }

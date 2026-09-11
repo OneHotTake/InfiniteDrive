@@ -32,86 +32,45 @@ namespace InfiniteDrive.Services
             rankedStreams = FilterEligibleStreams(rankedStreams, config);
             if (rankedStreams.Count == 0) return new();
 
+            hardCap = Math.Min(RuntimePolicy.EmbyVersionLimit, Math.Max(1, hardCap));
             var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var results = new List<SelectedVersion>();
-            var prioritizeExtended = config?.PrioritizeExtendedEditions == true;
+
+            // Preserve materially distinct editions before using remaining slots
+            // for quality variants. AIOStreams remains the ranking/filter authority.
+            // Owned/library candidates win within each edition.
+            var editionRepresentatives = rankedStreams
+                .OrderByDescending(s => s.IsLibrary)
+                .ThenByDescending(s => s.RankScore)
+                .GroupBy(EditionKey, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
+                .OrderBy(s => EditionKey(s) == "standard" ? 0 : 1)
+                .ThenByDescending(s => s.IsLibrary)
+                .ThenByDescending(s => s.RankScore);
+
+            foreach (var stream in editionRepresentatives)
+            {
+                if (results.Count >= hardCap) break;
+                if (!claimed.Add(stream.Url)) continue;
+                results.Add(MakeVersion(stream, "edition"));
+            }
 
             // ── Phase 1: Bucket matching (ordered priority) ─────────────────────
             foreach (var bucket in desiredBuckets)
             {
                 if (results.Count >= hardCap) break;
                 var bucketLabel = BucketLabel(bucket);
-
-                if (prioritizeExtended && bucket.Count > 0)
+                var matchCount = 0;
+                foreach (var stream in rankedStreams)
                 {
-                    int extSlots = (int)Math.Ceiling(bucket.Count / 2.0);
-                    int anySlots = bucket.Count - extSlots;
+                    if (results.Count >= hardCap) break;
+                    if (matchCount >= bucket.Count) break;
+                    if (claimed.Contains(stream.Url)) continue;
 
-                    // Phase A: fill extended slots
-                    var extended = new List<ParsedStream>();
-                    foreach (var stream in rankedStreams)
-                    {
-                        if (extended.Count >= extSlots) break;
-                        if (claimed.Contains(stream.Url)) continue;
-                        if (MatchesBucket(stream, bucket) && IsExtended(stream, config!))
-                        {
-                            claimed.Add(stream.Url);
-                            extended.Add(stream);
-                        }
-                    }
-
-                    // Phase B: fill any-edition slots
-                    var any = new List<ParsedStream>();
-                    foreach (var stream in rankedStreams)
-                    {
-                        if (any.Count >= anySlots) break;
-                        if (claimed.Contains(stream.Url)) continue;
-                        if (MatchesBucket(stream, bucket))
-                        {
-                            claimed.Add(stream.Url);
-                            any.Add(stream);
-                        }
-                    }
-
-                    // Phase C: backfill unused extended slots with remaining best
-                    int deficit = extSlots - extended.Count;
-                    if (deficit > 0)
-                    {
-                        foreach (var stream in rankedStreams)
-                        {
-                            if (deficit <= 0) break;
-                            if (claimed.Contains(stream.Url)) continue;
-                            if (MatchesBucket(stream, bucket))
-                            {
-                                claimed.Add(stream.Url);
-                                any.Add(stream);
-                                deficit--;
-                            }
-                        }
-                    }
-
-                    foreach (var s in extended.Concat(any))
-                    {
-                        if (results.Count >= hardCap) break;
-                        results.Add(MakeVersion(s, bucketLabel));
-                    }
-                }
-                else
-                {
-                    var matchCount = 0;
-                    foreach (var stream in rankedStreams)
-                    {
-                        if (results.Count >= hardCap) break;
-                        if (matchCount >= bucket.Count) break;
-                        if (claimed.Contains(stream.Url)) continue;
-
-                        if (MatchesBucket(stream, bucket))
-                        {
-                            claimed.Add(stream.Url);
-                            results.Add(MakeVersion(stream, bucketLabel));
-                            matchCount++;
-                        }
-                    }
+                    if (!MatchesBucket(stream, bucket)) continue;
+                    claimed.Add(stream.Url);
+                    results.Add(MakeVersion(stream, bucketLabel));
+                    matchCount++;
                 }
             }
 
@@ -129,54 +88,22 @@ namespace InfiniteDrive.Services
         }
 
         /// <summary>
-        /// Assigns a secondary CDN URL to each selected version from the unclaimed stream pool.
-        /// Prefers streams matching the same resolution + audio group for relevance.
-        /// </summary>
-        public static void AssignSecondaryUrls(
-            List<SelectedVersion> selected,
-            List<ParsedStream> allStreams,
-            PluginConfiguration? config = null)
-        {
-            if (selected.Count == 0 || allStreams.Count == 0) return;
-
-            allStreams = FilterEligibleStreams(allStreams, config);
-
-            // Track which URLs are already claimed as primary or secondary
-            var claimed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var v in selected)
-                claimed.Add(v.Stream.Url);
-
-            // Try to assign same-resolution + same-audio-group first, then any unclaimed
-            foreach (var version in selected)
-            {
-                var best = allStreams.FirstOrDefault(s =>
-                    !claimed.Contains(s.Url)
-                    && ResolutionMatches(s.Resolution, version.Stream.Resolution)
-                    && AudioMatches(s.AudioGroup, version.Stream.AudioGroup));
-
-                if (best == null)
-                    best = allStreams.FirstOrDefault(s => !claimed.Contains(s.Url));
-
-                if (best != null)
-                {
-                    version.SecondaryUrl = best.Url;
-                    claimed.Add(best.Url);
-                }
-            }
-        }
-
-        /// <summary>
         /// Applies release safety policy before both primary and fallback selection.
-        /// CAM/telesync captures are never appropriate for an unattended family
-        /// library. REMUX files require the explicit quality toggle.
+        /// InfiniteDrive enforces the small set of playback-safety invariants that
+        /// must not be bypassed by refresh or fallback: no CAM/TS and no REMUX.
+        /// Remaining quality/ranking policy comes from AIOStreams.
         /// </summary>
         public static List<ParsedStream> FilterEligibleStreams(
             IEnumerable<ParsedStream> streams,
             PluginConfiguration? config) =>
             streams
-                .Where(s => !string.Equals(s.SourceTag, "CAM/TS", StringComparison.OrdinalIgnoreCase))
-                .Where(s => config?.UseRemuxForAutoSelection == true
+                .Where(s => !string.IsNullOrWhiteSpace(s.Url))
+                .Where(s => config?.AllowCam == true
+                    || !string.Equals(s.SourceTag, "CAM/TS", StringComparison.OrdinalIgnoreCase))
+                .Where(s => config?.AllowRemux == true
                     || !s.SourceTag.Contains("remux", StringComparison.OrdinalIgnoreCase))
+                .GroupBy(s => s.Url, StringComparer.OrdinalIgnoreCase)
+                .Select(g => g.First())
                 .ToList();
 
         /// <summary>
@@ -215,10 +142,11 @@ namespace InfiniteDrive.Services
 
         // ── Bucket matching ────────────────────────────────────────────────────
 
-        private static bool IsExtended(ParsedStream stream, PluginConfiguration config) =>
-            !string.IsNullOrEmpty(stream.Edition) &&
-            config.ExtendedEditionKeywords.Any(k =>
-                stream.Edition.Contains(k, StringComparison.OrdinalIgnoreCase));
+        private static string EditionKey(ParsedStream stream) =>
+            string.IsNullOrWhiteSpace(stream.Edition)
+            || stream.Edition.Contains("Theatrical", StringComparison.OrdinalIgnoreCase)
+                ? "standard"
+                : stream.Edition.Trim();
 
         private static bool MatchesBucket(ParsedStream stream, DesiredVersionBucket bucket)
         {

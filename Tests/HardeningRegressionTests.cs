@@ -69,18 +69,14 @@ public sealed class HardeningRegressionTests
     }
 
     [Fact]
-    public void BackupProviderRequiresExplicitEnableFlag()
+        public void EveryConfiguredManifestIsAnActivePeer()
     {
         var config = new PluginConfiguration
         {
             PrimaryManifestUrl = "https://primary.invalid/stremio/manifest.json",
-            SecondaryManifestUrl = "https://backup.invalid/stremio/manifest.json",
-            EnableBackupAioStreams = false,
+            SecondaryManifestUrl = "https://peer.invalid/stremio/manifest.json",
         };
 
-        Assert.Single(ProviderHelper.GetProviders(config));
-
-        config.EnableBackupAioStreams = true;
         Assert.Equal(2, ProviderHelper.GetProviders(config).Count);
     }
 
@@ -125,6 +121,30 @@ public sealed class HardeningRegressionTests
         Assert.Empty(missing);
     }
 
+    [Theory]
+    [InlineData("EnableBackupAioStreams")]
+    [InlineData("AioStreamsAcceptedStreamTypes")]
+    [InlineData("EmbyApiKey")]
+    [InlineData("LibraryRootMovies")]
+    [InlineData("MetadataLanguage")]
+    [InlineData("MetadataCertificationCountry")]
+    [InlineData("ImageLanguage")]
+    [InlineData("SubtitleDownloadLanguages")]
+    [InlineData("DontPanic")]
+    [InlineData("SkipFutureEpisodes")]
+    [InlineData("FutureEpisodeBufferDays")]
+    [InlineData("CacheLifetimeMinutes")]
+    [InlineData("ApiDailyBudget")]
+    [InlineData("NextUpLookaheadEpisodes")]
+    [InlineData("MaxVersionsPerItem")]
+    [InlineData("UseRemuxForAutoSelection")]
+    [InlineData("PrioritizeExtendedEditions")]
+    [InlineData("ExtendedEditionKeywords")]
+    public void RemovedRulesAreNotConfigurationProperties(string propertyName)
+    {
+        Assert.Null(typeof(PluginConfiguration).GetProperty(propertyName));
+    }
+
     [Fact]
     public void PopulateConsumesOnlyQueuedOrDueExpansionWork()
     {
@@ -143,14 +163,13 @@ public sealed class HardeningRegressionTests
     }
 
     [Fact]
-    public void AutoSelectionRejectsCamAndRemuxIncludingFallbacksByDefault()
+    public void AutoSelectionRejectsCamAndRemuxByDefault()
     {
         var safe = new ParsedStream { Url = "https://cdn.invalid/safe", SourceTag = "WEB-DL", Resolution = "1080p" };
         var cam = new ParsedStream { Url = "https://cdn.invalid/cam", SourceTag = "CAM/TS", Resolution = "1080p" };
         var remux = new ParsedStream { Url = "https://cdn.invalid/remux", SourceTag = "BluRay Remux", Resolution = "4K" };
         var config = new PluginConfiguration
         {
-            UseRemuxForAutoSelection = false,
             DesiredVersions = new List<DesiredVersionBucket>
             {
                 new() { Resolution = "1080p", Audio = "Any Audio", Count = 1 }
@@ -159,11 +178,54 @@ public sealed class HardeningRegressionTests
 
         var selected = VersionSelectorService.SelectBestVersions(
             new List<ParsedStream> { cam, remux, safe }, config.DesiredVersions, 3, config);
-        VersionSelectorService.AssignSecondaryUrls(selected, new List<ParsedStream> { cam, remux, safe }, config);
-
         Assert.Single(selected);
         Assert.Same(safe, selected[0].Stream);
         Assert.Null(selected[0].SecondaryUrl);
+    }
+
+    [Fact]
+    public void RemuxAndCamCanOnlyBeAdmittedExplicitly()
+    {
+        var cam = new ParsedStream { Url = "https://cdn.invalid/cam", SourceTag = "CAM/TS", Resolution = "1080p" };
+        var remux = new ParsedStream { Url = "https://cdn.invalid/remux", SourceTag = "BluRay Remux", Resolution = "4K" };
+        var config = new PluginConfiguration { AllowCam = true, AllowRemux = true };
+
+        var selected = VersionSelectorService.SelectBestVersions(
+            new List<ParsedStream> { cam, remux }, new List<DesiredVersionBucket>(), 8, config);
+
+        Assert.Equal(2, selected.Count);
+    }
+
+    [Fact]
+    public void EditionDiversityIsPreservedWithinFixedEightVersionLimit()
+    {
+        var streams = Enumerable.Range(1, 10)
+            .Select(i => new ParsedStream
+            {
+                Url = $"https://cdn.invalid/{i}",
+                SourceTag = "WEB-DL",
+                Resolution = "1080p",
+                RankScore = 100 - i,
+                Edition = i == 10 ? "Extended Edition" : null,
+                IsLibrary = i == 2,
+            }).ToList();
+
+        var selected = VersionSelectorService.SelectBestVersions(
+            streams, new List<DesiredVersionBucket>(), 99, new PluginConfiguration());
+
+        Assert.Equal(8, selected.Count);
+        Assert.Contains(selected, v => v.Stream.Edition == "Extended Edition");
+        Assert.True(selected[0].Stream.IsLibrary);
+    }
+
+    [Theory]
+    [InlineData(0, 0, true)]
+    [InlineData(1, 0, false)]
+    [InlineData(0, 25, false)]
+    public void StarterCatalogIsOnlyDerivedWhenNoManifestOrListContentExists(
+        int activeLists, int fetchedItems, bool expected)
+    {
+        Assert.Equal(expected, CatalogSyncTask.NeedsStarterCatalog(activeLists, fetchedItems));
     }
 
     [Theory]
@@ -206,6 +268,24 @@ public sealed class HardeningRegressionTests
         var episode = StreamUrlTests.TestSeriesStreamUrl("https://example.invalid", "tt1234567", 2, 3);
         Assert.True(StreamUrlTests.ValidateStreamUrlFormat(movie, "/stream/movie/tt1234567"));
         Assert.True(StreamUrlTests.ValidateStreamUrlFormat(episode, "/stream/series/tt1234567:2:3"));
+    }
+
+    [Fact]
+    public void ExternalVirtualPathsAreNotInfiniteDriveOwned()
+    {
+        var config = new PluginConfiguration
+        {
+            SyncPathMovies = "/media/infinitedrive/movies",
+            SyncPathShows = "/media/infinitedrive/shows",
+            SyncPathAnime = "/media/infinitedrive/anime",
+        };
+
+        Assert.True(DiscoverInitializationService.IsManagedPath(
+            "/media/infinitedrive/movies/Title/movie.strm", config));
+        Assert.False(DiscoverInitializationService.IsManagedPath(
+            "/mycelium/movies/Title/movie.strm", config));
+        Assert.False(DiscoverInitializationService.IsManagedPath(
+            "/media/infinitedrive-other/movies/Title/movie.strm", config));
     }
 
     private sealed class StaticHandler : HttpMessageHandler

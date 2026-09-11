@@ -67,23 +67,12 @@ namespace InfiniteDrive
         // in-memory for the Preview/Apply formatter+sort action — never persisted.
 
         /// <summary>
-        /// Optional full manifest URL of a secondary (backup) AIOStreams instance.
-        ///
-        /// Used only when the primary instance is unreachable. Configure this
-        /// if you have a backup AIOStreams server in a different location or with
-        /// different providers for failover redundancy.
-        ///
-        /// Leave empty to use only the primary instance.
+        /// Optional second AIOStreams manifest. Every configured manifest is an
+        /// active peer: its catalogs are unioned with the first manifest and it
+        /// may provide transport fallback for an item whose origin is unavailable.
         /// </summary>
         [DataMember]
         public string SecondaryManifestUrl { get; set; } = string.Empty;
-
-        /// <summary>
-        /// When true, SecondaryManifestUrl is used as a fallback if the primary
-        /// manifest URL cannot be parsed. When false, SecondaryManifestUrl is ignored.
-        /// </summary>
-        [DataMember]
-        public bool EnableBackupAioStreams { get; set; } = false;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  CATALOG SYNC SELECTION                                              ║
@@ -118,48 +107,6 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public string AioStreamsCatalogIds { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Stream types to accept from AIOStreams when resolving for playback.
-        /// Comma-separated from: <c>debrid,torrent,usenet,http,live</c>.
-        ///
-        /// Default: <c>debrid</c> (Real-Debrid / AllDebrid / TorBox cached links).
-        /// Add <c>usenet</c> to also accept Easynews / NZBDav / AltMount streams.
-        /// Set to empty string to accept all types AIOStreams returns.
-        /// </summary>
-        [DataMember]
-        public string AioStreamsAcceptedStreamTypes { get; set; } = "debrid";
-
-
-        // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  EMBY LOCAL ADDRESS                                                  ║
-        // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>
-        /// Emby API key for .strm file authentication.
-        /// Used in .strm files to authenticate playback requests.
-        ///
-        /// Get from: Emby Dashboard → API Keys → Add → Copy the key
-        /// Or use /InfiniteDrive/Setup/CreateEmbyApiKey to create one programmatically.
-        ///
-        /// WARNING: If leaked, this gives full access to your Emby server!
-        /// Treat this like a password - never share it.
-        /// </summary>
-        [DataMember]
-        public string EmbyApiKey { get; set; } = string.Empty;
-
-        // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  LIBRARY ROOT PATHS (VIRTUAL ITEMS)                                  ║
-        // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>
-        /// Absolute filesystem path of the Emby Movies library root.
-        /// Must match the path configured in Emby Dashboard → Libraries.
-        /// Used by VirtualItemService to place virtual movie items.
-        /// Default: <c>/media/infinitedrive/movies</c>
-        /// </summary>
-        [DataMember]
-        public string LibraryRootMovies { get; set; } = "/media/infinitedrive/movies";
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  .STRM FILE STORAGE PATHS                                             ║
@@ -200,61 +147,6 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public string SyncPathAnime { get; set; } = "/media/infinitedrive/anime";
-
-        /// <summary>Preferred metadata language for Emby libraries. Default: "en".</summary>
-        [DataMember]
-        public string MetadataLanguage { get; set; } = "en";
-
-        /// <summary>Country code for metadata/certification lookup (e.g., "US", "GB"). Default: "US".</summary>
-        [DataMember(Name = "metadataCertificationCountry")]
-        public string MetadataCertificationCountry { get; set; } = "US";
-
-        /// <summary>When true, suppresses panic/timeout UI banners during provider outages. Default: false.</summary>
-        [DataMember(Name = "dontPanic")]
-        public bool DontPanic { get; set; } = false;
-
-        /// <summary>Preferred image/artwork language. Default: "en".</summary>
-        [DataMember]
-        public string ImageLanguage { get; set; } = "en";
-
-        /// <summary>Preferred subtitle languages (comma-separated). Default: "en".</summary>
-        [DataMember]
-        public string SubtitleDownloadLanguages { get; set; } = "en";
-
-
-        /// <summary>Skip episodes that haven't aired yet. Default: true.</summary>
-        [DataMember]
-        public bool SkipFutureEpisodes { get; set; } = true;
-
-        /// <summary>Buffer days to consider future episodes as aired. Default: 2.</summary>
-        [DataMember]
-        public int FutureEpisodeBufferDays { get; set; } = 2;
-
-        // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  CACHE & RESOLUTION                                                  ║
-        // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>
-        /// How many minutes a resolved stream URL remains valid before it is
-        /// considered stale and re-validated at playback time.
-        ///
-        /// Real-Debrid / AllDebrid CDN URLs typically expire server-side at ~4–6 h
-        /// after issuance.  PlaybackService adds a proactive range-probe at 70% of
-        /// this TTL (≈ 252 min for the 360 min default) to catch silent URL expiry
-        /// before the cache considers the entry stale.
-        ///
-        /// Default: 360 min (6 hours).
-        /// </summary>
-        [DataMember]
-        public int CacheLifetimeMinutes { get; set; } = 360;
-
-        /// <summary>
-        /// Maximum number of AIOStreams API calls allowed per calendar day (UTC).
-        /// AIOStreams itself may call multiple upstream addons per request.
-        /// Default: 2000.
-        /// </summary>
-        [DataMember]
-        public int ApiDailyBudget { get; set; } = 2000;
 
         /// <summary>
         /// Maximum number of simultaneous AIOStreams HTTP calls during background
@@ -464,26 +356,6 @@ namespace InfiniteDrive
         [DataMember]
         public string AioStreamsStreamIdPrefixes { get; set; } = string.Empty;
 
-        /// <summary>
-        /// When <c>true</c> (default), InfiniteDrive automatically adds Cinemeta
-        /// (<c>https://v3-cinemeta.strem.io</c>) as a catalog source when the
-        /// primary AIOStreams instance has no available catalogs.
-        ///
-        /// This ensures new users always have Top Movies and Top Series in their
-        /// Emby library even before configuring AIOStreams with catalog addons.
-        ///
-        /// Cinemeta is auto-injected only when:
-        /// <list type="bullet">
-        ///   <item>AIOStreams is not configured, or is known to be stream-only
-        ///         (no catalog entries in its manifest).</item>
-        /// </list>
-        ///
-        /// Disable this only if you intentionally have no catalog source and do
-        /// not want Cinemeta items in your library.
-        /// </summary>
-        [DataMember]
-        public bool EnableCinemetaDefault { get; set; } = false;
-
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  VERSIONED PLAYBACK                                                  ║
         // ╚══════════════════════════════════════════════════════════════════════╝
@@ -522,12 +394,13 @@ namespace InfiniteDrive
         [DataMember]
         public List<Models.DesiredVersionBucket> DesiredVersions { get; set; } = new();
 
-        /// <summary>
-        /// Maximum number of .strm versions per media item. Default: 8.
-        /// After bucket matching, remaining slots are filled with next-best streams.
-        /// </summary>
+        /// <summary>Allow very large REMUX releases. Off by default to prevent buffering.</summary>
         [DataMember]
-        public int MaxVersionsPerItem { get; set; } = 8;
+        public bool AllowRemux { get; set; } = false;
+
+        /// <summary>Allow CAM/telesync captures. Off by default.</summary>
+        [DataMember]
+        public bool AllowCam { get; set; } = false;
 
         /// <summary>
         /// Queue of pending rehydration operations serialised as JSON.
@@ -540,24 +413,6 @@ namespace InfiniteDrive
         /// </summary>
         [DataMember]
         public List<string> PendingRehydrationOperations { get; set; } = new();
-
-        // ╔══════════════════════════════════════════════════════════════════════╗
-        // ║  NEXT-UP PRE-WARM                                                    ║
-        // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>
-        /// Number of subsequent episodes to queue for Tier 1 pre-resolution when
-        /// playback of an episode stops.
-        ///
-        /// Example: value of <c>2</c> queues episode+1 and episode+2 so both are
-        /// ready to play instantly in sequence without a cache-miss delay.
-        /// Season boundaries are crossed automatically.
-        ///
-        /// Higher values use more API budget.  Set to <c>0</c> to disable next-up
-        /// pre-warming entirely.  Default: 2.
-        /// </summary>
-        [DataMember]
-        public int NextUpLookaheadEpisodes { get; set; } = 2;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  SYNC SCHEDULE                                                       ║
@@ -575,13 +430,6 @@ namespace InfiniteDrive
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  LIBRARY RE-ADOPTION                                                 ║
         // ╚══════════════════════════════════════════════════════════════════════╝
-
-        /// <summary>
-        /// When <c>true</c> (default), .strm files are deleted when real media files
-        /// are detected for the same item.
-        /// </summary>
-        [DataMember]
-        public bool DeleteStrmOnReadoption { get; set; } = true;
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  METADATA ENRICHMENT                                                  ║
@@ -680,14 +528,6 @@ namespace InfiniteDrive
         [DataMember]
         public int UserCatalogLimit { get; set; } = 5;
 
-        /// <summary>Country code for certification lookup (e.g., "US", "GB"). Default: "US".</summary>
-        [DataMember]
-        public string CertificationCountry { get; set; } = "US";
-
-        /// <summary>Preferred subtitle language for Emby libraries. Default: "en".</summary>
-        [DataMember]
-        public string DefaultSubtitleLanguage { get; set; } = "en";
-
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  CONTENT CONTROLS TAB (Sprint 502)                                   ║
         // ╚══════════════════════════════════════════════════════════════════════╝
@@ -703,16 +543,6 @@ namespace InfiniteDrive
         /// <summary>Default quality tier selected when no user preference is set. Default: "1080p (any)".</summary>
         [DataMember]
         public string DefaultQualityTier { get; set; } = "1080p (any)";
-
-        /// <summary>
-        /// When true, REMUX files (4K/1080p Bluray REMUX) are included in auto-selection.
-        /// When false (default), REMUX files are deprioritized in favor of faster-starting encodes.
-        /// REMUX files are 40-60GB, take 40+ seconds to probe, and often require transcoding due to
-        /// TrueHD/Atmos audio which most clients don't support natively.
-        /// Default: false.
-        /// </summary>
-        [DataMember]
-        public bool UseRemuxForAutoSelection { get; set; } = false;
 
         /// <summary>
         /// When true, catalog items without a known rating are hidden from all users (admin-level global toggle).
@@ -733,34 +563,6 @@ namespace InfiniteDrive
         // ║  SYNC & MARVIN TAB (Sprint 502)                                      ║
         // ╚══════════════════════════════════════════════════════════════════════╝
 
-        /// <summary>How often Marvin's main loop fires, in minutes. Default: 10.</summary>
-        [DataMember]
-        public int MarvinProcessIntervalMinutes { get; set; } = 10;
-
-        /// <summary>Number of items Marvin resolves per batch during stream resolution. Default: 42.</summary>
-        [DataMember]
-        public int StreamResolutionBatchSize { get; set; } = 42;
-
-        /// <summary>Maximum AIOStreams API calls Marvin is allowed to make per hour. Default: 360.</summary>
-        [DataMember]
-        public int MarvinActionsPerHour { get; set; } = 360;
-
-        /// <summary>When true, respect user playlists and self-managed collections when pruning. Default: true.</summary>
-        [DataMember]
-        public bool RespectPlaylistsWhenPruning { get; set; } = true;
-
-        /// <summary>
-        /// Number of consecutive successful syncs an item must be absent from ALL sources
-        /// before being pruned. Default 3. Items with collection membership and blocked
-        /// items are always exempt.
-        /// </summary>
-        [DataMember]
-        public int GlobalAbsentSyncsThreshold { get; set; } = 3;
-
-        /// <summary>When true, auto-deduplicate against physical media in other libraries. Default: true.</summary>
-        [DataMember]
-        public bool AutoDeduplicatePhysicalMedia { get; set; } = true;
-
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  ADVANCED TAB (Sprint 502)                                           ║
         // ╚══════════════════════════════════════════════════════════════════════╝
@@ -768,18 +570,6 @@ namespace InfiniteDrive
         /// <summary>Minimum log verbosity level for InfiniteDrive. Default: "Info".</summary>
         [DataMember]
         public string PluginLogLevel { get; set; } = "Info";
-
-        /// <summary>When true, roughly half of each quality bucket's slots are reserved for
-        /// Extended/Director's Cut editions. Graceful fallback if none exist — you always
-        /// get your full version count.</summary>
-        [DataMember]
-        public bool PrioritizeExtendedEditions { get; set; } = false;
-
-        /// <summary>Keywords that identify extended/special editions in parsedFile.edition.
-        /// Case-insensitive contains match.</summary>
-        [DataMember]
-        public List<string> ExtendedEditionKeywords { get; set; } = new()
-            { "Extended", "Director", "Unrated", "Special Edition" };
 
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  INSTANCE TYPE DETECTION                                             ║
@@ -861,27 +651,19 @@ namespace InfiniteDrive
         {
             static int Clamp(int v, int min, int max) => v < min ? min : v > max ? max : v;
 
-            CacheLifetimeMinutes      = Clamp(CacheLifetimeMinutes,      30,    1_440);  // 30 min – 24 h
-            ApiDailyBudget            = Clamp(ApiDailyBudget,            1,     100_000);
             MaxConcurrentResolutions  = Clamp(MaxConcurrentResolutions,  1,     20);
             CatalogSyncIntervalHours  = Clamp(CatalogSyncIntervalHours,  1,     24);     // 1 h – 24 h
             PreCacheBatchSize          = Clamp(PreCacheBatchSize,         1,     500);
             PreCacheTTLDays            = Clamp(PreCacheTTLDays,           1,     90);
             InMemoryCacheTtlMinutes    = Clamp(InMemoryCacheTtlMinutes,   10,    1_440);
             SyncResolveTimeoutSeconds = Clamp(SyncResolveTimeoutSeconds, 5,     300);
-            NextUpLookaheadEpisodes   = Clamp(NextUpLookaheadEpisodes,   0,     10);
             // -1 is the "disabled" sentinel; any other out-of-range value clamps to 0–23
             SyncScheduleHour          = SyncScheduleHour == -1 ? -1 : Clamp(SyncScheduleHour, 0, 23);
             CandidatesPerProvider     = Clamp(CandidatesPerProvider,     1,     10);
             MaxCuratedStreams         = Clamp(MaxCuratedStreams,         1,     12);
             CandidateTtlHours         = Clamp(CandidateTtlHours,         1,     168);    // 1 h – 7 days
-            FutureEpisodeBufferDays    = Clamp(FutureEpisodeBufferDays, 0, 30);
             UserCatalogLimit          = Clamp(UserCatalogLimit, 0, 50);
 
-            // Sprint 502 additions
-            if (MarvinProcessIntervalMinutes < 1) MarvinProcessIntervalMinutes = 10;
-            if (StreamResolutionBatchSize < 1) StreamResolutionBatchSize = 42;
-            if (MarvinActionsPerHour < 1) MarvinActionsPerHour = 360;
             if (MaxListsPerUser < 0) MaxListsPerUser = 10;
 
             // Seed a default quality bucket if none are defined — prevents Marvin running with nothing to populate

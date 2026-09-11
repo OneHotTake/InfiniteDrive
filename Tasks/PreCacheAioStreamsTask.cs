@@ -52,7 +52,7 @@ namespace InfiniteDrive.Tasks
 
             if (await db.IsBudgetExhaustedAsync().ConfigureAwait(false))
             {
-                _logger.LogWarning("[PreCache] API daily budget exhausted — skipping");
+                _logger.LogWarning("[PreCache] Provider backoff active — skipping");
                 progress.Report(100);
                 return;
             }
@@ -100,11 +100,11 @@ namespace InfiniteDrive.Tasks
                 var pct = (double)(i + 1) / items.Count * 100;
                 progress.Report(pct);
 
-                // Budget check before each item
+                // Provider backoff check before each item
                 if (await db.IsBudgetExhaustedAsync().ConfigureAwait(false))
                 {
                     throttled = items.Count - i;
-                    _logger.LogWarning("[PreCache] Budget exhausted after {Resolved} items — {Throttled} remaining",
+                    _logger.LogWarning("[PreCache] Provider backoff activated after {Resolved} items — {Throttled} remaining",
                         resolved, throttled);
                     break;
                 }
@@ -234,8 +234,9 @@ namespace InfiniteDrive.Tasks
                 response, item.AioId, item.Season, item.Episode,
                 config.ProviderPriorityOrder ?? "",
                 0, // unlimited — let SelectBest's bucket algorithm curate per tier
-                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360,
-                config.UseRemuxForAutoSelection);
+                RuntimePolicy.FallbackStreamCacheMinutes,
+                includeRemux: config.AllowRemux,
+                includeCam: config.AllowCam);
 
             var best = StreamHelpers.RankCandidates(ranked);
             if (best.Count == 0) return null;

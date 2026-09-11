@@ -161,7 +161,7 @@ namespace InfiniteDrive.Services
         {
             var db = Plugin.Instance?.DatabaseManager;
             var cacheTtl = TimeSpan.FromMinutes(
-                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360);
+                RuntimePolicy.FallbackStreamCacheMinutes);
 
             // ── Pre-cache lookup (cached_streams table) ──────────────────────────
             try
@@ -272,8 +272,9 @@ namespace InfiniteDrive.Services
                 response, aioId, season, episode,
                 config.ProviderPriorityOrder ?? "",
                 0, // unlimited — let SelectBest's bucket algorithm curate
-                config.CacheLifetimeMinutes > 0 ? config.CacheLifetimeMinutes : 360,
-                config.UseRemuxForAutoSelection);
+                RuntimePolicy.FallbackStreamCacheMinutes,
+                includeRemux: config.AllowRemux,
+                includeCam: config.AllowCam);
 
             return StreamHelpers.RankCandidates(ranked);
         }
@@ -644,10 +645,7 @@ namespace InfiniteDrive.Services
 
         private void SortByLanguagePreference(List<MediaSourceInfo> sources, PluginConfiguration config, string? itemPath)
         {
-            // Priority: config.MetadataLanguage → library language → no sort
-            var prefLang = config.MetadataLanguage;
-            if (string.IsNullOrEmpty(prefLang))
-                prefLang = GetLibraryLanguage(itemPath);
+            var prefLang = ServerPreferenceResolver.MetadataLanguage(itemPath);
             if (string.IsNullOrEmpty(prefLang) || sources.Count <= 1) return;
 
             sources.Sort((a, b) =>

@@ -51,9 +51,8 @@ namespace InfiniteDrive.Services
 
         private static string GetTmdbLanguage()
         {
-            var config = Plugin.Instance?.Configuration;
-            var lang = config?.MetadataLanguage ?? "en";
-            var country = config?.MetadataCertificationCountry ?? "US";
+            var lang = ServerPreferenceResolver.MetadataLanguage();
+            var country = ServerPreferenceResolver.CertificationCountry();
             return $"{lang}-{country}";
         }
 

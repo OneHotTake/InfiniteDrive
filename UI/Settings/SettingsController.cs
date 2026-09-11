@@ -87,35 +87,7 @@ namespace InfiniteDrive.UI.Settings
                 SeriesLibraryPath = string.IsNullOrWhiteSpace(c.SyncPathShows) ? "/media/infinitedrive/shows" : c.SyncPathShows,
                 AnimeLibraryName = c.LibraryNameAnime ?? "Streamed Anime",
                 AnimeLibraryPath = string.IsNullOrWhiteSpace(c.SyncPathAnime) ? "/media/infinitedrive/anime" : c.SyncPathAnime,
-                MetadataLanguage = c.MetadataLanguage ?? "en",
-                CertificationCountry = c.MetadataCertificationCountry ?? "US",
-                DefaultSubtitleLanguage = c.DefaultSubtitleLanguage ?? "en",
             };
-
-            // Populate language/country dropdowns from Emby's ILocalizationManager
-            var loc = Plugin.Instance.LocalizationManager;
-            if (loc != null)
-            {
-                ui.LanguageOptions = loc.GetCultures()
-                    .Select(culture => new EditorSelectOption
-                    {
-                        Value = culture.TwoLetterISOLanguageName ?? culture.Name,
-                        Name = $"{culture.Name} ({culture.TwoLetterISOLanguageName})",
-                        IsEnabled = true
-                    })
-                    .OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                ui.CountryOptions = loc.GetCountries()
-                    .Select(country => new EditorSelectOption
-                    {
-                        Value = country.TwoLetterISORegionName ?? country.Name,
-                        Name = $"{country.DisplayName} ({country.TwoLetterISORegionName})",
-                        IsEnabled = true
-                    })
-                    .OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-            }
 
             return ui;
         }
@@ -136,7 +108,8 @@ namespace InfiniteDrive.UI.Settings
             var c = Plugin.Instance.Configuration;
             return new ContentControlsUI
             {
-                UseRemuxForAutoSelection = c.UseRemuxForAutoSelection,
+                AllowRemux = c.AllowRemux,
+                AllowCam = c.AllowCam,
             };
         }
 
@@ -151,15 +124,7 @@ namespace InfiniteDrive.UI.Settings
 
         private static SyncAndMarvinUI LoadSyncAndMarvin()
         {
-            var c = Plugin.Instance.Configuration;
-            return new SyncAndMarvinUI
-            {
-                MarvinProcessIntervalMinutes = c.MarvinProcessIntervalMinutes,
-                StreamResolutionBatchSize = c.StreamResolutionBatchSize,
-                MarvinActionsPerHour = c.MarvinActionsPerHour,
-                RespectPlaylistsWhenPruning = c.RespectPlaylistsWhenPruning,
-                AutoDeduplicatePhysicalMedia = c.AutoDeduplicatePhysicalMedia,
-            };
+            return new SyncAndMarvinUI();
         }
 
         internal static AdvancedUI LoadAdvanced()

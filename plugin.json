@@ -6,7 +6,7 @@
   "owner": "InfiniteDrive",
   "category": "General",
   "version": "0.43.0.0",
-  "targetAbi": "4.10.0.6",
+  "targetAbi": "4.10.0.40",
   "framework": "net8.0",
   "imageUrl": ""
 }

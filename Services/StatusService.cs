@@ -657,7 +657,9 @@ namespace InfiniteDrive.Services
             // YELLOW = backend reachable + configured but no catalogs AND no lists
             // RED    = not configured / backend unreachable / library error
             // Catalogs and lists are EITHER-OR: either alone yields a working system.
-            bool hasCatalogs = hasAioStreamsCatalog || config.EnableCinemetaDefault;
+            // When no configured list/catalog exists, sync derives a small Cinemeta
+            // starter catalog. This is state behavior, not a user toggle.
+            bool hasCatalogs = true;
 
             bool hasLists = false;
             try
@@ -683,7 +685,7 @@ namespace InfiniteDrive.Services
                     : stateError
                         ? (string.IsNullOrWhiteSpace(response.SystemStateDescription)
                             ? "Library paths are not accessible." : response.SystemStateDescription)
-                        : "Your AIOStreams backend isn't reachable right now. If you configured a backup, InfiniteDrive fails over automatically; otherwise check the manifest URL.";
+                        : "No configured AIOStreams manifest is reachable right now.";
             }
             else if (hasCatalogs || hasLists)
             {
@@ -699,19 +701,10 @@ namespace InfiniteDrive.Services
 
             if (!hasAioStreamsCatalog)
             {
-                if (config.EnableCinemetaDefault)
-                {
-                    response.UsingCinemetaDefault = true;
-                    response.Warnings.Add(
-                        "No catalog source configured. InfiniteDrive is using Cinemeta (Top Movies/Series) as a fallback. " +
-                        "For your full library, configure AIOStreams with a catalog addon, or disable Cinemeta default.");
-                }
-                else
-                {
-                    response.Warnings.Add(
-                        "No catalog source configured and Cinemeta default is disabled. " +
-                        "Your Emby library will be empty. Configure AIOStreams with a catalog addon or re-enable EnableCinemetaDefault.");
-                }
+                response.UsingCinemetaDefault = !hasLists;
+                response.Warnings.Add(hasLists
+                    ? "Configured AIOStreams manifests are stream-only; active lists provide catalog content."
+                    : "Configured manifests provide no browsable catalogs. InfiniteDrive will use small Cinemeta starter catalogs until a list or manifest catalog is configured.");
             }
 
             if (config.AioStreamsIsStreamOnly

@@ -79,7 +79,7 @@ if [ -n "$TOKEN" ]; then
 fi
 CFG="$DATA_DIR/plugins/configurations/InfiniteDrive.xml"
 MANIFEST=$(grep -aoE "<PrimaryManifestUrl>[^<]*" "$CFG" 2>/dev/null | sed 's/<PrimaryManifestUrl>//')
-[ -n "$MANIFEST" ] && pass "Manifest configured: ${MANIFEST:0:60}…" || fail "No PrimaryManifestUrl in plugin config"
+[ -n "$MANIFEST" ] && pass "Manifest configured (value intentionally redacted)" || fail "No PrimaryManifestUrl in plugin config"
 
 # ── Stage 2: trigger catalog sync (scheduled task) ───────────────────────────
 info "Stage 2 — trigger catalog sync"
@@ -104,7 +104,10 @@ info "Stage 3 — catalog items in DB (timeout ${TIMEOUT_SYNC}s)"
 count_rows(){ python3 - "$DB" "$1" <<'PY' 2>/dev/null
 import sqlite3,sys
 try:
-    c=sqlite3.connect(sys.argv[1]); print(c.execute(sys.argv[2]).fetchone()[0])
+    # Read-only host-side checks must not require write access to Emby's media-owned
+    # database directory (SQLite otherwise tries to create journal/WAL files).
+    c=sqlite3.connect(f"file:{sys.argv[1]}?mode=ro&immutable=1", uri=True)
+    print(c.execute(sys.argv[2]).fetchone()[0])
 except Exception: print(0)
 PY
 }
@@ -135,7 +138,7 @@ if [ -n "$STRM" ]; then
         info ".strm has no direct URL yet (Marvin populates async). Content: $(head -c 80 "$STRM")"
         fail "no playable URL in .strm"
     else
-        info "stream URL: ${URL:0:80}…"
+        info "resolved a signed stream URL (value intentionally redacted)"
         # -L: many providers (meteor/comet proxies) 302-redirect to the real CDN file;
         # Emby follows redirects natively, so the harness must too. We check the FINAL
         # response after redirects for playable bytes.

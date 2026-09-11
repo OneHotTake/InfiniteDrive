@@ -63,8 +63,8 @@ namespace InfiniteDrive.UI.Settings
         private void LoadQualitySettings()
         {
             var cfg = Plugin.Instance.Configuration;
-            UI.UseRemuxForAutoSelection = cfg.UseRemuxForAutoSelection;
-            UI.PrioritizeExtendedEditions = cfg.PrioritizeExtendedEditions;
+            UI.AllowRemux = cfg.AllowRemux;
+            UI.AllowCam = cfg.AllowCam;
             RaiseUIViewInfoChanged();
         }
 
@@ -206,8 +206,8 @@ namespace InfiniteDrive.UI.Settings
         public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
         {
             var cfg = Plugin.Instance.Configuration;
-            cfg.UseRemuxForAutoSelection = UI.UseRemuxForAutoSelection;
-            cfg.PrioritizeExtendedEditions = UI.PrioritizeExtendedEditions;
+            cfg.AllowRemux = UI.AllowRemux;
+            cfg.AllowCam = UI.AllowCam;
             // Note: DesiredVersions bucket list is saved immediately on Add/Remove
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();

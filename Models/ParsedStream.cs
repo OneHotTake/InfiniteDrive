@@ -63,10 +63,7 @@ namespace InfiniteDrive.Models
         /// <summary>Parsed stream that was selected.</summary>
         public ParsedStream Stream { get; set; } = new();
 
-        /// <summary>
-        /// Pre-cached secondary CDN URL for instant failover when primary dies.
-        /// Assigned by <see cref="VersionSelectorService.AssignSecondaryUrls"/>.
-        /// </summary>
+        /// <summary>Legacy persisted field. New selections never assign a dynamic fallback.</summary>
         public string? SecondaryUrl { get; set; }
 
         /// <summary>

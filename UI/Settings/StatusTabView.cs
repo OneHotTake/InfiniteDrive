@@ -110,7 +110,7 @@ namespace InfiniteDrive.UI.Settings
             bool libraryConfigured = configured.Count > 0;
             bool hasCatalogs =
                 (cfg.EnableAioStreamsCatalog && providerConfigured && !cfg.AioStreamsIsStreamOnly)
-                || cfg.EnableCinemetaDefault;
+                || providerConfigured;
 
             bool hasLists = false;
             try

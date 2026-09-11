@@ -41,10 +41,8 @@ namespace InfiniteDrive.UI.Settings
 
         private void LoadMarvinStatus(SyncAndMarvinUI ui)
         {
-            var cfg = Plugin.Instance.Configuration;
             ui.MarvinStatus.StatusText =
-                $"Every {cfg.MarvinProcessIntervalMinutes}m · {cfg.StreamResolutionBatchSize} items per pass · " +
-                $"{cfg.MarvinActionsPerHour} actions/hr ceiling";
+                "Automatic · provider backoff respected · playlists and watched items protected";
             ui.MarvinStatus.Status = ItemStatus.Succeeded;
             RaiseUIViewInfoChanged();
         }
@@ -74,22 +72,5 @@ namespace InfiniteDrive.UI.Settings
             RaiseUIViewInfoChanged();
         }
 
-        // ═══════════════════════════════════════════════════════════════
-        // Save
-        // ═══════════════════════════════════════════════════════════════
-
-        public override Task<IPluginUIView> OnSaveCommand(string itemId, string commandId, string data)
-        {
-            var cfg = Plugin.Instance.Configuration;
-            cfg.MarvinProcessIntervalMinutes = UI.MarvinProcessIntervalMinutes;
-            cfg.StreamResolutionBatchSize = UI.StreamResolutionBatchSize;
-            cfg.MarvinActionsPerHour = UI.MarvinActionsPerHour;
-            cfg.RespectPlaylistsWhenPruning = UI.RespectPlaylistsWhenPruning;
-            cfg.AutoDeduplicatePhysicalMedia = UI.AutoDeduplicatePhysicalMedia;
-            Plugin.Instance.SaveConfiguration();
-            Plugin.Instance.TriggerBackgroundSync();
-            LoadMarvinStatus(UI);
-            return base.OnSaveCommand(itemId, commandId, data);
-        }
     }
 }

@@ -29,7 +29,7 @@ namespace InfiniteDrive.UI.Settings
         public CaptionItem CaptionConnect { get; set; } = new CaptionItem("Connect your sources");
 
         public LabelItem WelcomeText { get; set; } = new LabelItem(
-            "Paste your AIOStreams manifest URL below and click Test Primary to verify it. " +
+            "Paste one or two AIOStreams manifest URLs below. Every configured manifest is active. " +
             "Then go to the Libraries tab to tell InfiniteDrive where to save your files.");
 
         // ── Section 1: AIOStreams Providers ───────────────────────────────────
@@ -37,11 +37,12 @@ namespace InfiniteDrive.UI.Settings
         public SpacerItem Spacer0 { get; set; } = new SpacerItem();
         public CaptionItem CaptionProviders { get; set; } = new CaptionItem("Manifest URLs");
 
-        [DisplayName("Primary Manifest")]
-        [Description("The main manifest URL from your AIOStreams web UI. This is where InfiniteDrive gets all its streaming links.")]
+        [DisplayName("Manifest 1")]
+        [Description("A manifest URL from your AIOStreams web UI. Its catalogs and streams are active whenever configured.")]
+        [MediaBrowser.Model.Attributes.IsPassword]
         public string PrimaryManifestUrl { get; set; } = string.Empty;
 
-        public ButtonItem TestPrimaryButton { get; set; } = new ButtonItem("Test Primary")
+        public ButtonItem TestPrimaryButton { get; set; } = new ButtonItem("Test Manifest 1")
         {
             Icon = IconNames.network_check,
             Data1 = TestPrimaryCommand,
@@ -52,11 +53,12 @@ namespace InfiniteDrive.UI.Settings
 
         public SpacerItem Spacer1 { get; set; } = new SpacerItem();
 
-        [DisplayName("Secondary Manifest")]
-        [Description("(Optional) A backup AIOStreams server. If your primary server goes down, InfiniteDrive will automatically use this one.")]
+        [DisplayName("Manifest 2")]
+        [Description("Optional peer manifest. Its catalogs are unioned with Manifest 1; it can also answer when an item's origin transport is unavailable.")]
+        [MediaBrowser.Model.Attributes.IsPassword]
         public string SecondaryManifestUrl { get; set; } = string.Empty;
 
-        public ButtonItem TestSecondaryButton { get; set; } = new ButtonItem("Test Secondary")
+        public ButtonItem TestSecondaryButton { get; set; } = new ButtonItem("Test Manifest 2")
         {
             Icon = IconNames.network_check,
             Data1 = TestSecondaryCommand,
@@ -75,15 +77,15 @@ namespace InfiniteDrive.UI.Settings
             "predictable stream FORMAT and SORT order on your instances for the cleanest results. " +
             "It touches ONLY the formatter and sort order — never your catalogs, lists, providers, or keys. " +
             "Each instance has its own password (the one you set in QuackStart). Enter the password for " +
-            "each instance you want updated, then Preview first. A backup instance needs its own password.");
+            "each instance you want updated, then Preview first. Each manifest instance needs its own password.");
 
-        [DisplayName("Primary AIOStreams Password")]
-        [Description("Password for your PRIMARY AIOStreams instance. Used once, in-memory, to read and update its formatter + sort order — never saved. Re-enter it each time you Preview or Apply.")]
+        [DisplayName("Manifest 1 AIOStreams Password")]
+        [Description("Password for Manifest 1. Used once, in-memory, to read and update its formatter + sort order — never saved.")]
         [MediaBrowser.Model.Attributes.IsPassword]
         public string PrimaryManifestPassword { get; set; } = string.Empty;
 
-        [DisplayName("Backup AIOStreams Password")]
-        [Description("Password for your BACKUP (secondary) AIOStreams instance, if you set one above. Only needed to apply the recommended formatter + sort to the backup. Used once, in-memory, never saved.")]
+        [DisplayName("Manifest 2 AIOStreams Password")]
+        [Description("Password for Manifest 2, if configured. Used once, in-memory, never saved.")]
         [MediaBrowser.Model.Attributes.IsPassword]
         public string SecondaryManifestPassword { get; set; } = string.Empty;
 

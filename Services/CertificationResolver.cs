@@ -135,8 +135,8 @@ namespace InfiniteDrive.Services
                 if (!doc.RootElement.TryGetProperty("results", out var results))
                     return null;
 
-                // Find certification for configured country
-                var countryCode = Plugin.Instance?.Configuration?.MetadataCertificationCountry ?? "US";
+                // Follow Emby's configured library/server locale.
+                var countryCode = ServerPreferenceResolver.CertificationCountry();
                 string? certification = null;
                 int priority = -1;
 

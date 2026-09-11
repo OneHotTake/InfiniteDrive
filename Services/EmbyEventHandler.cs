@@ -21,7 +21,7 @@ namespace InfiniteDrive.Services
     /// Subscribes to Emby server events to enable:
     /// <list type="bullet">
     ///   <item><b>Binge pre-warm (start)</b>: when an episode begins playing, queues
-    ///         the next two episodes for Tier 1 background resolution.  Firing on
+    ///         the next released, indexed episode for Tier 1 background resolution. Firing on
     ///         <c>PlaybackStart</c> gives the full episode runtime (20–60 min) as the
     ///         pre-warm window.  Already-fresh cache entries are skipped.</item>
     ///   <item><b>Next-Up pre-warm (stop)</b>: same queueing fires again when an
@@ -43,19 +43,10 @@ namespace InfiniteDrive.Services
         private readonly IUserManager             _userManager;
         private readonly ILogger<EmbyEventHandler> _logger;
 
-        // Episode count cache to prevent repeated queries during binge sessions.
-        // Cache key format: "{aioId}:S{season}"
-        private static readonly ConcurrentDictionary<string, (int count, DateTime expires)>
-            _episodeCountCache = new();
-
         // Per-item cooldown for metadata refresh pre-cache (5-minute window)
         private static readonly ConcurrentDictionary<string, DateTime>
             _refreshCooldowns = new();
         private static readonly TimeSpan RefreshCooldown = TimeSpan.FromMinutes(5);
-
-        // Lazy cleanup threshold: clean expired entries after this many access
-        private static int _cacheAccessCount;
-        private const int CacheCleanupThreshold = 100;
 
         // ── Constructor ─────────────────────────────────────────────────────────
 
@@ -378,13 +369,10 @@ namespace InfiniteDrive.Services
                 if (string.IsNullOrEmpty(aioId) || !season.HasValue || !episode.HasValue) return;
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] Binge pre-warm triggered: {AioId} S{S}E{E} — queuing next episodes",
+                    "[InfiniteDrive] Binge pre-warm triggered: {AioId} S{S}E{E} — evaluating actual next episode",
                     aioId, season, episode);
 
                 await QueueNextEpisodesAsync(db, aioId, season.Value, episode.Value);
-
-                // Refresh remaining season episodes in background
-                _ = Task.Run(() => RefreshSeriesCacheAsync(db, aioId, season.Value, episode.Value));
             }
             catch (Exception ex)
             {
@@ -531,7 +519,7 @@ namespace InfiniteDrive.Services
 
                 if (season.HasValue && episode.HasValue)
                 {
-                    // Queue episodes episode+1 and episode+2 for Tier 1 resolution
+                    // Queue the next released episode proven to exist in Emby.
                     await QueueNextEpisodesAsync(db, aioId, season.Value, episode.Value);
                 }
 
@@ -542,213 +530,96 @@ namespace InfiniteDrive.Services
             }
         }
 
-        // ── Private: series-wide cache refresh ───────────────────────────────────
-
-        /// <summary>
-        /// On PlaybackStart, pre-warms remaining episodes in the current season
-        /// and the first episodes of the next season.  Skips episodes that already
-        /// have a fresh cache entry (within 70% of TTL).
-        /// </summary>
-        private async Task RefreshSeriesCacheAsync(
-            Data.DatabaseManager db, string aioId, int season, int episode)
-        {
-            try
-            {
-                var cacheLifetime = Plugin.Instance?.Configuration?.CacheLifetimeMinutes ?? 240;
-                int episodesInSeason = GetEpisodeCountForSeason(db, aioId, season);
-                int queued = 0;
-
-                // Pre-warm all remaining episodes in the current season
-                for (int ep = episode + 1; ep <= episodesInSeason; ep++)
-                {
-                    try
-                    {
-                        var existing = await db.GetCachedStreamAsync(aioId, season, ep);
-                        if (existing != null && existing.Status == "valid")
-                        {
-                            if (DateTime.TryParse(existing.ResolvedAt, out var resolved))
-                            {
-                                var ageMinutes = (DateTime.UtcNow - resolved).TotalMinutes;
-                                if (ageMinutes <= cacheLifetime * 0.7) continue;
-                            }
-                        }
-
-                        await db.QueueForResolutionAsync(aioId, season, ep, "tier1");
-                        queued++;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex,
-                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {AioId} S{S:D2}E{E:D2}",
-                            aioId, season, ep);
-                    }
-                }
-
-                // Queue first 2 episodes of next season
-                for (int ep = 1; ep <= 2; ep++)
-                {
-                    try
-                    {
-                        var existing = await db.GetCachedStreamAsync(aioId, season + 1, ep);
-                        if (existing != null && existing.Status == "valid")
-                        {
-                            if (DateTime.TryParse(existing.ResolvedAt, out var resolved))
-                            {
-                                var ageMinutes = (DateTime.UtcNow - resolved).TotalMinutes;
-                                if (ageMinutes <= cacheLifetime * 0.7) continue;
-                            }
-                        }
-
-                        await db.QueueForResolutionAsync(aioId, season + 1, ep, "tier1");
-                        queued++;
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogDebug(ex,
-                            "[InfiniteDrive] RefreshSeriesCache: failed to queue {AioId} S{S:D2}E{E:D2}",
-                            aioId, season + 1, ep);
-                    }
-                }
-
-                if (queued > 0)
-                {
-                    _logger.LogInformation(
-                        "[InfiniteDrive] Series cache refresh queued {Count} episodes for {AioId} S{S:D2}",
-                        queued, aioId, season);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex,
-                    "[InfiniteDrive] RefreshSeriesCacheAsync failed for {AioId} S{S}", aioId, season);
-            }
-        }
-
         // ── Private: next-episode queue ──────────────────────────────────────────
 
         private async Task QueueNextEpisodesAsync(
             Data.DatabaseManager db, string aioId, int season, int episode)
         {
-            // Resolve the actual episode count for the current season from Emby's library.
-            // Fall back to a generous cap (30) if the data isn't indexed yet.
-            int episodesInSeason = GetEpisodeCountForSeason(db, aioId, season);
-
-            var lookahead = Plugin.Instance?.Configuration?.NextUpLookaheadEpisodes ?? 2;
-            for (int i = 1; i <= lookahead; i++)
-            {
-                int nextEp     = episode + i;
-                int nextSeason = season;
-
-                if (nextEp > episodesInSeason)
-                {
-                    // Roll to episode 1 of the next season
-                    nextSeason++;
-                    nextEp = 1;
-                }
-
-                try
-                {
-                    // Dedup: skip if next episode already has a fresh, non-aging cache entry.
-                    var existing = await db.GetCachedStreamAsync(aioId, nextSeason, nextEp);
-                    if (existing != null && existing.Status == "valid")
-                    {
-                        var cacheLifetime = Plugin.Instance?.Configuration?.CacheLifetimeMinutes ?? 240;
-                        if (DateTime.TryParse(existing.ResolvedAt, out var resolved))
-                        {
-                            var ageMinutes = (DateTime.UtcNow - resolved).TotalMinutes;
-                            if (ageMinutes <= cacheLifetime * 0.7)
-                            {
-                                _logger.LogDebug(
-                                    "[InfiniteDrive] Skipping Tier 1 queue for {AioId} S{S:D2}E{E:D2} — already fresh ({Age:F0} min old)",
-                                    aioId, nextSeason, nextEp, ageMinutes);
-                                continue;
-                            }
-                        }
-                    }
-
-                    await db.QueueForResolutionAsync(aioId, nextSeason, nextEp, "tier1");
-                    _logger.LogDebug(
-                        "[InfiniteDrive] Queued Tier 1: {AioId} S{S:D2}E{E:D2}",
-                        aioId, nextSeason, nextEp);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "[InfiniteDrive] Failed to queue tier1 for {AioId} S{S}E{E}",
-                        aioId, nextSeason, nextEp);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Queries Emby library for number of episodes in <paramref name="season"/>
-        /// of the series identified by <paramref name="aioId"/>.  Returns 30 as a safe
-        /// fallback when the series is not yet indexed or has no episodes.
-        /// </summary>
-        private int GetEpisodeCountForSeason(Data.DatabaseManager db, string aioId, int season)
-        {
-            const int Fallback = 30;
-
-            // Lazy cleanup: purge expired entries periodically (Sprint 104B-02)
-            if (++_cacheAccessCount % CacheCleanupThreshold == 0)
-            {
-                CleanupExpiredCacheEntries();
-            }
-
-            // Check cache first (6-hour TTL)
-            var cacheKey = $"{aioId}:S{season}";
-            if (_episodeCountCache.TryGetValue(cacheKey, out var cached) && cached.expires > DateTime.UtcNow)
-            {
-                return cached.count;
-            }
+            // Resolve actual indexed and released state. Never infer continuity from
+            // a count: specials, gaps and future placeholders are common in Emby.
+            var next = FindNextReleasedEpisode(db, aioId, season, episode);
+            if (!next.HasValue) return;
+            var (nextSeason, nextEp) = next.Value;
 
             try
             {
-                // Try IMDB first (existing logic)
-                var count = QueryByProviderId(db, "Imdb", aioId, season);
-                if (count > 0)
+                // Dedup: skip if next episode already has a fresh cache entry.
+                var existing = await db.GetCachedStreamAsync(aioId, nextSeason, nextEp);
+                if (existing != null && existing.Status == "valid")
                 {
-                    // Fallback to anime provider IDs from UniqueIdsJson
-                    var catalogItem = db.GetCatalogItemByAioIdSync(aioId);
-                    if (catalogItem != null)
+                    if (DateTime.TryParse(existing.ResolvedAt, out var resolved))
                     {
-                        var uniqueIds = db.ParseUniqueIdsJson(catalogItem.UniqueIdsJson);
-                        foreach (var (provider, id) in uniqueIds)
+                        var ageMinutes = (DateTime.UtcNow - resolved).TotalMinutes;
+                        if (ageMinutes <= RuntimePolicy.FallbackStreamCacheMinutes * 0.7)
                         {
-                            if (provider.Equals("kitsu", StringComparison.OrdinalIgnoreCase))
-                            {
-                                count = QueryByProviderId(db, "Kitsu", id, season);
-                                if (count > 0) break;
-                            }
-                            else if (provider.Equals("anilist", StringComparison.OrdinalIgnoreCase))
-                            {
-                                count = QueryByProviderId(db, "AniList", id, season);
-                                if (count > 0) break;
-                            }
-                            else if (provider.Equals("mal", StringComparison.OrdinalIgnoreCase))
-                            {
-                                count = QueryByProviderId(db, "MyAnimeList", id, season);
-                                if (count > 0) break;
-                            }
+                            _logger.LogDebug(
+                                "[InfiniteDrive] Skipping Tier 1 queue for {AioId} S{S:D2}E{E:D2} — already fresh ({Age:F0} min old)",
+                                aioId, nextSeason, nextEp, ageMinutes);
+                            return;
                         }
                     }
                 }
 
-                // Cache result for 6 hours to prevent repeated queries during binge sessions
-                _episodeCountCache[cacheKey] = (count, DateTime.UtcNow.AddHours(6));
-
-                return count > 0 ? count : Fallback;
+                await db.QueueForResolutionAsync(aioId, nextSeason, nextEp, "tier1");
+                _logger.LogDebug(
+                    "[InfiniteDrive] Queued actual next episode: {AioId} S{S:D2}E{E:D2}",
+                    aioId, nextSeason, nextEp);
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[InfiniteDrive] Could not query episode count for {AioId} S{Season}", aioId, season);
-                return Fallback;
+                _logger.LogWarning(ex, "[InfiniteDrive] Failed to queue tier1 for {AioId} S{S}E{E}",
+                    aioId, nextSeason, nextEp);
             }
         }
 
         /// <summary>
-        /// Helper to query Emby library by a specific provider ID.
+        /// Finds the next episode from Emby's indexed state and ignores future-dated
+        /// placeholders. The next numbered season is checked only when the current
+        /// season has no later released episode.
         /// </summary>
-        private int QueryByProviderId(Data.DatabaseManager db, string provider, string id, int season)
+        private (int Season, int Episode)? FindNextReleasedEpisode(
+            Data.DatabaseManager db, string aioId, int season, int episode)
+        {
+            try
+            {
+                var identities = new List<(string Provider, string Id)> { ("Imdb", aioId) };
+                var catalogItem = db.GetCatalogItemByAioIdSync(aioId);
+                if (catalogItem != null)
+                {
+                    foreach (var (provider, id) in db.ParseUniqueIdsJson(catalogItem.UniqueIdsJson))
+                    {
+                        if (provider.Equals("kitsu", StringComparison.OrdinalIgnoreCase))
+                            identities.Add(("Kitsu", id));
+                        else if (provider.Equals("anilist", StringComparison.OrdinalIgnoreCase))
+                            identities.Add(("AniList", id));
+                        else if (provider.Equals("mal", StringComparison.OrdinalIgnoreCase))
+                            identities.Add(("MyAnimeList", id));
+                    }
+                }
+
+                foreach (var identity in identities.Distinct())
+                {
+                    var currentSeason = QueryReleasedEpisodes(identity.Provider, identity.Id, season)
+                        .FirstOrDefault(value => value > episode);
+                    if (currentSeason > 0) return (season, currentSeason);
+
+                    var followingSeason = QueryReleasedEpisodes(identity.Provider, identity.Id, season + 1)
+                        .FirstOrDefault();
+                    if (followingSeason > 0) return (season + 1, followingSeason);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "[InfiniteDrive] Could not find next released episode for {AioId} S{Season}", aioId, season);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Queries released episode numbers in a season by a specific provider ID.
+        /// </summary>
+        private IEnumerable<int> QueryReleasedEpisodes(string provider, string id, int season)
         {
             try
             {
@@ -761,11 +632,18 @@ namespace InfiniteDrive.Services
                         new KeyValuePair<string, string>(provider, id)
                     },
                 });
-                return episodes.Length;
+                var now = DateTime.UtcNow;
+                return episodes
+                    .Where(item => item.IndexNumber.HasValue
+                        && (!item.PremiereDate.HasValue || item.PremiereDate.Value <= now))
+                    .Select(item => item.IndexNumber!.Value)
+                    .Distinct()
+                    .OrderBy(value => value)
+                    .ToArray();
             }
             catch
             {
-                return 0;
+                return Array.Empty<int>();
             }
         }
 
@@ -813,27 +691,5 @@ namespace InfiniteDrive.Services
             return StreamHelpers.NormalizeClientType(client);
         }
 
-        /// <summary>
-        /// Removes expired cache entries to prevent memory leaks (Sprint 104B-02).
-        /// Called lazily every 100 cache accesses to avoid impacting performance.
-        /// </summary>
-        private static void CleanupExpiredCacheEntries()
-        {
-            var now = DateTime.UtcNow;
-            var expiredKeys = new List<string>();
-
-            foreach (var kvp in _episodeCountCache)
-            {
-                if (kvp.Value.expires < now)
-                {
-                    expiredKeys.Add(kvp.Key);
-                }
-            }
-
-            foreach (var key in expiredKeys)
-            {
-                _episodeCountCache.TryRemove(key, out _);
-            }
-        }
     }
 }

@@ -522,115 +522,16 @@ namespace InfiniteDrive.Tasks
                     if (parsed.Count == 0) return (true, false);
 
                     newVersions = Services.VersionSelectorService.SelectBestVersions(
-                        parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
-                    Services.VersionSelectorService.AssignSecondaryUrls(newVersions, parsed, config);
+                        parsed, config.DesiredVersions, RuntimePolicy.EmbyVersionLimit, config);
                 }
 
                 if (newVersions.Count == 0)
                     return (true, false);
 
-                // ── Stream list comparison healing ──────────────────────────────
-                // Check stored URLs against fresh stream set. If primary is dead
-                // but secondary is alive, swap. If both dead, fall through to full refresh.
+                // Compare observed manifest state with stored state. A changed
+                // candidate set may be rewritten on refresh, but playback retries
+                // never rotate movie/show candidates dynamically.
                 var storedVersions = Services.StrmFileManager.DeserializeVersions(item.SelectedVersionsJson);
-                if (storedVersions.Count > 0)
-                {
-                    var freshUrls = new HashSet<string>(
-                        newVersions.Select(v => v.Stream.Url), StringComparer.OrdinalIgnoreCase);
-
-                    var healed = false;
-                    foreach (var sv in storedVersions)
-                    {
-                        var primaryAlive = !string.IsNullOrEmpty(sv.Url) && freshUrls.Contains(sv.Url);
-                        var secondaryAlive = !string.IsNullOrEmpty(sv.SecondaryUrl) && freshUrls.Contains(sv.SecondaryUrl);
-
-                        if (primaryAlive) continue; // Both alive or primary alive — no action
-
-                        if (!primaryAlive && secondaryAlive)
-                        {
-                            // Swap: secondary → primary
-                            var oldSecondary = sv.SecondaryUrl;
-                            sv.Url = oldSecondary!;
-                            sv.SecondaryUrl = null;
-
-                            // Try to find a new secondary from the fresh URL pool
-                            // (prefer same resolution, exclude all currently-used URLs)
-                            var claimedUrls = new HashSet<string>(
-                                storedVersions.Where(v => !string.IsNullOrEmpty(v.Url)).Select(v => v.Url!),
-                                StringComparer.OrdinalIgnoreCase);
-                            claimedUrls.Add(sv.Url);
-                            foreach (var v in storedVersions)
-                                if (!string.IsNullOrEmpty(v.SecondaryUrl)) claimedUrls.Add(v.SecondaryUrl);
-
-                            var newSecondary = newVersions.FirstOrDefault(nv =>
-                                !claimedUrls.Contains(nv.Stream.Url))?.Stream.Url;
-                            if (newSecondary != null)
-                            {
-                                sv.SecondaryUrl = newSecondary;
-                                _logger.LogInformation(
-                                    "[VersionRefresh] Healed {AioId}: promoted secondary → primary, assigned new secondary ({StreamKey})",
-                                    item.AioId, sv.StreamKey);
-                            }
-                            else
-                            {
-                                _logger.LogInformation(
-                                    "[VersionRefresh] Healed {AioId}: promoted secondary → primary, no new secondary available ({StreamKey})",
-                                    item.AioId, sv.StreamKey);
-                            }
-
-                            healed = true;
-
-                            // Rewrite .strm file
-                            if (!string.IsNullOrEmpty(item.StrmPath) && !string.IsNullOrEmpty(sv.StreamKey))
-                            {
-                                try { fileManager.RewriteSingleStrmFile(item.StrmPath, sv.Url); }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogDebug(ex, "[VersionRefresh] Rewrite failed for {AioId}", item.AioId);
-                                }
-
-                                // Update DB
-                                try
-                                {
-                                    await db.UpdateStoredVersionUrlAsync(
-                                        item.AioId, sv.StreamKey, sv.Url, null, ct).ConfigureAwait(false);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _logger.LogDebug(ex, "[VersionRefresh] DB update failed for {AioId}", item.AioId);
-                                }
-                            }
-                        }
-                        // Both dead → fall through to full ShouldReplace check below
-                    }
-
-                    if (healed)
-                    {
-                        // Update the stored JSON with healed versions
-                        item.SelectedVersionsJson = Services.StrmFileManager.SerializeVersions(
-                            storedVersions.Select(sv => new SelectedVersion
-                            {
-                                Stream = new ParsedStream
-                                {
-                                    Url = sv.Url,
-                                    Resolution = sv.Resolution,
-                                    AudioPretty = sv.AudioPretty,
-                                    AudioGroup = "Any",
-                                    SourceTag = sv.SourceTag,
-                                    SizeGiB = sv.SizeGiB,
-                                    RankScore = sv.RankScore,
-                                    StreamKey = sv.StreamKey,
-                                },
-                                SecondaryUrl = sv.SecondaryUrl,
-                                VersionLabel = sv.VersionLabel,
-                                SelectedScore = sv.RankScore,
-                            }).ToList());
-                        item.LastVersionRefreshAt = DateTime.UtcNow.ToString("o");
-                        item.UpdatedAt = DateTime.UtcNow.ToString("o");
-                        await db.UpsertCatalogItemAsync(item, ct).ConfigureAwait(false);
-                    }
-                }
-
                 // Compare against stored versions — clean direct comparison, no reconstruction
                 if (!Services.VersionSelectorService.ShouldReplace(storedVersions, newVersions))
                     return (true, false);
@@ -728,8 +629,7 @@ namespace InfiniteDrive.Tasks
                     if (epParsed.Count == 0) continue;
 
                     var epVersions = Services.VersionSelectorService.SelectBestVersions(
-                        epParsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
-                    Services.VersionSelectorService.AssignSecondaryUrls(epVersions, epParsed, config);
+                        epParsed, config.DesiredVersions, RuntimePolicy.EmbyVersionLimit, config);
                     if (epVersions.Count == 0) continue;
 
                     var epBaseName = Services.NamingPolicyService.BuildStrmFileName(item, seasonNum, ep.Episode);

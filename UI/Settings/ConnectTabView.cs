@@ -97,7 +97,8 @@ namespace InfiniteDrive.UI.Settings
                     parts.Add($"quality: filename {(probe.HasFilename ? "✓" : "✗")}, size {(probe.HasVideoSize ? "✓" : "✗")}");
 
                 // Warn (not fail) when something will degrade quality/browse, but streaming still works.
-                var status = (!v.HasStreamResource || (probe.Ok && probe.StreamCount > 0 && !probe.HasFilename))
+                var status = (!v.HasStreamResource || v.BrowsableCatalogCount == 0
+                    || (probe.Ok && probe.StreamCount > 0 && !probe.HasFilename))
                     ? ItemStatus.Warning : ItemStatus.Succeeded;
 
                 UpdateResult($"{label}: " + string.Join(" · ", parts), status);
@@ -133,10 +134,10 @@ namespace InfiniteDrive.UI.Settings
             // with a clear note rather than failing the whole run.
             var targets = new List<(string Label, string Url, string Password)>
             {
-                ("Primary", UI.PrimaryManifestUrl, UI.PrimaryManifestPassword),
+                ("Manifest 1", UI.PrimaryManifestUrl, UI.PrimaryManifestPassword),
             };
             if (!string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl))
-                targets.Add(("Backup", UI.SecondaryManifestUrl, UI.SecondaryManifestPassword));
+                targets.Add(("Manifest 2", UI.SecondaryManifestUrl, UI.SecondaryManifestPassword));
 
             var blocks = new List<string>();
             var anyFailed = false;
@@ -249,7 +250,6 @@ namespace InfiniteDrive.UI.Settings
             cfg.SecondaryManifestUrl = UI.SecondaryManifestUrl ?? string.Empty;
             // The AIOStreams password is deliberately NOT persisted — it's a one-time,
             // per-environment secret used only for the Preview/Apply action in-memory.
-            cfg.EnableBackupAioStreams = !string.IsNullOrWhiteSpace(UI.SecondaryManifestUrl);
             Plugin.Instance.SaveConfiguration();
             Plugin.Instance.TriggerBackgroundSync();
             LoadUrlInfo();

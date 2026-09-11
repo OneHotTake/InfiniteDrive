@@ -80,6 +80,7 @@ namespace InfiniteDrive.Services
                 // Store ProviderManager + FileSystem for targeted metadata refresh
                 instance.ProviderManager = _providerManager;
                 instance.FileSystem = _fileSystem;
+                ServerPreferenceResolver.Initialize(_libraryManager);
 
                 // Initialize notification service
                 NotificationService.Initialize(_notificationManager);

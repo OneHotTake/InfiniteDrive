@@ -223,7 +223,7 @@ namespace InfiniteDrive.Services
             var dto = versions.Select(v => new StoredVersion
             {
                 Url = v.Stream.Url,
-                SecondaryUrl = v.SecondaryUrl,
+                SecondaryUrl = null,
                 Resolution = v.Stream.Resolution,
                 AudioPretty = v.Stream.AudioPretty,
                 SourceTag = v.Stream.SourceTag,

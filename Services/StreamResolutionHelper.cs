@@ -83,8 +83,9 @@ namespace InfiniteDrive.Services
                         response, req.AioId, req.Season, req.Episode,
                         config.ProviderPriorityOrder,
                         0, // unlimited — let SelectBest's bucket algorithm curate per tier
-                        config.CacheLifetimeMinutes,
-                        config.UseRemuxForAutoSelection);
+                        RuntimePolicy.FallbackStreamCacheMinutes,
+                        includeRemux: config.AllowRemux,
+                        includeCam: config.AllowCam);
 
                     if (candidates.Count == 0) continue;
 

@@ -748,69 +748,36 @@ namespace InfiniteDrive.Services
             if (config == null)
                 return new();
 
-            // Resolve active client + manifest: try primary, fall back to secondary on empty/unreachable
-            AioStreamsClient? resolvedClient = null;
-            AioStreamsManifest? resolvedManifest = null;
-
-            var primaryClient = AioStreamsClientFactory.Create(_logger);
-            primaryClient.Cooldown = Plugin.Instance?.CooldownGate;
-            var primaryManifest = await primaryClient.GetManifestAsync(CancellationToken.None);
-            if (primaryManifest?.Catalogs?.Count > 0)
+            var resolved = new List<(AioStreamsClient Client, AioStreamsManifest Manifest)>();
+            foreach (var provider in ProviderHelper.GetProviders(config))
             {
-                resolvedClient  = primaryClient;
-                resolvedManifest = primaryManifest;
-            }
-            else if (config.EnableBackupAioStreams
-                     && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
-            {
-                _logger.LogWarning("[Discover] Primary manifest empty/unreachable — trying secondary");
-                var secondaryClient = AioStreamsClientFactory.TryCreateForManifest(config.SecondaryManifestUrl, _logger);
-                if (secondaryClient != null)
+                var candidate = new AioStreamsClient(
+                    provider.Url, provider.Uuid, provider.Token, _logger)
                 {
-                    secondaryClient.Cooldown = Plugin.Instance?.CooldownGate;
-                    var secondaryManifest = await secondaryClient.GetManifestAsync(CancellationToken.None);
-                    if (secondaryManifest?.Catalogs?.Count > 0)
-                    {
-                        resolvedClient   = secondaryClient;
-                        resolvedManifest = secondaryManifest;
-                    }
-                }
+                    Cooldown = Plugin.Instance?.CooldownGate
+                };
+                var manifest = await candidate.GetManifestAsync(CancellationToken.None);
+                if (manifest?.Catalogs?.Count > 0)
+                    resolved.Add((candidate, manifest));
+                else
+                    candidate.Dispose();
             }
 
-            if (resolvedClient == null || resolvedManifest == null)
+            if (resolved.Count == 0)
                 return new();
 
-            var client   = resolvedClient;
-            var manifest = resolvedManifest;
-
-            using (client)
+            try
             {
-                try
-                {
-                    // manifest already fetched and validated above — skip re-fetch
-                    if (manifest?.Catalogs == null || manifest.Catalogs.Count == 0)
-                        return new();
-
-                    // Filter to search-capable catalogs
-                    var searchableCatalogs = manifest.Catalogs
-                        .Where(c => c.Extra != null && c.Extra.Any(e => e.Name == "search"))
-                        .ToList();
-
-                    if (searchableCatalogs.Count == 0)
-                        return new();
-
-                    // Filter to applicable catalogs (by media type if specified)
-                    var applicableCatalogs = searchableCatalogs
-                        .Where(c => mediaType == null || c.Type!.Equals(mediaType, StringComparison.OrdinalIgnoreCase))
-                        .ToList();
-
-                    // Fan out to all applicable catalogs in parallel (10s per-catalog timeout)
-                    using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                    var catalogTasks = applicableCatalogs.Select(async catalogDef =>
+                // Fan out across every search-capable catalog from every configured manifest.
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                var catalogTasks = resolved.SelectMany(source => source.Manifest.Catalogs
+                    .Where(c => c.Extra != null && c.Extra.Any(e => e.Name == "search"))
+                    .Where(c => mediaType == null || c.Type!.Equals(mediaType, StringComparison.OrdinalIgnoreCase))
+                    .Select(async catalogDef =>
                     {
                         try
                         {
-                            var response = await client.GetCatalogAsync(
+                            var response = await source.Client.GetCatalogAsync(
                                 catalogDef.Type!,
                                 catalogDef.Id!,
                                 searchQuery: query,
@@ -824,7 +791,7 @@ namespace InfiniteDrive.Services
                             _logger.LogDebug(ex, "Live search timeout/fail for catalog {Catalog}", catalogDef.Id);
                             return (catalogDef, null);
                         }
-                    }).ToList();
+                    })).ToList();
 
                     // Supplement with Cinemeta — broader IMDB-based coverage for movie/series
                     // (restored: was present in old SearchLiveAsync fallback, dropped when we
@@ -890,12 +857,15 @@ namespace InfiniteDrive.Services
                     }
 
                     return liveResults.Values.Select(x => x.Item).ToList();
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to fetch live search results");
-                    return new();
-                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to fetch live search results");
+                return new();
+            }
+            finally
+            {
+                foreach (var source in resolved) source.Client.Dispose();
             }
         }
 

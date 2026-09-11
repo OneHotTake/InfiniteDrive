@@ -22,9 +22,6 @@ namespace InfiniteDrive.UI.Settings
             cfg.SyncPathShows = UI.SeriesLibraryPath ?? "/media/infinitedrive/shows";
             cfg.LibraryNameAnime = UI.AnimeLibraryName ?? "Streamed Anime";
             cfg.SyncPathAnime = UI.AnimeLibraryPath ?? "/media/infinitedrive/anime";
-            cfg.MetadataLanguage = UI.MetadataLanguage ?? "en";
-            cfg.MetadataCertificationCountry = UI.CertificationCountry ?? "US";
-            cfg.DefaultSubtitleLanguage = UI.DefaultSubtitleLanguage ?? "en";
             Plugin.Instance.SaveConfiguration();
 
             // Provision libraries (create directories + register with Emby) before sync

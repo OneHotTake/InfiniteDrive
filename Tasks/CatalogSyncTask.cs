@@ -90,11 +90,11 @@ namespace InfiniteDrive.Tasks
             // 1. Build provider list
             Plugin.Pipeline.SetPhase("CatalogSync", "BuildProviders");
             var providers = BuildProviders(config);
-            if (providers.Count == 0)
+            var userCatalogs = await db.GetAllActiveUserCatalogsAsync(cancellationToken);
+            if (providers.Count == 0 && NeedsStarterCatalog(userCatalogs.Count, 0))
             {
-                _logger.LogInformation("[InfiniteDrive] No catalog sources enabled — nothing to sync");
-                progress?.Report(100);
-                return;
+                _logger.LogInformation("[InfiniteDrive] No configured catalog/list state — using starter Cinemeta catalog");
+                providers.Add(new CinemetaDefaultProvider());
             }
 
             // 2. Fetch from all providers (with interval guard + health recording)
@@ -109,8 +109,8 @@ namespace InfiniteDrive.Tasks
             // 2b. If AIOStreams was just detected as stream-only this run AND Cinemeta wasn't
             //     already scheduled, run Cinemeta immediately (same sync) rather than making
             //     the user wait until the next scheduled sync.
-            if (config.EnableCinemetaDefault
-                && config.AioStreamsIsStreamOnly
+            if (config.AioStreamsIsStreamOnly
+                && NeedsStarterCatalog(userCatalogs.Count, allItems.Count)
                 && !providers.Any(p => p is CinemetaDefaultProvider))
             {
                 _logger.LogInformation(
@@ -146,7 +146,6 @@ namespace InfiniteDrive.Tasks
             // Sprint 158: Backstop sync for all active user RSS catalogs (Trakt / MDBList).
             try
             {
-                var userCatalogs = await db.GetAllActiveUserCatalogsAsync(cancellationToken);
                 if (userCatalogs.Count > 0)
                 {
                     _logger.LogInformation(
@@ -186,6 +185,9 @@ namespace InfiniteDrive.Tasks
 
             _logger.LogInformation("[InfiniteDrive] CatalogSyncTask complete");
         }
+
+        internal static bool NeedsStarterCatalog(int activeListCount, int fetchedCatalogItemCount) =>
+            activeListCount == 0 && fetchedCatalogItemCount == 0;
 
         // ── Private: ID type census ────────────────────────────────────────────
 
@@ -249,8 +251,7 @@ namespace InfiniteDrive.Tasks
             if (config.EnableAioStreamsCatalog)
             {
                 list.Add(new AioStreamsCatalogProvider());
-                if (config.EnableBackupAioStreams
-                    && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+                if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
                     list.Add(new AioStreamsCatalogProvider(config.SecondaryManifestUrl));
             }
 
@@ -263,16 +264,6 @@ namespace InfiniteDrive.Tasks
             // This ensures users always have Top Movies and Top Series in their
             // library even before they configure a proper catalog source — "fail
             // in setup, not on family night."
-            if (config.EnableCinemetaDefault)
-            {
-                var aioStreamsProvidesItems = config.EnableAioStreamsCatalog
-                    && !string.IsNullOrWhiteSpace(config.PrimaryManifestUrl)
-                    && !config.AioStreamsIsStreamOnly;
-
-                if (!aioStreamsProvidesItems)
-                    list.Add(new CinemetaDefaultProvider());
-            }
-
             return list;
         }
 

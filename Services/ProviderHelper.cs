@@ -21,7 +21,7 @@ namespace InfiniteDrive.Services
     public static class ProviderHelper
     {
         /// <summary>
-        /// Parses primary and secondary manifest URLs from config into an ordered provider list.
+        /// Parses every configured manifest URL into an ordered peer list.
         /// Returns an empty list if no providers are configured.
         /// </summary>
         public static List<ProviderInfo> GetProviders(PluginConfiguration config)
@@ -32,15 +32,14 @@ namespace InfiniteDrive.Services
             {
                 var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.PrimaryManifestUrl);
                 if (!string.IsNullOrWhiteSpace(url))
-                    providers.Add(new ProviderInfo { DisplayName = "Primary", Url = url, Uuid = uuid ?? "", Token = token ?? "" });
+                    providers.Add(new ProviderInfo { DisplayName = "Manifest 1", Url = url, Uuid = uuid ?? "", Token = token ?? "" });
             }
 
-            if (config.EnableBackupAioStreams
-                && !string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
+            if (!string.IsNullOrWhiteSpace(config.SecondaryManifestUrl))
             {
                 var (url, uuid, token) = AioStreamsClient.TryParseManifestUrl(config.SecondaryManifestUrl);
                 if (!string.IsNullOrWhiteSpace(url))
-                    providers.Add(new ProviderInfo { DisplayName = "Secondary", Url = url, Uuid = uuid ?? "", Token = token ?? "" });
+                    providers.Add(new ProviderInfo { DisplayName = "Manifest 2", Url = url, Uuid = uuid ?? "", Token = token ?? "" });
             }
 
             return providers;

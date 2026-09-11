@@ -133,11 +133,11 @@ namespace InfiniteDrive.Tasks
         {
             _manifestUrl = manifestUrl;
             _keyPrefix   = manifestUrl == null ? "aio" : "aio2";
-            _sourceLabel = manifestUrl == null ? "Primary Manifest" : "Secondary Manifest";
+            _sourceLabel = manifestUrl == null ? "Manifest 1" : "Manifest 2";
         }
 
         /// <inheritdoc/>
-        public string ProviderName => _manifestUrl == null ? "AIOStreams" : "AIOStreams (Secondary)";
+        public string ProviderName => _manifestUrl == null ? "AIOStreams (Manifest 1)" : "AIOStreams (Manifest 2)";
 
         /// <inheritdoc/>
         public string SourceKey => _manifestUrl == null ? "aiostreams" : "aiostreams_secondary";
@@ -801,7 +801,7 @@ namespace InfiniteDrive.Tasks
     ///
     /// Auto-injected by <c>BuildProviders()</c> when no other catalog source is
     /// configured so users always have Top Movies and Top Series in their Emby
-    /// library.  Can be disabled via <see cref="PluginConfiguration.EnableCinemetaDefault"/>.
+    /// library. Derived from the absence of configured catalog/list state.
     /// </summary>
     public class CinemetaDefaultProvider : ICatalogProvider
     {
@@ -823,8 +823,7 @@ namespace InfiniteDrive.Tasks
             var result = new CatalogFetchResult();
 
             logger.LogInformation(
-                "[InfiniteDrive] No catalog source configured — using Cinemeta defaults " +
-                "(https://v3-cinemeta.strem.io). Disable via EnableCinemetaDefault in settings.");
+                "[InfiniteDrive] No catalog/list state configured — using Cinemeta starter catalogs.");
 
             using var client = AioStreamsClient.CreateForStremioBase(CinemetaBaseUrl, logger);
 

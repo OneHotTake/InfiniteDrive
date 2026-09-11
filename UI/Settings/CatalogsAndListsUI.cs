@@ -42,10 +42,12 @@ namespace InfiniteDrive.UI.Settings
 
         [DisplayName("Trakt Client ID")]
         [Description("Optional. Required only if you want to import Trakt lists. Get a free key at trakt.tv → Settings → Your API Apps.")]
+        [MediaBrowser.Model.Attributes.IsPassword]
         public string TraktClientId { get; set; } = string.Empty;
 
         [DisplayName("TMDB API Key")]
         [Description("Optional. Required for TMDB lists and content-rating lookups in Restrictions. Get a free key at themoviedb.org → Settings → API.")]
+        [MediaBrowser.Model.Attributes.IsPassword]
         public string TmdbApiKey { get; set; } = string.Empty;
 
         // ═══════════════════════════════════════════════════════════════

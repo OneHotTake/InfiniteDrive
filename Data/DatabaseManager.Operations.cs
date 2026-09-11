@@ -397,14 +397,14 @@ namespace InfiniteDrive.Data
                 ON CONFLICT(date) DO UPDATE SET
                     calls_made = api_budget.calls_made + 1;";
 
-            var budget = Plugin.Instance?.Configuration?.ApiDailyBudget ?? 2000;
             await ExecuteWriteAsync(sql,
-                cmd => cmd.BindParameters["@budget"].Bind(budget), cancellationToken);
+                cmd => cmd.BindParameters["@budget"].Bind(0), cancellationToken);
         }
 
         /// <summary>
         /// Returns <c>true</c> if today's call count has reached or exceeded the
-        /// configured daily budget, or if the API is currently in a back-off window.
+        /// provider-reported back-off window is active. Calls are telemetry, not
+        /// an invented local quota.
         /// </summary>
         public Task<bool> IsBudgetExhaustedAsync()
         {
@@ -418,12 +418,7 @@ namespace InfiniteDrive.Data
             using var stmt = conn.PrepareStatement(sql);
             foreach (var row in stmt.AsRows())
             {
-                var callsMade    = row.GetInt(0);
-                var callsBudget  = row.GetInt(1);
                 var backoffUntil = row.IsDBNull(2) ? null : row.GetString(2);
-
-                if (callsMade >= callsBudget)
-                    return Task.FromResult(true);
 
                 if (!string.IsNullOrEmpty(backoffUntil)
                     && DateTime.TryParse(backoffUntil, out var backoffDt)
@@ -449,10 +444,9 @@ namespace InfiniteDrive.Data
                     last_429_at  = datetime('now'),
                     backoff_until = @backoff_until;";
 
-            var budget = Plugin.Instance?.Configuration?.ApiDailyBudget ?? 2000;
             await ExecuteWriteAsync(sql, cmd =>
             {
-                cmd.BindParameters["@budget"].Bind(budget);
+                cmd.BindParameters["@budget"].Bind(0);
                 BindText(cmd, "@backoff_until", backoffUntil);
             }, cancellationToken);
         }
@@ -993,7 +987,7 @@ namespace InfiniteDrive.Data
             foreach (var row in stmt.AsRows())
                 return Task.FromResult((row.GetInt(0), row.GetInt(1)));
 
-            return Task.FromResult((0, Plugin.Instance?.Configuration?.ApiDailyBudget ?? 2000));
+            return Task.FromResult((0, 0));
         }
 
         /// <summary>

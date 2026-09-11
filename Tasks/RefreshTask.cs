@@ -334,9 +334,8 @@ namespace InfiniteDrive.Tasks
                                 versions = VersionSelectorService.SelectBestVersions(
                                     parsed,
                                     config.DesiredVersions,
-                                    config.MaxVersionsPerItem,
+                                    RuntimePolicy.EmbyVersionLimit,
                                     config);
-                                VersionSelectorService.AssignSecondaryUrls(versions, parsed, config);
                             }
                         }
                         else
@@ -601,10 +600,9 @@ namespace InfiniteDrive.Tasks
             }
 
             var versions = VersionSelectorService.SelectBestVersions(
-                parsed, config.DesiredVersions, config.MaxVersionsPerItem, config);
+                parsed, config.DesiredVersions, RuntimePolicy.EmbyVersionLimit, config);
             if (versions.Count == 0) return (0, null);
 
-            VersionSelectorService.AssignSecondaryUrls(versions, parsed, config);
 
             var seasonDir = Path.Combine(seriesPath, $"Season {season:D2}");
             var epBaseName = NamingPolicyService.BuildStrmFileName(item, season, episode);

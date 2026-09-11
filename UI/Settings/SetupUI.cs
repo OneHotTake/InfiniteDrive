@@ -1,9 +1,7 @@
-using System.Collections.Generic;
 using System.ComponentModel;
 using Emby.Web.GenericEdit;
 using Emby.Web.GenericEdit.Common;
 using Emby.Web.GenericEdit.Elements;
-using Emby.Web.GenericEdit.Elements.List;
 using MediaBrowser.Model.Attributes;
 
 namespace InfiniteDrive.UI.Settings
@@ -12,7 +10,7 @@ namespace InfiniteDrive.UI.Settings
     {
         public override string EditorTitle => "Libraries";
         public override string EditorDescription =>
-            "Configure your library folders and metadata defaults. " +
+            "Configure your library folders. Language, artwork and certification preferences follow Emby. " +
             "The paths below are pre-filled with sensible defaults.";
 
         // ── Section 1: Library Mappings ───────────────────────────────────────
@@ -58,36 +56,5 @@ namespace InfiniteDrive.UI.Settings
         [EditFolderPicker]
         public string AnimeLibraryPath { get; set; } = "/media/infinitedrive/anime";
 
-        // ── Section 2: Metadata Defaults (dropdowns) ──────────────────────────
-
-        public SpacerItem Spacer3 { get; set; } = new SpacerItem();
-        public CaptionItem CaptionMetadata { get; set; } = new CaptionItem("Metadata Defaults");
-
-        public LabelItem MetadataHelp { get; set; } = new LabelItem(
-            "These control the language of titles, descriptions, and content ratings. " +
-            "Most people leave these at their default values.");
-
-        // Language dropdown options — populated dynamically from Emby's ILocalizationManager
-        [Browsable(false)]
-        public IEnumerable<EditorSelectOption> LanguageOptions { get; set; } = new List<EditorSelectOption>();
-
-        [DisplayName("Metadata Language")]
-        [Description("Language for movie and TV show titles and descriptions. Most people pick 'en' (English).")]
-        [SelectItemsSource(nameof(LanguageOptions))]
-        public string MetadataLanguage { get; set; } = "en";
-
-        // Country dropdown options — populated dynamically from Emby's ILocalizationManager
-        [Browsable(false)]
-        public IEnumerable<EditorSelectOption> CountryOptions { get; set; } = new List<EditorSelectOption>();
-
-        [DisplayName("Certification Country")]
-        [Description("Which country's content ratings to use (e.g. PG-13, TV-14). 'US' gives you MPAA ratings.")]
-        [SelectItemsSource(nameof(CountryOptions))]
-        public string CertificationCountry { get; set; } = "US";
-
-        [DisplayName("Default Subtitle Language")]
-        [Description("Your preferred subtitle language. Set to 'en' for English subtitles by default.")]
-        [SelectItemsSource(nameof(LanguageOptions))]
-        public string DefaultSubtitleLanguage { get; set; } = "en";
     }
 }

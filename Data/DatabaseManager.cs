@@ -338,13 +338,13 @@ namespace InfiniteDrive.Data
         public async Task<List<(string? StrmPath, string AioId)>> GetAbsentPruneCandidatesAsync(
             CancellationToken cancellationToken = default)
         {
-            var threshold = Plugin.Instance!.Configuration.GlobalAbsentSyncsThreshold;
+            var threshold = Services.RuntimePolicy.GlobalAbsentSyncThreshold;
 
             // The "Respect user playlists when pruning" setting (Marvin tab) gates the
             // collection_membership guard: when on (default), items in any user's
             // list/collection are never pruned. The playback_log guard (ever-watched)
             // is always applied regardless.
-            var respectPlaylists = Plugin.Instance!.Configuration.RespectPlaylistsWhenPruning;
+            const bool respectPlaylists = true;
             var membershipGuard = respectPlaylists
                 ? @"AND NOT EXISTS (
                       SELECT 1 FROM collection_membership cm

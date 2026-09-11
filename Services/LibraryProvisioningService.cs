@@ -115,11 +115,6 @@ namespace InfiniteDrive.Services
                     ExtractChapterImagesDuringLibraryScan = false,
                     AutoGenerateChapters = false,
 
-                    // Set metadata preferences from plugin configuration
-                    PreferredMetadataLanguage = config.MetadataLanguage ?? "en",
-                    PreferredImageLanguage = config.ImageLanguage ?? "en",
-                    MetadataCountryCode = config.MetadataCertificationCountry ?? "US",
-
                     // Enable embedded titles
                     EnableEmbeddedTitles = true,
                 };
@@ -138,9 +133,8 @@ namespace InfiniteDrive.Services
                 _libraryManager.AddVirtualFolder(name, libraryOptions, refreshLibrary: false);
 
                 _logger.LogInformation(
-                    "[InfiniteDrive] Created Emby library '{Name}' (type='{Type}') at {Path} with metadata language {Lang}",
-                    name, string.IsNullOrEmpty(contentType) ? "mixed" : contentType, path,
-                    config.MetadataLanguage ?? "en");
+                    "[InfiniteDrive] Created Emby library '{Name}' (type='{Type}') at {Path}; locale follows Emby server/library preferences",
+                    name, string.IsNullOrEmpty(contentType) ? "mixed" : contentType, path);
             }
             catch (Exception ex)
             {

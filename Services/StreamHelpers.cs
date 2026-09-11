@@ -389,7 +389,8 @@ namespace InfiniteDrive.Services
             string providerPriorityOrder,
             int    candidatesPerProvider,
             int    debridCacheLifetimeMinutes,
-            bool   includeRemux = false)
+            bool   includeRemux = false,
+            bool   includeCam = false)
         {
             var streams = response.Streams ?? new List<AioStreamsStream>();
 
@@ -400,7 +401,7 @@ namespace InfiniteDrive.Services
             var playable = streams
                 .Where(s => !string.IsNullOrEmpty(s.Url)
                          && s.StreamType != "torrent")
-                .Where(s => !IsLowQualityCapture(
+                .Where(s => includeCam || !IsLowQualityCapture(
                     s.BehaviorHints?.Filename ?? s.Description ?? s.Title))
                 .Where(s => includeRemux || !IsRemuxFile(
                     s.BehaviorHints?.Filename ?? s.Description ?? s.Title))
