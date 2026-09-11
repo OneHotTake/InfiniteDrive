@@ -4,20 +4,25 @@
 
 InfiniteDrive 0.43.0 now implements the state-engine configuration model and is
 verified against Emby 4.10.0.40 in the isolated Vault staging environment. The
-exact staged DLL passed 44 tests, catalog synchronization, managed-file writing,
-HTTP byte-range playback, settings persistence, visual settings inspection, and
-a cold container restart.
+runtime implementation passed 44 tests, catalog synchronization, managed-file
+writing, HTTP byte-range playback, settings persistence, visual settings
+inspection, and a cold container restart.
 
 No private manifest, provider credential, signed stream URL, or staging password
-is recorded here. The exact staged checksum was promoted to production after the
-gates passed and the same E2E checks were repeated there.
+is recorded here. The fully exercised runtime artifact was promoted to
+production after the gates passed and the same E2E checks were repeated there.
+The published release DLL differs only in the final Manifest 1/2 UI wording; it
+also passed all 44 tests and loaded successfully in staging.
 
 ## Final artifact
 
-- Branch: `codex/overnight-hardening-20260910`
+- Branch: `main`
+- Release tag: `v0.43.0`
 - Target: Emby 4.10.0.40
 - Plugin: 0.43.0.0
-- SHA-256: `20f911595af63110aabd3715fe673e3471a5bc87753f088297c51a0fd0f37195`
+- Release DLL SHA-256: `12c6c17974270e4376e34c715086400a3f8a669f55216353f110c3d6cdf1623a`
+- Production-verified predecessor SHA-256:
+  `20f911595af63110aabd3715fe673e3471a5bc87753f088297c51a0fd0f37195`
 - Staging: `/mnt/vault/apps/infinitedrive-staging`
 - Latest staging rollback snapshot:
   `/mnt/vault/apps/infinitedrive-staging/backups/20260911-023020`
@@ -74,7 +79,7 @@ destructive behavior.
 | Catalog and files | PASS | 3 catalog items and 8 small `.strm` resolver files |
 | Playback | PASS | Resolved candidate returned HTTP 206 byte range |
 | Cold restart | PASS | stop/start returned healthy and plugin entry points restarted |
-| Production promotion | PASS | Exact checksum installed; three libraries, 3 DB rows, 8 resolver files, HTTP 206 and cold restart verified |
+| Production promotion | PASS | Functional predecessor installed; three libraries, 3 DB rows, 8 resolver files, HTTP 206 and cold restart verified |
 | Plugin coexistence | PASS | InfiniteDrive, Sportarr 4.1.7.1117 and Home Screen Companion 4.1.4.0 loaded together |
 | External-path ownership | PASS | Mycelium path rejected by regression test; zero external watcher messages after final production load |
 | Settings persistence | PASS | Allow REMUX was saved/reloaded on, then saved/reloaded off |
@@ -104,16 +109,12 @@ recoverable.
 
 ## Delivery
 
-Commits:
+Key commits:
 
 - `a072a10` — state-engine implementation and regression coverage
 - `c9f0453` — configuration and production-verification documentation
+- `a406763` — final documentation and Manifest 1/2 UI wording
 
-The verified branch was pushed successfully to `OneHotTake/InfiniteDrive` using
-the repository-owner account. A complete offline bundle is also retained at
+The verified work was fast-forwarded to `main` in `OneHotTake/InfiniteDrive`.
+A complete offline bundle is also retained at
 `/Users/geoff/Documents/InfiniteDrive-codex-overnight-hardening-20260910.bundle`.
-The published branch can be refreshed without rewriting history with:
-
-```bash
-git push -u origin codex/overnight-hardening-20260910
-```

@@ -4,9 +4,9 @@
 
 > *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
 
-⚠️ **RELEASE CANDIDATE:** Version 0.43.0 is deployed and operationally verified
-on Emby 4.10.0.40, but is not yet a tagged stable release. Back up the Emby
-plugin configuration, database, and managed library state before upgrading.
+**CURRENT RELEASE:** Version 0.43.0 is built and tested against Emby 4.10.0.40.
+Back up the Emby plugin configuration, database, and managed library state
+before upgrading.
 
 An Emby plugin that discovers streaming catalogs from [AIOStreams](https://github.com/aiostreams), writes `.strm` files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably.
 
