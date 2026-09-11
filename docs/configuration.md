@@ -58,6 +58,13 @@ does not stop when a manifest exposes zero catalogs:
 This prevents a healthy stream resolver from producing an empty Emby library.
 When a real list or catalog exists, the starter is not added.
 
+Provider-native IDs such as `tmdb:*` are valid catalog identities when the
+manifest advertises them. InfiniteDrive retains that ID for stream requests,
+captures an IMDb cross-reference from full series metadata when available, and
+uses the cross-reference for Emby folder/file hints. External-list items enter
+the same queued quality-selection pipeline as manifest items, so Marvin's
+repair pass cannot discard them as untracked placeholder files.
+
 `AioStreamsCatalogIds`, per-catalog limits, disabled source keys, and sync timing
 are persisted source state. Provider API keys are optional and are needed only
 for source APIs that require them.
@@ -92,7 +99,7 @@ policy and observed expiry/probe state.
 
 ## Removed compatibility settings
 
-The 0.43 hardening removed unused or rules-engine controls including
+The 0.42.1 hardening removed unused or rules-engine controls including
 `EnableBackupAioStreams`, `AioStreamsAcceptedStreamTypes`, `EmbyApiKey`,
 `LibraryRootMovies`, plugin-owned metadata/image/subtitle language fields,
 `DontPanic`, future-episode switches, configurable stream-cache lifetime,

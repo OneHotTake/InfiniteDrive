@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using System.Text.Json;
 using InfiniteDrive.Models;
 
 namespace InfiniteDrive.Services
@@ -63,7 +64,7 @@ namespace InfiniteDrive.Services
         /// Convenience overload for CatalogItem.
         /// </summary>
         public static string BuildFolderName(CatalogItem item)
-            => BuildFolderName(item.Title, item.Year, item.AioId, item.TmdbId, item.TvdbId, item.MediaType);
+            => BuildFolderName(item.Title, item.Year, PreferredMetadataId(item), item.TmdbId, item.TvdbId, item.MediaType);
 
         /// <summary>
         /// Builds ID tags for .strm filenames: <c>[tmdbid=X][imdbid=Y]</c>.
@@ -115,7 +116,7 @@ namespace InfiniteDrive.Services
         public static string BuildStrmFileName(CatalogItem item, int? season = null, int? episode = null)
         {
             var sanitised = SanitisePath(item.Title);
-            var idTags = BuildIdTags(item.TmdbId, item.AioId, item.TvdbId);
+            var idTags = BuildIdTags(item.TmdbId, PreferredMetadataId(item), item.TvdbId);
 
             if (season.HasValue && episode.HasValue)
             {
@@ -146,6 +147,40 @@ namespace InfiniteDrive.Services
                 sb.Append(".strm");
                 return sb.ToString();
             }
+        }
+
+        /// <summary>
+        /// Uses an IMDb cross-reference discovered from the full metadata response
+        /// for Emby naming while retaining the provider-native AIOStreams ID for
+        /// stream requests and database identity.
+        /// </summary>
+        internal static string? PreferredMetadataId(CatalogItem item)
+        {
+            if (!string.IsNullOrWhiteSpace(item.AioId) &&
+                item.AioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                return item.AioId;
+
+            if (!string.IsNullOrWhiteSpace(item.UniqueIdsJson))
+            {
+                try
+                {
+                    using var document = JsonDocument.Parse(item.UniqueIdsJson!);
+                    foreach (var entry in document.RootElement.EnumerateArray())
+                    {
+                        if (entry.TryGetProperty("provider", out var provider) &&
+                            entry.TryGetProperty("id", out var id) &&
+                            string.Equals(provider.GetString(), "imdb", StringComparison.OrdinalIgnoreCase) &&
+                            !string.IsNullOrWhiteSpace(id.GetString()))
+                            return id.GetString();
+                    }
+                }
+                catch (JsonException)
+                {
+                    // Malformed legacy identity data falls back to the native ID.
+                }
+            }
+
+            return item.AioId;
         }
 
         /// <summary>Removes filesystem-unsafe characters from a path segment.</summary>

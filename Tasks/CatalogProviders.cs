@@ -431,6 +431,7 @@ namespace InfiniteDrive.Tasks
             Func<int, Task>?      onProgress = null)
         {
             var items    = new List<CatalogItem>();
+            var seenIds  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             int offset   = 0;
             int pagesFetched = 0;
 
@@ -448,12 +449,19 @@ namespace InfiniteDrive.Tasks
                     if (response?.Metas == null || response.Metas.Count == 0)
                         break;
 
+                    var newIdsOnPage = 0;
                     foreach (var meta in response.Metas)
                     {
                         if (items.Count >= itemCap) break;
+                        var responseId = meta.ImdbId ?? meta.Id;
+                        if (!string.IsNullOrWhiteSpace(responseId) && !seenIds.Add(responseId))
+                            continue;
                         var item = MapMetaToItem(meta, catalog, logger);
                         if (item != null)
+                        {
                             items.Add(item);
+                            newIdsOnPage++;
+                        }
                     }
 
                     if (onProgress != null)
@@ -461,8 +469,11 @@ namespace InfiniteDrive.Tasks
 
                     pagesFetched++;
 
-                    // A page shorter than the page size means we have reached the end
-                    if (response.Metas.Count < AioCatalogPageSize)
+                    // Stremio does not prescribe one page size. AIOStreams commonly
+                    // returns 20 items, so treating a short page as EOF silently caps
+                    // every selected catalog at 20. Stop only when the addon returns
+                    // no rows or repeats a page without yielding a usable new ID.
+                    if (newIdsOnPage == 0)
                         break;
 
                     offset += response.Metas.Count;
@@ -558,7 +569,9 @@ namespace InfiniteDrive.Tasks
             // Emby's metadata resolvers can still find posters/descriptions via IMDB/TMDB.
             // Categorization (folder routing) is always driven by the anime-prefixed aioId.
             //
-            // For non-anime items: prefer the IMDB ID as the primary ID.
+            // For non-anime items: prefer the IMDB ID as the primary ID, then retain
+            // a provider-native ID advertised by AIOStreams (most TMDB catalogs emit
+            // tmdb:* IDs and the stream resource accepts them directly).
             string aioId, primaryId, crossImdbId;
             if (isAnimeCatalog && !string.IsNullOrEmpty(meta.Id) && IsAnimePrefixedId(meta.Id))
             {
@@ -568,7 +581,9 @@ namespace InfiniteDrive.Tasks
             }
             else
             {
-                aioId       = ResolveImdbId(meta.ImdbId ?? meta.Id);
+                aioId       = ResolveImdbId(meta.ImdbId);
+                if (string.IsNullOrEmpty(aioId))
+                    aioId = ResolveProviderId(meta.Id);
                 primaryId   = aioId;
                 crossImdbId = string.Empty;
                 // Accept non-IMDB IDs for anime catalogs when no IMDB cross-reference exists.
@@ -641,7 +656,7 @@ namespace InfiniteDrive.Tasks
                 return null;
             }
 
-            var tmdbId = meta.TmdbId ?? meta.TmdbIdAlt;
+            var tmdbId = meta.TmdbId ?? meta.TmdbIdAlt ?? ExtractProviderValue(primaryId, "tmdb");
             int? year  = ParseYear(meta.ReleaseInfo);
 
             var now = DateTime.UtcNow.ToString("o");
@@ -685,6 +700,35 @@ namespace InfiniteDrive.Tasks
 
             // Non-IMDB IDs (kitsu:, tmdb:, etc.) — not supported in v1
             return string.Empty;
+        }
+
+        /// <summary>
+        /// Retains provider-native Stremio IDs that AIOStreams advertises and accepts
+        /// for stream/meta requests. IMDb-like IDs remain normalized through
+        /// <see cref="ResolveImdbId"/>.
+        /// </summary>
+        internal static string ResolveProviderId(string? raw)
+        {
+            var imdb = ResolveImdbId(raw);
+            if (!string.IsNullOrEmpty(imdb)) return imdb;
+            if (string.IsNullOrWhiteSpace(raw)) return string.Empty;
+
+            var value = raw!.Trim();
+            var separator = value.IndexOf(':');
+            if (separator <= 0 || separator == value.Length - 1)
+                return string.Empty;
+
+            var provider = value.Substring(0, separator);
+            return provider.All(char.IsLetterOrDigit) ? value : string.Empty;
+        }
+
+        internal static string? ExtractProviderValue(string? id, string provider)
+        {
+            if (string.IsNullOrWhiteSpace(id)) return null;
+            var prefix = provider + ":";
+            return id!.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? id.Substring(prefix.Length)
+                : null;
         }
 
         /// <summary>

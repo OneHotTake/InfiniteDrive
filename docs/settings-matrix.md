@@ -1,6 +1,6 @@
 # InfiniteDrive settings coverage matrix
 
-Verified against the 0.43.0 source and isolated Emby 4.10.0.40 staging on
+Verified against the 0.42.1 source and isolated Emby 4.10.0.40 staging on
 2026-09-11. This table describes the supported UI contract; persisted discovery
 snapshots and migration fields are intentionally not presented as user rules.
 

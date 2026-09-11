@@ -162,10 +162,14 @@ namespace InfiniteDrive.Services
                 if (isNew) catalogItem.Source = "external_list";
                 catalogItem.SourceListId = catalog.Id;
 
+                // External lists are catalog inputs, not resolved stream sources. Queue
+                // them for the normal Marvin populate pass so the same quality policy,
+                // provider selection, and multi-version writer are used everywhere.
+                // Writing an empty placeholder here used to leave StrmPath unset; the
+                // repair phase then correctly (but disastrously) deleted it as orphaned.
+                if (string.IsNullOrEmpty(catalogItem.StrmPath))
+                    catalogItem.ItemState = ItemState.Queued;
                 await _db.UpsertCatalogItemAsync(catalogItem, ct);
-
-                // Write .strm file
-                await _strmWriter.WriteAsync(catalogItem, SourceType.UserRss, catalog.OwnerUserId, ct);
 
                 // Surface per-user: link to the owner's per-list playlist.
                 memberships.Add((playlistName, null, resolvedId, "external_list", catalog.OwnerUserId));
@@ -174,7 +178,8 @@ namespace InfiniteDrive.Services
             }
 
             // Persist per-user memberships so the list shows up as the user's playlist.
-            if (memberships.Count > 0)
+            if (memberships.Count > 0 &&
+                !string.Equals(catalog.OwnerUserId, "SERVER", StringComparison.OrdinalIgnoreCase))
             {
                 try { await _db.UpsertCollectionMembershipBatchAsync(memberships, ct); }
                 catch (Exception ex) { _logger.LogWarning(ex, "[UserCatalogSync] {CatalogId} — membership upsert failed", catalogId); }

@@ -4,7 +4,7 @@
 
 > *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
 
-**CURRENT RELEASE:** Version 0.43.0 is built and tested against Emby 4.10.0.40.
+**CURRENT RELEASE:** Version 0.42.1 is built and tested against Emby 4.10.0.40.
 Back up the Emby plugin configuration, database, and managed library state
 before upgrading.
 
@@ -19,7 +19,7 @@ An Emby plugin that discovers streaming catalogs from [AIOStreams](https://githu
 - [SETTINGS_DESIGN.md](./SETTINGS_DESIGN.md) – Current state-driven settings UI
 - [configuration.md](./docs/configuration.md) – Supported configuration contract
 - [settings-matrix.md](./docs/settings-matrix.md) – Intent, derived state, and verification matrix
-- [hardening report](./docs/overnight-hardening-report-2026-09-10.md) – 0.43 staging and production evidence
+- [hardening report](./docs/overnight-hardening-report-2026-09-10.md) – 0.42.1 staging and production evidence
 
 ---
 
@@ -39,8 +39,7 @@ InfiniteDrive bridges your AIOStreams manifest to Emby:
 2. **Stream Resolution** — resolves `.strm` playback requests against AIOStreams in real time, selecting the best debrid link
 3. **Stream Probing** — quickly checks if candidate streams actually respond before serving them to your player
 4. **Subtitle Fetching** — fetches external subtitles from AIOStreams and registers as an Emby `ISubtitleProvider` for the native subtitle picker
-5. **ID Normalization** — resolves IMDb/TMDB/TVDB IDs from source addons so Emby can identify your content
-6. **NFO Decoration** — writes Emby-native NFO files with proper scanner hints so Emby does its own metadata job
+5. **ID Normalization** — retains provider-native stream IDs while preferring IMDb/TMDB/TVDB cross-references for Emby naming and matching
 
 ---
 
@@ -94,6 +93,10 @@ http://localhost:8096/web/configurationpage?name=InfiniteDrive
 If a manifest exposes no catalogs, configured lists still supply content. When
 neither a manifest nor a list yields content, InfiniteDrive derives a small
 starter catalog for that sync so the library is not silently empty.
+
+Catalog pages use the page size returned by the addon rather than assuming 100
+items. MDBList and other external-list entries join Marvin's normal queued
+resolution pipeline; they are never emitted as empty placeholder files.
 
 ---
 
@@ -188,7 +191,7 @@ The `.ai/` directory contains sprint planning documents and the repository map. 
 
 ## Version
 
-**0.43.0.0** — Emby 4.10 ABI and bounded-pipeline hardening
+**0.42.1.0** — Emby 4.10 ABI and bounded-pipeline hardening
 
 *(The answer is 42. We're still working on what the question is.)*
 

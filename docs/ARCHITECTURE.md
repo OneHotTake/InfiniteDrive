@@ -32,7 +32,7 @@ This page summarizes the contracts most relevant to maintainers.
 
 ## Verification
 
-The release build is produced by `scripts/build-container.sh`. The 0.43
+The release build is produced by `scripts/build-container.sh`. The 0.42.1
 state-engine revision passed 44 automated tests and an Emby 4.10.0.40
 configure→sync→`.strm`→HTTP 206 playback loop in staging and production. See the
 [hardening report](overnight-hardening-report-2026-09-10.md) for evidence and

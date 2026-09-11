@@ -8,7 +8,7 @@
 - [Architecture](../ARCHITECTURE.md) — current system design.
 - [Troubleshooting](troubleshooting.md) — current operational checks and recovery.
 - [Security](SECURITY.md) — credentials, playback URLs, and deployment boundaries.
-- [Hardening report](overnight-hardening-report-2026-09-10.md) — exact 0.43 build,
+- [Hardening report](overnight-hardening-report-2026-09-10.md) — exact 0.42.1 build,
   staging, production, UI, and rollback evidence.
 
 ## Current settings pages
@@ -44,7 +44,7 @@ removed settings, prototype APIs, older Emby versions, or superseded
 architecture. They are not configuration instructions. Prefer the current
 documents listed above whenever they disagree.
 
-`failure-scenarios.md` is a pre-0.43 behavior inventory and is retained only as
+`failure-scenarios.md` is a pre-state-engine behavior inventory and is retained only as
 historical test input.
 
 Last updated: 2026-09-11.

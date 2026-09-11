@@ -69,6 +69,51 @@ public sealed class HardeningRegressionTests
     }
 
     [Fact]
+    public void TmdbCatalogIdsRemainValidPrimaryIdsAndMetadataHints()
+    {
+        var catalog = new AioStreamsCatalogDef
+        {
+            Id = "popular",
+            Name = "Popular",
+            Type = "movie",
+        };
+        var meta = new AioStreamsMeta
+        {
+            Id = "tmdb:969681",
+            Type = "movie",
+            Name = "Example",
+            ReleaseInfo = "2026",
+        };
+
+        var mapped = AioStreamsCatalogProvider.MapMetaToItem(
+            meta, catalog, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        Assert.NotNull(mapped);
+        Assert.Equal("tmdb:969681", mapped!.AioId);
+        Assert.Equal("969681", mapped.TmdbId);
+        Assert.Equal(ItemState.Queued, mapped.ItemState);
+        Assert.Contains("[tmdbid-969681]", NamingPolicyService.BuildFolderName(mapped));
+    }
+
+    [Fact]
+    public void ImdbCrossReferenceWinsForEmbyNamingWithoutChangingStreamIdentity()
+    {
+        var item = new CatalogItem
+        {
+            AioId = "tmdb:69557",
+            TmdbId = "69557",
+            Title = "Fauda",
+            Year = 2015,
+            MediaType = "series",
+            UniqueIdsJson = "[{\"provider\":\"tmdb\",\"id\":\"69557\"},{\"provider\":\"imdb\",\"id\":\"tt4565380\"}]",
+        };
+
+        Assert.Equal("tmdb:69557", item.AioId);
+        Assert.Contains("[imdbid-tt4565380]", NamingPolicyService.BuildFolderName(item));
+        Assert.Contains("[imdbid=tt4565380]", NamingPolicyService.BuildStrmFileName(item, 1, 1));
+    }
+
+    [Fact]
         public void EveryConfiguredManifestIsAnActivePeer()
     {
         var config = new PluginConfiguration

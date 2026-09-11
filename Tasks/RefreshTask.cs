@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Security;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using InfiniteDrive.Data;
@@ -407,7 +408,6 @@ namespace InfiniteDrive.Tasks
             try
             {
                 var itemSw = System.Diagnostics.Stopwatch.StartNew();
-                var folderName = NamingPolicyService.BuildFolderName(item);
                 var basePath = GetLibraryPath(config, item.MediaType);
 
                 _logger.LogDebug("[Write] Fetching episodes for {AioId} ({Title})", item.AioId, item.Title);
@@ -421,6 +421,11 @@ namespace InfiniteDrive.Tasks
                     results.Add((false, item));
                     return;
                 }
+
+                // FetchAioVideosAsync also captures any IMDb cross-reference from
+                // the full meta response. Build the Emby path only after that so a
+                // provider-native TMDB catalog ID cannot misidentify the series.
+                var folderName = NamingPolicyService.BuildFolderName(item);
 
                 // Diff-before-write: if already expanded, check for new episodes before doing I/O
                 const int ReExpansionIntervalSec = 6 * 3600;
@@ -980,6 +985,7 @@ namespace InfiniteDrive.Tasks
                     var metaResponse = await client.GetMetaAsyncTyped(mediaType, aioId, cancellationToken);
                     if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                     {
+                        CaptureMetadataIdentity(item, metaResponse.Meta);
                         var videos = ConvertAioVideos(metaResponse.Meta.Videos);
                         if (videos.Count > 0)
                         {
@@ -1010,6 +1016,7 @@ namespace InfiniteDrive.Tasks
                         var metaResponse = await fallbackClient.GetMetaAsyncTyped(mediaType, aioId, cancellationToken);
                         if (metaResponse?.Meta?.Videos != null && metaResponse.Meta.Videos.Count > 0)
                         {
+                            CaptureMetadataIdentity(item, metaResponse.Meta);
                             var videos = ConvertAioVideos(metaResponse.Meta.Videos);
                             if (videos.Count > 0)
                             {
@@ -1046,6 +1053,36 @@ namespace InfiniteDrive.Tasks
                 "[InfiniteDrive] No episode metadata available for {Id} ({MediaType})",
                 aioId, mediaType);
             return null;
+        }
+
+        private static void CaptureMetadataIdentity(CatalogItem item, AioMeta meta)
+        {
+            if (string.IsNullOrWhiteSpace(meta.ImdbId) ||
+                !meta.ImdbId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            var ids = new List<Dictionary<string, string>>();
+            if (!string.IsNullOrWhiteSpace(item.UniqueIdsJson))
+            {
+                try
+                {
+                    ids = JsonSerializer.Deserialize<List<Dictionary<string, string>>>(item.UniqueIdsJson!) ?? ids;
+                }
+                catch (JsonException) { }
+            }
+
+            if (!ids.Any(x => x.TryGetValue("provider", out var provider) &&
+                              x.TryGetValue("id", out var id) &&
+                              string.Equals(provider, "imdb", StringComparison.OrdinalIgnoreCase) &&
+                              string.Equals(id, meta.ImdbId, StringComparison.OrdinalIgnoreCase)))
+            {
+                ids.Add(new Dictionary<string, string>
+                {
+                    ["provider"] = "imdb",
+                    ["id"] = meta.ImdbId,
+                });
+                item.UniqueIdsJson = JsonSerializer.Serialize(ids);
+            }
         }
 
         private AioStreamsClient? BuildClientForManifest(string? manifestUrl)

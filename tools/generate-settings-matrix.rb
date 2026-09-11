@@ -24,7 +24,7 @@ live_verified = %w[
 
 puts '# InfiniteDrive settings coverage matrix'
 puts
-puts 'Generated from the 0.43.0 source tree. “Wired” means a runtime source reference exists; it is not a claim that every behavior was exercised live.'
+puts 'Generated from the 0.42.1 source tree. “Wired” means a runtime source reference exists; it is not a claim that every behavior was exercised live.'
 puts
 puts '| Setting | Type / default | UI | Persistence | Runtime consumer(s) | Activation | Automated evidence | Staging evidence |'
 puts '|---|---|---|---|---|---|---|---|'

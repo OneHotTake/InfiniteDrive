@@ -5,7 +5,7 @@ lists into managed `.strm` libraries, then resolves playable streams on demand.
 
 ## Prerequisites
 
-- Emby Server 4.10.0.40 (the ABI verified by release 0.43).
+- Emby Server 4.10.0.40 (the ABI verified by release 0.42.1).
 - One configured AIOStreams manifest.
 - A working debrid provider configured behind that manifest.
 - Writable movie, series, and anime folders that are visible inside Emby.
@@ -51,7 +51,7 @@ episode warming from runtime state.
 
 1. Confirm the Marvin page reports configured libraries and at least one
    provider.
-2. Confirm `.strm` and `.nfo` files appear beneath the configured roots.
+2. Confirm resolved `.strm` files appear beneath the configured roots.
 3. Run an Emby library scan if indexing has not begun automatically.
 4. Open a title and confirm the version picker excludes REMUX and CAM/TS while
    their switches are off.
@@ -60,7 +60,10 @@ episode warming from runtime state.
 
 If the library remains empty, first verify list/catalog selection and provider
 reachability; a manifest with zero catalogs is valid and should not suppress
-configured lists. Continue with the [troubleshooting guide](troubleshooting.md).
+configured lists. A successful source fetch is not enough: verify that catalog
+rows were queued, playable streams were selected, files remain after Marvin's
+repair phase, and Emby's media-library scan indexed them. Continue with the
+[troubleshooting guide](troubleshooting.md).
 
 ## Safe upgrade and rollback
 

@@ -2,25 +2,26 @@
 
 ## Outcome
 
-InfiniteDrive 0.43.0 now implements the state-engine configuration model and is
+InfiniteDrive 0.42.1 now implements the state-engine configuration model and is
 verified against Emby 4.10.0.40 in the isolated Vault staging environment. The
-runtime implementation passed 44 tests, catalog synchronization, managed-file
+runtime implementation passed 46 tests, catalog synchronization, managed-file
 writing, HTTP byte-range playback, settings persistence, visual settings
 inspection, and a cold container restart.
 
 No private manifest, provider credential, signed stream URL, or staging password
 is recorded here. The fully exercised runtime artifact was promoted to
 production after the gates passed and the same E2E checks were repeated there.
-The published release DLL differs only in the final Manifest 1/2 UI wording; it
-also passed all 44 tests and loaded successfully in staging.
+The final release candidate also corrects production-only gaps hidden by the
+original three-item acceptance fixture: provider-native TMDB catalog IDs,
+20-item Stremio pagination, and external-list orphan cleanup.
 
 ## Final artifact
 
 - Branch: `main`
-- Release tag: `v0.43.0`
+- Release tag: `v0.42.1`
 - Target: Emby 4.10.0.40
-- Plugin: 0.43.0.0
-- Release DLL SHA-256: `12c6c17974270e4376e34c715086400a3f8a669f55216353f110c3d6cdf1623a`
+- Plugin: 0.42.1.0
+- Release DLL SHA-256: `0e3afdacda28af000d51fa04f0212cdd8e4bf9221e25c3c635f1b0b0c2c76683`
 - Production-verified predecessor SHA-256:
   `20f911595af63110aabd3715fe673e3471a5bc87753f088297c51a0fd0f37195`
 - Staging: `/mnt/vault/apps/infinitedrive-staging`
@@ -70,16 +71,16 @@ destructive behavior.
 | Gate | Result | Evidence |
 |---|---|---|
 | Exact-runtime restore/build/publish | PASS | SDK 8 build against assemblies extracted from the pinned Emby 4.10 image |
-| Executable tests | PASS | 44 passed, 0 failed, 0 skipped |
+| Executable tests | PASS | 46 passed, 0 failed, 0 skipped |
 | Configuration contract | PASS | Removed rule fields are absent; every remaining public setting persists |
 | REMUX/CAM policy | PASS | Default rejection and explicit admission regression tests |
 | Manifest peer behavior | PASS | Regression test covers every configured manifest as active |
 | Catalog-less/list behavior | PASS | State table covers active-list, fetched-catalog, and starter-catalog cases |
-| Staging plugin load | PASS | InfiniteDrive 0.43.0.0 loaded with no `TypeLoadException` |
-| Catalog and files | PASS | 3 catalog items and 8 small `.strm` resolver files |
-| Playback | PASS | Resolved candidate returned HTTP 206 byte range |
+| Staging plugin load | PASS | InfiniteDrive 0.42.1.0 loaded with no `TypeLoadException` |
+| Catalog and files | PASS | Two manifest peers yielded 168 raw/84 deduplicated catalog rows; Geoff saw 65 Streamed Movies and 3 Streamed Series after the bounded production scan |
+| Playback | PASS | A production 1080p non-REMUX candidate returned a 1 KiB HTTP 206 byte range |
 | Cold restart | PASS | stop/start returned healthy and plugin entry points restarted |
-| Production promotion | PASS | Functional predecessor installed; three libraries, 3 DB rows, 8 resolver files, HTTP 206 and cold restart verified |
+| Production promotion | PASS | Final 0.42.1 artifact loaded; 65 movies and 3 series visible to Geoff, REMUX/CAM file counts zero, HTTP 206 and cold restart verified |
 | Plugin coexistence | PASS | InfiniteDrive, Sportarr 4.1.7.1117 and Home Screen Companion 4.1.4.0 loaded together |
 | External-path ownership | PASS | Mycelium path rejected by regression test; zero external watcher messages after final production load |
 | Settings persistence | PASS | Allow REMUX was saved/reloaded on, then saved/reloaded off |
@@ -95,6 +96,15 @@ paths and says locale choices follow Emby. Marvin contains no cadence, rate,
 batch, or pruning controls. Provider secret inputs render as password fields.
 Sources retains manifest catalogs, API-backed sources, system lists, and user
 lists—the list path required for stream-only manifests.
+
+The first production promotion was not a valid content acceptance test: it
+retained a three-movie fixture cap, selected no series catalog, and configured
+no external list. The follow-up live test found and fixed two additional bugs:
+TMDB-only metas were dropped as non-IMDb, and MDBList files were written without
+persisting ownership before orphan cleanup. The production run also showed why
+initial series breadth must remain bounded: eager multi-version expansion of a
+large long-running-series set can create thousands of provider calls. The live
+initial series working set was reduced while completed items were retained.
 
 ## Rollback
 
