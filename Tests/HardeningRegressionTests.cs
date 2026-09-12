@@ -84,6 +84,27 @@ public sealed class HardeningRegressionTests
         Assert.Equal("part-one/part-two", token);
     }
 
+    [Theory]
+    [InlineData(
+        "http://192.168.1.100:3232/stremio/11111111-2222-3333-4444-555555555555/manifest.json",
+        "meta/movie/tt0133093.json",
+        "http://192.168.1.100:3232/stremio/11111111-2222-3333-4444-555555555555/meta/movie/tt0133093.json")]
+    [InlineData(
+        "https://metadata.example/stremio/user-token/",
+        "/meta/series/tt0903747.json",
+        "https://metadata.example/stremio/user-token/meta/series/tt0903747.json")]
+    [InlineData(
+        "http://metadata.example:3232/stremio/user-token/manifest.json?old=secret",
+        "search?query=The%20Matrix",
+        "http://metadata.example:3232/stremio/user-token/search?query=The%20Matrix")]
+    public void AioMetadataEndpointsPreservePortAndUserPath(
+        string configuredUrl, string resource, string expected)
+    {
+        var actual = AioMetadataClient.BuildEndpointUri(new System.Uri(configuredUrl), resource);
+
+        Assert.Equal(expected, actual.AbsoluteUri);
+    }
+
     [Fact]
     public void TmdbCatalogIdsRemainValidPrimaryIdsAndMetadataHints()
     {
