@@ -1,6 +1,31 @@
 # Import reconciliation QA — September 29, 2026
 
 
+## Parallel catch-up and Marvin page — September 29, 2026
+
+Version 0.42.7: **124 tests passed**, zero warnings, against pinned Emby
+4.10.0.40 and its real SQLite provider. The added cases cover 64 overlapping
+lookups with serial publication, sibling checkpoint preservation, stale-generation
+rejection, cancellation joining every pending lookup, refresh before native
+indexing completes, bounded gap filling, exact bytes independent of rounded
+labels, and per-file evidence bound to the written target without storing URLs.
+The catch-up cursor also handles inventories longer than a 200-key page.
+
+Native frozen-beta UI checks verified the rewritten full Marvin page, last-pass
+counts, released-item denominator, missing/retry/indexing/future descriptions,
+Check-only activation refusal, Repair activation and disengagement. The old beta
+artifact/settings and its saved report are restored after testing. The status
+fixture created no media, stream targets or catalog intent. Freeze and mount/network
+isolation remained enforced. This verifies native rendering and settings actions;
+automated adapters verify the parallel worker, not whole-library playback.
+
+A production-host read-only AIOStreams metadata benchmark measured 128 requests
+with 64 workers and starts paced to two per second in 93.92 seconds: all 128
+returned responses, 104 had streams, no transport/rate-limit errors. Median lookup
+latency was 30.15 seconds. This is a dated source-capacity measurement, not a
+completed STRM rebuild or a guaranteed duration on another host.
+
+
 ## Infinite Improbability Drive — September 29, 2026
 
 Version 0.42.6: all **117 tests passed** against the pinned Emby 4.10.0.40

@@ -7,19 +7,12 @@ namespace InfiniteDrive.UI.Settings
     {
         public override string EditorTitle => "Overview";
         public override string EditorDescription =>
-            "Here I am, brain the size of a planet, fixing everything so you don't have to. " +
-            "InfiniteDrive coordinates your providers, resolves the best available streams by quality, " +
-            "and keeps your Emby library current. The streaming world is inherently complex and largely pointless. " +
-            "I handle it all anyway. The panels below show how that's going. " +
-            "I've seen worse. Not significantly worse, but some. You're welcome.";
+            "I keep your streaming library in order. Try to contain your excitement.";
 
         // ── Setup guidance ───────────────────────────────────────────────────
 
         public LabelItem SetupGuide { get; set; } = new LabelItem(
-            "New here? Follow this order: (1) Libraries — tell Marvin where to put things. " +
-            "(2) Quality — define what you want before he starts collecting. " +
-            "(3) Providers — connect your AIOStreams manifest. " +
-            "Marvin starts syncing automatically once all three are green.");
+            "Start with Libraries, then Quality, then Providers. Add your catalogs or lists on Sources. Marvin takes it from there.");
 
         // ── Content readiness (headline traffic light) ───────────────────────
 

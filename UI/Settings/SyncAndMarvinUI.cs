@@ -1,6 +1,5 @@
 using Emby.Web.GenericEdit;
 using Emby.Web.GenericEdit.Elements.List;
-using Emby.Web.GenericEdit.Common;
 using Emby.Web.GenericEdit.Elements;
 
 namespace InfiniteDrive.UI.Settings
@@ -8,41 +7,38 @@ namespace InfiniteDrive.UI.Settings
     public class SyncAndMarvinUI : EditableOptionsBase
     {
         public const string RunMarvinNowCommand = nameof(RunMarvinNowCommand);
-        public const string TogglePruningCommand = nameof(TogglePruningCommand);
 
         public override string EditorTitle => "Marvin";
-        public override string EditorDescription =>
-            "Marvin follows provider backoff, observed catalog state, and Emby's scheduled-task controls automatically.";
+        public override string EditorDescription => "Brain the size of a planet. Still on library duty.";
 
-        // ═══════════════════════════════════════════════════════════════
-        // Section 0: Marvin Status (top)
-        // ═══════════════════════════════════════════════════════════════
-
-        public StatusItem MarvinStatus { get; set; } = new StatusItem("Marvin", "Idle", ItemStatus.None);
-
-        public CaptionItem ImportCaption { get; set; } = new CaptionItem("Import coverage");
-        public StatusItem ImportStatus { get; set; } = new StatusItem("Coverage", "Not observed", ItemStatus.None);
-        public ButtonItem ObserveImports { get; set; } = new ButtonItem("Observe imports") { Data1 = "ImportObserve" };
-        public ButtonItem RepairImports { get; set; } = new ButtonItem("Enable recovery") { Data1 = "ImportRepair" };
-        public ButtonItem StopImports { get; set; } = new ButtonItem("Off (legacy import continues)") { Data1 = "ImportOff" };
-        public ButtonItem CheckImports { get; set; } = new ButtonItem("Check / retry due items") { Data1 = "ImportCheck" };
-        public GenericItemList ImprobabilityDrive { get; set; } = new GenericItemList();
-        public ButtonItem RefreshImports { get; set; } = new ButtonItem("Refresh coverage") { Data1 = "ImportRefresh" };
-        public ButtonItem ResumeProvider { get; set; } = new ButtonItem("Retry provider after configuration fix") { Data1 = "ImportResumeProvider" };
-        public GenericItemList ImportItems { get; set; } = new GenericItemList();
-        public ButtonItem NextImports { get; set; } = new ButtonItem("Next coverage page") { Data1 = "ImportNext" };
-
-        public SpacerItem SpacerStatus { get; set; } = new SpacerItem();
-
-        // ═══════════════════════════════════════════════════════════════
-        // Section 1: Marvin Process Schedule
-        // ═══════════════════════════════════════════════════════════════
-
-        public ButtonItem RunMarvinNowButton { get; set; } = new ButtonItem("Run Marvin Now")
+        public StatusItem MarvinStatus { get; set; } = new StatusItem("Last library pass", "No report yet", ItemStatus.None);
+        public ButtonItem RunMarvinNowButton { get; set; } = new ButtonItem("Run Marvin now")
         {
             Icon = IconNames.play_arrow,
             Data1 = RunMarvinNowCommand,
         };
 
+        public SpacerItem SpacerStatus { get; set; } = new SpacerItem();
+        public CaptionItem ImportCaption { get; set; } = new CaptionItem("Library upkeep");
+        public LabelItem ImportHelp { get; set; } = new LabelItem(
+            "Check only finds gaps. Repair & refresh fills them and updates stream choices. Classic importer uses the older import routine.");
+        public StatusItem ImportStatus { get; set; } = new StatusItem("Mode", "Checking…", ItemStatus.None);
+        public ButtonItem ObserveImports { get; set; } = new ButtonItem("Check only") { Data1 = "ImportObserve" };
+        public ButtonItem RepairImports { get; set; } = new ButtonItem("Repair & refresh") { Data1 = "ImportRepair" };
+        public ButtonItem StopImports { get; set; } = new ButtonItem("Classic importer") { Data1 = "ImportOff" };
+
+        public SpacerItem SpacerDrive { get; set; } = new SpacerItem();
+        public GenericItemList ImprobabilityDrive { get; set; } = new GenericItemList();
+        public LabelItem DriveHelp { get; set; } = new LabelItem(
+            "For a big library refresh: up to 40,000 stream checks a day instead of 200. Actual speed depends on your sources. Repair & refresh must be on.");
+
+        public SpacerItem SpacerLibrary { get; set; } = new SpacerItem();
+        public CaptionItem LibraryCaption { get; set; } = new CaptionItem("Library checks");
+        public LabelItem LibraryHelp { get; set; } = new LabelItem("These checks track what's in Emby. Press Play to test a stream.");
+        public ButtonItem RefreshImports { get; set; } = new ButtonItem("Refresh status") { Data1 = "ImportRefresh" };
+        public ButtonItem CheckImports { get; set; } = new ButtonItem("Retry due items") { Data1 = "ImportCheck" };
+        public ButtonItem ResumeProvider { get; set; } = new ButtonItem("Retry after fixing provider settings") { Data1 = "ImportResumeProvider" };
+        public GenericItemList ImportItems { get; set; } = new GenericItemList();
+        public ButtonItem NextImports { get; set; } = new ButtonItem("Next 25 titles") { Data1 = "ImportNext" };
     }
 }

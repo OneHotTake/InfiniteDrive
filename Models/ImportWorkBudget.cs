@@ -6,7 +6,7 @@ namespace InfiniteDrive.Models;
 /// <summary>Finite, opt-in maintenance allowance. Provider backoff and the shared ledger still apply.</summary>
 public sealed record ImportWorkBudget(int SliceSeconds, int AttemptsPerSlice, int UpgradesPerSlice,
     int MetadataPerSlice, int AttemptsPerDay, DateTimeOffset? CatchUpStartedAt = null,
-    DateTimeOffset? CatchUpUntil = null)
+    DateTimeOffset? CatchUpUntil = null, int Parallelism = 1)
 {
     public static ImportWorkBudget Normal { get; } = new(120, 20, 5, 5, 200);
     public bool IsCatchUp => CatchUpStartedAt.HasValue;
@@ -20,7 +20,7 @@ public sealed record ImportWorkBudget(int SliceSeconds, int AttemptsPerSlice, in
                 DateTimeStyles.RoundtripKind, out var until) ||
             start > now || until <= now || until <= start || until > start.AddDays(7))
             return Normal;
-        return new(480, 128, 100, 25, 8000, start, until);
+        return new(480, 4096, 4096, 1000, 40000, start, until, 64);
     }
 
     public bool NeedsRefresh(ImportEpisode episode, DateTimeOffset now) =>

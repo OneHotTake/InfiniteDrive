@@ -26,6 +26,8 @@ namespace InfiniteDrive.Models
 
         /// <summary>File size in GiB.</summary>
         public double SizeGiB { get; set; }
+        /// <summary>Exact upstream per-file bytes when supplied; never inferred from a rounded label.</summary>
+        public long? SizeBytes { get; set; }
 
         /// <summary>Direct durable CDN URL from the debrid provider.</summary>
         public string Url { get; set; } = string.Empty;
@@ -96,6 +98,8 @@ namespace InfiniteDrive.Models
         public string AudioPretty { get; set; } = "Unknown Audio";
         public string SourceTag { get; set; } = "Unknown";
         public double SizeGiB { get; set; }
+        /// <summary>Exact upstream per-file bytes when supplied; never inferred from a rounded label.</summary>
+        public long? SizeBytes { get; set; }
         public int RankScore { get; set; }
         public string VersionLabel { get; set; } = string.Empty;
         public string? StreamKey { get; set; }

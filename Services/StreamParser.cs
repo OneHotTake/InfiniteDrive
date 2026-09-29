@@ -102,6 +102,7 @@ namespace InfiniteDrive.Services
                 SourceTag = sourceTag,
                 ServiceLabel = StreamServiceLabel.Parse(raw),
                 SizeGiB = sizeGiB,
+                SizeBytes = raw.BehaviorHints?.VideoSize is > 0 ? raw.BehaviorHints.VideoSize : raw.Size is > 0 ? raw.Size : null,
                 Url = raw.Url!,
                 RankScore = score,
                 RawStreamJson = JsonSerializer.Serialize(raw),

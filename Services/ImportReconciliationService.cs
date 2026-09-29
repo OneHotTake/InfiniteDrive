@@ -56,13 +56,104 @@ public sealed class ImportReconciliationService
         var notified = false;
         var runId = Guid.NewGuid().ToString("N");
         var status = "success";
+        var pending = new List<ResolutionWork>();
+        var gapAttempts = 0;
+
+        async Task<ResolutionResult> ResolveAsync(CatalogItem item, ImportEpisode episode)
+        {
+            try
+            {
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+                deadline.CancelAfter(TimeSpan.FromSeconds(allowance.IsCatchUp ? 120 : 60));
+                var versions = allowance.IsCatchUp
+                    ? await _inventory.ResolveCatchUpAsync(item, episode, deadline.Token)
+                    : await _inventory.ResolveAsync(item, episode, deadline.Token);
+                return new(versions, versions.Count == 0 ? "source_unavailable" : "");
+            }
+            catch (ImportProviderConfigurationException) { return new(null, "provider_configuration"); }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { return new(null, "cancelled"); }
+            catch { return new(null, "transport_failure"); }
+        }
+
+        async Task CompleteAsync(ResolutionWork work)
+        {
+            var result = await work.Resolution;
+            token.ThrowIfCancellationRequested();
+            if (allowance.IsCatchUp && _workBudget().CatchUpStartedAt != allowance.CatchUpStartedAt)
+            { budget.Cancel(); token.ThrowIfCancellationRequested(); }
+            await MutationGate.WaitAsync(token);
+            try
+            {
+                var live = await _db.GetImportCoverageAsync(work.Coverage.Identity);
+                var episode = live?.Items.FirstOrDefault(x => x.Key == work.Episode.Key);
+                if (_mode() != ImportMode.Repair || live == null || episode == null ||
+                    live.Generation != work.Generation || episode.Lease != work.Lease ||
+                    !episode.Eligible || !episode.Expected ||
+                    !await IsAuthorizedAsync(live, work.Item, token) || _inventory.IsOwned(work.Item)) return;
+                var now = _clock();
+                var failure = result.Failure;
+                if (result.Versions is { Count: > 0 })
+                {
+                    try
+                    {
+                        episode.Paths = await _inventory.PublishAsync(work.Item, episode, result.Versions, token);
+                        if (episode.Paths.Count == 0) throw new IOException("publication_failed");
+                        episode.EverPublished = true;
+                        episode.State = "awaiting_indexing";
+                        episode.LastVersionRefresh = now;
+                        episode.NextAttempt = null; episode.Attempts = 0; episode.Failure = "";
+                        episode.Lease = null; episode.LeaseUntil = null;
+                        await _db.SaveImportCoverageAsync(live, token);
+                        await RegisterPathsAsync(live, work.Item, episode, result.Versions, token);
+                        published++;
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                    catch { failure = "publication_failed"; }
+                }
+                if (failure.Length > 0)
+                {
+                    episode.State = work.Upgrade ? work.PreviousState : "retrying";
+                    episode.Failure = failure;
+                    episode.NextAttempt = failure == "provider_configuration" ? null :
+                        ImportCoveragePolicy.RetryAt(episode.Attempts, failure == "source_unavailable", now,
+                            Random.Shared.NextDouble() * .2, _cooldown());
+                }
+                episode.Lease = null; episode.LeaseUntil = null;
+                await _db.SaveImportCoverageAsync(live, token);
+                // Keep the observation document current for subsequent serial saves of siblings.
+                var index = work.Coverage.Items.FindIndex(x => x.Key == episode.Key);
+                if (index >= 0) work.Coverage.Items[index] = episode;
+            }
+            finally { MutationGate.Release(); }
+        }
+
+        async Task DrainOneAsync()
+        {
+            var done = await Task.WhenAny(pending.Select(x => x.Resolution));
+            var work = pending.First(x => x.Resolution == done);
+            pending.Remove(work);
+            await CompleteAsync(work);
+        }
         try
         {
             await _db.EnsureImportCoverageAsync(token);
-            var after = selected == null ? _db.GetMetadata("import_scan_cursor") ?? "" : "";
-            var page = selected ?? await _db.GetImportCatalogPageAsync(after, 40);
+            var cursorKey = allowance.IsCatchUp ? "import_catch_up_scan_cursor" : "import_scan_cursor";
+            if (selected == null && allowance.IsCatchUp &&
+                _db.GetMetadata("import_catch_up_scan_window") != allowance.CatchUpStartedAt!.Value.ToString("o"))
+            {
+                await _db.PersistMetadataAsync(cursorKey, "", token);
+                await _db.PersistMetadataAsync("import_catch_up_scan_window", allowance.CatchUpStartedAt.Value.ToString("o"), token);
+            }
+            var after = selected == null ? _db.GetMetadata(cursorKey) ?? "" : "";
+            var page = selected ?? (allowance.IsCatchUp
+                ? await _db.GetExistingImportCatalogPageAsync(after)
+                : await _db.GetImportCatalogPageAsync(after, 40));
             if (page.Count == 0 && selected == null)
-            { after = ""; page = await _db.GetImportCatalogPageAsync(after, 40); }
+            {
+                after = "";
+                page = allowance.IsCatchUp ? await _db.GetExistingImportCatalogPageAsync(after)
+                    : await _db.GetImportCatalogPageAsync(after, 40);
+            }
             var cursorRows = page.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
             if (selected == null)
             {
@@ -184,66 +275,25 @@ public sealed class ImportReconciliationService
                             episode.LastNotification = now;
                             await SaveObservedAsync(coverage, token);
                         }
-                        var upgrade = episode.State == "indexed" && upgrades < allowance.UpgradesPerSlice &&
+                        var refreshable = episode.State == "indexed" || allowance.IsCatchUp && file &&
+                            episode.State is "awaiting_indexing" or "indexing_attention";
+                        var upgrade = refreshable && upgrades < allowance.UpgradesPerSlice &&
                             allowance.NeedsRefresh(episode, now) &&
                             (!episode.NextAttempt.HasValue || episode.NextAttempt <= now) && (allowance.IsCatchUp || !coverage.Items.Any(x => x.Eligible && x.State != "indexed"));
                         // Adopting an existing file is not a successful refresh against the current profile.
                         if ((episode.State != "missing" && !upgrade) || coverage.SnapshotStatus != "success" ||
-                            _inventory.ProviderPaused || attempts >= allowance.AttemptsPerSlice || _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= allowance.AttemptsPerDay) continue;
+                            _inventory.ProviderPaused || attempts >= allowance.AttemptsPerSlice ||
+                            (allowance.IsCatchUp && !upgrade && gapAttempts >= ImportWorkBudget.Normal.AttemptsPerSlice) || _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= allowance.AttemptsPerDay) continue;
                         attempts++;
-                        if (upgrade) upgrades++;
+                        if (upgrade) upgrades++; else gapAttempts++;
                         var lease = Guid.NewGuid().ToString("N");
                         episode.Lease = lease; episode.LeaseUntil = now.AddMinutes(10);
                         if (!upgrade) episode.InitialFailure = true; episode.Attempts++;
                         await _db.RecordImportAttemptAsync(lease, now, token);
                         await SaveObservedAsync(coverage, token);
-                        List<SelectedVersion>? versions = null;
-                        var failure = "transport_failure";
-                        try
-                        {
-                            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-                            deadline.CancelAfter(TimeSpan.FromSeconds(60));
-                            versions = await _inventory.ResolveAsync(item, episode, deadline.Token);
-                            if (versions.Count == 0) failure = "source_unavailable";
-                            else
-                            {
-                                await MutationGate.WaitAsync(token);
-                                try
-                                {
-                                    if (allowance.IsCatchUp && _workBudget().CatchUpStartedAt != allowance.CatchUpStartedAt)
-                                    { budget.Cancel(); token.ThrowIfCancellationRequested(); }
-                                    var live = await _db.GetImportCoverageAsync(identity);
-                                    var liveEpisode = live?.Items.FirstOrDefault(x => x.Key == episode.Key);
-                                    if (_mode() != ImportMode.Repair || live == null || liveEpisode == null ||
-                                        live.Generation != coverage.Generation || liveEpisode.Lease != lease ||
-                                        !await IsAuthorizedAsync(live, item, token) || _inventory.IsOwned(item))
-                                        throw new InvalidOperationException("authorization_changed");
-                                    episode.Paths = await _inventory.PublishAsync(item, episode, versions, token);
-                                    if (episode.Paths.Count == 0) throw new IOException("publication_failed");
-                                    episode.EverPublished = true;
-                                    episode.State = "awaiting_indexing";
-                                    episode.LastVersionRefresh = now;
-                                    episode.NextAttempt = null; episode.Attempts = 0;
-                                    episode.Failure = "";
-                                    episode.Lease = null; episode.LeaseUntil = null;
-                                    await _db.SaveImportCoverageAsync(coverage, token);
-                                    await RegisterPathsAsync(coverage, item, episode, versions, token);
-                                    published++;
-                                }
-                                finally { MutationGate.Release(); }
-                            }
-                        }
-                        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-                        catch (ImportProviderConfigurationException) { failure = "provider_configuration"; versions = null; }
-                        catch { versions = null; }
-                        if (versions == null || versions.Count == 0)
-                        {
-                            episode.State = upgrade ? "indexed" : "retrying"; episode.Failure = failure;
-                            episode.NextAttempt = failure == "provider_configuration" ? null : ImportCoveragePolicy.RetryAt(episode.Attempts, failure == "source_unavailable",
-                                now, Random.Shared.NextDouble() * .2, _cooldown());
-                        }
-                        episode.Lease = null; episode.LeaseUntil = null;
-                        await SaveObservedAsync(coverage, token);
+                        pending.Add(new(coverage, item, episode, coverage.Generation, lease, upgrade,
+                            episode.State, ResolveAsync(item, episode)));
+                        if (pending.Count >= allowance.Parallelism) await DrainOneAsync();
                     }
                     scanned++;
                     if (coverage.SnapshotStatus == "success" && coverage.Items.Any(x => x.ObservedAt.HasValue))
@@ -259,21 +309,29 @@ public sealed class ImportReconciliationService
                 finally
                 {
                     if (selected == null && cursorRows.Contains(sourceItem.Id) && !token.IsCancellationRequested)
-                        await _db.PersistMetadataAsync("import_scan_cursor", sourceItem.Id, token);
+                        await _db.PersistMetadataAsync(cursorKey, sourceItem.Id, token);
                 }
             }
+            while (pending.Count > 0) await DrainOneAsync();
         }
         catch (OperationCanceledException) { status = ct.IsCancellationRequested ? "cancelled" : "budget_deferred"; }
         finally
         {
+            // Cancellation ends all lookups before another run can acquire RunGate.
+            budget.Cancel();
+            await Task.WhenAll(pending.Select(x => x.Resolution));
             try { await _db.PersistMetadataAsync("import_last_run", System.Text.Json.JsonSerializer.Serialize(new
                 { Id = runId, Status = status, FinishedAt = _clock(), Scanned = scanned, Attempts = attempts, Metadata = metadata, Published = published,
                     Upgrades = upgrades, ElapsedSeconds = elapsed.Elapsed.TotalSeconds,
-                    Speed = allowance.IsCatchUp ? "catch_up" : "normal", allowance.AttemptsPerDay,
+                    Speed = allowance.IsCatchUp ? "catch_up" : "normal", allowance.AttemptsPerDay, allowance.Parallelism,
                     allowance.CatchUpStartedAt, allowance.CatchUpUntil }), CancellationToken.None); }
             finally { RunGate.Release(); }
         }
     }
+
+    private sealed record ResolutionResult(List<SelectedVersion>? Versions, string Failure);
+    private sealed record ResolutionWork(ImportCoverage Coverage, CatalogItem Item, ImportEpisode Episode,
+        long Generation, string Lease, bool Upgrade, string PreviousState, Task<ResolutionResult> Resolution);
 
     internal static async Task<bool> IsBlockedAsync(DatabaseManager db, CatalogItem item, CancellationToken ct)
     {

@@ -7,8 +7,10 @@ prove playback or a complete video file.
 
 ## Operation
 
-The Marvin settings page has Observe, Enable recovery, Off, Check/retry, and
-read-only Refresh coverage controls. Observe is the default for this feature.
+The Marvin settings page calls the three modes **Check only** (Observe),
+**Repair & refresh** (Repair), and **Classic importer** (Off). **Retry due items**
+queues work; **Refresh status** reads the latest report. Check only is the default
+for this feature.
 Repair requires a successful observation baseline. Episode rows report gaps; series rows can include released specials. Unknown or
 future release dates do not authorize new imports. Existing files remain visible.
 
@@ -40,6 +42,11 @@ registered/marked InfiniteDrive collections. It does not complete franchises or
 adopt unrelated collections by display name. User playlists retain their existing
 membership contract.
 
+The page shows the last recovery pass's stream-check and refreshed-item counts,
+with relative check/retry times. The report covers that pass; it is not a running
+whole-library completion counter. Unknown native state is displayed as needing
+another check. The administrative API retains its technical field/state names.
+
 ## Metadata and persistence
 
 `ImportInventory` wraps source metadata, Emby's in-process
@@ -61,7 +68,12 @@ The schema marker is `import_schema=1`; initialization is idempotent. Current ru
 collection page, provider pause, and round-robin checkpoints use existing metadata
 storage. Credential URLs and stream URLs are not included in the new coverage
 journal or the public status response. Existing protected STRM/version stores
-retain their normal contents. Keep the database backup when rolling back binaries;
+retain their normal contents. Each successful publication also retains per-file provider, resolution, codec
+and exact byte size when the upstream response supplies it, bound to the current
+STRM URL's SHA-256 hash. Rounded labels never establish an exact size. This evidence
+contains no stream URLs, and allows a later audit to distinguish refreshed files
+from old selections and files whose upstream size remains unknown.
+Keep the database backup when rolling back binaries;
 rollback does not require deleting the additive tables.
 
 Empty, duplicate, or sharply reduced metadata responses retain the last snapshot
@@ -72,7 +84,7 @@ media. Absolute/unverified anime numbering is excluded rather than guessed.
 ## Infinite Improbability Drive
 
 In **Plugins → InfiniteDrive → Marvin**, engage the **Infinite Improbability
-Drive** switch for a temporary backlog refresh. Recovery must already be enabled.
+Drive** switch for a temporary backlog refresh. **Repair & refresh** must already be enabled.
 The switch shows **Engaged** and its expiry; switching it off displays
 **Normality has been restored**. It automatically returns to normal after seven
 days, including across server restarts. Switching an already-active drive on
@@ -81,20 +93,32 @@ again does not extend its window or reset its progress.
 | Allowance | Normal | Drive engaged |
 | --- | --- | --- |
 | Recovery time per run | 2 minutes | 8 minutes |
-| Stream attempts per run | 20 | 128 |
-| Existing-version refreshes per run | 5 | 100 |
-| Metadata refreshes per run | 5 | 25 |
-| Stream attempts per rolling 24 hours | 200 | 8,000 |
+| Stream attempts per run | 20 | 4,096 |
+| Existing-version refreshes per run | 5 | 4,096 |
+| Metadata refreshes per run | 5 | 1,000 |
+| Stream attempts per rolling 24 hours | 200 | 40,000 |
+| Concurrent recovery lookups | 1 | 64 |
+| Starts per second in maintenance lane | — | 2 |
+| Missing-file fills per run | 20 | 20 |
 
 These are ceilings, not promised throughput. Upstream latency, unavailable sources,
 provider backoff, native indexing and the rest of Marvin's work determine actual
-progress. The existing task schedule and shared two-request AIO concurrency limit
-stay in place. No extra worker or scheduler is started.
+progress. The existing task schedule stays in place. Catch-up has a separate 64-slot AIO
+maintenance lane, paced to two starts a second. Ordinary lookups retain their
+shared two-slot lane. File publication and state changes remain serial. No extra
+scheduler is started. Queued lookups are joined before a cancelled run releases
+its lock; late results cannot publish after disengagement or a generation change.
 
 A successfully refreshed movie/episode is skipped for the remainder of that drive
 window. Its checkpoint survives a restart. Unfinished existing versions are
-revisited alongside missing-file repairs and the normal catalog sweep. An unavailable
-episode does not prevent refreshing its eligible indexed siblings. Failed attempts
+revisited alongside bounded missing-file repairs. Catch-up scans catalog rows with
+existing managed paths first, using its own window/cursor; it does not spend the
+backlog budget creating thousands of newly catalogued episodes. The normal catalog
+sweep resumes when catch-up ends. The cursor also revisits episode inventories
+larger than a 200-key page. An unavailable
+episode does not prevent refreshing its eligible siblings. Valid existing managed
+files can be refreshed while native indexing is pending; publication still reports
+awaiting indexing, and an identity mismatch prevents refresh. Failed attempts
 retain their backoff; owned media, explicit blocks, pruning and publication checks
 still apply. This switch changes recovery speed, not quality filters or retention.
 
@@ -113,17 +137,22 @@ keys per title. Episode and catalog cursors survive restarts. At most five remot
 metadata refreshes and twenty stream attempts run per slice, with a rolling cap of
 200 stream attempts per day. Ordinary version refresh uses the same attempt budget,
 with at most five upgrades per slice and a minimum one-hour age. Gaps take priority.
-All AIO stream requests share a concurrency allowance of two. Existing files are
+Ordinary AIO stream requests share a concurrency allowance of two; catch-up uses the bounded maintenance lane described above. Existing files are
 eligible for refresh immediately when no successful refresh is recorded; mere
 observation never marks their old selections fresh. Refresh resolves against the
 current provider configuration and replaces files in place only after successful
 selection/publication. A profile change does not require deleting the library.
 Large libraries converge over multiple budgeted runs, not one instantaneous rebuild.
 
-Individual network operations have a sixty-second deadline bounded by the slice.
+Ordinary recovery lookups have a sixty-second deadline. Catch-up permits 120
+seconds including its paced dispatch wait; each HTTP operation still times out
+at sixty seconds, and all work remains bounded by the slice.
 Ten-minute leases are sufficient for this bounded worker; interrupted leases expire
-before retry, and disk/native state is re-observed first. Network activity happens
-outside the final publication lock. Authorization, settings generation, lease
+before retry, and disk/native state is re-observed first. Stream lookups overlap outside the final publication lock. Each result merges
+into the latest persisted episode state under that lock, preserving sibling
+checkpoints and rejecting stale generations. Native identity/range observations
+are cached only for the current slice; file existence and final ownership checks
+remain live. Authorization, settings generation, lease
 ownership and owned-media precedence are rechecked before publication. Blocks and
 source removals coordinate with that lock. Files are written atomically and old
 versions are removed only after every desired replacement is verified. Empty

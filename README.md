@@ -9,7 +9,7 @@ imports titles and repairs missing files.
 
 A stream will appear. Probably.
 
-**Current release: 0.42.5**, built and tested against **Emby 4.10.0.40**.
+**Current release: 0.42.7**, built and tested against **Emby 4.10.0.40**.
 
 ## How we run it
 
@@ -200,8 +200,9 @@ five ordinary version refreshes. The rolling daily cap is 200 stream attempts.
 Our Marvin task runs every ten minutes; a large library takes many passes.
 
 For a big refresh, engage **Infinite Improbability Drive** on the Marvin page.
-The switch raises recovery to eight minutes and up to 128 stream attempts per
-run, with an 8,000-attempt rolling daily ceiling. It remembers refreshed episodes,
+The switch runs up to 64 lookups together, paced to two starts a second. Each
+pass gets eight minutes, up to 4,096 attempts and a rolling daily ceiling of
+40,000. Existing STRMs get priority. It remembers refreshed episodes,
 keeps provider backoff and media protections, and switches itself off after seven
 days. Disengage it any time: **Normality has been restored.** Actual speed depends
 on your sources; the ceiling is not a completion estimate.

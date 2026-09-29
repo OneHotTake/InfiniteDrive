@@ -39,6 +39,10 @@ public partial class DatabaseManager
         "SELECT * FROM catalog_items WHERE id > COALESCE(@after, '') ORDER BY id LIMIT @limit;",
         c => { BindText(c, "@after", after); BindInt(c, "@limit", limit); }, ReadCatalogItem);
 
+    public Task<List<CatalogItem>> GetExistingImportCatalogPageAsync(string after, int limit = 1000) => QueryListAsync(
+        "SELECT * FROM catalog_items WHERE id > COALESCE(@after, '') AND strm_path IS NOT NULL AND strm_path<>'' ORDER BY id LIMIT @limit;",
+        c => { BindText(c, "@after", after); BindInt(c, "@limit", limit); }, ReadCatalogItem);
+
     public Task<List<CatalogItem>> GetDueImportCatalogAsync(DateTimeOffset now) => QueryListAsync(
         @"SELECT c.* FROM import_coverage s JOIN catalog_items c ON c.id=json_extract(s.payload,'$.CatalogIds[0]')
           WHERE json_extract(s.payload,'$.Exclusion')=''
@@ -55,10 +59,13 @@ public partial class DatabaseManager
         @"SELECT c.* FROM import_coverage s JOIN catalog_items c ON c.id=json_extract(s.payload,'$.CatalogIds[0]')
           WHERE json_extract(s.payload,'$.Exclusion')=''
           AND json_extract(s.payload,'$.SnapshotStatus')='success'
-          AND EXISTS (SELECT 1 FROM json_each(s.payload,'$.Items') e
-            WHERE json_extract(e.value,'$.Eligible')=1 AND json_extract(e.value,'$.State')='indexed'
+          AND (EXISTS (SELECT 1 FROM json_each(s.payload,'$.Items') e
+            WHERE json_extract(e.value,'$.Expected')=1 AND json_extract(e.value,'$.ObservedAt') IS NULL
+            AND json_extract(e.value,'$.Key')>json_extract(s.payload,'$.Cursor'))
+          OR EXISTS (SELECT 1 FROM json_each(s.payload,'$.Items') e
+            WHERE json_extract(e.value,'$.Eligible')=1 AND json_extract(e.value,'$.State') IN ('indexed','awaiting_indexing','indexing_attention')
             AND (json_extract(e.value,'$.LastVersionRefresh') IS NULL OR julianday(json_extract(e.value,'$.LastVersionRefresh'))<julianday(@started))
-            AND (json_extract(e.value,'$.NextAttempt') IS NULL OR json_extract(e.value,'$.NextAttempt')<=@now))
+            AND (json_extract(e.value,'$.NextAttempt') IS NULL OR json_extract(e.value,'$.NextAttempt')<=@now)))
           ORDER BY s.checked_at,c.id LIMIT 10;",
         c => { BindText(c, "@started", started.ToString("o")); BindText(c, "@now", now.ToString("o")); }, ReadCatalogItem);
 
