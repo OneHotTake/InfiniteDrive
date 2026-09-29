@@ -26,6 +26,7 @@ namespace InfiniteDrive.UI.Settings
         public ButtonItem RepairImports { get; set; } = new ButtonItem("Enable recovery") { Data1 = "ImportRepair" };
         public ButtonItem StopImports { get; set; } = new ButtonItem("Off (legacy import continues)") { Data1 = "ImportOff" };
         public ButtonItem CheckImports { get; set; } = new ButtonItem("Check / retry due items") { Data1 = "ImportCheck" };
+        public GenericItemList ImprobabilityDrive { get; set; } = new GenericItemList();
         public ButtonItem RefreshImports { get; set; } = new ButtonItem("Refresh coverage") { Data1 = "ImportRefresh" };
         public ButtonItem ResumeProvider { get; set; } = new ButtonItem("Retry provider after configuration fix") { Data1 = "ImportResumeProvider" };
         public GenericItemList ImportItems { get; set; } = new GenericItemList();

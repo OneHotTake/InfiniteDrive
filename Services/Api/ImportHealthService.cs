@@ -37,8 +37,11 @@ public sealed class ImportHealthService : IService, IRequiresRequest
         var db = Plugin.Instance.DatabaseManager;
         // No schema creation, provider calls, notifications, or task launch from GET.
         if (db.GetMetadata("import_last_run") == null) return new { Status = "not_observed", Mode = Plugin.Instance.Configuration.ImportRecoveryMode.ToString() };
+        var speed = ImportWorkBudget.For(Plugin.Instance.Configuration, DateTimeOffset.UtcNow);
+        var used = await db.GetRecentImportAttemptsAsync(DateTimeOffset.UtcNow);
         var page = await db.GetImportCoveragePageAsync(request.Offset, request.Limit);
         return new { Mode = Plugin.Instance.Configuration.ImportRecoveryMode.ToString(),
+            Speed = speed.IsCatchUp ? "catch_up" : "normal", speed.CatchUpUntil, speed.AttemptsPerDay, AttemptsUsed = used,
             LastRun = db.GetMetadata("import_last_run"), CollectionHealth = db.GetMetadata("import_collection_health"), NextOffset = request.Offset + page.Count,
             Items = page.Select(x => new { x.Identity, x.Title, Complete = x.Complete && x.SnapshotAt >= DateTimeOffset.UtcNow.AddHours(-6), x.SnapshotAt, x.CheckedAt,
                 x.SnapshotStatus, x.ProviderStatus, x.Exclusion,
@@ -72,6 +75,21 @@ public sealed class ImportHealthService : IService, IRequiresRequest
                     if (mode == ImportMode.Repair && db.GetMetadata("import_observation_baseline") != "success")
                         return new { Status = "observe_first" };
                     plugin.Configuration.ImportRecoveryMode = mode;
+                    plugin.SaveConfiguration();
+                    break;
+                case "start_catch_up":
+                    if (plugin.Configuration.ImportRecoveryMode != ImportMode.Repair)
+                        return new { Status = "enable_recovery_first" };
+                    if (ImportWorkBudget.For(plugin.Configuration, DateTimeOffset.UtcNow).IsCatchUp)
+                        return new { Status = "already_running" };
+                    var started = DateTimeOffset.UtcNow;
+                    plugin.Configuration.ImportCatchUpStartedAt = started.ToString("o");
+                    plugin.Configuration.ImportCatchUpUntil = started.AddDays(7).ToString("o");
+                    plugin.SaveConfiguration();
+                    break;
+                case "stop_catch_up":
+                    plugin.Configuration.ImportCatchUpStartedAt = "";
+                    plugin.Configuration.ImportCatchUpUntil = "";
                     plugin.SaveConfiguration();
                     break;
                 case "resume_provider":

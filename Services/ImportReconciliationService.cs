@@ -21,11 +21,13 @@ public sealed class ImportReconciliationService
     private readonly Func<DateTimeOffset> _clock;
     private readonly Func<DateTimeOffset> _cooldown;
     private readonly TimeZoneInfo _timezone;
+    private readonly Func<ImportWorkBudget> _workBudget;
 
     public ImportReconciliationService(DatabaseManager db, IImportInventory inventory,
         Func<ImportMode> mode, TimeZoneInfo timezone, Func<DateTimeOffset>? clock = null,
-        Func<DateTimeOffset>? cooldown = null)
+        Func<DateTimeOffset>? cooldown = null, Func<ImportWorkBudget>? workBudget = null)
     { _db = db; _inventory = inventory; _mode = mode; _timezone = timezone;
+        _workBudget = workBudget ?? (() => ImportWorkBudget.Normal);
         _clock = clock ?? (() => DateTimeOffset.UtcNow); _cooldown = cooldown ?? (() => DateTimeOffset.MinValue); }
 
     public static ImportReconciliationService Create()
@@ -34,18 +36,22 @@ public sealed class ImportReconciliationService
         return new(p.DatabaseManager, new ImportInventory(p.LibraryManager!, p.Logger,
             p.Configuration, p.ProviderManager, p.StrmFileManager!), () => p.Configuration.ImportRecoveryMode,
             TimeZoneInfo.FindSystemTimeZoneById(p.Configuration.ImportHouseholdTimezone),
-            cooldown: () => p.CooldownGate?.GlobalCooldownUntil ?? DateTimeOffset.MinValue);
+            cooldown: () => p.CooldownGate?.GlobalCooldownUntil ?? DateTimeOffset.MinValue,
+            workBudget: () => ImportWorkBudget.For(p.Configuration, DateTimeOffset.UtcNow));
     }
 
     public async Task RunAsync(CancellationToken ct, IReadOnlyList<CatalogItem>? selected = null)
     {
         if (_mode() == ImportMode.Off || !await RunGate.WaitAsync(0, ct)) return;
         using var budget = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        budget.CancelAfter(TimeSpan.FromSeconds(120));
+        var allowance = _workBudget();
+        var elapsed = Stopwatch.StartNew();
+        budget.CancelAfter(TimeSpan.FromSeconds(allowance.SliceSeconds));
         var token = budget.Token;
         var attempts = 0;
         var metadata = 0;
         var upgrades = 0;
+        var published = 0;
         var scanned = 0;
         var notified = false;
         var runId = Guid.NewGuid().ToString("N");
@@ -59,7 +65,13 @@ public sealed class ImportReconciliationService
             { after = ""; page = await _db.GetImportCatalogPageAsync(after, 40); }
             var cursorRows = page.Select(x => x.Id).ToHashSet(StringComparer.Ordinal);
             if (selected == null)
-                page = (await _db.GetDueImportCatalogAsync(_clock())).Concat(page).DistinctBy(x => x.Id).ToList();
+            {
+                var catchUp = allowance.CatchUpStartedAt.HasValue
+                    ? await _db.GetCatchUpImportCatalogAsync(allowance.CatchUpStartedAt.Value, _clock())
+                    : new List<CatalogItem>();
+                page = (await _db.GetDueImportCatalogAsync(_clock())).Concat(catchUp).Concat(page)
+                    .DistinctBy(x => x.Id).ToList();
+            }
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var sourceItem in page)
             {
@@ -100,7 +112,7 @@ public sealed class ImportReconciliationService
                         await SaveObservedAsync(coverage, token);
                         continue;
                     }
-                    if (metadata < 5 && (coverage.MetadataRetryAt <= now ||
+                    if (metadata < allowance.MetadataPerSlice && (coverage.MetadataRetryAt <= now ||
                         !coverage.MetadataRetryAt.HasValue && (!coverage.SnapshotAt.HasValue || coverage.SnapshotAt <= now.AddHours(-6))))
                     {
                         metadata++;
@@ -160,6 +172,8 @@ public sealed class ImportReconciliationService
                         await SaveObservedAsync(coverage, token);
 
                         if (_mode() != ImportMode.Repair) continue;
+                        if (allowance.IsCatchUp && _workBudget().CatchUpStartedAt != allowance.CatchUpStartedAt)
+                        { budget.Cancel(); token.ThrowIfCancellationRequested(); }
                         if (episode.State == "awaiting_indexing" && episode.Notifications < 3 &&
                             (!episode.LastNotification.HasValue || episode.LastNotification <= now.AddMinutes(-30)))
                         {
@@ -170,12 +184,12 @@ public sealed class ImportReconciliationService
                             episode.LastNotification = now;
                             await SaveObservedAsync(coverage, token);
                         }
-                        var upgrade = episode.State == "indexed" && upgrades < 5 &&
-                            (!episode.LastVersionRefresh.HasValue || episode.LastVersionRefresh <= now.AddHours(-1)) &&
-                            (!episode.NextAttempt.HasValue || episode.NextAttempt <= now) && !coverage.Items.Any(x => x.Eligible && x.State != "indexed");
+                        var upgrade = episode.State == "indexed" && upgrades < allowance.UpgradesPerSlice &&
+                            allowance.NeedsRefresh(episode, now) &&
+                            (!episode.NextAttempt.HasValue || episode.NextAttempt <= now) && (allowance.IsCatchUp || !coverage.Items.Any(x => x.Eligible && x.State != "indexed"));
                         // Adopting an existing file is not a successful refresh against the current profile.
                         if ((episode.State != "missing" && !upgrade) || coverage.SnapshotStatus != "success" ||
-                            _inventory.ProviderPaused || attempts >= 20 || _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= 200) continue;
+                            _inventory.ProviderPaused || attempts >= allowance.AttemptsPerSlice || _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= allowance.AttemptsPerDay) continue;
                         attempts++;
                         if (upgrade) upgrades++;
                         var lease = Guid.NewGuid().ToString("N");
@@ -196,6 +210,8 @@ public sealed class ImportReconciliationService
                                 await MutationGate.WaitAsync(token);
                                 try
                                 {
+                                    if (allowance.IsCatchUp && _workBudget().CatchUpStartedAt != allowance.CatchUpStartedAt)
+                                    { budget.Cancel(); token.ThrowIfCancellationRequested(); }
                                     var live = await _db.GetImportCoverageAsync(identity);
                                     var liveEpisode = live?.Items.FirstOrDefault(x => x.Key == episode.Key);
                                     if (_mode() != ImportMode.Repair || live == null || liveEpisode == null ||
@@ -212,6 +228,7 @@ public sealed class ImportReconciliationService
                                     episode.Lease = null; episode.LeaseUntil = null;
                                     await _db.SaveImportCoverageAsync(coverage, token);
                                     await RegisterPathsAsync(coverage, item, episode, versions, token);
+                                    published++;
                                 }
                                 finally { MutationGate.Release(); }
                             }
@@ -250,7 +267,10 @@ public sealed class ImportReconciliationService
         finally
         {
             try { await _db.PersistMetadataAsync("import_last_run", System.Text.Json.JsonSerializer.Serialize(new
-                { Id = runId, Status = status, FinishedAt = _clock(), Scanned = scanned, Attempts = attempts, Metadata = metadata }), CancellationToken.None); }
+                { Id = runId, Status = status, FinishedAt = _clock(), Scanned = scanned, Attempts = attempts, Metadata = metadata, Published = published,
+                    Upgrades = upgrades, ElapsedSeconds = elapsed.Elapsed.TotalSeconds,
+                    Speed = allowance.IsCatchUp ? "catch_up" : "normal", allowance.AttemptsPerDay,
+                    allowance.CatchUpStartedAt, allowance.CatchUpUntil }), CancellationToken.None); }
             finally { RunGate.Release(); }
         }
     }
