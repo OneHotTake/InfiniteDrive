@@ -463,6 +463,9 @@ namespace InfiniteDrive.Services
     /// </summary>
     public class AioStreamsServiceInfo
     {
+        /// <summary>Optional service display name in extended responses.</summary>
+        [JsonPropertyName("name")] public string? Name { get; set; }
+
         /// <summary>
         /// Service identifier.
         /// Known values: <c>realdebrid</c>, <c>alldebrid</c>, <c>torbox</c>,

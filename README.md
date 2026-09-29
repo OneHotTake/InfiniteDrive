@@ -9,7 +9,7 @@ imports titles and repairs missing files.
 
 A stream will appear. Probably.
 
-**Current release: 0.42.4**, built and tested against **Emby 4.10.0.40**.
+**Current release: 0.42.5**, built and tested against **Emby 4.10.0.40**.
 
 ## How we run it
 
@@ -75,6 +75,13 @@ the source; your player and display determine what you can actually use.
 
 InfiniteDrive makes its own Emby labels and ranks results again. The formatted
 addon response omits some codec and HDR data, so labels and order can differ.
+Emby version labels now include the delivery service when identified, including
+on the primary version. Structured service names/IDs support other providers;
+standard responses use explicit `Service:`/`Provider:` text or recognized service
+names such as TorBox, Real-Debrid, AllDebrid, Premiumize and Usenet. Unknown
+services are omitted when the response does not identify them; URLs and release
+filenames are never used to guess a service. Existing files gain labels through
+normal successful version refreshes. No STRM wipe is required.
 Emby may also merge provider aliases and show more than eight versions.
 
 ### What stays, what goes

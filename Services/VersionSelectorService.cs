@@ -129,6 +129,12 @@ namespace InfiniteDrive.Services
             if (!currentKeys.SetEquals(proposedKeys))
                 return true;
 
+            // Refresh labels even when the underlying streams and scores are unchanged.
+            if (proposed.Any(next => !current.Any(old =>
+                string.Equals(old.StreamKey, next.Stream.StreamKey, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(old.VersionLabel, next.VersionLabel, StringComparison.Ordinal))))
+                return true;
+
             // 15% total score improvement threshold
             var currentTotalScore = current.Sum(v => v.RankScore);
             var proposedTotalScore = proposed.Sum(v => v.SelectedScore);
@@ -230,7 +236,7 @@ namespace InfiniteDrive.Services
 
             var sourcePart = stream.SourceTag == "Unknown" ? "" : stream.SourceTag;
 
-            var parts = new[] { resPart, sourcePart, audioPart, sizePart }
+            var parts = new[] { resPart, sourcePart, audioPart, sizePart, stream.ServiceLabel }
                 .Where(p => !string.IsNullOrEmpty(p));
             var label = string.Join(" - ", parts);
 
