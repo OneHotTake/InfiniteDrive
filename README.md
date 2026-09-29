@@ -145,8 +145,10 @@ http://localhost:8096/web/configurationpage?name=InfiniteDrive
 - **Discover restrictions:** set browsing and parental controls.
 
 Lists still work when a manifest has no catalogs. If neither supplies content,
-Marvin derives a small starter catalog for that run. Entries wait for stream
-resolution before becoming files; InfiniteDrive does not write empty placeholders.
+Marvin derives a small starter catalog for that run. In **Repair** mode, new
+Discover additions wait for resolution before becoming files. Off/Observe retain
+the legacy importer, whose manual-add path can create empty pending placeholders;
+their presence does not prove playback is ready.
 
 ## Discover
 
