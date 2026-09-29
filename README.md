@@ -63,6 +63,41 @@ Usenet results marked ready may still need to be fetched.
 
 ### Version labels
 
+> **Bad formats can mean bad playback. The formatter is part of the integration.**
+> Do not turn it into another Great Collapsing Hrung Disaster. Marvin cannot
+> reconstruct information your formatter has removed.
+
+**Configure the formatter on the exact AIOStreams profile whose manifest you
+gave InfiniteDrive.** A formatter that looks lovely in another client's profile
+does nothing for this one. Recheck it after importing a template, changing
+inheritance or applying recommended settings.
+
+Standard Stremio responses can omit AIOStreams' structured `parsedFile` and
+`service` fields. InfiniteDrive then reads `behaviorHints.filename` and formatted
+text. Removing or disguising those signals can change filtering, ranking and
+version selection, hide the delivery service, or leave an unsuitable playback
+choice. A missing provider label alone does **not** make a valid URL unplayable.
+
+The rules are deliberately boring:
+
+- Preserve the real `behaviorHints.filename` in the response. It need not be
+  displayed in the label; it carries resolution, codec, source and edition hints.
+- Keep plain technical words: `2160p`/`4K`, `1080p`, `HEVC`/`x265`, `WEB-DL`,
+  `BluRay`, `REMUX`, audio codec and channel count. Do not replace meaningful
+  values with decorative nicknames or icons alone. Missing fields stay unknown;
+  never label every result HEVC, cached or TorBox just because you prefer those.
+- Keep size in response metadata (`behaviorHints.videoSize` or `size`, in bytes).
+  The description fallback understands numbers followed by `GB`; do not rely on
+  arbitrary units or decorative size text being parsed.
+- Keep the **delivery service** explicit. `Service: TorBox`,
+  `Service: Real-Debrid` or `Service: Your Provider` works as a separate text
+  field. Bare recognized names such as `TorBox` or `Usenet` also work.
+  Separate it with a newline, `·`, `•` or `|`. An indexer, addon or release group
+  is not the delivery service. An unfamiliar bare name may be omitted; use the
+  `Service:` prefix for it. Use the service's actual value, not a hard-coded brand.
+- Preserve the playable `url`. Pretty labels cannot repair an expired URL,
+  missing source, authentication failure or incompatible media.
+
 We use two lines. For example:
 
 ```text
@@ -83,6 +118,20 @@ services are omitted when the response does not identify them; URLs and release
 filenames are never used to guess a service. Existing files gain labels through
 normal successful version refreshes. No STRM wipe is required.
 Emby may also merge provider aliases and show more than eight versions.
+
+**Verify before a bulk import:** preview a movie and an episode, including each
+delivery service you use. Then inspect a real response privately: confirm its
+URL, filename hint, size and service text survived the formatter. Resolve a
+small sample in InfiniteDrive, check Emby's version picker and actually play it.
+A formatter preview, successful import or pretty poster is not a playback test.
+Test again after formatter changes; existing files keep their old labels until
+a successful refresh updates them. Do not wipe the library to test a formatter.
+
+In 0.42.5, the plugin's **recommended formatter & sort** action uses an older
+template that does not include the service and also changes sorting. It is not
+the two-line profile shown here. Review its preview and preserve your intended
+quality policy; add the service field in AIOStreams before relying on provider
+labels. See [configuration](docs/configuration.md#aiostreams-formatter).
 
 ### What stays, what goes
 

@@ -43,6 +43,26 @@ behavior. Duplicate IDs are collapsed structurally. InfiniteDrive does not
 dynamically swap a movie or episode to a separately stored "secondary version";
 the provider set is evaluated when resolution is needed.
 
+## AIOStreams formatter
+
+Treat formatted stream text as integration data. Standard responses may omit
+structured `parsedFile` and `service` metadata, so InfiniteDrive uses filename
+hints and text fallbacks. Preserve `behaviorHints.filename`, numeric size metadata
+and the playable URL. Keep plain technical markers and an explicit delivery
+service, preferably a separate `Service: <actual service name>` token delimited
+by a newline, `·`, `•` or `|`. Never substitute a source addon or indexer name.
+
+Configure the profile used by InfiniteDrive's manifest, then verify actual movie
+and episode responses, the native version picker and playback. Cosmetic previews
+alone do not verify the integration. The [README's formatter rules](../README.md#version-labels)
+describe exact fallbacks, unknown values and checks.
+
+As of 0.42.5, the optional recommended-settings action writes both a legacy
+formatter and global sorting. Its description template omits the delivery service.
+Review the diff before applying it; retain the intended quality policy and add
+the service to the active formatter in AIOStreams. This documentation change
+does not change that action or apply any live profile settings.
+
 ## Sources and lists
 
 Manifest catalogs, MDBList, AniList, Trakt, TMDB-backed lists, system lists, and
