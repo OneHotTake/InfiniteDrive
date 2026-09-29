@@ -5,7 +5,7 @@ lists into managed `.strm` libraries, then resolves playable streams on demand.
 
 ## Prerequisites
 
-- Emby Server 4.10.0.40 (the ABI verified by release 0.42.2).
+- Emby Server 4.10.0.40 (the ABI verified by release 0.42.4).
 - One configured AIOStreams manifest.
 - A working debrid provider configured behind that manifest.
 - Writable movie, series, and anime folders that are visible inside Emby.
@@ -67,11 +67,13 @@ repair phase, and Emby's media-library scan indexed them. Continue with the
 
 ## Safe upgrade and rollback
 
-Stop Emby before replacing the DLL. Preserve the previous DLL, configuration,
-database, and managed folders together so rollback restores one coherent state.
+Stop the affected Emby instance before replacing the DLL. Preserve the previous
+DLL, configuration, consistent database backup and managed folders as recovery
+references. Restore only reviewed artifacts; do not overwrite newer user activity
+or remove additive import tables when rolling back a binary.
 Never delete external or physical media while diagnosing InfiniteDrive; its
 reconciliation ownership is limited to files it manages beneath configured
 roots.
 
-See [configuration](configuration.md), [settings architecture](SETTINGS_ARCHITECTURE.md),
-and the [hardening report](overnight-hardening-report-2026-09-10.md).
+See [configuration](configuration.md), [architecture](architecture.md),
+and the [hardening report](archive/overnight-hardening-report-2026-09-10.md).

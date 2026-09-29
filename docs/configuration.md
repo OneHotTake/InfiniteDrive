@@ -20,7 +20,8 @@ in the plugin.
 
 Desired-version buckets express resolution, audio profile, count, and priority.
 InfiniteDrive preserves distinct editions before filling remaining slots and
-never exposes more than Emby's fixed eight versions for an item.
+selects up to eight versions per catalog record. Emby may merge aliases and show
+more than eight choices; this is not a universal client display limit.
 
 - `AllowRemux` defaults to `false`. Enable it to admit REMUX candidates; it does
   not force them to rank first. This is deliberately visible because unusually
@@ -77,9 +78,10 @@ blocked items. Native Emby parental restrictions still apply to indexed media.
 
 ## Marvin
 
-Marvin has one action: **Run Marvin Now**. Its normal cadence, work sizing,
-provider backoff, pruning threshold, and playlist protection are internal or
-derived state. The page intentionally exposes status rather than tuning knobs.
+Marvin exposes **Run Marvin Now** and import recovery controls: Observe, Enable
+recovery, Off, Check/retry and read-only Refresh coverage. Repair requires a
+successful observation baseline. Normal cadence, backoff and retention remain
+internal or derived state. See [import recovery](import-reconciliation.md).
 
 Owned physical media wins identity reconciliation over an InfiniteDrive-managed
 virtual resolver file. The check runs before every streamed write using stable
@@ -96,7 +98,8 @@ buffer settings.
 
 ## Advanced
 
-Advanced contains logging and reversible maintenance actions. Provider backoff
+Advanced contains logging and explicit maintenance actions. Reset/rebuild can be
+destructive: review their scope and take backups before using them. Provider backoff
 controls background API pressure; the database call count is telemetry, not a
 user-configurable daily rules budget. Stream freshness uses bounded runtime
 policy and observed expiry/probe state.

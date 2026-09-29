@@ -140,6 +140,5 @@ collection checks. It has fixed fixture roots and requires administrator access
 and `INFINITEDRIVE_LAB_FREEZE=1`. It must never be included in a production artifact.
 
 Start production rollout in Observe and review dated exclusions and source/provider
-agreement before enabling Repair. No production rollout or franchise expansion is
-part of this branch. Native indexing QA uses synthetic stream targets; it does
+agreement before enabling Repair. The feature shipped in 0.42.4; franchise expansion remains outside scope. Native indexing QA uses synthetic stream targets; it does
 not claim debrid playback or externally verified complete series inventories.

@@ -44,7 +44,7 @@
   <ItemGroup>
     <!--
       Emby Server assemblies — NOT from NuGet. Copy these from the exact target
-      Emby server with scripts/prepare-emby-refs.sh before building.
+      Emby server with scripts/build-container.sh before building.
       Do NOT convert these to PackageReference — build will fail to find them.
     -->
     <Reference Include="MediaBrowser.Controller">
