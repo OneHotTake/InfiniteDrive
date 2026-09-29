@@ -173,8 +173,7 @@ public sealed class ImportReconciliationService
                         var upgrade = episode.State == "indexed" && upgrades < 5 &&
                             (!episode.LastVersionRefresh.HasValue || episode.LastVersionRefresh <= now.AddHours(-1)) &&
                             (!episode.NextAttempt.HasValue || episode.NextAttempt <= now) && !coverage.Items.Any(x => x.Eligible && x.State != "indexed");
-                        if (episode.State == "indexed" && !episode.LastVersionRefresh.HasValue)
-                        { episode.LastVersionRefresh = now; await SaveObservedAsync(coverage, token); upgrade = false; }
+                        // Adopting an existing file is not a successful refresh against the current profile.
                         if ((episode.State != "missing" && !upgrade) || coverage.SnapshotStatus != "success" ||
                             _inventory.ProviderPaused || attempts >= 20 || _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= 200) continue;
                         attempts++;

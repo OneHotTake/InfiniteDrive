@@ -93,6 +93,15 @@ public sealed class ImportReconciliationTests
         Assert.Equal("success", h.Db.GetMetadata("import_observation_baseline"));
         Assert.All((await h.State()).Items, e => Assert.Equal("missing", e.State));
     }
+    [Fact] public async Task ExistingFilesAreRefreshedWithoutPretendingObservationResolvedThem()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1; h.Inventory.Files.Add(1); await h.Seed();
+        await h.Run(ImportMode.Observe);
+        Assert.Null((await h.State()).Items[0].LastVersionRefresh);
+        Assert.Equal(0, h.Inventory.Resolutions);
+        await h.Run(); Assert.Equal(1, h.Inventory.Resolutions); Assert.Contains(1, h.Inventory.Files);
+        Assert.Equal(h.Now, (await h.State()).Items[0].LastVersionRefresh);
+    }
     [Fact] public async Task PartialFailureRetriesAfterRestartWithUnchangedMetadata()
     {
         using var h = new Harness(); await h.Seed(); h.Inventory.FailEpisode = 2;

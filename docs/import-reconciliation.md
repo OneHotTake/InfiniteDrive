@@ -77,7 +77,12 @@ keys per title. Episode and catalog cursors survive restarts. At most five remot
 metadata refreshes and twenty stream attempts run per slice, with a rolling cap of
 200 stream attempts per day. Ordinary version refresh uses the same attempt budget,
 with at most five upgrades per slice and a minimum one-hour age. Gaps take priority.
-All AIO stream requests share a concurrency allowance of two.
+All AIO stream requests share a concurrency allowance of two. Existing files are
+eligible for refresh immediately when no successful refresh is recorded; mere
+observation never marks their old selections fresh. Refresh resolves against the
+current provider configuration and replaces files in place only after successful
+selection/publication. A profile change does not require deleting the library.
+Large libraries converge over multiple budgeted runs, not one instantaneous rebuild.
 
 Individual network operations have a sixty-second deadline bounded by the slice.
 Ten-minute leases are sufficient for this bounded worker; interrupted leases expire

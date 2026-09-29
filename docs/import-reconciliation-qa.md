@@ -8,13 +8,18 @@ in the private development build area.
 
 ## Automated checks
 
-84 tests passed, zero failed or skipped. Release compilation and publication are
+85 tests passed, zero failed or skipped. Release compilation and publication are
 warning-free against the exact Emby SDK. The suite includes the existing 52 tests
-and 32 new checks, using Emby's SQLite provider with real temporary databases.
+and 33 new checks, using Emby's SQLite provider with real temporary databases.
 Coverage includes durable unchanged-inventory retry, parent-state independence,
 due-work selection, alias deduplication/conflicts, daily budgets, provider pause,
 automatic refill, retained catalog aliases, prune/re-entry, concurrent blocks, indexing limits,
 unsafe paths, and failed/empty/unchanged multi-version publication.
+
+The versioned 0.42.3 release also verifies that observing existing files does not
+mark old choices refreshed: the first eligible Repair slice resolves them against
+the current provider configuration. The remainder of native QA below predates
+that small adoption-time correction.
 
 ## Native Emby checks
 
