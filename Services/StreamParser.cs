@@ -100,6 +100,7 @@ namespace InfiniteDrive.Services
                 AudioGroup = audioGroup,
                 AudioPretty = audioPretty,
                 SourceTag = sourceTag,
+                ServiceLabel = StreamServiceLabel.Parse(raw),
                 SizeGiB = sizeGiB,
                 Url = raw.Url!,
                 RankScore = score,

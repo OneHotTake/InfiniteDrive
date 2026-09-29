@@ -21,6 +21,9 @@ namespace InfiniteDrive.Models
         /// <summary>Source type tag: "BluRay Remux", "BluRay", "WEB-DL", "WEBRip", etc.</summary>
         public string SourceTag { get; set; } = "Unknown";
 
+        /// <summary>Delivery service display name, or empty when unidentified.</summary>
+        public string ServiceLabel { get; set; } = string.Empty;
+
         /// <summary>File size in GiB.</summary>
         public double SizeGiB { get; set; }
 
@@ -86,6 +89,7 @@ namespace InfiniteDrive.Models
     /// </summary>
     public class StoredVersion
     {
+        public string ServiceLabel { get; set; } = string.Empty;
         public string Url { get; set; } = string.Empty;
         public string? SecondaryUrl { get; set; }
         public string Resolution { get; set; } = "Unknown";

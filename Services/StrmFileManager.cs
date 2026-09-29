@@ -37,7 +37,7 @@ namespace InfiniteDrive.Services
         /// <summary>
         /// Writes or replaces multi-version .strm files in <paramref name="mediaFolder"/>.
         /// Follows Emby's multi-version naming: "{FolderName} - {VersionLabel}.strm"
-        /// plus a default "{FolderName}.strm" for the best version.
+        /// with a bare "{FolderName}.strm" primary only when its service is unknown.
         ///
         /// Rules:
         ///   - Only creates the folder if versions.Count > 0.
@@ -74,11 +74,13 @@ namespace InfiniteDrive.Services
                 ? Path.GetFileNameWithoutExtension(folderBareName) : folderBareName;
             var desiredFiles = new Dictionary<string, SelectedVersion>(StringComparer.OrdinalIgnoreCase);
 
-            // First version gets the default name (Emby auto-selects this)
-            desiredFiles[$"{baseName}.strm"] = versions[0];
+            // Label the primary as well when its service is known; otherwise one choice
+            // in Emby's picker would still hide its provider. Keep legacy naming for
+            // unidentified primaries. Publication verifies all replacements before cleanup.
+            var firstLabeled = !string.IsNullOrEmpty(versions[0].Stream.ServiceLabel);
+            if (!firstLabeled) desiredFiles[$"{baseName}.strm"] = versions[0];
 
-            // Subsequent versions get Emby multi-version naming
-            for (int i = 1; i < versions.Count; i++)
+            for (int i = firstLabeled ? 0 : 1; i < versions.Count; i++)
             {
                 var v = versions[i];
                 var label = string.IsNullOrEmpty(v.VersionLabel) ? $"v{i + 1}" : v.VersionLabel;
@@ -238,6 +240,7 @@ namespace InfiniteDrive.Services
                 Resolution = v.Stream.Resolution,
                 AudioPretty = v.Stream.AudioPretty,
                 SourceTag = v.Stream.SourceTag,
+                ServiceLabel = v.Stream.ServiceLabel,
                 SizeGiB = v.Stream.SizeGiB,
                 RankScore = v.SelectedScore,
                 VersionLabel = v.VersionLabel,
