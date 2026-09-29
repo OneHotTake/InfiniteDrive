@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -26,6 +28,8 @@ public interface IImportInventory
     Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct);
     bool IsOwned(CatalogItem item);
     Task<List<SelectedVersion>> ResolveAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct);
+    Task<List<SelectedVersion>> ResolveCatchUpAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
+        => ResolveAsync(item, episode, ct);
     Task<List<string>> PublishAsync(CatalogItem item, ImportEpisode episode, List<SelectedVersion> versions, CancellationToken ct);
     void Notify(CatalogItem item);
 }
@@ -37,6 +41,10 @@ public sealed class ImportInventory : IImportInventory
     private readonly PluginConfiguration _config;
     private readonly IProviderManager? _providers;
     private readonly StrmFileManager _writer;
+    // One inventory adapter lives for one slice; native identity/range observations
+    // are a dated snapshot. File existence and final ownership remain live checks.
+    private readonly Dictionary<string, BaseItem[]> _rootObservations = new(StringComparer.Ordinal);
+    private readonly Dictionary<long, Episode[]> _rangeObservations = new();
 
     public ImportInventory(ILibraryManager library, ILogger logger, PluginConfiguration config,
         IProviderManager? providers, StrmFileManager writer)
@@ -144,11 +152,26 @@ public sealed class ImportInventory : IImportInventory
     public static DateTimeOffset? ParseRelease(string? value) => DateTimeOffset.TryParse(value,
         CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var date) ? date : null;
 
-    private BaseItem[] FindRoots(CatalogItem item) => _library.GetItemList(new InternalItemsQuery
+    private BaseItem[] FindRoots(CatalogItem item)
     {
-        IncludeItemTypes = new[] { IsSeries(item) ? "Series" : "Movie" },
-        AnyProviderIdEquals = OwnedMediaPreferenceService.BuildProviderIds(item), Recursive = true
-    });
+        var key = item.MediaType + ":" + item.AioId;
+        if (!_rootObservations.TryGetValue(key, out var roots))
+            _rootObservations[key] = roots = _library.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = new[] { IsSeries(item) ? "Series" : "Movie" },
+                AnyProviderIdEquals = OwnedMediaPreferenceService.BuildProviderIds(item), Recursive = true
+            });
+        return roots;
+    }
+
+    private Episode[] FindEpisodeRanges(Series series)
+    {
+        if (!_rangeObservations.TryGetValue(series.InternalId, out var ranges))
+            _rangeObservations[series.InternalId] = ranges = _library.GetItemList(new InternalItemsQuery
+            { AncestorIds = new[] { series.InternalId }, Recursive = true, IncludeItemTypes = new[] { "Episode" } })
+                .OfType<Episode>().Where(x => x.IndexNumber.HasValue && x.IndexNumberEnd > x.IndexNumber).ToArray();
+        return ranges;
+    }
 
     public Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
     {
@@ -158,8 +181,7 @@ public sealed class ImportInventory : IImportInventory
         if (IsSeries(item) && episode.Season.HasValue)
         {
             foreach (var series in FindRoots(item).OfType<Series>())
-            foreach (var child in _library.GetItemList(new InternalItemsQuery
-                { AncestorIds = new[] { series.InternalId }, Recursive = true, IncludeItemTypes = new[] { "Episode" } }).OfType<Episode>())
+            foreach (var child in FindEpisodeRanges(series))
             {
                 if (child.ParentIndexNumber != episode.Season || !child.IndexNumber.HasValue ||
                     !child.IndexNumberEnd.HasValue || child.IndexNumber > episode.Episode || child.IndexNumberEnd < episode.Episode) continue;
@@ -242,8 +264,15 @@ public sealed class ImportInventory : IImportInventory
     }
 
     public async Task<List<SelectedVersion>> ResolveAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
+        => await ResolveCoreAsync(item, episode, false, ct);
+
+    public Task<List<SelectedVersion>> ResolveCatchUpAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
+        => ResolveCoreAsync(item, episode, true, ct);
+
+    private async Task<List<SelectedVersion>> ResolveCoreAsync(CatalogItem item, ImportEpisode episode, bool maintenance, CancellationToken ct)
     {
         using var client = AioStreamsClientFactory.Create(_logger);
+        client.MaintenanceResolution = maintenance;
         client.Cooldown = Plugin.Instance?.CooldownGate;
         var response = episode.Season.HasValue
             ? await client.GetSeriesStreamsAsync(item.AioId, episode.Season.Value, episode.Episode!.Value, ct)
@@ -263,7 +292,25 @@ public sealed class ImportInventory : IImportInventory
     {
         var (folder, name) = Destination(item, episode);
         await _writer.WriteOrReplaceStrmFilesAsync(folder, name, versions, ct);
-        return FindFiles(folder, name);
+        var paths = FindFiles(folder, name);
+        episode.Versions = BuildVersionEvidence(paths, versions, DateTimeOffset.UtcNow);
+        return paths;
+    }
+
+    public static List<ImportVersionEvidence> BuildVersionEvidence(List<string> paths,
+        List<SelectedVersion> versions, DateTimeOffset now)
+    {
+        var evidence = new List<ImportVersionEvidence>();
+        foreach (var path in paths)
+        {
+            var url = File.ReadAllText(path).Trim();
+            var version = versions.FirstOrDefault(x => x.Stream.Url == url);
+            if (version == null) continue;
+            evidence.Add(new(path, Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(url))).ToLowerInvariant(),
+                version.Stream.ServiceLabel, version.Stream.Resolution, version.Stream.Encode,
+                version.Stream.SizeBytes, now));
+        }
+        return evidence;
     }
 
     public void Notify(CatalogItem item)

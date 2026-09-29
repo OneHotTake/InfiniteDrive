@@ -325,15 +325,35 @@ namespace InfiniteDrive.Services
             => GetStreamsCoreAsync("series", $"{aioId}:{season}:{episode}", "GetSeriesStreamsAsync", sel, cancellationToken);
 
         private static readonly SemaphoreSlim StreamResolutionGate = new(2, 2);
+        private static readonly SemaphoreSlim MaintenanceResolutionGate = new(64, 64);
+        private static readonly SemaphoreSlim MaintenanceStartGate = new(1, 1);
+        private static readonly Stopwatch MaintenanceClock = Stopwatch.StartNew();
+        private static long _nextMaintenanceStart;
+        /// <summary>Opt-in bounded maintenance lane; ordinary playback lookups retain two slots.</summary>
+        internal bool MaintenanceResolution { get; set; }
+
+        private static async Task PaceMaintenanceAsync(CancellationToken ct)
+        {
+            await MaintenanceStartGate.WaitAsync(ct);
+            try
+            {
+                var wait = _nextMaintenanceStart - MaintenanceClock.ElapsedMilliseconds;
+                if (wait > 0) await Task.Delay(TimeSpan.FromMilliseconds(wait), ct);
+                _nextMaintenanceStart = MaintenanceClock.ElapsedMilliseconds + 500;
+            }
+            finally { MaintenanceStartGate.Release(); }
+        }
 
         private async Task<AioStreamsStreamResponse?> GetStreamsCoreAsync(
             string type, string id, string label, string? sel, CancellationToken ct)
         {
-            await StreamResolutionGate.WaitAsync(ct);
+            var gate = MaintenanceResolution ? MaintenanceResolutionGate : StreamResolutionGate;
+            await gate.WaitAsync(ct);
             var sw = Stopwatch.StartNew();
             _logger.LogInformation("[AioStreamsClient] START: {Label} for {Id}", label, id);
             try
             {
+                if (MaintenanceResolution) await PaceMaintenanceAsync(ct);
                 var path = $"/stream/{type}/{Uri.EscapeDataString(id)}.json";
                 if (!string.IsNullOrEmpty(sel))
                     path += $"?sel={Uri.EscapeDataString(sel)}";
@@ -350,7 +370,7 @@ namespace InfiniteDrive.Services
                     label, id, sw.ElapsedMilliseconds);
                 throw;
             }
-            finally { StreamResolutionGate.Release(); }
+            finally { gate.Release(); }
         }
 
         // ── Multi-provider fetch loop ─────────────────────────────────────

@@ -242,6 +242,7 @@ namespace InfiniteDrive.Services
                 SourceTag = v.Stream.SourceTag,
                 ServiceLabel = v.Stream.ServiceLabel,
                 SizeGiB = v.Stream.SizeGiB,
+                SizeBytes = v.Stream.SizeBytes,
                 RankScore = v.SelectedScore,
                 VersionLabel = v.VersionLabel,
                 StreamKey = v.Stream.StreamKey,

@@ -43,6 +43,7 @@ public sealed class ImportEpisode
     public bool InitialFailure { get; set; }
     public List<string> Paths { get; set; } = new();
     public List<string> NativeIds { get; set; } = new();
+    public List<ImportVersionEvidence> Versions { get; set; } = new();
     public int Attempts { get; set; }
     public int Notifications { get; set; }
     public DateTimeOffset? FirstNotification { get; set; }
@@ -55,6 +56,10 @@ public sealed class ImportEpisode
     public string? Lease { get; set; }
     public DateTimeOffset? LeaseUntil { get; set; }
 }
+
+/// <summary>Fresh per-file metadata bound to its current URL hash, without storing the URL.</summary>
+public sealed record ImportVersionEvidence(string Path, string UrlSha256, string ServiceLabel,
+    string Resolution, string? Encode, long? SizeBytes, DateTimeOffset ObservedAt);
 
 public static class ImportCoveragePolicy
 {
