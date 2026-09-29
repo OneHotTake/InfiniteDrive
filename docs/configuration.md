@@ -55,7 +55,12 @@ by a newline, `·`, `•` or `|`. Never substitute a source addon or indexer nam
 Configure the profile used by InfiniteDrive's manifest, then verify actual movie
 and episode responses, the native version picker and playback. Cosmetic previews
 alone do not verify the integration. The [README's formatter rules](../README.md#version-labels)
-describe exact fallbacks, unknown values and checks.
+describe exact fallbacks, unknown values and checks. Use the separate, literal
+[Name and Description paste blocks](../README.md#copy-and-paste-custom-formatter)
+in AIOStreams' Custom formatter, then save/update that configuration. The blocks
+support service-name/ID fallback and Usenet without hard-coding TorBox onto every
+result. They were verified with 11 synthetic cases in the installed formatter
+engine on September 29, 2026; no live profile was modified by that verification.
 
 As of 0.42.5, the optional recommended-settings action writes both a legacy
 formatter and global sorting. Its description template omits the delivery service.
