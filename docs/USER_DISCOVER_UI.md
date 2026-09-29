@@ -12,7 +12,8 @@ certification and In Library/Pending status. The dialog offers library actions.
 
 Adding a title records catalog/user intent and uses the managed import path.
 In Repair mode it queues work rather than writing empty placeholder files.
-Pending is not proof of a playable file or successful Emby indexing. Check the
+Off/Observe retain the legacy manual-add path, which can create empty pending
+placeholders. Pending is not proof of a playable file or successful Emby indexing. Check the
 native library and [import coverage](import-reconciliation.md) before concluding
 that import has finished.
 
