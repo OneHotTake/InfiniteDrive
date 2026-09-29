@@ -33,10 +33,10 @@ All originals remain available at the baseline commit.
 
 | Branch | Tip | Decision |
 |---|---|---|
-| codex/overnight-hardening-20260910 | 4173a44f18a560beb350a4db42fcd4a1e92aa8fc | Fully merged; eligible for removal |
-| feat/import-reconciliation | 90f43aed18cfd94e0648e1b60d1d2b164965bb26 | Fully merged; eligible for removal |
-| feature/multi-version-strm-prewrite | c680b68abc29c9662674938a08b4e8d9a8630ce7 | Fully merged; eligible for removal |
-| virtual | 743176e5e13d95f1fbf2c0de67bf7d41cbf90586 | Fully merged; eligible for removal |
+| codex/overnight-hardening-20260910 | 4173a44f18a560beb350a4db42fcd4a1e92aa8fc | Fully merged; removed after checking tip |
+| feat/import-reconciliation | 90f43aed18cfd94e0648e1b60d1d2b164965bb26 | Fully merged; removed after checking tip |
+| feature/multi-version-strm-prewrite | c680b68abc29c9662674938a08b4e8d9a8630ce7 | Fully merged; removed after checking tip |
+| virtual | 743176e5e13d95f1fbf2c0de67bf7d41cbf90586 | Fully merged; removed after checking tip |
 | virtual-library | da4f55418c7e0aa72f4ccbededcc21288688bd49 | Unmerged; preserve |
 | virtual-library-v2 | 129be9a789445d64bae4157fb6294d0d1c02392f | Unmerged; preserve |
 
@@ -59,3 +59,9 @@ properties as freshly live-verified.
 
 GitHub CI repeats repository checks and the exact-ABI test/publish build for PRs
 and main. It has read-only repository permissions and no production secrets.
+
+GitHub housekeeping: project description now identifies the plugin; automatic
+branch deletion after PR merge is enabled. Four merged branches were removed
+with their audited tips checked. Both unmerged experiments and every release
+remain. Restore the former blank description or disable automatic branch deletion
+in repository settings to roll back those two metadata changes.
