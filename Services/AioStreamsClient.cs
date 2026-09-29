@@ -112,6 +112,9 @@ namespace InfiniteDrive.Services
         /// Set by tasks/services that want automatic rate-limit handling.
         /// When null, no throttling or 429 detection is applied.
         /// </summary>
+        public int? LastHttpStatus { get; private set; }
+        public string ConfigurationFingerprint => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(_stremioBase)));
+
         public CooldownGate? Cooldown { get; set; }
 
         /// <summary>
@@ -321,9 +324,12 @@ namespace InfiniteDrive.Services
             string? sel = null)
             => GetStreamsCoreAsync("series", $"{aioId}:{season}:{episode}", "GetSeriesStreamsAsync", sel, cancellationToken);
 
+        private static readonly SemaphoreSlim StreamResolutionGate = new(2, 2);
+
         private async Task<AioStreamsStreamResponse?> GetStreamsCoreAsync(
             string type, string id, string label, string? sel, CancellationToken ct)
         {
+            await StreamResolutionGate.WaitAsync(ct);
             var sw = Stopwatch.StartNew();
             _logger.LogInformation("[AioStreamsClient] START: {Label} for {Id}", label, id);
             try
@@ -344,6 +350,7 @@ namespace InfiniteDrive.Services
                     label, id, sw.ElapsedMilliseconds);
                 throw;
             }
+            finally { StreamResolutionGate.Release(); }
         }
 
         // ── Multi-provider fetch loop ─────────────────────────────────────
@@ -781,7 +788,8 @@ namespace InfiniteDrive.Services
                         await Cooldown.WaitAsync(ActiveCooldownKind, cancellationToken);
 
                     var httpSw = Stopwatch.StartNew();
-                    var response = await _sharedHttp.GetAsync(url, cancellationToken);
+                    using var response = await _sharedHttp.GetAsync(url, cancellationToken);
+                    LastHttpStatus = (int)response.StatusCode;
                     httpSw.Stop();
                     _logger.LogDebug("[GetRawStringAsync] HTTP GET completed in {ElapsedMs}ms for {Url}",
                         httpSw.ElapsedMilliseconds, safeUrl);

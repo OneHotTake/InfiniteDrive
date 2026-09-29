@@ -53,6 +53,32 @@ namespace InfiniteDrive.Services
             string? ownerUserId,
             CancellationToken ct)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair)
+            {
+                // Record explicit new intent without creating empty placeholder media or bypassing retry budgets.
+                await _db.UpsertCatalogItemAsync(item, ct);
+                await _db.EnsureImportCoverageAsync(ct);
+                var aliases = ImportInventory.Aliases(item);
+                if (aliases.Count == 0) return null;
+                var identity = await _db.FindImportIdentityAsync(aliases, ct) ?? aliases[0];
+                await ImportReconciliationService.MutationGate.WaitAsync(ct);
+                try
+                {
+                    var state = await _db.GetImportCoverageAsync(identity) ?? new ImportCoverage { Identity = identity, Title = item.Title };
+                    if (!state.CatalogIds.Contains(item.Id)) state.CatalogIds.Add(item.Id);
+                    await _db.SaveImportCoverageAsync(state, ct);
+                    foreach (var alias in aliases) await _db.SaveImportAliasAsync(alias, identity, ct);
+                }
+                finally { ImportReconciliationService.MutationGate.Release(); }
+                var options = Plugin.Instance.Configuration;
+                var root = item.MediaType switch { "movie" => options.SyncPathMovies, "anime" => options.SyncPathAnime, _ => options.SyncPathShows };
+                if (string.IsNullOrWhiteSpace(root)) return null;
+                var pending = Path.Combine(root, NamingPolicyService.SanitisePath(NamingPolicyService.BuildFolderName(item)));
+                Plugin.Instance.TriggerBackgroundSync();
+                return pending;
+            }
+
+            if (await ImportReconciliationService.LegacySuppressedAsync(_db, item, ct)) return null;
             var libraryManager = Plugin.Instance?.LibraryManager;
             if (libraryManager != null)
             {
@@ -125,6 +151,7 @@ namespace InfiniteDrive.Services
             CatalogItem seriesItem, int season, int episode,
             string? episodeTitle, CancellationToken ct)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return Task.FromResult((string?)null);
             if (string.IsNullOrEmpty(seriesItem.StrmPath))
             {
                 _logger.LogWarning("[InfiniteDrive] StrmWriterService: cannot write episode — strm_path is null for {AioId}", seriesItem.AioId);
@@ -154,6 +181,7 @@ namespace InfiniteDrive.Services
             string filePath, string aioId, int season, int episode,
             CancellationToken ct)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return Task.CompletedTask;
             if (File.Exists(filePath)) return Task.CompletedTask;
 
             var config = Plugin.Instance?.Configuration;
@@ -295,6 +323,7 @@ namespace InfiniteDrive.Services
             PluginConfiguration? config,
             CancellationToken cancellationToken)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return Task.FromResult(0);
             if (string.IsNullOrEmpty(item.VideosJson))
                 return Task.FromResult(0);
 

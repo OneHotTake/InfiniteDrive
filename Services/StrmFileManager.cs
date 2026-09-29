@@ -56,20 +56,22 @@ namespace InfiniteDrive.Services
             List<SelectedVersion> versions,
             CancellationToken ct)
         {
-            if (versions.Count == 0)
+            if (versions.Count == 0) return 0;
+            if (versions.Any(v => !Uri.TryCreate(v.Stream.Url, UriKind.Absolute, out var uri) ||
+                (uri.Scheme != "http" && uri.Scheme != "https")))
+                throw new InvalidOperationException("Invalid stream target");
+            var gate = _rewriteLocks.GetOrAdd(Path.GetFullPath(mediaFolder), _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
+            try
             {
-                // No valid versions — clean up existing files and folder
-                await CleanupFolderAsync(mediaFolder, ct);
-                return 0;
-            }
-
             ct.ThrowIfCancellationRequested();
 
             // Ensure folder exists (only now that we know we have versions)
             Directory.CreateDirectory(mediaFolder);
 
             // Build the target filename set
-            var baseName = Path.GetFileNameWithoutExtension(folderBareName);
+            var baseName = folderBareName.EndsWith(".strm", StringComparison.OrdinalIgnoreCase)
+                ? Path.GetFileNameWithoutExtension(folderBareName) : folderBareName;
             var desiredFiles = new Dictionary<string, SelectedVersion>(StringComparer.OrdinalIgnoreCase);
 
             // First version gets the default name (Emby auto-selects this)
@@ -96,28 +98,6 @@ namespace InfiniteDrive.Services
                 desiredFiles[fileName] = v;
             }
 
-            // Delete stale .strm files that are no longer desired
-            var staleDeleted = 0;
-            if (Directory.Exists(mediaFolder))
-            {
-                var existingStrms = Directory.GetFiles(mediaFolder, "*.strm");
-                var desiredNames = new HashSet<string>(desiredFiles.Keys, StringComparer.OrdinalIgnoreCase);
-
-                foreach (var existing in existingStrms)
-                {
-                    var existingName = Path.GetFileName(existing);
-                    // Only clean up files that belong to this item (same base name prefix).
-                    // Scoping prevents cross-episode deletion when writing into a shared season directory.
-                    if (existingName.StartsWith(baseName, StringComparison.OrdinalIgnoreCase)
-                        && !desiredNames.Contains(existingName))
-                    {
-                        SafeDelete(existing);
-                        staleDeleted++;
-                        _logger.LogDebug("[StrmFileManager] Removed stale version: {File}", existingName);
-                    }
-                }
-            }
-
             // Write new/updated .strm files
             var written = 0;
             foreach (var (fileName, version) in desiredFiles)
@@ -135,6 +115,35 @@ namespace InfiniteDrive.Services
                 }
             }
 
+            // Confirm every desired file before removing older versions. Identical writes are success.
+            foreach (var (fileName, version) in desiredFiles)
+                if (!File.Exists(Path.Combine(mediaFolder, fileName)) ||
+                    File.ReadAllText(Path.Combine(mediaFolder, fileName)) != version.Stream.Url)
+                    throw new IOException("Incomplete stream publication");
+
+            // Delete stale .strm files that are no longer desired
+            var staleDeleted = 0;
+            if (Directory.Exists(mediaFolder))
+            {
+                var existingStrms = Directory.GetFiles(mediaFolder, "*.strm");
+                var desiredNames = new HashSet<string>(desiredFiles.Keys, StringComparer.OrdinalIgnoreCase);
+
+                foreach (var existing in existingStrms)
+                {
+                    var existingName = Path.GetFileName(existing);
+                    // Only clean up files that belong to this item (same base name prefix).
+                    // Scoping prevents cross-episode deletion when writing into a shared season directory.
+                    if ((string.Equals(existingName, baseName + ".strm", StringComparison.OrdinalIgnoreCase)
+                        || existingName.StartsWith(baseName + " - ", StringComparison.OrdinalIgnoreCase))
+                        && !desiredNames.Contains(existingName))
+                    {
+                        SafeDelete(existing);
+                        staleDeleted++;
+                        _logger.LogDebug("[StrmFileManager] Removed stale version: {File}", existingName);
+                    }
+                }
+            }
+
             if (staleDeleted > 0 || written > 0)
             {
                 _logger.LogInformation(
@@ -144,6 +153,8 @@ namespace InfiniteDrive.Services
             }
 
             return written;
+            }
+            finally { gate.Release(); }
         }
 
         /// <summary>
@@ -258,7 +269,7 @@ namespace InfiniteDrive.Services
         {
             ValidateLibraryPath(strmPath);
 
-            var slim = _rewriteLocks.GetOrAdd(strmPath, _ => new SemaphoreSlim(1, 1));
+            var slim = _rewriteLocks.GetOrAdd(Path.GetFullPath(Path.GetDirectoryName(strmPath)!), _ => new SemaphoreSlim(1, 1));
             slim.Wait();
             try
             {

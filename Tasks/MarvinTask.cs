@@ -116,6 +116,10 @@ namespace InfiniteDrive.Tasks
 
         private async Task ExecuteInternalAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
+            // Recovery has a bounded early slice, independent of long catalog materialization.
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode != ImportMode.Off)
+                await ImportReconciliationService.Create().RunAsync(cancellationToken);
+
             _logger.LogInformation("[InfiniteDrive] MarvinTask started (4-phase pipeline)");
             var pipelineSw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -284,7 +288,11 @@ namespace InfiniteDrive.Tasks
             var db = Plugin.Instance?.DatabaseManager;
             if (db == null) return;
 
-            var pending = await db.GetPendingCollectionMembershipsAsync(cancellationToken);
+            var recovery = Plugin.Instance!.Configuration.ImportRecoveryMode == ImportMode.Repair;
+            _ = int.TryParse(db.GetMetadata("import_collection_cursor"), out var after);
+            var pending = recovery ? await db.GetImportCollectionPageAsync(after) : await db.GetPendingCollectionMembershipsAsync(cancellationToken);
+            if (recovery && pending.Count == 0)
+            { await db.PersistMetadataAsync("import_collection_cursor", "0", cancellationToken); pending = await db.GetImportCollectionPageAsync(0); }
             if (pending.Count == 0) return;
 
             _logger.LogInformation("[CollectionPopulation] Resolving {Count} pending memberships", pending.Count);
@@ -300,7 +308,15 @@ namespace InfiniteDrive.Tasks
 
                 // Look up the catalog item to get provider IDs
                 var catalogItem = await db.GetCatalogItemByAioIdAsync(row.AioId);
-                if (catalogItem == null) continue;
+                if (catalogItem == null || catalogItem.Blocked ||
+                    await db.IsBlockedAsync(catalogItem.AioId, catalogItem.TmdbId, null)) continue;
+                if (recovery)
+                {
+                    await db.PersistMetadataAsync("import_collection_cursor", row.Id.ToString(), cancellationToken);
+                    var identity = await db.FindImportIdentityAsync(ImportInventory.Aliases(catalogItem), cancellationToken);
+                    var coverage = identity == null ? null : await db.GetImportCoverageAsync(identity);
+                    if (coverage?.Suppressed == true) continue;
+                }
 
                 // Try to find Emby item via provider ID lookup
                 string? embyItemId = null;
@@ -335,7 +351,8 @@ namespace InfiniteDrive.Tasks
                         var query = new InternalItemsQuery
                         {
                             AnyProviderIdEquals = providerIds,
-                            IncludeItemTypes = new[] { "Movie", "Series" },
+                            IncludeItemTypes = new[] { ImportInventory.IsSeries(catalogItem) ? "Series" : "Movie" },
+                            IsVirtualItem = false,
                             Limit = 1,
                         };
                         var results = libraryManager.GetItemList(query);
@@ -353,15 +370,37 @@ namespace InfiniteDrive.Tasks
                 // Add to BoxSet or playlist
                 try
                 {
+                    var confirmed = false;
                     if (row.UserId == null)
                     {
                         // BoxSet membership
                         if (boxSetService != null)
                         {
-                            var boxSet = await boxSetService.FindOrCreateBoxSetAsync(row.CollectionName, cancellationToken);
-                            if (boxSet != null && Guid.TryParse(embyItemId, out var itemId))
+                            if (Guid.TryParse(embyItemId, out var itemId))
                             {
-                                await boxSetService.AddItemToBoxSetAsync(boxSet.Id, itemId, cancellationToken);
+                                var boxSet = boxSetService.FindBoxSet(row.CollectionName);
+                                if (recovery && boxSet != null)
+                                {
+                                    var registered = await db.GetImportCollectionIdAsync(row.CollectionName);
+                                    var ownedCollection = (boxSet.ProviderIds.TryGetValue("InfiniteDriveSource", out var marker) && marker == row.Source) ||
+                                        registered == boxSet.Id.ToString() || registered == boxSet.InternalId.ToString();
+                                    if (!ownedCollection) continue; // Never adopt an unrelated collection by display name.
+                                }
+                                if (boxSet == null)
+                                {
+                                    boxSet = await boxSetService.CreateBoxSetAsync(row.CollectionName, itemId, cancellationToken);
+                                    if (boxSet != null && recovery)
+                                    {
+                                        boxSet.ProviderIds["InfiniteDriveSource"] = row.Source;
+                                        libraryManager.UpdateItem(boxSet, boxSet.GetParent(), ItemUpdateType.MetadataEdit);
+                                    }
+                                }
+                                if (boxSet != null)
+                                {
+                                    if (!boxSetService.Contains(boxSet, itemId))
+                                        await boxSetService.AddItemToBoxSetAsync(boxSet.Id, itemId, cancellationToken);
+                                    confirmed = boxSetService.Contains(boxSet, itemId);
+                                }
                             }
                         }
                     }
@@ -372,10 +411,12 @@ namespace InfiniteDrive.Tasks
                         if (playlistService != null && Guid.TryParse(embyItemId, out var itemId))
                         {
                             await playlistService.AddItemToPlaylistAsync(row.CollectionName, itemId, row.UserId, cancellationToken);
+                            confirmed = true; // Existing per-user playlist contract; coverage below reports BoxSets only.
                         }
                     }
 
-                    // Update emby_item_id in membership row
+                    if (!confirmed) continue;
+                    // Update only after native membership read-back for BoxSets.
                     await db.UpdateCollectionMembershipEmbyItemIdAsync(row.Id, embyItemId, cancellationToken);
                     resolved++;
                 }
@@ -385,6 +426,9 @@ namespace InfiniteDrive.Tasks
                 }
             }
 
+            if (recovery)
+                await db.PersistMetadataAsync("import_collection_health", System.Text.Json.JsonSerializer.Serialize(new
+                    { CheckedAt = DateTimeOffset.UtcNow, Checked = pending.Count, Confirmed = resolved, Pending = pending.Count - resolved, Scope = "page; BoxSets verified, playlists use existing contract" }), cancellationToken);
             if (resolved > 0)
                 _logger.LogInformation("[CollectionPopulation] Resolved {Resolved}/{Total} pending memberships", resolved, pending.Count);
         }
@@ -438,6 +482,8 @@ namespace InfiniteDrive.Tasks
         /// </summary>
         private async Task VersionRefreshPassAsync(CancellationToken cancellationToken)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return;
+
             var db = Plugin.Instance?.DatabaseManager;
             var config = Plugin.Instance?.Configuration;
             var fileManager = Plugin.Instance?.StrmFileManager;
@@ -494,6 +540,7 @@ namespace InfiniteDrive.Tasks
             {
                 ct.ThrowIfCancellationRequested();
 
+                if (await ImportReconciliationService.LegacySuppressedAsync(db, item, ct)) return (false, false);
                 // Throttle: only refresh items older than 1 hour since last refresh
                 if (!string.IsNullOrEmpty(item.LastVersionRefreshAt)
                     && DateTime.TryParse(item.LastVersionRefreshAt, out var lastRefresh)
@@ -645,6 +692,8 @@ namespace InfiniteDrive.Tasks
 
         private async Task ValidationPassAsync(CancellationToken cancellationToken)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return;
+
             var db = Plugin.Instance!.DatabaseManager;
 
             // Load all active catalog items

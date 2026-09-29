@@ -587,6 +587,9 @@ namespace InfiniteDrive.Data
         /// </summary>
         public async Task MarkCatalogItemRemovedAsync(string aioId, string source, CancellationToken cancellationToken = default)
         {
+            await InfiniteDrive.Services.ImportReconciliationService.MutationGate.WaitAsync();
+            try
+            {
             const string sql = @"
                 UPDATE catalog_items
                 SET removed_at = datetime('now')
@@ -597,6 +600,8 @@ namespace InfiniteDrive.Data
                 BindText(cmd, "@aio_id", aioId);
                 BindText(cmd, "@source",  source);
             });
+            }
+            finally { InfiniteDrive.Services.ImportReconciliationService.MutationGate.Release(); }
         }
 
         /// <summary>

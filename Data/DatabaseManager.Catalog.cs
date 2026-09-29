@@ -769,6 +769,9 @@ namespace InfiniteDrive.Data
             string? aioId, string? tmdbId, string? anilistId,
             string title, string mediaType, string blockedBy)
         {
+            await InfiniteDrive.Services.ImportReconciliationService.MutationGate.WaitAsync();
+            try
+            {
             const string sql = @"
                 INSERT INTO blocked_items (aio_id, tmdb_id, anilist_id, title, media_type, blocked_at, blocked_by)
                 VALUES (@aio_id, @tmdb_id, @anilist_id, @title, @media_type, datetime('now'), @blocked_by)";
@@ -782,6 +785,8 @@ namespace InfiniteDrive.Data
                 BindText(cmd, "@media_type", mediaType);
                 BindText(cmd, "@blocked_by", blockedBy);
             }).ConfigureAwait(false);
+            }
+            finally { InfiniteDrive.Services.ImportReconciliationService.MutationGate.Release(); }
         }
 
         /// <summary>Unblocks an item by setting unblocked_at and unblocked_by.</summary>

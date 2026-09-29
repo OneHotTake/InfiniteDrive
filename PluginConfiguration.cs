@@ -45,6 +45,9 @@ namespace InfiniteDrive
     [DataContract]
     public class PluginConfiguration : BasePluginConfiguration
     {
+        [DataMember] public Models.ImportMode ImportRecoveryMode { get; set; } = Models.ImportMode.Observe;
+        [DataMember] public string ImportHouseholdTimezone { get; set; } = "America/Chicago";
+
         // ╔══════════════════════════════════════════════════════════════════════╗
         // ║  AIOSTREAMS CONNECTION (SIMPLIFIED)                                  ║
         // ╚══════════════════════════════════════════════════════════════════════╝

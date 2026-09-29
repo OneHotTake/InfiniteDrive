@@ -97,6 +97,19 @@ namespace InfiniteDrive.Services
             }
         }
 
+        public bool Contains(BoxSet boxSet, Guid itemId) =>
+            boxSet.GetItemList(new InternalItemsQuery { Recursive = false }).Any(x => x.Id == itemId);
+
+        // Seed creation: Emby 4.10 may reject an empty collection.
+        public async Task<BoxSet?> CreateBoxSetAsync(string name, Guid initialItemId, CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            var item = _libraryManager.GetItemById(initialItemId);
+            if (item == null) return null;
+            return await _collectionManager.CreateCollection(new CollectionCreationOptions
+                { Name = name, IsLocked = false, ItemIdList = new[] { item.InternalId } });
+        }
+
         /// <summary>
         /// Adds an item to a BoxSet.
         /// </summary>
