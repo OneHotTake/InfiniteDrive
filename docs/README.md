@@ -1,50 +1,29 @@
 # InfiniteDrive documentation
 
-## Start here
+## Use InfiniteDrive
 
-- [Getting started](getting-started.md) — installation and first setup.
-- [Configuration](configuration.md) — the supported, state-driven settings contract.
-- [Settings matrix](settings-matrix.md) — user intent, derived state, and evidence.
-- [Architecture](../ARCHITECTURE.md) — current system design.
-- [Troubleshooting](troubleshooting.md) — current operational checks and recovery.
-- [Security](SECURITY.md) — credentials, playback URLs, and deployment boundaries.
-- [Hardening report](overnight-hardening-report-2026-09-10.md) — exact 0.42.1 build,
-  staging, production, UI, and rollback evidence.
+- [Getting started](getting-started.md): installation and initial checks.
+- [Configuration](configuration.md): destinations, providers, quality and recovery.
+- [Discover](USER_DISCOVER_UI.md): browser discovery and saved titles.
+- [External lists](EXTERNAL_LISTS.md): system and user catalog sources.
+- [Import recovery](import-reconciliation.md): Observe/Repair, limits and retention.
+- [Troubleshooting](troubleshooting.md): diagnosis and recovery.
+- [Security](SECURITY.md): private configuration, STRMs and administrative access.
+- [Anime identity](anime-id-handling.md) and [library setup](anime-library-setup.md).
 
-## Current settings pages
+## Develop and verify
 
-InfiniteDrive uses Emby's native Generic UI:
+- [Architecture](architecture.md): current ownership and data flow.
+- [Developer guide](dev-guide.md): exact-ABI build, tests and isolated QA.
+- [Contributing](../CONTRIBUTING.md): branch and review workflow.
+- [Settings matrix](settings-matrix.md): dated settings wiring/verification evidence.
+- [Import QA](import-reconciliation-qa.md): September 29 regression and native checks.
+- [Repository cleanup](maintenance/repository-cleanup-2026-09-29.md): plan and rollback.
 
-| Page | Purpose |
-|---|---|
-| Overview | Readiness and setup guidance |
-| Libraries | Movie, Series, and Anime names/paths; locale follows Emby |
-| Quality | Desired versions, Allow REMUX, and Allow CAM/TS |
-| Providers | Masked Manifest 1/2 active-peer connections and tests |
-| Sources | Manifest catalogs, masked list credentials, system/user lists |
-| Restrictions | Discover/search restrictions and blocked content |
-| Marvin | Automatic-state summary and Run Marvin Now |
-| Advanced | Logging and scoped maintenance |
+## History
 
-## Feature guides
+[Historical engineering archive](archive/README.md) contains superseded designs,
+old test plans and dated reports. These are not current configuration instructions.
+The implementation and current guides take precedence over historical claims.
 
-- [Discover](features/discover.md)
-- [External lists](EXTERNAL_LISTS.md)
-- [Anime identity](anime-id-handling.md) and [anime library setup](anime-library-setup.md)
-- [Playback pipeline](REQUIRES_OPENING_PIPELINE.md)
-- [Stream resolution](STREAM_RESOLUTION.md)
-- [Catalog identity and deduplication](CATALOG_AND_DEDUPLICATION.md)
-
-## Historical engineering documents
-
-Documents not listed as current above, especially files with `Sprint`,
-`FINDINGS`, `HISTORY`, `ANALYSIS`, `MIGRATION_PLAN`, or `*_SUMMARY` in their
-names, preserve design history and investigation evidence. They may describe
-removed settings, prototype APIs, older Emby versions, or superseded
-architecture. They are not configuration instructions. Prefer the current
-documents listed above whenever they disagree.
-
-`failure-scenarios.md` is a pre-state-engine behavior inventory and is retained only as
-historical test input.
-
-Last updated: 2026-09-11.
+Updated September 29, 2026 for the 0.42.4 source tree.

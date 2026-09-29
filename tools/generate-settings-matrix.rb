@@ -14,17 +14,9 @@ source_files = Dir[File.join(root, '**/*.cs')].reject do |path|
 end
 test_text = Dir[File.join(root, 'Tests/**/*.cs')].map { |p| File.read(p) }.join("\n")
 
-live_verified = %w[
-  PrimaryManifestUrl SecondaryManifestUrl EnableBackupAioStreams
-  EnableAioStreamsCatalog AioStreamsCatalogIds CatalogItemLimitsJson
-  SyncPathMovies SyncPathShows SyncPathAnime MaxVersionsPerItem
-  DesiredVersions UseRemuxForAutoSelection AutoDeduplicatePhysicalMedia
-  DeleteStrmOnReadoption MarvinProcessIntervalMinutes EnablePreCache
-]
-
 puts '# InfiniteDrive settings coverage matrix'
 puts
-puts 'Generated from the 0.42.1 source tree. “Wired” means a runtime source reference exists; it is not a claim that every behavior was exercised live.'
+puts 'Generated from the current local source tree. “Wired” means a runtime source reference exists; it is not a claim that every behavior was exercised live.'
 puts
 puts '| Setting | Type / default | UI | Persistence | Runtime consumer(s) | Activation | Automated evidence | Staging evidence |'
 puts '|---|---|---|---|---|---|---|---|'
@@ -44,8 +36,8 @@ properties.each do |type, name, default|
   persisted = config.match?(/\[DataMember(?:\([^\]]*\))?\]\s*public\s+#{Regexp.escape(type)}\s+#{Regexp.escape(name)}\b/m)
   persistence = persisted ? 'Emby plugin XML (`DataMember`)' : '**Not persisted**'
   default_label = default ? default.strip.gsub('|', '\\|') : 'language default'
-  tested = test_text.match?(/\b#{Regexp.escape(name)}\b/) ? 'Direct regression reference' : 'Persistence reflection only'
-  staged = live_verified.include?(name) ? 'Verified in isolated Emby' : 'Not live-exercised'
+  tested = test_text.match?(/\b#{Regexp.escape(name)}\b/) ? 'Direct regression reference' : 'No direct test reference found'
+  staged = 'Not established by this generator'
 
-  puts "| `#{name}` | `#{type}` / `#{default_label}` | #{ui_label} | #{persistence} | #{consumer_label} | Next invocation; no server restart | #{tested} | #{staged} |"
+  puts "| `#{name}` | `#{type}` / `#{default_label}` | #{ui_label} | #{persistence} | #{consumer_label} | Review the consumer | #{tested} | #{staged} |"
 end

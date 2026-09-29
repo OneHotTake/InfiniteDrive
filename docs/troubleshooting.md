@@ -14,8 +14,10 @@ commands saved to shell history, and issue reports.
 4. Rebuild with `./scripts/build-container.sh` rather than compiling against an
    arbitrary server-core package.
 
-If an upgrade fails, stop Emby and restore the previous DLL, XML configuration,
-database, and managed folders as one rollback set.
+If an upgrade fails, stop the affected Emby instance through its service manager
+and restore the reviewed prior DLL/configuration. Preserve newer user state and
+additive tables. Use database/media backups as recovery references, not a blanket
+restore over activity since the upgrade.
 
 ## Provider is unavailable
 
@@ -27,7 +29,8 @@ disable another configured peer or independent lists.
 - A 429 or `Retry-After` response pauses background work until provider backoff
   expires. Playback remains higher priority.
 - Call counts in the historically named `api_budget` table are telemetry, not a
-  configurable quota; only observed backoff affects work.
+  configurable quota. Import recovery separately enforces its fixed slice and
+  rolling daily attempt budgets.
 
 Do not replace a working manifest merely because it has no catalogs. A
 stream-only manifest can resolve playback while lists supply library content.
@@ -71,7 +74,8 @@ runtime fallbacks only when Emby exposes no preference.
 
 Rejected REMUX/CAM candidates cannot re-enter through cache or another manifest.
 When accepted candidates exist, InfiniteDrive preserves distinct editions and
-then fills desired quality buckets up to Emby's eight-version ceiling.
+then fills desired quality buckets up to eight versions per catalog record.
+Merged provider aliases can produce more choices in Emby.
 
 ## Playback buffers
 
@@ -101,9 +105,23 @@ beneath its configured roots. Mycelium and every other external virtual library
 are ordinary duplicate state; InfiniteDrive never assumes they are installed
 and never modifies their files.
 
-If an unexpected file disappears, stop automated work, restore from the managed
-folder/database backup, and verify the configured roots and ownership marker
-before running Marvin again.
+If an unexpected file disappears, verify ownership, source membership, retention
+and explicit blocks before restoring it. Repair may automatically refill eligible
+gaps, but it must not undo intentional pruning or blocks. Avoid full resets.
+
+## Missing episodes or stale choices
+
+Review **Marvin → Refresh coverage** first; this reads dated state without
+starting work. Separate missing files, awaiting native indexing, provider errors
+and budget-deferred work. Run Observe and review its exclusions before enabling
+Repair. Repair shares finite daily attempts between gaps and version refresh;
+a large library cannot converge in one pass. Off/Observe do not stop the legacy
+normal importer globally.
+
+Do not wipe STRMs to apply a new quality profile. Eligible refreshes replace choices
+only after successful resolution/publication. Unknown/future release dates,
+conflicting identities, explicit blocks and owned series can exclude new writes.
+See [import recovery](import-reconciliation.md) for exact budgets and retry rules.
 
 ## Cache and rebuild recovery
 
@@ -123,5 +141,5 @@ passwords, Trakt IDs, TMDB keys, and authorization headers must be redacted.
 Report the plugin version, Emby version, timestamp, status class, and sanitized
 message instead of the raw URL.
 
-See [configuration](configuration.md), [provider health](PROVIDER_HEALTH_AND_CIRCUIT_BREAKER.md),
-and [stream resolution](STREAM_RESOLUTION.md).
+See [configuration](configuration.md), [import recovery](import-reconciliation.md),
+and [current architecture](architecture.md).

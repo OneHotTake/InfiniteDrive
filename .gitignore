@@ -54,3 +54,20 @@ playback*.txt
 
 # Playwright CLI session artifacts
 .playwright-cli/
+
+# Local scratch, operating-system and editor output
+.DS_Store
+*.new
+*.orig
+*.rej
+*.log
+*.dll
+*.pdb
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+__pycache__/
+Export.txt
+newdocs/

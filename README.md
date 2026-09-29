@@ -96,7 +96,7 @@ Start in **Observe**, review the results, then enable **Repair** in the admin
 controls. Each recovery pass gets two minutes, up to 20 stream attempts and
 five ordinary version refreshes. The rolling daily cap is 200 stream attempts.
 Our Marvin task runs every ten minutes; a large library takes many passes.
-See [Import recovery](./docs/import-reconciliation.md) for limits and exclusions.
+See [Import recovery](docs/import-reconciliation.md) for limits and exclusions.
 
 ## Set it up
 
@@ -120,7 +120,7 @@ Emby includes the required .NET 8 runtime.
    Back up your existing plugin, configuration, database and managed library
    state. Copy the DLL into Emby's plugins directory and restart Emby.
 5. Open **Plugins → InfiniteDrive**. Add your manifest, choose catalogs and set
-   the managed library folders. Follow the [configuration guide](./docs/configuration.md).
+   the managed library folders. Follow the [configuration guide](docs/configuration.md).
 6. Try a few movies and episodes. Check that their files appear, Emby indexes
    them and playback works before raising catalog limits. Watch for upstream
    rate limits: an empty catalog response can mean a failed import.
@@ -154,12 +154,13 @@ Open Discover from the web plugin menu or at
 `/web/configurationpage?name=InfiniteDiscover`. This interface requires a browser;
 mobile apps do not include it.
 
-- **Discover:** browse and search movies and shows, read details and add titles.
-- **My Picks:** view or remove saved titles.
-- **My Lists:** subscribe to lists, check their status, refresh or remove them.
+Browse catalog rails, search movies and shows, open details and add titles.
+Cards show library or pending status. Manage catalog subscriptions through the
+native **Sources** settings page. The embedded page does not currently include
+the historical My Picks/My Lists tabs.
 
 Emby's rating limits apply. You can also hide unrated titles. The server enforces
-these restrictions. See the [Discover guide](./docs/USER_DISCOVER_UI.md).
+these restrictions. See the [Discover guide](docs/USER_DISCOVER_UI.md).
 
 ## Under the hood
 
@@ -192,26 +193,20 @@ Build on a Docker-capable host:
 ./scripts/build-container.sh
 ```
 
-The DLL is written to `artifacts/InfiniteDrive.dll`. For an isolated dev server:
-
-```bash
-./emby-start.sh   # build, deploy and start
-./emby-reset.sh   # wipes dev data; disposable environments only
-```
-
-The `.ai/` directory holds planning notes and a repository map. `CLAUDE.md`
-contains development instructions.
+The DLL is written to `artifacts/InfiniteDrive.dll`. See the
+[developer guide](docs/dev-guide.md) for prerequisites, tests and isolated QA,
+and [Contributing](CONTRIBUTING.md) for the review workflow.
 
 ## Further reading
 
-- [Architecture](./ARCHITECTURE.md)
-- [Marvin's state machine](./MARVIN_STATE_MACHINE.md)
-- [Settings design](./SETTINGS_DESIGN.md)
-- [Settings and verification](./docs/settings-matrix.md)
-- [0.42.1 hardening report](./docs/overnight-hardening-report-2026-09-10.md)
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [Import recovery](docs/import-reconciliation.md)
+- [Settings and verification](docs/settings-matrix.md)
+- [Historical engineering archive](docs/archive/README.md)
 
 ## License
 
-MIT. See LICENSE.
+MIT. See [LICENSE](LICENSE).
 
 Vibe coded with Codex, Grok, Claude, GLM, Nim, Opencode, and whoever else would give me a free trial.  Guaranteed to have bugs.  And security holes.  Good luck.

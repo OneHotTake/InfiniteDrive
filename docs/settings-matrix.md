@@ -1,37 +1,28 @@
-# InfiniteDrive settings coverage matrix
+# Settings and verification
 
-Verified against the 0.42.2 source and isolated Emby 4.10.0.40 staging on
-2026-09-11. This table describes the supported UI contract; persisted discovery
-snapshots and migration fields are intentionally not presented as user rules.
+Source review: September 29, 2026, release 0.42.4. The table identifies current
+settings and verification scope. It does not claim a new live UI acceptance pass.
+The September 11 staging matrix remains in the [archive](archive/settings-matrix.md).
 
-| Intent/state | UI | Source of truth | Runtime behavior | Evidence |
-|---|---|---|---|---|
-| Movie/Series/Anime names and paths | Libraries | Plugin XML | Creates/follows Emby libraries and managed `.strm` roots | Chromium inspection; staging files |
-| Metadata language | None | Matching Emby library | Catalog creation and search use Emby preference; `en` fallback | Source + clean build |
-| Image language | None | Matching Emby library | Artwork requests use Emby preference; `en` fallback | Source + clean build |
-| Certification country | None | Matching Emby library | Certification lookup uses Emby preference; `US` fallback | Source + clean build |
-| Desired version buckets | Quality | Plugin XML | Edition representatives first, then bucket fill | Regression tests; Chromium inspection |
-| Allow REMUX | Quality | Plugin XML, default off | Admits REMUX before selection/cache; never forces priority | Default-reject and explicit-admit tests; save/reload test |
-| Allow CAM/TS | Quality | Plugin XML, default off | Admits CAM/TS before selection/cache | Default-reject and explicit-admit tests |
-| Manifest 1 | Providers | Plugin XML | Active peer for catalogs, search, and resolution | Peer regression; staging E2E |
-| Manifest 2 | Providers | Plugin XML when non-empty | Active peer; no enable/backup switch | Peer regression; Chromium inspection |
-| Manifest catalogs | Sources | Manifest plus disabled-source/limit state | Catalogs from all peers are unioned and IDs deduplicated | Catalog sync regression; staging DB |
-| System/user lists | Sources | List database | Synchronize independently of manifest catalogs | Starter/list state tests; Chromium inspection |
-| No catalog/list content | None | Derived | Small Cinemeta starter for that sync | State-table regression tests |
-| Discover restrictions | Restrictions | Plugin XML and block database | Server-side filtering alongside native Emby controls | Source + Chromium inspection |
-| Marvin cadence/work size | None | Runtime/provider state | Automatic, bounded, respects provider backoff | Source + scheduled staging run |
-| Run Marvin Now | Marvin | User action | Triggers immediate reconciliation | Chromium inspection |
-| Cache freshness | None | Entry expiry/probe plus runtime fallback | Refreshes stale/dead candidates | Source + playback test |
-| Provider pressure | None | Retry/backoff state | Background work pauses and resumes automatically | Source + regression coverage |
-| Next episode | None | Indexed Emby episodes and premiere dates | Queues exactly the next released indexed episode | Source + clean build |
-| Maximum versions | None | Emby capability | Hard ceiling of 8; editions preserved first | Regression tests |
-| Physical duplicate | None | Emby identities and managed-path ownership | Pre-write retirement; owned path remains durable across catalog refresh; only verified disappearance resurrects streaming | Source + scope + durable-state regression |
-| Logging/maintenance | Advanced | Plugin XML/user action | Changes verbosity or runs explicit maintenance | Chromium inspection |
+| Intent | Page / owner | Behavior | Evidence |
+|---|---|---|---|
+| Movie, Series, Anime destinations | Libraries | Managed names and roots | Native settings source |
+| Metadata language/artwork/certification | Emby libraries | Library preference with fallback | Existing preference tests |
+| Desired versions | Quality | Per-record selection, up to eight; aliases can merge in Emby | Existing selection tests |
+| REMUX and CAM/TS | Quality | Independent opt-ins, default off | Existing filter tests |
+| Manifest peers | Providers | Nonempty manifests supply sources | Existing peer tests |
+| Catalogs and system/user lists | Sources | Source intent, membership and limits | Source and existing catalog tests |
+| Discover restrictions and blocks | Restrictions | User restrictions and explicit exclusion | Service/settings source |
+| Run Marvin | Marvin | Existing orchestrator | Task/settings source |
+| Observe / Repair / Off | Marvin | Observe baseline required before Repair | Recovery regression and dated native QA |
+| Check/retry and coverage refresh | Marvin | Queued actions versus read-only status | Recovery regression and dated native QA |
+| Provider pressure | Runtime | Backoff and bounded recovery attempts | Recovery regression |
+| Owned-media precedence | Emby identity + managed paths | Physical media excludes managed duplicates | Existing ownership tests |
+| Logging and maintenance | Advanced | Explicit operator actions; reset/rebuild require scope review | Settings source |
 
-## Removed rule fields
+Recovery has fixed slice and daily attempt limits; telemetry alone is not a quota.
+See [recovery](import-reconciliation.md), [configuration](configuration.md),
+[QA evidence](import-reconciliation-qa.md) and the [developer guide](dev-guide.md).
 
-Regression tests assert that the removed configuration properties are absent,
-including backup-enable, accepted-stream-type, duplicate Emby API/path, plugin
-locale, `DontPanic`, future-episode, configurable cache lifetime/API budget,
-dynamic-secondary, maximum-version, and extended-edition controls. See
-[configuration.md](configuration.md) for migration details.
+`tools/generate-settings-matrix.rb` emits a separate source-reference inventory.
+A textual reference is not proof of execution, persistence or successful live use.
