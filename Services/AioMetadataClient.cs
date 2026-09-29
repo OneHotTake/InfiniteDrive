@@ -111,7 +111,7 @@ namespace InfiniteDrive.Services
                 lookupType = "tmdb";
             }
 
-            var url = $"{baseUrl?.Scheme ?? "https"}://{baseUrl?.Host}/meta/{lookupType}/{lookupId}.json";
+            var url = BuildEndpointUri(baseUrl, $"meta/{lookupType}/{Uri.EscapeDataString(lookupId)}.json");
 
             try
             {
@@ -190,7 +190,7 @@ namespace InfiniteDrive.Services
             var baseUrl = _baseUrl ?? new Uri(_config.AioMetadataBaseUrl);
 
             // Build search URL: /search?query={title}&year={year}
-            var url = $"{baseUrl?.Scheme ?? "https"}://{baseUrl?.Host}/search?query={Uri.EscapeDataString(title)}";
+            var url = BuildEndpointUri(baseUrl, $"search?query={Uri.EscapeDataString(title)}").ToString();
             if (year.HasValue)
                 url += $"&year={year.Value}";
 
@@ -232,6 +232,37 @@ namespace InfiniteDrive.Services
                 _logger.LogError(ex, "[AioMetadata] Error searching metadata for '{Title}'", title);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Builds an AIOMetadata resource URL without dropping a non-default port or
+        /// the per-user /stremio/&lt;uuid&gt; path. Configuration may point at either
+        /// the user base or its manifest URL.
+        /// </summary>
+        internal static Uri BuildEndpointUri(Uri configuredBaseUrl, string relativeResource)
+        {
+            var builder = new UriBuilder(configuredBaseUrl)
+            {
+                Query = string.Empty,
+                Fragment = string.Empty,
+            };
+
+            var queryIndex = relativeResource.IndexOf('?');
+            var relativePath = queryIndex >= 0
+                ? relativeResource.Substring(0, queryIndex)
+                : relativeResource;
+            var relativeQuery = queryIndex >= 0
+                ? relativeResource.Substring(queryIndex + 1)
+                : string.Empty;
+
+            var path = builder.Path.TrimEnd('/');
+            const string manifestSuffix = "/manifest.json";
+            if (path.EndsWith(manifestSuffix, StringComparison.OrdinalIgnoreCase))
+                path = path.Substring(0, path.Length - manifestSuffix.Length);
+
+            builder.Path = $"{path}/{relativePath.TrimStart('/')}";
+            builder.Query = relativeQuery;
+            return builder.Uri;
         }
 
         private List<EnrichedMetadata>? ParseAioMetadataSearchResponse(string json)

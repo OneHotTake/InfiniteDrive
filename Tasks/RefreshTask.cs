@@ -56,6 +56,8 @@ namespace InfiniteDrive.Tasks
         /// </summary>
         internal async Task<List<CatalogItem>> RunPopulateAsync(CancellationToken cancellationToken, IProgress<double> progress)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return new();
+
             _logger.LogInformation("[InfiniteDrive] RefreshTask Populate started");
             var populateSw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -136,6 +138,8 @@ namespace InfiniteDrive.Tasks
         /// </summary>
         internal async Task RunResolveAsync(CancellationToken cancellationToken, IProgress<double> progress, List<CatalogItem>? writtenItems = null)
         {
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return;
+
             _logger.LogInformation("[InfiniteDrive] RefreshTask Resolve started");
             var resolveSw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -307,6 +311,7 @@ namespace InfiniteDrive.Tasks
             await gate.WaitAsync(cancellationToken);
             try
             {
+                if (await ImportReconciliationService.IsBlockedAsync(Plugin.Instance!.DatabaseManager, item, cancellationToken)) return;
                 var ownedMedia = new OwnedMediaPreferenceService(_libraryManager, _logger);
                 if (await ownedMedia.RetireIfOwnedAsync(
                     Plugin.Instance!.DatabaseManager, item, cancellationToken).ConfigureAwait(false))
@@ -417,6 +422,7 @@ namespace InfiniteDrive.Tasks
             await gate.WaitAsync(cancellationToken);
             try
             {
+                if (await ImportReconciliationService.IsBlockedAsync(Plugin.Instance!.DatabaseManager, item, cancellationToken)) return;
                 var ownedMedia = new OwnedMediaPreferenceService(_libraryManager, _logger);
                 if (await ownedMedia.RetireIfOwnedAsync(
                     Plugin.Instance!.DatabaseManager, item, cancellationToken).ConfigureAwait(false))

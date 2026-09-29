@@ -293,6 +293,9 @@ namespace InfiniteDrive.Data
         /// </summary>
         public async Task BlockCatalogItemByAioIdAsync(string aioId, string blockedBy, CancellationToken ct = default)
         {
+            await InfiniteDrive.Services.ImportReconciliationService.MutationGate.WaitAsync();
+            try
+            {
             const string sql = @"
                 UPDATE catalog_items
                 SET blocked_at  = datetime('now'),
@@ -307,6 +310,8 @@ namespace InfiniteDrive.Data
             }, ct);
 
             _logger.LogInformation("[DatabaseManager] Blocked catalog item {AioId}", aioId);
+            }
+            finally { InfiniteDrive.Services.ImportReconciliationService.MutationGate.Release(); }
         }
 
         /// <summary>

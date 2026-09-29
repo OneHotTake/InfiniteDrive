@@ -9,7 +9,7 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.13.0" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="6.0.4" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4">
       <PrivateAssets>all</PrivateAssets>
@@ -17,6 +17,8 @@
     </PackageReference>
   </ItemGroup>
   <ItemGroup>
+    <Reference Include="EmbyServer"><HintPath>../libs/EmbyServer.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="SQLitePCLRawEx.core"><HintPath>../libs/SQLitePCLRawEx.core.dll</HintPath><Private>true</Private></Reference>
     <ProjectReference Include="..\InfiniteDrive.csproj" />
     <Reference Include="MediaBrowser.Controller">
       <HintPath>..\libs\MediaBrowser.Controller.dll</HintPath>
@@ -33,5 +35,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="*.cs" />
+    <None Include="../libs/SQLite*.dll" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

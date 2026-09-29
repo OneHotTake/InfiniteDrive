@@ -4,7 +4,7 @@
 
 > *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
 
-**CURRENT RELEASE:** Version 0.42.2 is built and tested against Emby 4.10.0.40.
+**CURRENT RELEASE:** Version 0.42.3 is built and tested against Emby 4.10.0.40.
 Back up the Emby plugin configuration, database, and managed library state
 before upgrading.
 
@@ -17,6 +17,7 @@ An Emby plugin that discovers streaming catalogs from [AIOStreams](https://githu
 - [ARCHITECTURE.md](./ARCHITECTURE.md) – High-level system design
 - [MARVIN_STATE_MACHINE.md](./MARVIN_STATE_MACHINE.md) – How the core engine works
 - [SETTINGS_DESIGN.md](./SETTINGS_DESIGN.md) – Current state-driven settings UI
+- [Import recovery](./docs/import-reconciliation.md) – Coverage, automatic refill, limits and rollout
 - [configuration.md](./docs/configuration.md) – Supported configuration contract
 - [settings-matrix.md](./docs/settings-matrix.md) – Intent, derived state, and verification matrix
 - [hardening report](./docs/overnight-hardening-report-2026-09-10.md) – 0.42.1 staging and production evidence
@@ -208,7 +209,7 @@ The `.ai/` directory contains sprint planning documents and the repository map. 
 
 ## Version
 
-**0.42.2.0** — Owned-media precedence and Live TV provider isolation
+**0.42.3.0** — Durable import recovery with native indexing and existing retention policy
 
 *(The answer is 42. We're still working on what the question is.)*
 
