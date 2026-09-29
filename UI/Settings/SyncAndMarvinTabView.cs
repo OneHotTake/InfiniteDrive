@@ -133,6 +133,7 @@ namespace InfiniteDrive.UI.Settings
                         "budget_deferred" => " · More next pass",
                         "cancelled" => " · Stopped early",
                         "partial" => " · Some items need another check",
+                        "failed" => " · Could not finish",
                         _ => "",
                     });
                     UI.MarvinStatus.Status = status == "partial" ? ItemStatus.Warning : ItemStatus.None;

@@ -315,6 +315,7 @@ public sealed class ImportReconciliationService
             while (pending.Count > 0) await DrainOneAsync();
         }
         catch (OperationCanceledException) { status = ct.IsCancellationRequested ? "cancelled" : "budget_deferred"; }
+        catch { status = "failed"; throw; }
         finally
         {
             // Cancellation ends all lookups before another run can acquire RunGate.
