@@ -435,6 +435,27 @@ public sealed class ImportReconciliationTests
         Assert.DoesNotContain("https://", System.Text.Json.JsonSerializer.Serialize(evidence));
     }
 
+    [Fact] public async Task EmptyMetadataRoundTripsThroughTheRealEmbySqliteProvider()
+    {
+        using var h = new Harness();
+        await h.Db.PersistMetadataAsync("empty-cursor-test", "");
+        Assert.Equal("", h.Db.GetMetadata("empty-cursor-test"));
+    }
+    [Fact] public async Task ScheduledCatchUpResetsItsCursorAndScansExistingFilesBeforeNewIntent()
+    {
+        using var h = new Harness(); h.Item.StrmPath = "/fake/series";
+        h.Inventory.Files.UnionWith(new[] { 1, 2 }); await h.Seed(); h.Engage();
+        await h.Db.UpsertCatalogItemAsync(new CatalogItem { AioId = "tt999999993", MediaType = "series", Source = "new-list", Title = "New intent" });
+        await h.Db.PersistMetadataAsync("import_catch_up_scan_cursor", "zzzz-stale-prior-window");
+        var worker = new ImportReconciliationService(h.Db, h.Inventory, () => ImportMode.Repair,
+            TimeZoneInfo.Utc, () => h.Now, workBudget: () => ImportWorkBudget.For(h.Config, h.Now));
+        await worker.RunAsync(default);
+        Assert.Equal(2, h.Inventory.Resolutions); Assert.Equal(2, h.Inventory.Published);
+        Assert.Equal(h.Now.ToString("o"), h.Db.GetMetadata("import_catch_up_scan_window"));
+        Assert.Null(await h.Db.GetImportCoverageAsync("series:imdb:tt999999993"));
+        await worker.RunAsync(default); Assert.Equal(2, h.Inventory.Published);
+    }
+
     public class NullLogProxy : System.Reflection.DispatchProxy
     {
         protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)

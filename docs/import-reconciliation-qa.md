@@ -1,6 +1,19 @@
 # Import reconciliation QA — September 29, 2026
 
 
+## Scheduled cursor correction — September 29, 2026
+
+All **126 tests passed** against the pinned Emby runtime and real SQLite, with
+zero build warnings. The first live 0.42.7 catch-up pass stopped before dispatch: Emby's SQLite
+provider bound the initial empty cursor as SQL NULL, violating the metadata
+value constraint. 0.42.8 coalesces bound empty metadata values to an SQL empty
+string. Added real-SQLite regressions exercise the default scheduled catch-up
+path, stale-window cursor reset, existing-file priority, and empty-value readback.
+A fatal coordinator failure now records a failed pass before propagating to
+Emby's task result. Existing coverage, attempts and file state are preserved.
+0.42.7 is superseded; its activation was not a completed refresh.
+
+
 ## Parallel catch-up and Marvin page — September 29, 2026
 
 Version 0.42.7: **124 tests passed**, zero warnings, against pinned Emby

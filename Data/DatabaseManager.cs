@@ -977,7 +977,7 @@ namespace InfiniteDrive.Data
         {
             var safeValue = string.IsNullOrEmpty(value) ? "" : value;
             await ExecuteWriteAsync(
-                "INSERT INTO plugin_metadata (key, value, updated_at) VALUES (@key, @value, @updatedAt) " +
+                "INSERT INTO plugin_metadata (key, value, updated_at) VALUES (@key, COALESCE(@value, ''), @updatedAt) " +
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;",
                 cmd =>
                 {
