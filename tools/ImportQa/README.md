@@ -21,7 +21,7 @@ POST `/InfiniteDrive/ImportQa` with a `Step`:
 4. Restart beta with its freeze preserved. `status` must retain those outcomes.
 5. `discover`: validate only the fixed fixture folder using Emby's native child
    discovery API, then read back native identity/numbering/path observations.
-6. `retry`: advance the injected clock by seven hours, leaving inventory unchanged;
+6. `retry`: advance the injected clock by eight hours, leaving inventory unchanged;
    the failed episode is retried. `discover` then verifies both native episodes.
 7. `delete-first`: delete only the fixture episode's managed STRMs and verify that
    one resolution/publication automatically refills it. `discover` verifies indexing.

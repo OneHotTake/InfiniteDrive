@@ -55,7 +55,7 @@ public sealed class ImportLabService : IService, IRequiresRequest
                 mode = ImportMode.Observe;
                 break;
             case "fail-second": fake.FailSecond = true; break;
-            case "retry": now = now.AddHours(7); break;
+            case "retry": now = now.AddHours(8); break;
             case "observe": mode = ImportMode.Observe; break;
             case "delete-first":
                 foreach (var path in real.FindEpisodeFiles(item, fake.Episodes[0])) File.Delete(path);

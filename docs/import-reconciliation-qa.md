@@ -8,9 +8,9 @@ in the private development build area.
 
 ## Automated checks
 
-85 tests passed, zero failed or skipped. Release compilation and publication are
+86 tests passed, zero failed or skipped. Release compilation and publication are
 warning-free against the exact Emby SDK. The suite includes the existing 52 tests
-and 33 new checks, using Emby's SQLite provider with real temporary databases.
+and 34 new checks, using Emby's SQLite provider with real temporary databases.
 Coverage includes durable unchanged-inventory retry, parent-state independence,
 due-work selection, alias deduplication/conflicts, daily budgets, provider pause,
 automatic refill, retained catalog aliases, prune/re-entry, concurrent blocks, indexing limits,
@@ -54,3 +54,11 @@ publication and native indexing, not debrid playback. The offline provider resul
 does not independently establish the completeness of a real upstream TV catalog.
 The existing broader catalog pagination/truncation behavior and retention policy are outside this change. Tests check that recovery honors prune decisions; they do not re-audit every native watch/save/collection workflow.
 Franchise expansion and partial owned-series filling remain out of scope.
+
+## Production rollout correction
+
+The first 0.42.3 production Observe run returned zero catalog rows. A new regression
+reproduced this with the actual Emby SQLite provider: an empty initial cursor binds
+as NULL, so `id > @after` cannot select the first page. 0.42.4 coalesces that cursor
+to an empty SQL string and tests the default scheduler path without preselected
+fixtures. Repair was not enabled on 0.42.3. Use 0.42.4 or newer.

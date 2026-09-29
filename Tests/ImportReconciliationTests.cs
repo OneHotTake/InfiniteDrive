@@ -86,6 +86,14 @@ public sealed class ImportReconciliationTests
         Assert.Equal(2, ImportInventory.FindFiles(dir.Path, "E1").Count);
     }
 
+    [Fact] public async Task DefaultWorkerScansTheFirstCatalogPage()
+    {
+        using var h = new Harness(); await h.Seed();
+        Assert.Single(await h.Db.GetImportCatalogPageAsync("", 40));
+        await new ImportReconciliationService(h.Db, h.Inventory, () => ImportMode.Observe, TimeZoneInfo.Utc, () => h.Now).RunAsync(default);
+        Assert.Equal("success", h.Db.GetMetadata("import_observation_baseline"));
+        Assert.Equal(2, (await h.State()).Items.Count);
+    }
     [Fact] public async Task ObserveNeverResolvesOrPublishes()
     {
         using var h = new Harness(); await h.Seed(); await h.Run(ImportMode.Observe);
@@ -109,7 +117,7 @@ public sealed class ImportReconciliationTests
         var state = await h.State(); Assert.Equal("retrying", state.Items[1].State);
         Assert.Equal(1, state.Items[1].Attempts); Assert.False(state.Complete);
         h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
-        h.Inventory.FailEpisode = 0; h.Now = h.Now.AddHours(7); await h.Run();
+        h.Inventory.FailEpisode = 0; h.Now = h.Now.AddHours(8); await h.Run();
         Assert.Contains(2, h.Inventory.Files);
         await h.Run(); Assert.True((await h.State()).Complete);
     }
@@ -124,7 +132,7 @@ public sealed class ImportReconciliationTests
     {
         using var h = new Harness(); h.Item.StrmPath = "/fake/series"; await h.Seed();
         await h.Run(); Assert.Equal(2, h.Inventory.Published);
-        h.Inventory.Count = 3; h.Now = h.Now.AddHours(7); await h.Run();
+        h.Inventory.Count = 3; h.Now = h.Now.AddHours(8); await h.Run();
         Assert.Contains(3, h.Inventory.Files); Assert.Contains(1, h.Inventory.Files);
     }
     [Theory] [InlineData("owned")] [InlineData("blocked")] [InlineData("removed")] [InlineData("cooldown")]
@@ -172,7 +180,7 @@ public sealed class ImportReconciliationTests
     [Fact] public async Task MetadataFailureKeepsLastInventoryAndStopsNewWrites()
     {
         using var h = new Harness(); await h.Seed(); await h.Run(ImportMode.Observe);
-        h.Now = h.Now.AddHours(7); h.Inventory.BadSnapshot = true; await h.Run();
+        h.Now = h.Now.AddHours(8); h.Inventory.BadSnapshot = true; await h.Run();
         Assert.Equal(2, (await h.State()).Items.Count); Assert.Equal("stale_or_unavailable", (await h.State()).SnapshotStatus);
         Assert.Equal(0, h.Inventory.Published);
     }

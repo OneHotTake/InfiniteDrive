@@ -34,8 +34,9 @@ public partial class DatabaseManager
         c => { BindText(c, "@id", state.Identity); BindText(c, "@at", state.CheckedAt?.ToString("o") ?? "");
             BindText(c, "@json", JsonSerializer.Serialize(state)); }, ct);
 
+    // Emby SQLite binds empty strings as NULL; the initial/wrapped cursor must still scan.
     public Task<List<CatalogItem>> GetImportCatalogPageAsync(string after, int limit = 50) => QueryListAsync(
-        "SELECT * FROM catalog_items WHERE id > @after ORDER BY id LIMIT @limit;",
+        "SELECT * FROM catalog_items WHERE id > COALESCE(@after, '') ORDER BY id LIMIT @limit;",
         c => { BindText(c, "@after", after); BindInt(c, "@limit", limit); }, ReadCatalogItem);
 
     public Task<List<CatalogItem>> GetDueImportCatalogAsync(DateTimeOffset now) => QueryListAsync(

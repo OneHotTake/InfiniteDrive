@@ -4,7 +4,7 @@
 
 > *"The ships hung in the sky in much the same way that bricks don't."* — Douglas Adams, *The Hitchhiker's Guide to the Galaxy*
 
-**CURRENT RELEASE:** Version 0.42.3 is built and tested against Emby 4.10.0.40.
+**CURRENT RELEASE:** Version 0.42.4 is built and tested against Emby 4.10.0.40.
 Back up the Emby plugin configuration, database, and managed library state
 before upgrading.
 
@@ -209,7 +209,7 @@ The `.ai/` directory contains sprint planning documents and the repository map. 
 
 ## Version
 
-**0.42.3.0** — Durable import recovery with native indexing and existing retention policy
+**0.42.4.0** — Durable import recovery with native indexing and existing retention policy
 
 *(The answer is 42. We're still working on what the question is.)*
 
