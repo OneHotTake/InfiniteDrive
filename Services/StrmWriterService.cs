@@ -78,7 +78,7 @@ namespace InfiniteDrive.Services
                 return pending;
             }
 
-            if (await ImportReconciliationService.LegacySuppressedAsync(_db, item, ct)) return null;
+            if (await ImportReconciliationService.IsBlockedAsync(_db, item, ct)) return null;
             var libraryManager = Plugin.Instance?.LibraryManager;
             if (libraryManager != null)
             {

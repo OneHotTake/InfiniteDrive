@@ -9,8 +9,7 @@ prove playback or a complete video file.
 
 The Marvin settings page has Observe, Enable recovery, Off, Check/retry, and
 read-only Refresh coverage controls. Observe is the default for this feature.
-Repair requires a successful observation baseline. Episode rows offer suppression
-or explicit restoration; series rows can include released specials. Unknown or
+Repair requires a successful observation baseline. Episode rows report gaps; series rows can include released specials. Unknown or
 future release dates do not authorize new imports. Existing files remain visible.
 
 Off and Observe retain the existing normal importer. Observe does not itself
@@ -21,8 +20,15 @@ resurrection passes yield to it. New Discover intent queues work without writing
 empty placeholder STRMs. Source catalog synchronization and owned-media policy
 continue through the existing services.
 
-Previously published files that disappear become suppressed for review. Missing
-files discovered during migration also require explicit restoration. Successful
+Missing files, including previously published files and eligible gaps found on
+migration, are automatically refilled while their title remains authorized.
+Explicit blocks win. Recovery never creates a suppression merely because a file
+is absent. Existing catalog pruning remains authoritative: transient titles can
+leave the library after they disappear from every catalog unless retained by the
+existing saved/list/collection or watched-content policy. A pruned title is not
+recreated until catalog re-entry or new authorized intent. Another active source
+keeps a shared title eligible. This feature does not change retention thresholds
+or replace the pruning policy. Successful
 native indexing requires matching provider identity, episode numbering, and a
 managed path. A file alone is awaiting indexing. Multiple versions count as one
 episode; an explicit native multi-episode range may cover multiple episode keys.
@@ -47,7 +53,7 @@ Three additive SQLite tables implement the journal without changing existing
 catalog state enum values or enrichment counters:
 
 - `import_coverage`: one JSON document per canonical identity, containing catalog
-  links, expected items, observations, suppressions, cursors, leases and retry data.
+  links, expected items, observations, cursors, leases and retry data.
 - `import_aliases`: unique provider aliases mapped to canonical identities.
 - `import_attempts`: the shared rolling daily attempt ledger.
 
@@ -76,7 +82,7 @@ All AIO stream requests share a concurrency allowance of two.
 Individual network operations have a sixty-second deadline bounded by the slice.
 Ten-minute leases are sufficient for this bounded worker; interrupted leases expire
 before retry, and disk/native state is re-observed first. Network activity happens
-outside the final publication lock. Authorization, suppression generation, lease
+outside the final publication lock. Authorization, settings generation, lease
 ownership and owned-media precedence are rechecked before publication. Blocks and
 source removals coordinate with that lock. Files are written atomically and old
 versions are removed only after every desired replacement is verified. Empty
@@ -104,9 +110,9 @@ Both routes require a native administrator session through the existing
 - `GET /InfiniteDrive/Imports?Offset=0&Limit=50`: read-only, bounded page; dated
   coverage, provider status, episode reasons, next retries, and collection summary.
 - `POST /InfiniteDrive/Imports/Action`: `Action` is `mode`, `check`, `retry`,
-  `restore`, `suppress`, `include_specials`, `exclude_specials`, or `resume_provider`.
-  Mode uses `Mode=Off|Observe|Repair`; item actions use `Identity` and optionally
-  `EpisodeKey`. Restore is explicit; ordinary metadata refresh cannot clear it.
+  `include_specials`, `exclude_specials`, or `resume_provider`.
+  Mode uses `Mode=Off|Observe|Repair`; specials actions use `Identity`. Existing
+  block/unblock controls remain authoritative; there is no separate recovery suppression.
 
 Actions return an operation identifier and queued/deferred status. They trigger
 the existing locked Marvin path. They do not create another scheduler. Reading
@@ -116,7 +122,7 @@ status never creates tables, contacts providers, or triggers work.
 
 The regression suite uses the actual Emby SQLite provider with temporary databases,
 plus controlled metadata/stream adapters. It covers unchanged inventory, partial
-failure, database reopen, suppressed deletion, metadata failure, future/unknown
+failure, database reopen, automatic refill, block/prune exclusions, metadata failure, future/unknown
 releases, aliases and conflicts, native-index separation, budgets, provider pause,
 leases, paths, and atomic writer failures. Run `dotnet test
 Tests/InfiniteDrive.Tests.csproj -c Release` with the exact Emby SDK references and

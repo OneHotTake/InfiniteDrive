@@ -40,9 +40,9 @@ public partial class DatabaseManager
 
     public Task<List<CatalogItem>> GetDueImportCatalogAsync(DateTimeOffset now) => QueryListAsync(
         @"SELECT c.* FROM import_coverage s JOIN catalog_items c ON c.id=json_extract(s.payload,'$.CatalogIds[0]')
-          WHERE json_extract(s.payload,'$.Suppressed')=0 AND json_extract(s.payload,'$.Exclusion')=''
+          WHERE json_extract(s.payload,'$.Exclusion')=''
           AND EXISTS (SELECT 1 FROM json_each(s.payload,'$.Items') e
-            WHERE json_extract(e.value,'$.Suppressed')=0 AND json_extract(e.value,'$.Eligible')=1
+            WHERE json_extract(e.value,'$.Eligible')=1
             AND json_extract(e.value,'$.State') IN ('missing','retrying','awaiting_indexing','resolving')
             AND (json_extract(e.value,'$.NextAttempt') IS NULL OR json_extract(e.value,'$.NextAttempt')<=@now)
             AND (json_extract(e.value,'$.LeaseUntil') IS NULL OR json_extract(e.value,'$.LeaseUntil')<=@now))

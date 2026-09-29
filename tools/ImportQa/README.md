@@ -24,7 +24,11 @@ POST `/InfiniteDrive/ImportQa` with a `Step`:
 6. `retry`: advance the injected clock by seven hours, leaving inventory unchanged;
    the failed episode is retried. `discover` then verifies both native episodes.
 7. `delete-first`: delete only the fixture episode's managed STRMs and verify that
-   it stays suppressed. `observe` must not recreate it. `restore-first` is explicit.
+   one resolution/publication automatically refills it. `discover` verifies indexing.
+   `prune-delete-first` marks the catalog title removed and deletes the fixture
+   episode: no refill. `rejoin` restores catalog eligibility and refills it.
+   `block-delete-first` persists an explicit block and deletes the episode: no refill,
+   including after restart.
 8. `provider-probe`: exercise `GetAllEpisodes` on the native fixture series. An
    empty/unavailable response in an offline lab is reported, not completeness.
 9. `collection`: create the named QA-only collection and verify native membership.

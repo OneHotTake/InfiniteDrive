@@ -60,10 +60,17 @@ public sealed class ImportLabService : IService, IRequiresRequest
             case "delete-first":
                 foreach (var path in real.FindEpisodeFiles(item, fake.Episodes[0])) File.Delete(path);
                 break;
-            case "restore-first":
-                var restore = (await db.GetImportCoverageAsync(Identity))!;
-                var first = restore.Items.First(x => x.Episode == 1); first.Suppressed = false; first.RestoreRequested = true; restore.Generation++;
-                await db.SaveImportCoverageAsync(restore); break;
+            case "prune-delete-first":
+                await db.SoftDeleteCatalogItemsAsync(new[] { item.AioId });
+                foreach (var path in real.FindEpisodeFiles(item, fake.Episodes[0])) File.Delete(path);
+                break;
+            case "rejoin":
+                item.RemovedAt = null; await db.UpsertCatalogItemAsync(item);
+                break;
+            case "block-delete-first":
+                await db.UpsertBlockedItemAsync(item.AioId, null, null, item.Title, item.MediaType, "qa");
+                foreach (var path in real.FindEpisodeFiles(item, fake.Episodes[0])) File.Delete(path);
+                break;
             case "discover":
                 var directory = p.LibraryManager!.FindByPath(Root + "/TV", true) as MediaBrowser.Controller.Entities.Folder;
                 if (directory == null) throw new InvalidOperationException("Fixture root not registered");

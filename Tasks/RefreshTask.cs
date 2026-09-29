@@ -311,7 +311,7 @@ namespace InfiniteDrive.Tasks
             await gate.WaitAsync(cancellationToken);
             try
             {
-                if (await ImportReconciliationService.LegacySuppressedAsync(Plugin.Instance!.DatabaseManager, item, cancellationToken)) return;
+                if (await ImportReconciliationService.IsBlockedAsync(Plugin.Instance!.DatabaseManager, item, cancellationToken)) return;
                 var ownedMedia = new OwnedMediaPreferenceService(_libraryManager, _logger);
                 if (await ownedMedia.RetireIfOwnedAsync(
                     Plugin.Instance!.DatabaseManager, item, cancellationToken).ConfigureAwait(false))
@@ -422,7 +422,7 @@ namespace InfiniteDrive.Tasks
             await gate.WaitAsync(cancellationToken);
             try
             {
-                if (await ImportReconciliationService.LegacySuppressedAsync(Plugin.Instance!.DatabaseManager, item, cancellationToken)) return;
+                if (await ImportReconciliationService.IsBlockedAsync(Plugin.Instance!.DatabaseManager, item, cancellationToken)) return;
                 var ownedMedia = new OwnedMediaPreferenceService(_libraryManager, _logger);
                 if (await ownedMedia.RetireIfOwnedAsync(
                     Plugin.Instance!.DatabaseManager, item, cancellationToken).ConfigureAwait(false))

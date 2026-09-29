@@ -19,22 +19,17 @@ public sealed class ImportReconciliationTests
     private static ImportEpisode Ep(int n = 1) => new() { Key = $"aired:1:{n}", Season = 1, Episode = n, Released = Now.AddDays(-1), Eligible = true };
 
     [Theory]
-    [InlineData(false, false, false, false, "missing")]
-    [InlineData(true, false, false, false, "awaiting_indexing")]
-    [InlineData(true, true, false, false, "indexed")]
-    [InlineData(true, true, true, false, "index_mismatch")]
-    [InlineData(false, false, false, true, "review_removal")]
-    public void FilesAndNativeChildrenAreSeparate(bool file, bool indexed, bool conflict, bool legacy, string state)
-        => Assert.Equal(state, ImportCoveragePolicy.Classify(Ep(), file, indexed, conflict, legacy, Now));
+    [InlineData(false, false, false, "missing")]
+    [InlineData(true, false, false, "awaiting_indexing")]
+    [InlineData(true, true, false, "indexed")]
+    [InlineData(true, true, true, "index_mismatch")]
+    public void FilesAndNativeChildrenAreSeparate(bool file, bool indexed, bool conflict, string state)
+        => Assert.Equal(state, ImportCoveragePolicy.Classify(Ep(), file, indexed, conflict, Now));
 
-    [Fact] public void DeletionNeedsExplicitRestore()
+    [Fact] public void DeletedPublishedFileIsMissing()
     {
         var ep = Ep(); ep.EverPublished = true;
-        Assert.Equal("review_removal", ImportCoveragePolicy.Classify(ep, false, false, false, false, Now));
-        ep.RestoreRequested = true;
-        Assert.Equal("missing", ImportCoveragePolicy.Classify(ep, false, false, false, true, Now));
-        ep.Suppressed = true;
-        Assert.Equal("suppressed", ImportCoveragePolicy.Classify(ep, true, true, false, false, Now));
+        Assert.Equal("missing", ImportCoveragePolicy.Classify(ep, false, false, false, Now));
     }
     [Fact] public void DatesAndSpecialsAreConservative()
     {
@@ -65,13 +60,13 @@ public sealed class ImportReconciliationTests
         Assert.False(ImportCoveragePolicy.AcceptSnapshot(old, old.Append(Ep()).ToList()));
         Assert.True(ImportCoveragePolicy.AcceptSnapshot(old, old));
     }
-    [Fact] public void UnchangedSnapshotRetainsFailureAndSuppression()
+    [Fact] public void UnchangedSnapshotRetainsFailure()
     {
-        var ep = Ep(); ep.Attempts = 3; ep.Suppressed = true; ep.NextAttempt = Now.AddHours(1);
+        var ep = Ep(); ep.Attempts = 3; ep.NextAttempt = Now.AddHours(1);
         var state = new ImportCoverage { Items = new() { ep }, SnapshotAt = Now };
         ImportReconciliationService.MergeSnapshot(state, new() { Ep(), Ep(2) });
-        Assert.Same(ep, state.Items[0]); Assert.True(ep.Suppressed); Assert.Equal(3, ep.Attempts);
-        Assert.True(state.Items[1].BaselineKnown);
+        Assert.Same(ep, state.Items[0]); Assert.Equal(3, ep.Attempts);
+        Assert.Equal("aired:1:2", state.Items[1].Key);
     }
     [Fact] public void PrefixTraversalAndSymlinkRootsAreRejected()
     {
@@ -109,18 +104,19 @@ public sealed class ImportReconciliationTests
         Assert.Contains(2, h.Inventory.Files);
         await h.Run(); Assert.True((await h.State()).Complete);
     }
-    [Fact] public async Task MissingPublishedFileDoesNotResurrect()
+    [Fact] public async Task MissingPublishedFileIsAutomaticallyRefilled()
     {
         using var h = new Harness(); await h.Seed(); await h.Run(); await h.Run();
         var before = h.Inventory.Resolutions; h.Inventory.Files.Remove(1); await h.Run();
-        Assert.Equal(before, h.Inventory.Resolutions); Assert.True((await h.State()).Items[0].Suppressed);
+        Assert.Equal(before + 1, h.Inventory.Resolutions); Assert.Contains(1, h.Inventory.Files);
+        await h.Run(); Assert.True((await h.State()).Complete);
     }
-    [Fact] public async Task LegacyHolesNeedRestoreButNewInventorySlotsDoNot()
+    [Fact] public async Task ExistingTitleHolesAndNewInventorySlotsAutoRepair()
     {
         using var h = new Harness(); h.Item.StrmPath = "/fake/series"; await h.Seed();
-        await h.Run(); Assert.Equal(0, h.Inventory.Published); Assert.All((await h.State()).Items, e => Assert.True(e.Suppressed));
+        await h.Run(); Assert.Equal(2, h.Inventory.Published);
         h.Inventory.Count = 3; h.Now = h.Now.AddHours(7); await h.Run();
-        Assert.Contains(3, h.Inventory.Files); Assert.DoesNotContain(1, h.Inventory.Files);
+        Assert.Contains(3, h.Inventory.Files); Assert.Contains(1, h.Inventory.Files);
     }
     [Theory] [InlineData("owned")] [InlineData("blocked")] [InlineData("removed")] [InlineData("cooldown")]
     public async Task PolicyExclusionsDoNotPublish(string cause)
@@ -132,11 +128,37 @@ public sealed class ImportReconciliationTests
         if (cause == "cooldown") h.Cooldown = h.Now.AddDays(1);
         await h.Run(); Assert.Equal(0, h.Inventory.Resolutions);
     }
-    [Fact] public async Task SuppressionDuringResolutionDefeatsLatePublication()
+    [Fact] public async Task BlockDuringResolutionDefeatsLatePublication()
     {
         using var h = new Harness(); await h.Seed();
-        h.Inventory.OnResolve = async () => { var state = await h.State(); state.Generation++; state.Suppressed = true; await h.Db.SaveImportCoverageAsync(state); };
+        h.Inventory.OnResolve = async () => await h.Db.UpsertBlockedItemAsync(h.Item.AioId, null, null, "fixture", "series", "test");
         await h.Run(); Assert.Equal(0, h.Inventory.Published);
+    }
+    [Fact] public async Task BlockSurvivesRestartAndStopsRefill()
+    {
+        using var h = new Harness(); await h.Seed(); await h.Run(); await h.Run();
+        await h.Db.UpsertBlockedItemAsync(h.Item.AioId, null, null, "fixture", "series", "test");
+        h.Inventory.Files.Remove(1); var before = h.Inventory.Resolutions;
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        await h.Seed(); await h.Run();
+        Assert.Equal(before, h.Inventory.Resolutions); Assert.DoesNotContain(1, h.Inventory.Files);
+    }
+    [Fact] public async Task AnotherCatalogStillAuthorizesRefill()
+    {
+        using var h = new Harness(); await h.Seed(); await h.Run(); await h.Run();
+        await h.Db.UpsertCatalogItemAsync(new CatalogItem { AioId = h.Item.AioId, MediaType = "series", Source = "retained-list", Title = h.Item.Title });
+        await h.Db.MarkCatalogItemRemovedAsync(h.Item.AioId, h.Item.Source);
+        h.Inventory.Files.Remove(1); var before = h.Inventory.Resolutions;
+        await h.Run(); Assert.Equal(before + 1, h.Inventory.Resolutions); Assert.Contains(1, h.Inventory.Files);
+    }
+    [Fact] public async Task PrunedTitleStaysAbsentUntilCatalogReentry()
+    {
+        using var h = new Harness(); await h.Seed(); await h.Run(); await h.Run();
+        await h.Db.SoftDeleteCatalogItemsAsync(new[] { h.Item.AioId });
+        h.Inventory.Files.Clear(); var before = h.Inventory.Resolutions;
+        await h.Run(); Assert.Equal(before, h.Inventory.Resolutions);
+        h.Item.RemovedAt = null; await h.Seed(); await h.Run();
+        Assert.Equal(before + 2, h.Inventory.Resolutions);
     }
     [Fact] public async Task MetadataFailureKeepsLastInventoryAndStopsNewWrites()
     {

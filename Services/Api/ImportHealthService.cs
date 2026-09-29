@@ -41,11 +41,11 @@ public sealed class ImportHealthService : IService, IRequiresRequest
         return new { Mode = Plugin.Instance.Configuration.ImportRecoveryMode.ToString(),
             LastRun = db.GetMetadata("import_last_run"), CollectionHealth = db.GetMetadata("import_collection_health"), NextOffset = request.Offset + page.Count,
             Items = page.Select(x => new { x.Identity, x.Title, Complete = x.Complete && x.SnapshotAt >= DateTimeOffset.UtcNow.AddHours(-6), x.SnapshotAt, x.CheckedAt,
-                x.SnapshotStatus, x.ProviderStatus, x.Exclusion, x.Suppressed,
+                x.SnapshotStatus, x.ProviderStatus, x.Exclusion,
                 Stale = x.SnapshotAt == null || x.SnapshotAt < DateTimeOffset.UtcNow.AddHours(-6),
                 Expected = x.Items.Count(i => i.Eligible), Indexed = x.Items.Count(i => i.Eligible && i.State == "indexed"),
                 Episodes = x.Items.Select(i => new { i.Key, i.Season, i.Episode, i.State, i.Eligibility,
-                    i.Failure, i.Attempts, i.NextAttempt, i.ObservedAt, i.Suppressed }) }) };
+                    i.Failure, i.Attempts, i.NextAttempt, i.ObservedAt }) }) };
     }
 
     public async Task<object> Post(ImportActionRequest request)
@@ -82,27 +82,11 @@ public sealed class ImportHealthService : IService, IRequiresRequest
                     // Mark intent; the existing locked Marvin run consumes due work. Backoff stays intact.
                     await db.PersistMetadataAsync("import_check_requested", DateTimeOffset.UtcNow.ToString("o"));
                     break;
-                case "restore":
-                case "suppress":
                 case "include_specials":
                 case "exclude_specials":
                     var state = await db.GetImportCoverageAsync(request.Identity);
                     if (state == null) return new { Status = "unknown_identity" };
-                    if (request.Action.EndsWith("specials", StringComparison.Ordinal))
-                        state.IncludeSpecials = request.Action == "include_specials";
-                    else if (string.IsNullOrEmpty(request.EpisodeKey))
-                    {
-                        state.Suppressed = request.Action == "suppress";
-                        foreach (var entry in state.Items)
-                        { entry.Suppressed = state.Suppressed; entry.RestoreRequested = !state.Suppressed; }
-                    }
-                    else
-                    {
-                        var entry = state.Items.FirstOrDefault(x => x.Key == request.EpisodeKey);
-                        if (entry == null) return new { Status = "unknown_episode" };
-                        entry.Suppressed = request.Action == "suppress";
-                        entry.RestoreRequested = !entry.Suppressed;
-                    }
+                    state.IncludeSpecials = request.Action == "include_specials";
                     state.Generation++;
                     await db.SaveImportCoverageAsync(state);
                     break;

@@ -19,13 +19,11 @@ public sealed class ImportCoverage
     public DateTimeOffset? MetadataRetryAt { get; set; }
     public string Exclusion { get; set; } = "";
     public long Generation { get; set; }
-    public bool Suppressed { get; set; }
     public bool IncludeSpecials { get; set; }
     public string Cursor { get; set; } = "";
-    public bool LegacyBaseline { get; set; }
     public List<ImportEpisode> Items { get; set; } = new();
-    public bool Complete => !Suppressed && SnapshotStatus == "success" && Exclusion.Length == 0 &&
-        Items.Any(x => x.Eligible) && Items.Where(x => x.Eligible).All(x => x.State == "indexed" && !x.Suppressed);
+    public bool Complete => SnapshotStatus == "success" && Exclusion.Length == 0 &&
+        Items.Any(x => x.Eligible) && Items.Where(x => x.Eligible).All(x => x.State == "indexed");
 }
 
 public sealed class ImportEpisode
@@ -41,12 +39,8 @@ public sealed class ImportEpisode
     public bool Eligible { get; set; }
     public string Eligibility { get; set; } = "unknown_date";
     public string State { get; set; } = "unknown";
-    public bool Suppressed { get; set; }
-    public bool RestoreRequested { get; set; }
     public bool EverPublished { get; set; }
     public bool InitialFailure { get; set; }
-    public bool LegacyAmbiguous { get; set; }
-    public bool BaselineKnown { get; set; }
     public List<string> Paths { get; set; } = new();
     public List<string> NativeIds { get; set; } = new();
     public int Attempts { get; set; }
@@ -81,17 +75,14 @@ public static class ImportCoveragePolicy
     }
 
     public static string Classify(ImportEpisode item, bool file, bool indexed, bool conflict,
-        bool legacy, DateTimeOffset now)
+        DateTimeOffset now)
     {
-        if (item.Suppressed) return "suppressed";
         if (!item.Eligible) return "excluded";
         if (conflict) return "index_mismatch";
         if (file && indexed) return "indexed";
         if (file)
             return item.Notifications >= 3 && item.FirstNotification <= now.AddHours(-2)
                 ? "indexing_attention" : "awaiting_indexing";
-        if (!item.RestoreRequested && (item.EverPublished || item.LegacyAmbiguous || (!item.BaselineKnown && legacy)))
-            return "review_removal";
         if (item.LeaseUntil > now) return "resolving";
         return item.NextAttempt > now ? "retrying" : "missing";
     }

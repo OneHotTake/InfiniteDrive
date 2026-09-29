@@ -45,12 +45,7 @@ namespace InfiniteDrive.UI.Settings
                     case "ImportExcludeSpecials":
                         result = await ImportHealthService.ApplyAsync(new() { Action = cmd == "ImportIncludeSpecials" ? "include_specials" : "exclude_specials", Identity = itemId }); break;
                     case "ImportNext": _importOffset += 25; break;
-                    case "ImportRestore":
-                    case "ImportSuppress":
-                        var parts = itemId.Split('|');
-                        if (parts.Length == 2) result = await ImportHealthService.ApplyAsync(new()
-                            { Action = cmd == "ImportRestore" ? "restore" : "suppress", Identity = parts[0], EpisodeKey = parts[1] });
-                        break;
+
                 }
                 await LoadImportsAsync();
                 if (result != null)
@@ -99,9 +94,7 @@ namespace InfiniteDrive.UI.Settings
                         { Data1 = title.Identity, CommandId = title.IncludeSpecials ? "ImportExcludeSpecials" : "ImportIncludeSpecials" } });
                     foreach (var episode in title.Items.Where(x => x.State != "indexed").Take(50))
                         UI.ImportItems.Add(new GenericListItem { PrimaryText = (episode.Season.HasValue ? $"S{episode.Season:D2}E{episode.Episode:D2}" : "Movie") + " · " + episode.State.Replace('_', ' '),
-                            SecondaryText = $"{episode.Eligibility.Replace('_', ' ')} · {episode.Failure.Replace('_', ' ')} · next retry {episode.NextAttempt:u}",
-                            Button1 = new ButtonItem(episode.Suppressed ? "Restore" : "Suppress recovery")
-                            { Data1 = title.Identity + "|" + episode.Key, CommandId = episode.Suppressed ? "ImportRestore" : "ImportSuppress" } });
+                            SecondaryText = $"{episode.Eligibility.Replace('_', ' ')} · {episode.Failure.Replace('_', ' ')} · next retry {episode.NextAttempt:u}" });
                 }
             }
             catch { UI.ImportStatus.StatusText = "Coverage unavailable; refresh after the next observation run."; }

@@ -313,9 +313,6 @@ namespace InfiniteDrive.Tasks
                 if (recovery)
                 {
                     await db.PersistMetadataAsync("import_collection_cursor", row.Id.ToString(), cancellationToken);
-                    var identity = await db.FindImportIdentityAsync(ImportInventory.Aliases(catalogItem), cancellationToken);
-                    var coverage = identity == null ? null : await db.GetImportCoverageAsync(identity);
-                    if (coverage?.Suppressed == true) continue;
                 }
 
                 // Try to find Emby item via provider ID lookup
@@ -540,7 +537,7 @@ namespace InfiniteDrive.Tasks
             {
                 ct.ThrowIfCancellationRequested();
 
-                if (await ImportReconciliationService.LegacySuppressedAsync(db, item, ct)) return (false, false);
+                if (await ImportReconciliationService.IsBlockedAsync(db, item, ct)) return (false, false);
                 // Throttle: only refresh items older than 1 hour since last refresh
                 if (!string.IsNullOrEmpty(item.LastVersionRefreshAt)
                     && DateTime.TryParse(item.LastVersionRefreshAt, out var lastRefresh)
@@ -692,7 +689,12 @@ namespace InfiniteDrive.Tasks
 
         private async Task ValidationPassAsync(CancellationToken cancellationToken)
         {
-            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair) return;
+            if (Plugin.Instance?.Configuration.ImportRecoveryMode == ImportMode.Repair)
+            {
+                // Recovery owns gap repair; normal catalog retention still owns pruning.
+                await CleanupOrphanFilesAsync(cancellationToken);
+                return;
+            }
 
             var db = Plugin.Instance!.DatabaseManager;
 

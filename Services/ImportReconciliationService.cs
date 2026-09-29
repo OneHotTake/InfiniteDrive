@@ -72,7 +72,7 @@ public sealed class ImportReconciliationService
                     if (aliases.Count == 0) continue;
                     var identity = await _db.FindImportIdentityAsync(aliases, token) ?? aliases[0];
                     var coverage = await _db.GetImportCoverageAsync(identity) ?? new ImportCoverage
-                    { Identity = identity, Title = item.Title, LegacyBaseline = !string.IsNullOrEmpty(item.StrmPath) };
+                    { Identity = identity, Title = item.Title };
                     if (!coverage.CatalogIds.Contains(item.Id)) coverage.CatalogIds.Add(item.Id);
                     var aliasRows = await _db.GetImportCatalogAliasesAsync(item);
                     var established = coverage.CatalogIds.Count == 0 ? null : await _db.GetImportCatalogByIdAsync(coverage.CatalogIds[0]);
@@ -92,7 +92,7 @@ public sealed class ImportReconciliationService
                     coverage.Title = item.Title;
                     var now = _clock();
                     var authorized = await IsAuthorizedAsync(coverage, item, token);
-                    coverage.Exclusion = !authorized ? "not_authorized" : coverage.Suppressed ? "suppressed" :
+                    coverage.Exclusion = !authorized ? "not_authorized" :
                         item.ItemState == ItemState.Retired || _inventory.IsOwned(item) ? "owned_series_or_movie" : "";
                     if (coverage.Exclusion.Length > 0)
                     {
@@ -151,12 +151,10 @@ public sealed class ImportReconciliationService
                         episode.Eligibility = ImportCoveragePolicy.Eligibility(episode, coverage.IncludeSpecials, now, _timezone);
                         episode.Eligible = episode.Eligibility == "eligible";
                         episode.State = ImportCoveragePolicy.Classify(episode, file, observation.NativeIds.Count > 0,
-                            observation.Conflict, coverage.LegacyBaseline, now);
-                        if (episode.State == "review_removal") episode.Suppressed = true;
-                        episode.BaselineKnown = true;
+                            observation.Conflict, now);
                         episode.ObservedAt = now;
                         if (episode.State == "indexed")
-                        { episode.LastSuccess = now; episode.Failure = ""; episode.RestoreRequested = false; episode.Lease = null; episode.LeaseUntil = null; }
+                        { episode.LastSuccess = now; episode.Failure = ""; episode.Lease = null; episode.LeaseUntil = null; }
                         coverage.Cursor = episode.Key;
                         coverage.CheckedAt = now;
                         await SaveObservedAsync(coverage, token);
@@ -201,14 +199,13 @@ public sealed class ImportReconciliationService
                                 {
                                     var live = await _db.GetImportCoverageAsync(identity);
                                     var liveEpisode = live?.Items.FirstOrDefault(x => x.Key == episode.Key);
-                                    if (_mode() != ImportMode.Repair || live == null || live.Suppressed || liveEpisode?.Suppressed != false ||
+                                    if (_mode() != ImportMode.Repair || live == null || liveEpisode == null ||
                                         live.Generation != coverage.Generation || liveEpisode.Lease != lease ||
                                         !await IsAuthorizedAsync(live, item, token) || _inventory.IsOwned(item))
                                         throw new InvalidOperationException("authorization_changed");
                                     episode.Paths = await _inventory.PublishAsync(item, episode, versions, token);
                                     if (episode.Paths.Count == 0) throw new IOException("publication_failed");
                                     episode.EverPublished = true;
-                                    episode.RestoreRequested = false;
                                     episode.State = "awaiting_indexing";
                                     episode.LastVersionRefresh = now;
                                     episode.NextAttempt = null; episode.Attempts = 0;
@@ -259,17 +256,13 @@ public sealed class ImportReconciliationService
         }
     }
 
-    internal static async Task<bool> LegacySuppressedAsync(DatabaseManager db, CatalogItem item, CancellationToken ct)
+    internal static async Task<bool> IsBlockedAsync(DatabaseManager db, CatalogItem item, CancellationToken ct)
     {
-        if (db.GetMetadata("import_schema") != "1") return false;
-        try
-        {
-            var identity = await db.FindImportIdentityAsync(ImportInventory.Aliases(item), ct);
-            var state = identity == null ? null : await db.GetImportCoverageAsync(identity);
-            return state?.Suppressed == true || state?.Items.Any(x => x.Suppressed) == true;
-        }
-        catch (OperationCanceledException) { throw; }
-        catch { return true; } // An unreadable safety journal is not authorization to recreate media.
+        ct.ThrowIfCancellationRequested();
+        var rows = await db.GetImportCatalogAliasesAsync(item);
+        foreach (var row in rows.Append(item))
+            if (row.Blocked || await db.IsBlockedAsync(row.AioId, row.TmdbId, null)) return true;
+        return false;
     }
 
     private async Task<bool> IsAuthorizedAsync(ImportCoverage coverage, CatalogItem fallback, CancellationToken ct)
@@ -294,15 +287,7 @@ public sealed class ImportReconciliationService
             if (live != null && live.Generation != state.Generation)
             {
                 state.Generation = live.Generation;
-                state.Suppressed = live.Suppressed;
                 state.IncludeSpecials = live.IncludeSpecials;
-                foreach (var episode in state.Items)
-                {
-                    var prior = live.Items.FirstOrDefault(x => x.Key == episode.Key);
-                    if (prior == null) continue;
-                    episode.Suppressed = prior.Suppressed;
-                    episode.RestoreRequested = prior.RestoreRequested;
-                }
             }
             await _db.SaveImportCoverageAsync(state, ct);
         }
@@ -337,7 +322,7 @@ public sealed class ImportReconciliationService
         foreach (var current in fresh)
         {
             var old = coverage.Items.FirstOrDefault(x => x.Key == current.Key);
-            if (old == null) { current.BaselineKnown = coverage.SnapshotAt.HasValue; current.LegacyAmbiguous = coverage.LegacyBaseline && !coverage.SnapshotAt.HasValue; coverage.Items.Add(current); }
+            if (old == null) { coverage.Items.Add(current); }
             else { old.Expected = true; old.Released = current.Released; old.DateOnly = current.DateOnly; old.Numbering = current.Numbering; }
         }
     }

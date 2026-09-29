@@ -450,28 +450,33 @@ namespace InfiniteDrive.Data
         {
             if (aioIds.Count == 0) return;
 
-            await _dbWriteGate.WaitAsync(cancellationToken);
+            await Services.ImportReconciliationService.MutationGate.WaitAsync(cancellationToken);
             try
             {
-                using var conn = OpenConnection();
-                foreach (var batch in aioIds.Chunk(500))
+                await _dbWriteGate.WaitAsync(cancellationToken);
+                try
                 {
-                    var idsParam = string.Join(",", batch.Select((_, i) => $"@id{i}"));
-                    var deleteSql = $@"
-                        UPDATE catalog_items
-                        SET removed_at = datetime('now')
-                        WHERE aio_id IN ({idsParam});";
+                    using var conn = OpenConnection();
+                    foreach (var batch in aioIds.Chunk(500))
+                    {
+                        var idsParam = string.Join(",", batch.Select((_, i) => $"@id{i}"));
+                        var deleteSql = $@"
+                            UPDATE catalog_items
+                            SET removed_at = datetime('now')
+                            WHERE aio_id IN ({idsParam});";
 
-                    using var delStmt = conn.PrepareStatement(deleteSql);
-                    for (int i = 0; i < batch.Length; i++)
-                        BindText(delStmt, $"@id{i}", batch[i]);
-                    while (delStmt.MoveNext()) { }
+                        using var delStmt = conn.PrepareStatement(deleteSql);
+                        for (int i = 0; i < batch.Length; i++)
+                            BindText(delStmt, $"@id{i}", batch[i]);
+                        while (delStmt.MoveNext()) { }
+                    }
+                }
+                finally
+                {
+                    _dbWriteGate.Release();
                 }
             }
-            finally
-            {
-                _dbWriteGate.Release();
-            }
+            finally { Services.ImportReconciliationService.MutationGate.Release(); }
         }
 
         /// <summary>
