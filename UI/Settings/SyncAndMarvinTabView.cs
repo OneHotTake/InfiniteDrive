@@ -16,6 +16,7 @@ namespace InfiniteDrive.UI.Settings
             : base(pluginId)
         {
             ContentData = ui;
+            ShowSave = false;
             LoadMarvinStatus(ui);
             _ = LoadImportsAsync();
         }
@@ -38,6 +39,8 @@ namespace InfiniteDrive.UI.Settings
                 {
                     case "ImportObserve": result = await ImportHealthService.ApplyAsync(new() { Action = "mode", Mode = "Observe" }); break;
                     case "ImportRepair": result = await ImportHealthService.ApplyAsync(new() { Action = "mode", Mode = "Repair" }); break;
+                    case "ImportCatchUp": result = await ImportHealthService.ApplyAsync(new() { Action = "start_catch_up" }); break;
+                    case "ImportNormalSpeed": result = await ImportHealthService.ApplyAsync(new() { Action = "stop_catch_up" }); break;
                     case "ImportOff": result = await ImportHealthService.ApplyAsync(new() { Action = "mode", Mode = "Off" }); break;
                     case "ImportResumeProvider": result = await ImportHealthService.ApplyAsync(new() { Action = "resume_provider" }); break;
                     case "ImportCheck": result = await ImportHealthService.ApplyAsync(new() { Action = "check" }); break;
@@ -81,7 +84,28 @@ namespace InfiniteDrive.UI.Settings
                 UI.ImportItems.Clear();
                 UI.ImportStatus.StatusText = Plugin.Instance.Configuration.ImportRecoveryMode +
                     " · coverage is a dated observation; indexing does not prove playback";
+                var speed = Models.ImportWorkBudget.For(Plugin.Instance.Configuration, DateTimeOffset.UtcNow);
+                UI.ImprobabilityDrive.Clear();
+                UI.ImprobabilityDrive.Add(new GenericListItem
+                {
+                    PrimaryText = "Infinite Improbability Drive",
+                    SecondaryText = speed.IsCatchUp
+                        ? $"Engaged. Marvin is accelerating the backlog refresh. Auto-off: {speed.CatchUpUntil:u}. Provider backoff and media protections remain active."
+                        : "Normality has been restored. Engage for up to 7 days of faster backlog refresh. Enable recovery first. Provider backoff and media protections remain active.",
+                    Icon = IconNames.play_arrow,
+                    IconMode = ItemListIconMode.SmallRegular,
+                    Toggle = new ToggleButtonItem
+                    {
+                        Caption = "Engaged",
+                        IsChecked = speed.IsCatchUp,
+                        CommandId = speed.IsCatchUp ? "ImportNormalSpeed" : "ImportCatchUp",
+                    },
+                });
+                UI.ImportStatus.StatusText += speed.IsCatchUp
+                    ? $" · Improbability Drive engaged until {speed.CatchUpUntil:u}"
+                    : " · Normal speed";
                 if (db.GetMetadata("import_last_run") == null) return;
+                UI.ImportStatus.StatusText += $" · {await db.GetRecentImportAttemptsAsync(DateTimeOffset.UtcNow)}/{speed.AttemptsPerDay} lookups in the past 24 hours";
                 var page = await db.GetImportCoveragePageAsync(_importOffset, 25);
                 if (page.Count == 0 && _importOffset > 0)
                 { _importOffset = 0; page = await db.GetImportCoveragePageAsync(0, 25); }

@@ -18,6 +18,7 @@
   </ItemGroup>
   <ItemGroup>
     <Reference Include="EmbyServer"><HintPath>../libs/EmbyServer.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="SQLitePCL.pretty"><HintPath>../libs/SQLitePCL.pretty.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="SQLitePCLRawEx.core"><HintPath>../libs/SQLitePCLRawEx.core.dll</HintPath><Private>true</Private></Reference>
     <ProjectReference Include="..\InfiniteDrive.csproj" />
     <Reference Include="MediaBrowser.Controller">

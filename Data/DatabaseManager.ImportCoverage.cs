@@ -49,6 +49,19 @@ public partial class DatabaseManager
             AND (json_extract(e.value,'$.LeaseUntil') IS NULL OR json_extract(e.value,'$.LeaseUntil')<=@now))
           ORDER BY s.checked_at,c.id LIMIT 10;", c => BindText(c, "@now", now.ToString("o")), ReadCatalogItem);
 
+    // Revisit unfinished existing versions before advancing the catalog cursor. Failed
+    // episodes retain their own backoff; successfully refreshed siblings leave this queue.
+    public Task<List<CatalogItem>> GetCatchUpImportCatalogAsync(DateTimeOffset started, DateTimeOffset now) => QueryListAsync(
+        @"SELECT c.* FROM import_coverage s JOIN catalog_items c ON c.id=json_extract(s.payload,'$.CatalogIds[0]')
+          WHERE json_extract(s.payload,'$.Exclusion')=''
+          AND json_extract(s.payload,'$.SnapshotStatus')='success'
+          AND EXISTS (SELECT 1 FROM json_each(s.payload,'$.Items') e
+            WHERE json_extract(e.value,'$.Eligible')=1 AND json_extract(e.value,'$.State')='indexed'
+            AND (json_extract(e.value,'$.LastVersionRefresh') IS NULL OR julianday(json_extract(e.value,'$.LastVersionRefresh'))<julianday(@started))
+            AND (json_extract(e.value,'$.NextAttempt') IS NULL OR json_extract(e.value,'$.NextAttempt')<=@now))
+          ORDER BY s.checked_at,c.id LIMIT 10;",
+        c => { BindText(c, "@started", started.ToString("o")); BindText(c, "@now", now.ToString("o")); }, ReadCatalogItem);
+
     public Task<CatalogItem?> GetImportCatalogByIdAsync(string id) => QuerySingleAsync(
         "SELECT * FROM catalog_items WHERE id=@id;", c => BindText(c, "@id", id), ReadCatalogItem);
 

@@ -1,5 +1,28 @@
 # Import reconciliation QA — September 29, 2026
 
+
+## Infinite Improbability Drive — September 29, 2026
+
+Version 0.42.6: all **117 tests passed** against the pinned Emby 4.10.0.40
+assemblies and real SQLite provider. Release compilation produced no warnings.
+New cases cover finite-window admission/expiry, the 128-attempt slice and
+100-upgrade limits, the persisted 8,000-attempt ceiling, once-per-window progress
+across database reopen, indexed siblings of failed episodes, provider/ownership
+exclusions, and disabling/expiring during resolution. A regression exposed
+fractional timestamp formatting in SQLite JSON comparisons; the catch-up queue
+now compares parsed times so completed items leave it correctly.
+
+In the isolated, persistently frozen Emby beta, the actual native **Engaged**
+switch rejected activation in Observe, activated in the controlled Repair test
+precondition, retained its exact start/expiry across a beta restart, and switched
+off with **Normality has been restored**. Existing admin browser login was used;
+no maintenance user or credentials were created. The native beta switch test
+never dispatched provider work. Existing freeze, network/mount isolation and
+readonly production media remained enforced. Automated adapters exercise the
+worker behavior; this native check verifies settings rendering and persistence.
+Neither test establishes playback or full-library convergence.
+
+
 Verified against Emby Server 4.10.0.40 on an isolated development instance.
 Production was not deployed or restarted. The prior development plugin artifact
 was restored after testing; temporary libraries, collections, media, database and

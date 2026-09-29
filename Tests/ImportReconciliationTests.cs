@@ -9,6 +9,7 @@ using InfiniteDrive.Models;
 using InfiniteDrive.Services;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using SQLitePCL.pretty;
 
 namespace InfiniteDrive.Tests;
 
@@ -256,6 +257,91 @@ public sealed class ImportReconciliationTests
         Assert.True(File.Exists(System.IO.Path.Combine(dir.Path, "E10.strm")));
         Assert.Equal(0, await writer.WriteOrReplaceStrmFilesAsync(dir.Path, "E1", versions, default));
     }
+    [Fact] public void ImprobabilityRequiresRepairAndAFiniteWindow()
+    {
+        var config = new PluginConfiguration { ImportRecoveryMode = ImportMode.Repair,
+            ImportCatchUpStartedAt = Now.ToString("o"), ImportCatchUpUntil = Now.AddDays(7).ToString("o") };
+        Assert.Equal(8000, ImportWorkBudget.For(config, Now).AttemptsPerDay);
+        Assert.False(ImportWorkBudget.For(config, Now.AddDays(7)).IsCatchUp);
+        Assert.False(ImportWorkBudget.For(config, Now.AddSeconds(-1)).IsCatchUp);
+        config.ImportCatchUpUntil = Now.AddDays(8).ToString("o");
+        Assert.False(ImportWorkBudget.For(config, Now).IsCatchUp);
+        config.ImportCatchUpUntil = Now.AddDays(7).ToString("o");
+        config.ImportRecoveryMode = ImportMode.Observe;
+        Assert.False(ImportWorkBudget.For(config, Now).IsCatchUp);
+        config.ImportRecoveryMode = ImportMode.Repair;
+        config.ImportCatchUpStartedAt = "invalid";
+        Assert.Equal(ImportWorkBudget.Normal, ImportWorkBudget.For(config, Now));
+    }
+    [Fact] public async Task ImprobabilityRefreshesOncePerWindowAndResumesAfterRestart()
+    {
+        using var h = new Harness(); h.Inventory.Count = 105;
+        h.Inventory.Files.UnionWith(Enumerable.Range(1, 105)); await h.Seed(); h.Engage();
+        await h.Run(); Assert.Equal(100, h.Inventory.Published);
+        Assert.Single(await h.Db.GetCatchUpImportCatalogAsync(Now, h.Now));
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        h.Now = h.Now.AddHours(2); await h.Run(); Assert.Equal(105, h.Inventory.Published);
+        await h.Run(); Assert.Equal(105, h.Inventory.Published);
+        Assert.Empty(await h.Db.GetCatchUpImportCatalogAsync(Now, h.Now));
+        h.Now = h.Now.AddMinutes(1); h.Engage(); await h.Run();
+        Assert.Equal(205, h.Inventory.Published);
+    }
+    [Fact] public async Task ImprobabilityHasABoundedAttemptAllowance()
+    {
+        using var h = new Harness(); h.Inventory.Count = 140; await h.Seed(); h.Engage();
+        await h.Run(); Assert.Equal(128, h.Inventory.Resolutions);
+        await h.Run(); Assert.Equal(140, h.Inventory.Resolutions);
+    }
+    [Fact] public async Task ImprobabilityRefreshesIndexedSiblingsWithoutBypassingFailedGapBackoff()
+    {
+        using var h = new Harness(); h.Inventory.Count = 10; h.Inventory.FailEpisode = 1;
+        h.Inventory.Files.UnionWith(Enumerable.Range(2, 9)); await h.Seed(); h.Engage();
+        await h.Run(); Assert.Equal(9, h.Inventory.Published); Assert.Equal(10, h.Inventory.Resolutions);
+        var next = (await h.State()).Items.Single(x => x.Episode == 1).NextAttempt;
+        h.Now = h.Now.AddHours(1); await h.Run(); Assert.Equal(10, h.Inventory.Resolutions);
+        Assert.Equal(next, (await h.State()).Items.Single(x => x.Episode == 1).NextAttempt);
+    }
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public async Task DisengagingOrExpiringDuringResolutionPreventsPublication(bool expire)
+    {
+        using var h = new Harness(); await h.Seed(); h.Engage();
+        h.Inventory.OnResolve = () => { if (expire) h.Now = h.Now.AddDays(7);
+            else h.Config.ImportCatchUpUntil = ""; return Task.CompletedTask; };
+        await h.Run(); Assert.Equal(1, h.Inventory.Resolutions); Assert.Equal(0, h.Inventory.Published);
+    }
+    [Fact] public async Task ImprobabilityUsesSharedRollingLedgerAndDoesNotEraseItOnDisengage()
+    {
+        using var h = new Harness(); await h.Seed(); await h.Db.EnsureImportCoverageAsync();
+        for (var i = 0; i < 200; i++) await h.Db.RecordImportAttemptAsync("prior-" + i, h.Now, default);
+        h.Engage(); await h.Run(); Assert.Equal(2, h.Inventory.Resolutions);
+        h.Config.ImportCatchUpUntil = ""; h.Now = h.Now.AddHours(2);
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        await h.Run(); Assert.Equal(2, h.Inventory.Resolutions);
+        Assert.Equal(202, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+    [Fact] public async Task ImprobabilityDailyCeilingSurvivesRestart()
+    {
+        using var h = new Harness(); await h.Seed(); await h.Db.EnsureImportCoverageAsync();
+        // Real persisted ledger, populated in one fixture transaction.
+        using (var conn = SQLitePCL.pretty.SQLite3.Open(System.IO.Path.Combine(h.Directory.Path, "infinitedrive.db"),
+            SQLitePCL.pretty.ConnectionFlags.ReadWrite, null, true))
+        {
+            using var statement = conn.PrepareStatement("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<7999) INSERT INTO import_attempts SELECT 'prior-'||x, '2026-09-29T18:00:00.0000000+00:00' FROM n;");
+            statement.MoveNext();
+        }
+        h.Engage(); await h.Run(); Assert.Equal(1, h.Inventory.Resolutions);
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        await h.Run(); Assert.Equal(1, h.Inventory.Resolutions);
+        Assert.Equal(8000, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+    [Fact] public async Task ImprobabilityHonorsProviderPauseAndOwnership()
+    {
+        using var h = new Harness(); await h.Seed(); h.Engage();
+        h.Inventory.Paused = true; await h.Run(); Assert.Equal(0, h.Inventory.Resolutions);
+        h.Inventory.Paused = false; h.Inventory.Owned = true; await h.Run();
+        Assert.Equal(0, h.Inventory.Published);
+    }
+
     public class NullLogProxy : System.Reflection.DispatchProxy
     {
         protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
@@ -272,8 +358,10 @@ public sealed class ImportReconciliationTests
         public DateTimeOffset Now = ImportReconciliationTests.Now, Cooldown = DateTimeOffset.MinValue;
         public CatalogItem Item = new() { AioId = "tt999999991", MediaType = "series", Source = "test", Title = "Import QA" };
         public Harness() { Db = new(Directory.Path, NullLogger.Instance); Db.Initialise(); }
+        public PluginConfiguration Config = new() { ImportRecoveryMode = ImportMode.Repair };
+        public void Engage() { Config.ImportCatchUpStartedAt = Now.ToString("o"); Config.ImportCatchUpUntil = Now.AddDays(7).ToString("o"); }
         public Task Seed() => Db.UpsertCatalogItemAsync(Item);
-        public Task Run(ImportMode mode = ImportMode.Repair) => new ImportReconciliationService(Db, Inventory, () => mode, TimeZoneInfo.Utc, () => Now, () => Cooldown).RunAsync(default, new[] { Item });
+        public Task Run(ImportMode mode = ImportMode.Repair) => new ImportReconciliationService(Db, Inventory, () => mode, TimeZoneInfo.Utc, () => Now, () => Cooldown, () => ImportWorkBudget.For(Config, Now)).RunAsync(default, new[] { Item });
         public async Task<ImportCoverage> State() => (await Db.GetImportCoverageAsync("series:imdb:tt999999991"))!;
         public void Dispose() => Directory.Dispose();
     }

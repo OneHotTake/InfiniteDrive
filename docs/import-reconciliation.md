@@ -69,9 +69,45 @@ and block unsupported new writes. Metadata refresh is eligible after six hours;
 failed refreshes retry after fifteen minutes. Removed upstream keys never delete
 media. Absolute/unverified anime numbering is excluded rather than guessed.
 
+## Infinite Improbability Drive
+
+In **Plugins → InfiniteDrive → Marvin**, engage the **Infinite Improbability
+Drive** switch for a temporary backlog refresh. Recovery must already be enabled.
+The switch shows **Engaged** and its expiry; switching it off displays
+**Normality has been restored**. It automatically returns to normal after seven
+days, including across server restarts. Switching an already-active drive on
+again does not extend its window or reset its progress.
+
+| Allowance | Normal | Drive engaged |
+| --- | --- | --- |
+| Recovery time per run | 2 minutes | 8 minutes |
+| Stream attempts per run | 20 | 128 |
+| Existing-version refreshes per run | 5 | 100 |
+| Metadata refreshes per run | 5 | 25 |
+| Stream attempts per rolling 24 hours | 200 | 8,000 |
+
+These are ceilings, not promised throughput. Upstream latency, unavailable sources,
+provider backoff, native indexing and the rest of Marvin's work determine actual
+progress. The existing task schedule and shared two-request AIO concurrency limit
+stay in place. No extra worker or scheduler is started.
+
+A successfully refreshed movie/episode is skipped for the remainder of that drive
+window. Its checkpoint survives a restart. Unfinished existing versions are
+revisited alongside missing-file repairs and the normal catalog sweep. An unavailable
+episode does not prevent refreshing its eligible indexed siblings. Failed attempts
+retain their backoff; owned media, explicit blocks, pruning and publication checks
+still apply. This switch changes recovery speed, not quality filters or retention.
+
+Disengagement/expiry is checked before another stream attempt and again before
+publication. A publication already inside its final lock can finish before the
+switch action completes. Successful files stay; this is not a rollback. The shared
+24-hour ledger is never cleared, so returning to normal after more than 200 recent
+attempts defers further resolution until those attempts age out. Off/Observe suspend
+the drive; returning to Repair within the original seven-day window resumes it.
+
 ## Limits and failures
 
-Each Marvin execution begins with a slice limited to 120 seconds. It selects up
+At normal speed, each Marvin execution begins with a slice limited to 120 seconds. It selects up
 to ten due titles and forty round-robin catalog rows, checking at most 200 episode
 keys per title. Episode and catalog cursors survive restarts. At most five remote
 metadata refreshes and twenty stream attempts run per slice, with a rolling cap of
@@ -113,9 +149,12 @@ Both routes require a native administrator session through the existing
 `AdminGuard`. A server API key without an administrator user is insufficient.
 
 - `GET /InfiniteDrive/Imports?Offset=0&Limit=50`: read-only, bounded page; dated
-  coverage, provider status, episode reasons, next retries, and collection summary.
+  coverage, provider status, episode reasons, next retries, collection summary,
+  speed, expiry and rolling attempt usage. LastRun includes elapsed seconds and
+  publication/upgrade counts; they are not playback or completion claims.
 - `POST /InfiniteDrive/Imports/Action`: `Action` is `mode`, `check`, `retry`,
-  `include_specials`, `exclude_specials`, or `resume_provider`.
+  `include_specials`, `exclude_specials`, `resume_provider`, `start_catch_up`, or
+  `stop_catch_up`. Catch-up actions need no extra fields; start requires Repair.
   Mode uses `Mode=Off|Observe|Repair`; specials actions use `Identity`. Existing
   block/unblock controls remain authoritative; there is no separate recovery suppression.
 

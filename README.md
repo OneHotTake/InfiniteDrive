@@ -198,6 +198,13 @@ Start in **Observe**, review the results, then enable **Repair** in the admin
 controls. Each recovery pass gets two minutes, up to 20 stream attempts and
 five ordinary version refreshes. The rolling daily cap is 200 stream attempts.
 Our Marvin task runs every ten minutes; a large library takes many passes.
+
+For a big refresh, engage **Infinite Improbability Drive** on the Marvin page.
+The switch raises recovery to eight minutes and up to 128 stream attempts per
+run, with an 8,000-attempt rolling daily ceiling. It remembers refreshed episodes,
+keeps provider backoff and media protections, and switches itself off after seven
+days. Disengage it any time: **Normality has been restored.** Actual speed depends
+on your sources; the ceiling is not a completion estimate.
 See [Import recovery](docs/import-reconciliation.md) for limits and exclusions.
 
 ## Set it up
