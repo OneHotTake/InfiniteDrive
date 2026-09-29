@@ -8,7 +8,7 @@
 Back up the Emby plugin configuration, database, and managed library state
 before upgrading.
 
-An Emby plugin that discovers streaming catalogs from [AIOStreams](https://github.com/aiostreams), writes `.strm` files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably.
+An Emby plugin that discovers streaming catalogs from [AIOStreams](https://github.com/Viren070/AIOStreams), writes `.strm` files, and resolves debrid URLs on demand. Like the Infinite Improbability Drive: a stream will appear. Probably.
 
 ---
 
@@ -58,11 +58,125 @@ as a safety net, but it is not the primary deduplication boundary.
 
 ---
 
+## How we run it
+
+Our September 2026 setup uses self-hosted **AIOStreams + AIOMetadata**, with
+personalized configurations dedicated to InfiniteDrive. The settings below are
+an example operating profile, not mandatory defaults or a guarantee that every
+title has a matching stream.
+
+```text
+AIOMetadata: catalogs and title/episode metadata
+       ↓
+AIOStreams: combines sources, filters formats, ranks stream choices
+       ↓
+InfiniteDrive / Marvin: imports catalogs, writes STRM + NFO, repairs eligible gaps
+       ↓
+Emby: indexes the library and serves native clients
+```
+
+### Separate profiles, clear catalog ownership
+
+We give InfiniteDrive its own AIOMetadata configuration and AIOStreams child
+configuration. The child inherits provider and playback connections while
+overriding catalogs, filtering, sorting and presentation. Other clients can have
+their own profiles without changing what Emby imports.
+
+AIOMetadata supplies six TMDB browse feeds: Popular, Top Rated and Trending,
+each for movies and TV. Our import cap is 4,000 entries per feed; these overlap
+and do not constitute an exhaustive database or 24,000 unique titles. Search
+and calendar endpoints are excluded from bulk import. InfiniteDrive owns our
+MDBList subscriptions directly, so their duplicate catalogs are disabled in the
+metadata profile. Feed names are provider labels; actual ordering and coverage
+depend on the provider.
+
+### Video, audio and stream preferences
+
+| Setting | Our profile |
+| --- | --- |
+| Resolution | Prefer 2160p/4K; retain lower-resolution fallbacks, including 1080p and 720p. Exclude unknown resolution. |
+| Video codec | HEVC first, then AV1 and AVC, with other fallback codecs retained. HEVC does not necessarily mean the x265 encoder. |
+| Source | Prefer Blu-ray encodes, WEB-DL and WEBRip. Exclude Blu-ray/DVD REMUX, CAM, SCR, TS, TC and 3D. |
+| 4K bitrate | Aim for roughly 25–40 Mbps. Configure **0–40,000,000 bits/second** for movies, series and anime so smaller encodes remain eligible. |
+| Picture | Prefer HDR with Dolby Vision, HDR10+ and other HDR formats; retain SDR fallback. |
+| Audio | Prefer Atmos, DTS:X, TrueHD and DTS-HD MA; retain formats such as DTS, Dolby Digital Plus, Dolby Digital and AAC. Channel preference starts with 7.1, 6.1 and 5.1. |
+| Language | Prefer English; retain unknown-language fallback. This is not an English-only filter. |
+| Availability | Cached first; exclude explicitly uncached results. We retain TorBox and Usenet alternatives. |
+| Choices | Up to eight AIOStreams results in total, at most three per resolution. InfiniteDrive also selects up to eight versions per record, with a two-version 1080p desired bucket. |
+| Duplicates | Filename/hash plus smart metadata matching, keeping service alternatives separate and allowing same-release failover. |
+
+Our upstream sort order is **cached → resolution → codec → source quality →
+bitrate → picture format → audio → language → size**, with descending priority.
+Bitrate uses reported values or a size/runtime estimate with metadata runtime
+enabled. Unknown bitrate is allowed; the ceiling is not a measured peak-bandwidth
+limit. A long film can still be a large file within that limit. Usenet's advertised
+readiness does not necessarily mean it is already physically cached.
+
+The upstream formatter uses two plain lines, for example:
+
+```text
+4K · Dolby Vision
+28 GB · Dolby Atmos 7.1 · TorBox
+```
+
+This is an illustrative label. It shows resolution/picture, size, advertised
+audio/channels and service, without release filenames, indexers or repeated
+titles. Actual passthrough and HDR support depend on the player and display.
+InfiniteDrive builds its own native version labels and ranking: the standard
+formatted addon response does not pass all structured codec/HDR information to
+its parser. Do not assume the upstream ordering or label survives unchanged.
+Emby can also merge multiple provider aliases, showing more than eight versions.
+
+### Keeping the library useful
+
+Marvin keeps existing retention rules: a transient top-ten title can leave when
+it disappears from every catalog, unless watched history, a save **or** existing
+list/collection intent retains it. Explicit blocks prevent recovery. Eligible
+missing files are automatically refilled in Repair mode, while owned media
+continues to take precedence.
+
+Changing the AIOStreams profile does not instantly replace stored selections.
+Keep the managed STRMs and let Marvin refresh them after successful resolution.
+Start with **Observe**, review coverage, then enable **Repair** through the native
+admin controls. Each recovery slice has a two-minute budget, up to 20 stream
+attempts and five ordinary version refreshes; the rolling daily limit is 200
+stream attempts. Our ten-minute Marvin trigger is a schedule, not a promise that
+the library will converge in ten minutes. See [Import recovery](./docs/import-reconciliation.md).
+
+### Reproduce the setup
+
+1. Set up [AIOStreams](https://github.com/Viren070/AIOStreams) using its
+   [official documentation](https://docs.aiostreams.viren070.me/), and configure
+   your own source/service connections. The [setup guide](https://docs.aiostreams.viren070.me/configuration/setup/)
+   offers a community-template starting point; our profile is a smaller custom
+   policy, not a copy of that complete template.
+2. Set up [AIOMetadata](https://github.com/cedya77/aiometadata) using its README
+   and deployment instructions. Create a dedicated configuration, enable the
+   browse catalogs you want and add it to your AIOStreams configuration for
+   catalog/metadata resources.
+3. Apply your quality preferences in AIOStreams. Its [configuration reference](https://docs.aiostreams.viren070.me/configuration/options/)
+   explains filtering, sorting, limits and formatters; the [Usenet guide](https://docs.aiostreams.viren070.me/guides/usenet/)
+   covers that optional source path. Our resolver timeout is 60 seconds to
+   accommodate upstream source deadlines of 45 seconds.
+4. Install InfiniteDrive from [Releases](https://github.com/OneHotTake/InfiniteDrive/releases),
+   connect the dedicated manifest, select your browse catalogs and configure
+   managed library roots. Use the [configuration contract](./docs/configuration.md)
+   and [recovery guide](./docs/import-reconciliation.md) for plugin settings.
+5. Verify a small movie/episode sample through publication, native Emby indexing
+   and playback before expanding catalog limits. Check upstream rate limits:
+   a partial or empty catalog response is not proof that every item was imported.
+
+Keep manifest URLs, configuration IDs/passwords, API keys, provider addresses
+and signed stream links private. Share settings and illustrative labels rather
+than complete configuration exports.
+
+---
+
 ## Requirements
 
 - Emby Server 4.10.0.40 (the ABI verified by the current build)
-- An [AIOStreams](https://github.com/aiostreams) manifest URL (self-hosted or configured)
-- A Real-Debrid, AllDebrid, or compatible debrid service account configured in AIOStreams
+- An [AIOStreams](https://github.com/Viren070/AIOStreams) manifest URL (self-hosted or configured)
+- A compatible streaming service/source configured in AIOStreams, such as TorBox, Real-Debrid or a supported Usenet connection
 - .NET 8.0 runtime (bundled with Emby)
 
 ---
@@ -76,10 +190,10 @@ as a safety net, but it is not the primary deduplication boundary.
 4. Restart Emby Server
 5. Navigate to **Plugins → InfiniteDrive** to configure
 
-Or use the dev scripts:
+For an isolated development server, use the dev scripts:
 
 ```bash
-./emby-reset.sh   # full reset (wipes data) — use when something is broken
+./emby-reset.sh   # disposable dev environment only: wipes its data
 ./emby-start.sh   # build + deploy + start (no data wipe)
 ```
 
@@ -161,12 +275,17 @@ AIOStreams API
      │
      ├── CatalogSyncTask        (sole upstream catalog reader; queues database rows)
      ├── RefreshTask            (consumes queued rows; writes .strm + NFO files)
+     ├── ImportReconciliationService (Observe/Repair coverage and bounded recovery)
      ├── IdResolverService      (tt/tmdb/tvdb resolution chain)
      └── StrmWriterService      (writes .strm + NFO files with Emby scanner hints)
 
 Emby Player → AioMediaSourceProvider (ranked, filtered Emby media sources)
                 └── StreamProbeService (HEAD → bounded range GET fallback)
 ```
+
+In Repair mode, the reconciliation worker owns gap filling and version refresh;
+the legacy population/verification/version-refresh stages yield to it. Catalog
+sync and existing retention cleanup continue.
 
 ### Key Design Decisions
 
