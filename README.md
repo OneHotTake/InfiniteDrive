@@ -72,6 +72,58 @@ gave InfiniteDrive.** A formatter that looks lovely in another client's profile
 does nothing for this one. Recheck it after importing a template, changing
 inheritance or applying recommended settings.
 
+#### Copy-and-paste custom formatter
+
+In the **AIOStreams configuration used by InfiniteDrive**, open **Formatter**,
+select **Custom**, and replace the **Name** and **Description** templates with
+these two blocks. If this child profile inherits its formatter, override that
+inheritance for the formatter first. Leave provider connections, filters and
+sorting as they are.
+
+**Name — paste this entire block into the Name field:**
+
+```text
+{stream.resolution::exists["{stream.resolution::replace('2160p','4K')}"||"Video"]}{stream.quality::exists[" · {stream.quality}"||""]}{stream.encode::exists[" · {stream.encode}"||""]}{stream.visualTags::exists[" · {stream.visualTags::join('/')}"||""]}
+```
+
+**Description — paste this entire block into the Description field:**
+
+```text
+{stream.size::>0["{stream.size::sbytes}"||"Size unknown"]}{stream.audioTags::exists[" · {stream.audioTags::join('/')}"||""]}{stream.audioChannels::exists[" {stream.audioChannels::join('/')}"||""]}{service.id::=aiostreams["{stream.type::=usenet[" · Service: Usenet"||""]}"||"{service.name::exists[" · Service: {service.name}"||"{service.id::exists[" · Service: {service.id}"||"{stream.type::=usenet[" · Service: Usenet"||""]}"]}"]}"]}{service.cached::isfalse[" · Not cached"||""]}
+```
+
+Copy the contents inside each code block, including braces and ordinary quotes.
+Do not paste the Markdown fences, add JSON escaping, or put both templates in one
+field. Each block is one logical line; visual wrapping in GitHub is harmless.
+**Save/update the AIOStreams configuration** after pasting. Do not subsequently
+apply InfiniteDrive's older recommended formatter, which would replace these
+values. Confirm InfiniteDrive still uses this profile's current manifest.
+
+For a cached TorBox stream with matching metadata, the AIOStreams preview is:
+
+```text
+4K · WEB-DL · HEVC · HDR10
+28 GB · Atmos/DD+ 7.1 · Service: TorBox
+```
+
+The service comes from AIOStreams, not a fixed TorBox label: known services use
+`service.name`, unfamiliar services fall back to `service.id`, and a Usenet
+stream without a named service uses `Usenet`. AIOStreams' internal `aiostreams`
+service ID is shown as `Usenet` only when `stream.type` is `usenet`; otherwise it
+is omitted. A named provider such as TorBox keeps its name even for a Usenet
+stream. Missing service information stays omitted; missing resolution/size shows
+`Video`/`Size unknown`. Only an explicit uncached flag adds `Not cached`.
+
+The Name intentionally includes source and codec as well as picture tags. These
+are reported values, not proof that every audio tag/channel count describes the
+same track. The formatter changes display text; it does not enforce HEVC, set a
+bitrate cap, change providers or create missing filename/size metadata.
+
+Verified September 29, 2026 with the installed AIOStreams formatter engine:
+11 synthetic cases covering movies/episodes, TorBox, Real-Debrid, AllDebrid,
+Premiumize, Usenet, an unfamiliar service ID, absent metadata and uncached results.
+This checks template rendering; it is not a new playback acceptance test.
+
 Standard Stremio responses can omit AIOStreams' structured `parsedFile` and
 `service` fields. InfiniteDrive then reads `behaviorHints.filename` and formatted
 text. Removing or disguising those signals can change filtering, ranking and
@@ -98,18 +150,12 @@ The rules are deliberately boring:
 - Preserve the playable `url`. Pretty labels cannot repair an expired URL,
   missing source, authentication failure or incompatible media.
 
-We use two lines. For example:
-
-```text
-4K · Dolby Vision
-28 GB · Dolby Atmos 7.1 · TorBox
-```
-
 No release filenames, indexer names or repeated movie titles. The label describes
 the source; your player and display determine what you can actually use.
 
-InfiniteDrive makes its own Emby labels and ranks results again. The formatted
-addon response omits some codec and HDR data, so labels and order can differ.
+InfiniteDrive makes its own Emby labels and ranks results again. Standard addon
+responses can omit structured codec/HDR fields, and not every formatted value
+flows into InfiniteDrive's stored labels, so labels and order can differ.
 Emby version labels now include the delivery service when identified, including
 on the primary version. Structured service names/IDs support other providers;
 standard responses use explicit `Service:`/`Provider:` text or recognized service
@@ -129,7 +175,7 @@ a successful refresh updates them. Do not wipe the library to test a formatter.
 
 In 0.42.5, the plugin's **recommended formatter & sort** action uses an older
 template that does not include the service and also changes sorting. It is not
-the two-line profile shown here. Review its preview and preserve your intended
+the copy-and-paste formatter above. Review its preview and preserve your intended
 quality policy; add the service field in AIOStreams before relying on provider
 labels. See [configuration](docs/configuration.md#aiostreams-formatter).
 
