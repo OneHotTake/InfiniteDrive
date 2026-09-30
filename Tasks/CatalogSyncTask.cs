@@ -101,6 +101,7 @@ namespace InfiniteDrive.Tasks
             Plugin.Pipeline.SetPhase("CatalogSync", "Fetch");
             progress?.Report(5);
             _logger.LogDebug("[InfiniteDrive] Starting FetchFromAllProvidersAsync with {Count} providers", providers.Count);
+            var plannedProviders = providers.Count;
             var (allItems, fetchedSourceIds, attemptedProviders) = await FetchFromAllProvidersAsync(providers, config, db, cancellationToken);
             _logger.LogInformation(
                 "[InfiniteDrive] Fetched {Count} raw catalog items from all sources (attempted {Attempted} providers)",
@@ -118,6 +119,7 @@ namespace InfiniteDrive.Tasks
                 var (cinemetaItems, cinemetaIds, _) = await FetchFromAllProvidersAsync(
                     new List<ICatalogProvider> { new CinemetaDefaultProvider() },
                     config, db, cancellationToken);
+                plannedProviders++;
                 allItems.AddRange(cinemetaItems);
                 foreach (var kvp in cinemetaIds)
                     fetchedSourceIds[kvp.Key] = kvp.Value;
@@ -136,7 +138,7 @@ namespace InfiniteDrive.Tasks
             progress?.Report(40);
 
             // 3b. Prune items removed from their sources (with safety check)
-            await PruneRemovedItemsAsync(db, fetchedSourceIds, attemptedProviders, cancellationToken);
+            await PruneRemovedItemsAsync(db, fetchedSourceIds, plannedProviders, config, cancellationToken);
 
             // 4. Check that Emby libraries cover the sync paths; warn if not
             WarnIfLibrariesMissing(config);
@@ -332,7 +334,7 @@ namespace InfiniteDrive.Tasks
                     foreach (var fi in fetchResult.Items)
                         results.Add(fi);
 
-                    if (fetchResult.ProviderReachable && fetchResult.Items.Count > 0)
+                    if (CatalogPruningPolicy.IsCompleteProviderSnapshot(fetchResult))
                     {
                         var idSet = fetchedSourceIds.GetOrAdd(provider.SourceKey,
                             _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
@@ -496,10 +498,11 @@ namespace InfiniteDrive.Tasks
             Data.DatabaseManager                    db,
             Dictionary<string, HashSet<string>>     fetchedSourceIds,
             int                                   totalProviders,
+            PluginConfiguration                     config,
             CancellationToken                       cancellationToken)
         {
             // Skip pruning if any source failed to fetch
-            if (fetchedSourceIds.Count < totalProviders)
+            if (!CatalogPruningPolicy.CanObserveAbsence(fetchedSourceIds.Count, totalProviders))
             {
                 _logger.LogInformation(
                     "[InfiniteDrive] Skipping pruning — only {Fetched}/{Total} sources fetched successfully. Some resolvers may be down.",
@@ -515,13 +518,15 @@ namespace InfiniteDrive.Tasks
                     allPresentAioIds.Add(id);
             }
 
+            if (allPresentAioIds.Count == 0) return; // Empty snapshots cannot authorize retirement.
+
             // Global increment + reset
             await db.IncrementGlobalAbsentSyncsAsync(allPresentAioIds, cancellationToken);
 
             // Get prune candidates (absent past threshold, not blocked, not in any
             // list/membership, not in playback_log), then filter out anything Emby
             // marks as played by ANY user — ever-watched content is never auto-pruned.
-            List<(string? StrmPath, string AioId)> candidates;
+            List<(string Id, string? StrmPath, string AioId)> candidates;
             try
             {
                 candidates = await db.GetAbsentPruneCandidatesAsync(cancellationToken);
@@ -535,54 +540,31 @@ namespace InfiniteDrive.Tasks
             if (candidates.Count == 0)
                 return;
 
-            var toDeleteAioIds = new List<string>();
-            var removedPaths = new List<string>();
-            int keptWatched = 0;
+            var toRetire = new List<(string Id, string? StrmPath, string AioId)>();
+            int keptProtected = 0;
             foreach (var c in candidates)
             {
-                if (HasBeenPlayedByAnyUser(c.AioId))
+                cancellationToken.ThrowIfCancellationRequested();
+                if ((!string.IsNullOrEmpty(c.StrmPath) && !CatalogPruningPolicy.IsManagedPath(config, c.StrmPath))
+                    || HasProtectedNativeState(c.AioId, config))
                 {
-                    keptWatched++;
-                    continue; // ever-watched → keep
+                    keptProtected++;
+                    continue;
                 }
-                toDeleteAioIds.Add(c.AioId);
-                if (!string.IsNullOrEmpty(c.StrmPath)) removedPaths.Add(c.StrmPath!);
+                toRetire.Add(c);
             }
-
-            if (keptWatched > 0)
-                _logger.LogInformation("[InfiniteDrive] CatalogSyncTask: kept {Count} ever-watched items from pruning", keptWatched);
-
-            if (toDeleteAioIds.Count == 0)
-                return;
-
+            if (keptProtected > 0)
+                _logger.LogInformation("[InfiniteDrive] CatalogSyncTask: retained {Count} protected or unverified prune candidates", keptProtected);
+            if (toRetire.Count == 0) return;
             try
             {
-                await db.SoftDeleteCatalogItemsAsync(toDeleteAioIds, cancellationToken);
+                var retiredCount = await db.RetireAbsentCatalogItemsAsync(toRetire, cancellationToken);
+                _logger.LogInformation("[InfiniteDrive] CatalogSyncTask: retired {Count} absent broad-feed rows; native orphan cleanup handles unreferenced STRMs", retiredCount);
             }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[InfiniteDrive] CatalogSyncTask: soft-delete failed");
-                return;
-            }
-
-            if (removedPaths.Count == 0)
-                return;
-
-            _logger.LogInformation(
-                "[InfiniteDrive] CatalogSyncTask: pruning {Count} globally absent items",
-                removedPaths.Count);
-
-            foreach (var strmPath in removedPaths)
-            {
-                try
-                {
-                    Plugin.Instance!.StrmFileManager.DeleteWithVersions(strmPath);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogDebug(ex,
-                        "[InfiniteDrive] CatalogSyncTask: could not delete {Path}", strmPath);
-                }
+                _logger.LogWarning(ex, "[InfiniteDrive] CatalogSyncTask: absent retirement failed");
             }
         }
 
@@ -639,19 +621,11 @@ namespace InfiniteDrive.Tasks
             return map;
         }
 
-        /// <summary>
-        /// Authoritative "ever watched" check against Emby's own play state: returns true
-        /// if the item (located by provider id) has been played by ANY user. Used to keep
-        /// watched content from being auto-pruned. Defensive: any lookup failure returns
-        /// false (treat as not-played) so a transient error never blocks pruning forever —
-        /// the SQL guards (membership/playback_log) remain the first line of protection.
-        /// </summary>
-        private bool HasBeenPlayedByAnyUser(string aioId)
+        // Native ownership and user history participate in retention; lookup failures retain.
+        private bool HasProtectedNativeState(string aioId, PluginConfiguration config)
         {
             try
             {
-                if (string.IsNullOrEmpty(aioId)) return false;
-
                 var providerIds = new List<KeyValuePair<string, string>>();
                 if (aioId.StartsWith("tt", StringComparison.OrdinalIgnoreCase))
                     providerIds.Add(new KeyValuePair<string, string>("Imdb", aioId));
@@ -660,27 +634,23 @@ namespace InfiniteDrive.Tasks
                     var num = new string(aioId.Where(char.IsDigit).ToArray());
                     if (!string.IsNullOrEmpty(num)) providerIds.Add(new KeyValuePair<string, string>("Tmdb", num));
                 }
-                if (providerIds.Count == 0) return false;
-
+                if (providerIds.Count == 0) return true;
                 var items = _libraryManager.GetItemList(new InternalItemsQuery
                 {
                     AnyProviderIdEquals = providerIds,
                     IncludeItemTypes = new[] { "Movie", "Series", "Episode" },
-                    Limit = 1,
+                    Recursive = true,
                 });
-                if (items == null || items.Length == 0 || items[0] == null) return false;
-
-                var item = items[0]!;
-                foreach (var user in _userManager.Users)
-                {
-                    if (item.IsPlayed(user)) return true;
-                }
-                return false;
+                return CatalogPruningPolicy.HasProtectedNativeItems(items, _userManager.Users,
+                    item => _libraryManager.GetItemList(new InternalItemsQuery
+                    { AncestorIds = new[] { item.InternalId }, Recursive = true, IncludeItemTypes = new[] { "Episode" } }),
+                    (user, item) => BaseItem.UserDataManager?.GetUserData(user, item),
+                    item => !string.IsNullOrWhiteSpace(item.Path) && !CatalogPruningPolicy.IsManagedPath(config, item.Path));
             }
             catch (Exception ex)
             {
-                _logger.LogDebug(ex, "[InfiniteDrive] played-by-any-user check failed for {AioId}", aioId);
-                return false;
+                _logger.LogWarning(ex, "[InfiniteDrive] Native retention lookup failed for {AioId}; retaining title", aioId);
+                return true;
             }
         }
 

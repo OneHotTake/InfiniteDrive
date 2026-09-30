@@ -422,13 +422,20 @@ namespace InfiniteDrive.Tasks
         internal const int AioCatalogPageSize = 100;
         internal const int AioCatalogMaxPages = 200;
 
-        internal static async Task<(List<CatalogItem> Items, CatalogOutcome Outcome)> FetchOneCatalogAsync(
+        internal static Task<(List<CatalogItem> Items, CatalogOutcome Outcome)> FetchOneCatalogAsync(
             AioStreamsClient      client,
             AioStreamsCatalogDef  catalog,
             ILogger               logger,
             int                   itemCap,
             CancellationToken     cancellationToken,
             Func<int, Task>?      onProgress = null)
+            => FetchCatalogPagesAsync(catalog, logger, itemCap, cancellationToken,
+                offset => offset == 0 ? client.GetCatalogAsync(catalog.Type!, catalog.Id!, cancellationToken)
+                    : client.GetCatalogAsync(catalog.Type!, catalog.Id!, null, null, offset, cancellationToken), onProgress);
+
+        internal static async Task<(List<CatalogItem> Items, CatalogOutcome Outcome)> FetchCatalogPagesAsync(
+            AioStreamsCatalogDef catalog, ILogger logger, int itemCap, CancellationToken cancellationToken,
+            Func<int, Task<AioStreamsCatalogResponse?>> fetchPage, Func<int, Task>? onProgress = null)
         {
             var items    = new List<CatalogItem>();
             var seenIds  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -442,12 +449,13 @@ namespace InfiniteDrive.Tasks
                     cancellationToken.ThrowIfCancellationRequested();
 
                     // First page uses the simple URL; subsequent pages add skip=N
-                    var response = offset == 0
-                        ? await client.GetCatalogAsync(catalog.Type!, catalog.Id!, cancellationToken)
-                        : await client.GetCatalogAsync(catalog.Type!, catalog.Id!, null, null, offset, cancellationToken);
+                    var response = await fetchPage(offset);
 
-                    if (response?.Metas == null || response.Metas.Count == 0)
-                        break;
+                    if (response?.Metas == null)
+                        return (items, new CatalogOutcome { Succeeded = false, ItemCount = items.Count,
+                            Error = "Catalog page unavailable; partial data retained" });
+                    if (response.Metas.Count == 0)
+                        return (items, new CatalogOutcome { Succeeded = true, ItemCount = items.Count });
 
                     var newIdsOnPage = 0;
                     foreach (var meta in response.Metas)
@@ -474,12 +482,14 @@ namespace InfiniteDrive.Tasks
                     // every selected catalog at 20. Stop only when the addon returns
                     // no rows or repeats a page without yielding a usable new ID.
                     if (newIdsOnPage == 0)
-                        break;
+                        return (items, new CatalogOutcome { Succeeded = false, ItemCount = items.Count,
+                            Error = "Catalog repeated a page before reaching its configured limit" });
 
                     offset += response.Metas.Count;
                 }
 
-                return (items, new CatalogOutcome { Succeeded = true, ItemCount = items.Count });
+                return (items, new CatalogOutcome { Succeeded = items.Count >= itemCap, ItemCount = items.Count,
+                    Error = items.Count >= itemCap ? null : "Catalog page ceiling reached before its configured limit" });
             }
             catch (OperationCanceledException)
             {

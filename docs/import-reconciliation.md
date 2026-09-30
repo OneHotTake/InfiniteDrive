@@ -30,7 +30,29 @@ leave the library after they disappear from every catalog unless retained by the
 existing saved/list/collection or watched-content policy. A pruned title is not
 recreated until catalog re-entry or new authorized intent. Another active source
 keeps a shared title eligible. This feature does not change retention thresholds
-or replace the pruning policy. Successful
+or replace the pruning policy.
+
+Broad-feed pruning requires three fresh, complete observations of all configured
+providers. An interval-skipped provider, failed catalog, missing page, repeated page
+before its cap, or empty combined snapshot postpones absence counting and retirement.
+Each complete sync increments an absent title once, regardless of catalog size.
+On upgrade the invalid older absence counters are reset once, with a durable policy
+marker; catalog history, retry/backoff, blocks and user state remain intact.
+Automatic retirement is limited to broad-feed rows: validated managed STRMs and
+unpublished metadata with no local-media path. Retiring metadata alone does not
+authorize file deletion. External-list titles,
+owned-media aliases, pins, collections, playback history, saves, favorites and partial
+watch progress retain a title. IMDb and same-type TMDB aliases are checked together.
+Native checks cover every version, every user and series episodes; an unavailable
+check retains the title. Retirement rechecks database protections under the publication
+lock. Existing orphan cleanup removes unreferenced STRMs afterward; retirement does
+not recursively delete a title directory or prove its files have already disappeared.
+Before upgrading, back up the database and configuration. The additive policy marker
+and indexes can remain if binaries are rolled back. Older binaries still have the
+unsafe pruning behavior: defer broad catalog sync while running them. Do not restore
+an older database over newer playback, list, block or acquisition state.
+
+Successful
 native indexing requires matching provider identity, episode numbering, and a
 managed path. A file alone is awaiting indexing. Multiple versions count as one
 episode; an explicit native multi-episode range may cover multiple episode keys.
@@ -195,6 +217,14 @@ the existing locked Marvin path. They do not create another scheduler. Reading
 status never creates tables, contacts providers, or triggers work.
 
 ## Verification and rollout
+
+September 30, 2026 pruning safety verification: the pinned Emby 4.10.0.40 build
+passed all 199 tests and published a release DLL. New cases exercise real SQLite
+absence counting across more than two batches, the one-time policy reset, guarded
+retirement including unpublished metadata, typed source aliases and late list
+protection; controlled native adapters cover all versions, episodes, user history
+and unavailable checks. This verifies the implementation, not production deletion,
+playback or a completed capped-catalog transition.
 
 The regression suite uses the actual Emby SQLite provider with temporary databases,
 plus controlled metadata/stream adapters. It covers unchanged inventory, partial
