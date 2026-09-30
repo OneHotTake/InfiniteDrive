@@ -12,10 +12,13 @@ namespace InfiniteDrive.UI.Settings
         public override string EditorDescription => "Brain the size of a planet. Still on library duty.";
 
         public CaptionItem DashboardCaption { get; set; } = new CaptionItem("Marvin dashboard");
-        public LabelItem DashboardHelp { get; set; } = new LabelItem("A dated snapshot of the worker. Refresh to update. Writes are movie/episode groups, not alternate files or proof of playback.");
+        public LabelItem DashboardHelp { get; set; } = new LabelItem("Current activity and results from the repair pass. Refresh to update. A saved stream still needs a playback test.");
         public ButtonItem RefreshDashboard { get; set; } = new ButtonItem("Refresh dashboard") { Data1 = "ImportRefresh" };
         public GenericItemList DashboardItems { get; set; } = new GenericItemList();
-        public CaptionItem HistoryCaption { get; set; } = new CaptionItem("Recent passes");
+        public CaptionItem TimingCaption { get; set; } = new CaptionItem("Repair timings");
+        public GenericItemList TimingItems { get; set; } = new GenericItemList();
+        public LabelItem TimingHelp { get; set; } = new LabelItem("Resolution includes pacing and provider wait. Parallel totals overlap. p95 uses the latest 512 calls; averages and totals cover the pass. Checkpoint covers observation saves.");
+        public CaptionItem HistoryCaption { get; set; } = new CaptionItem("Recent repair passes");
         public GenericItemList RecentRuns { get; set; } = new GenericItemList();
         public StatusItem MarvinStatus { get; set; } = new StatusItem("Last library pass", "No report yet", ItemStatus.None);
         public ButtonItem RunMarvinNowButton { get; set; } = new ButtonItem("Run Marvin now")

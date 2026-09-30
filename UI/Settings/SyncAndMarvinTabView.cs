@@ -119,28 +119,31 @@ namespace InfiniteDrive.UI.Settings
                 var hasLedger = db.GetMetadata("import_schema") == "1";
                 var used = hasLedger ? await db.GetRecentImportAttemptsAsync(now) : 0;
                 var nextCredit = hasLedger ? await db.GetNextImportCreditAsync(now, speed.AttemptsPerDay) : null;
-                UI.DashboardItems.Clear(); UI.RecentRuns.Clear();
+                UI.DashboardItems.Clear(); UI.TimingItems.Clear(); UI.RecentRuns.Clear();
+                var phase = Plugin.Pipeline.Current;
+                AddDashboard("Worker", phase == null ? "Between scheduled passes" : $"{phase.TaskName} · {PhaseLabel(phase.PhaseName)} · {Math.Max(0,(now-phase.StartedAt).TotalSeconds):N0}s in this step");
                 AddDashboard("Read at", $"{now:yyyy-MM-dd HH:mm:ss} UTC · Refresh dashboard to update");
                 AddDashboard("Rolling 24-hour allowance", $"{used:N0} / {speed.AttemptsPerDay:N0} attempts · {Math.Max(0, speed.AttemptsPerDay-used):N0} available" +
                     (nextCredit.HasValue ? $" · earliest credit {When(nextCredit, now)}" : ""));
                 var current = ImportRunTelemetry.Current;
                 var lastRun = db.GetMetadata("import_last_run");
-                if (current != null) DrawRun(current, current.Status == "running" ? "Current run" : "Latest run in this server session");
+                if (current != null) DrawRun(current, current.Status == "running" ? "Current repair pass" : "Latest repair pass");
                 else if (lastRun != null)
                 {
                     using var saved = JsonDocument.Parse(lastRun);
                     if (saved.RootElement.TryGetProperty("Analytics", out var analytics))
                     {
                         var restored = analytics.Deserialize<ImportRunSnapshot>();
-                        if (restored != null) DrawRun(restored, "Last saved run (before this server restart)");
+                        if (restored != null) DrawRun(restored, "Last saved repair pass");
                     }
-                    else AddDashboard("Current run", "No timing sample yet. Older reports have counts only.");
+                    else AddDashboard("Repair pass", "No timing sample yet. Older reports have counts only.");
                 }
                 foreach (var payload in await db.GetImportRunHistoryAsync())
                 {
                     using var document = JsonDocument.Parse(payload); var row = document.RootElement;
                     UI.RecentRuns.Add(new GenericListItem {
-                        PrimaryText = $"{row.GetProperty("FinishedAt").GetDateTimeOffset():HH:mm:ss} UTC · {row.GetProperty("Status").GetString()}",
+                        Icon = IconNames.history, IconMode = ItemListIconMode.SmallRegular, Status = ItemStatus.None,
+                        PrimaryText = $"{row.GetProperty("FinishedAt").GetDateTimeOffset():MMM dd HH:mm:ss} UTC · {row.GetProperty("Status").GetString()}",
                         SecondaryText = $"{row.GetProperty("ElapsedSeconds").GetDouble():N0}s · {row.GetProperty("Attempts").GetInt32():N0} attempts · {row.GetProperty("Published").GetInt32():N0} groups written" });
                 }
                 if (lastRun == null)
@@ -192,7 +195,7 @@ namespace InfiniteDrive.UI.Settings
                         UI.ImportItems.Add(new GenericListItem
                         {
                             PrimaryText = (episode.Season.HasValue ? $"S{episode.Season:D2}E{episode.Episode:D2}" : "Movie") + " · " + reason,
-                            SecondaryText = more,
+                            SecondaryText = more, Icon = IconNames.info, IconMode = ItemListIconMode.SmallRegular, Status = ItemStatus.None,
                         });
                     }
                 }
@@ -206,7 +209,7 @@ namespace InfiniteDrive.UI.Settings
         }
 
         private void AddDashboard(string title, string detail) =>
-            UI.DashboardItems.Add(new GenericListItem { PrimaryText = title, SecondaryText = detail });
+            UI.DashboardItems.Add(new GenericListItem { PrimaryText = title, SecondaryText = detail, Icon = IconNames.info, IconMode = ItemListIconMode.SmallRegular, Status = ItemStatus.None });
 
         private void DrawRun(ImportRunSnapshot run, string label)
         {
@@ -214,15 +217,27 @@ namespace InfiniteDrive.UI.Settings
             if (run.Status == "running") AddDashboard("Doing", $"{run.Phase.Replace('_',' ')} · {run.PhaseSeconds:N0}s in this step" +
                 (run.Title.Length > 0 ? $" · {run.Title} {run.EpisodeKey}" : ""));
             AddDashboard("Lookups", $"{run.ActiveLookups:N0} in flight (includes paced waiting) · {run.MissingAttempts:N0} missing-file attempts · {run.RefreshAttempts:N0} refresh attempts");
-            AddDashboard("Results", $"{run.Matched:N0} matched · {run.EmptyResults:N0} empty · {run.TransportFailures:N0} transport failures · {run.LookupDeadlines:N0} deadlines · {run.Http429:N0} HTTP 429 · {run.ProviderConfigurationFailures:N0} provider settings failures · {run.CancelledLookups:N0} cancelled");
+            AddDashboard("Source results", $"{run.Matched:N0} matched · {run.EmptyResults:N0} empty · {run.CancelledLookups:N0} cancelled");
+            AddDashboard("Source failures", $"{run.TransportFailures:N0} transport · {run.LookupDeadlines:N0} lookup deadlines · {run.Http429:N0} HTTP 429 · {run.ProviderConfigurationFailures:N0} provider settings");
             AddDashboard("Files published", $"{run.Published:N0} movie/episode groups written · {run.Refreshed:N0} replaced old choices · {run.PublicationFailures:N0} publication failures · {run.EpisodesChecked:N0} episode/movie checks");
             foreach (var entry in run.Timings)
             {
                 var timing = entry.Value;
-                AddDashboard(entry.Key + " timing", $"{timing.Count:N0} calls · mean {timing.MeanSeconds:N2}s · p95 {timing.P95Seconds:N2}s · max {timing.MaxSeconds:N2}s · total {timing.TotalSeconds:N1}s");
+                UI.TimingItems.Add(new GenericListItem { PrimaryText = PhaseLabel(entry.Key), SecondaryText = $"{timing.Count:N0} calls · average {timing.MeanSeconds:N2}s · p95 {timing.P95Seconds:N2}s · slowest {timing.MaxSeconds:N2}s · total {timing.TotalSeconds:N1}s", Icon = IconNames.timer, IconMode = ItemListIconMode.SmallRegular, Status = ItemStatus.None });
             }
-            AddDashboard("Timing scope", "Resolution includes dispatch pacing and provider wait. Parallel call totals overlap; they are not wall-clock time. p95 uses the latest 512 samples per stage; other statistics cover this run. Checkpoint timing covers observation saves only.");
+
         }
+
+        private static string PhaseLabel(string phase) => phase switch
+        {
+            "ImportReconciliation" => "Repairing stream choices", "Sync+Populate" => "Syncing catalogs",
+            "Resolve" => "Resolving metadata", "VersionRefresh" => "Refreshing versions",
+            "CollectionPopulation" => "Updating collections", "Repair" => "Checking system state",
+            "Validation" => "Validating the library", "PhysicalMediaReconciliation" => "Checking owned media",
+            "Enrichment" => "Enriching metadata", "TokenRenewal" => "Renewing stream tokens",
+            "metadata" => "Metadata", "observation" => "Library observation", "resolution" => "Source lookup",
+            "publication" => "File publication", "checkpoint" => "Saving observations", _ => phase.Replace('_',' '),
+        };
 
         private static string When(DateTimeOffset? value, DateTimeOffset now)
         {

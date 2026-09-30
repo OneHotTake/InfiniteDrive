@@ -216,7 +216,10 @@ leave publication pending; the worker does not repeatedly download/rewrite it.
 
 ## Dashboard and timing history
 
-The native Marvin page has a **Refresh dashboard** button. It reads a timestamped
+The native Marvin page has a **Refresh dashboard** button. Current worker phase is
+shown separately from the repair-pass report: Marvin can continue catalog, collection
+and maintenance work after that report finishes. Repair timings and recent passes
+have their own sections, with compact native Emby rows. It reads a timestamped
 snapshot, including the current phase/title/episode, elapsed time, lookups in
 flight (including paced waiting), episode/movie checks, missing and refresh
 attempts, source matches, empty responses, transport errors, lookup deadlines,
