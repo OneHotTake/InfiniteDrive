@@ -37,21 +37,38 @@ television series. Episodic AniList entries use the series import path and serie
 library destination. This does not enable a new absolute-numbered anime policy.
 Season/episode identity still depends on the configured metadata provider.
 
-These parser repairs are on the review branch and are **not part of release
-0.42.8**. On September 30, 2026, synthetic response tests reproduced the original
+Release **0.42.9** includes these parser repairs. On September 30, 2026,
+synthetic response tests reproduced the original
 Trakt, TMDB and AniList defects before the fixes. The tests exercise the production
 parsers and check that their output agrees with the episode import contract.
-The repaired pinned-ABI build passed all 157 tests and published successfully.
-They do not establish live provider availability, successful enrichment or playback.
+The repaired 0.42.9 pinned-ABI build passed all 165 tests and published
+successfully, including eight real SQLite cases for identity persistence. These
+checks do not establish live provider availability, successful enrichment or playback.
 
 ### Existing misclassified rows
 
 Refreshing a list does **not** automatically convert an existing movie row into
 a series. Parser fixes protect newly imported rows; existing rows retain their
-media type. Previously misclassified rows need a separate, backed-up repair of
+media type. Generic single and bulk catalog upserts reject a media-type change
+for a row with a managed STRM path or an owned-media retirement. This prevents a
+stale worker DTO from undoing a repaired destination; it reports
+`managed_identity_conflict` rather than pretending to convert the row. Bulk sync
+skips only conflicting rows and reports the accepted count. Compatible
+anime/series updates retain the existing managed destination type. A refresh
+that omits year or TMDB ID keeps the existing known values.
+
+Previously misclassified rows need a separate, backed-up repair of
 their media type and managed destination. Existing movie STRMs must never be
 renamed into fake episodes. Preserve list memberships, user blocks, retry history
 and owned media; verify episode imports separately from playback.
+
+### September 30, 2026 — 0.42.9
+
+- Preserve movie/series identity and release year across supported list providers.
+- Reject incompatible managed catalog upserts; preserve known year/TMDB values
+  when a refresh omits them.
+- Keep existing rows, files, import journals, blocks and owned-media retirement
+  safeguards. There is no automatic database migration or STRM wipe.
 
 ## Other implementations
 

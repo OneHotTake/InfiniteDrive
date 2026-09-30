@@ -453,9 +453,9 @@ namespace InfiniteDrive.Tasks
 
             try
             {
-                await db.BulkUpsertCatalogItemsAsync(items, cancellationToken);
+                var accepted = await db.BulkUpsertCatalogItemsAsync(items, cancellationToken);
                 _logger.LogInformation(
-                    "[InfiniteDrive] Bulk upserted {Count} catalog items", items.Count);
+                    "[InfiniteDrive] Bulk upserted {Count}/{Total} catalog items", accepted, items.Count);
             }
             catch (Exception ex)
             {
