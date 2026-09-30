@@ -57,7 +57,6 @@ public sealed class ImportReconciliationService
         var runId = Guid.NewGuid().ToString("N");
         var status = "success";
         var pending = new List<ResolutionWork>();
-        var gapAttempts = 0;
 
         async Task<ResolutionResult> ResolveAsync(CatalogItem item, ImportEpisode episode)
         {
@@ -134,6 +133,17 @@ public sealed class ImportReconciliationService
             pending.Remove(work);
             await CompleteAsync(work);
         }
+
+        async Task DrainCompletedAsync()
+        {
+            // Publish ready results before more inventory work. Waiting for 64
+            // queued requests (or the end of the page) strands small batches.
+            while (pending.FirstOrDefault(x => x.Resolution.IsCompleted) is { } work)
+            {
+                pending.Remove(work);
+                await CompleteAsync(work);
+            }
+        }
         try
         {
             await _db.EnsureImportCoverageAsync(token);
@@ -166,6 +176,7 @@ public sealed class ImportReconciliationService
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var sourceItem in page)
             {
+                await DrainCompletedAsync();
                 var item = sourceItem;
                 token.ThrowIfCancellationRequested();
                 if (_mode() == ImportMode.Off) break;
@@ -240,6 +251,7 @@ public sealed class ImportReconciliationService
                     if (episodes.Count == 0) { coverage.Cursor = ""; episodes = coverage.Items.OrderBy(x => x.Key, StringComparer.Ordinal).Take(200).ToList(); }
                     foreach (var episode in episodes)
                     {
+                        await DrainCompletedAsync();
                         token.ThrowIfCancellationRequested();
                         now = _clock();
                         ImportObservation observation;
@@ -283,9 +295,9 @@ public sealed class ImportReconciliationService
                         // Adopting an existing file is not a successful refresh against the current profile.
                         if ((episode.State != "missing" && !upgrade) || coverage.SnapshotStatus != "success" ||
                             _inventory.ProviderPaused || attempts >= allowance.AttemptsPerSlice ||
-                            (allowance.IsCatchUp && !upgrade && gapAttempts >= ImportWorkBudget.Normal.AttemptsPerSlice) || _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= allowance.AttemptsPerDay) continue;
+                            _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= allowance.AttemptsPerDay) continue;
                         attempts++;
-                        if (upgrade) upgrades++; else gapAttempts++;
+                        if (upgrade) upgrades++;
                         var lease = Guid.NewGuid().ToString("N");
                         episode.Lease = lease; episode.LeaseUntil = now.AddMinutes(10);
                         if (!upgrade) episode.InitialFailure = true; episode.Attempts++;
@@ -293,6 +305,7 @@ public sealed class ImportReconciliationService
                         await SaveObservedAsync(coverage, token);
                         pending.Add(new(coverage, item, episode, coverage.Generation, lease, upgrade,
                             episode.State, ResolveAsync(item, episode)));
+                        await DrainCompletedAsync();
                         if (pending.Count >= allowance.Parallelism) await DrainOneAsync();
                     }
                     scanned++;

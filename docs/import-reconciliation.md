@@ -99,21 +99,24 @@ again does not extend its window or reset its progress.
 | Stream attempts per rolling 24 hours | 200 | 40,000 |
 | Concurrent recovery lookups | 1 | 64 |
 | Starts per second in maintenance lane | — | 2 |
-| Missing-file fills per run | 20 | 20 |
+| Missing-file fills per run | 20 | Up to 4,096, sharing the total attempt budget |
 
 These are ceilings, not promised throughput. Upstream latency, unavailable sources,
 provider backoff, native indexing and the rest of Marvin's work determine actual
 progress. The existing task schedule stays in place. Catch-up has a separate 64-slot AIO
-maintenance lane, paced to two starts a second. Ordinary lookups retain their
+maintenance lane, paced to two starts a second. Missing-file repairs and existing
+version refreshes share its larger attempt allowance. Ordinary lookups retain their
 shared two-slot lane. File publication and state changes remain serial. No extra
-scheduler is started. Queued lookups are joined before a cancelled run releases
+scheduler is started. Completed lookups publish between inventory checks, rather
+than waiting for a full request batch or the end of the catalog page. Queued lookups are joined before a cancelled run releases
 its lock; late results cannot publish after disengagement or a generation change.
 
 A successfully refreshed movie/episode is skipped for the remainder of that drive
 window. Its checkpoint survives a restart. Unfinished existing versions are
 revisited alongside bounded missing-file repairs. Catch-up scans catalog rows with
-existing managed paths first, using its own window/cursor; it does not spend the
-backlog budget creating thousands of newly catalogued episodes. The normal catalog
+existing managed paths first, using its own window/cursor; it also repairs eligible
+gaps for these titles and due authorized work. It does not sweep the entire
+unmaterialized catalog. The normal catalog
 sweep resumes when catch-up ends. The cursor also revisits episode inventories
 larger than a 200-key page. An unavailable
 episode does not prevent refreshing its eligible siblings. Valid existing managed

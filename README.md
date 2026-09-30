@@ -31,8 +31,9 @@ connections. It has its own catalogs, filters, sorting and labels. Other clients
 use separate profiles.
 
 AIOMetadata supplies Popular, Top Rated and Trending feeds for movies and TV.
-We cap each of those six feeds at 4,000 entries. They overlap; this is neither
-24,000 unique titles nor a complete TMDB import. Feed order depends on the
+We cap each movie feed at 200 titles and each TV feed at 50 series. They overlap;
+750 memberships is the combined ceiling, not a unique-title count or a complete
+TMDB import. Feed order depends on the
 provider. We skip search and calendar feeds during bulk import.
 
 InfiniteDrive handles our MDBList subscriptions directly. We disable their
@@ -201,8 +202,10 @@ Our Marvin task runs every ten minutes; a large library takes many passes.
 
 For a big refresh, engage **Infinite Improbability Drive** on the Marvin page.
 The switch runs up to 64 lookups together, paced to two starts a second. Each
-pass gets eight minutes, up to 4,096 attempts and a rolling daily ceiling of
-40,000. Existing STRMs get priority. It remembers refreshed episodes,
+pass gets eight minutes, up to 4,096 attempts shared by missing-file repairs and
+existing-file refreshes, and a rolling daily ceiling of 40,000. Existing managed
+titles get priority. Completed lookups publish while inventory checks continue.
+It remembers refreshed episodes,
 keeps provider backoff and media protections, and switches itself off after seven
 days. Disengage it any time: **Normality has been restored.** Actual speed depends
 on your sources; the ceiling is not a completion estimate.
