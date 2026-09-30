@@ -118,11 +118,13 @@ namespace InfiniteDrive.Data
                  @tvdb_id, @raw_meta_json, @catalog_type, @videos_json, @episodes_expanded, @last_expanded_at, @last_verified_at,
                  @source_manifest_url, @selected_versions_json, @last_version_refresh_at)
             ON CONFLICT(aio_id, source) DO UPDATE SET
-                tmdb_id       = excluded.tmdb_id,
+                tmdb_id       = COALESCE(excluded.tmdb_id, catalog_items.tmdb_id),
                 unique_ids_json = COALESCE(excluded.unique_ids_json, catalog_items.unique_ids_json),
                 title         = excluded.title,
-                year          = excluded.year,
-                media_type    = excluded.media_type,
+                year          = COALESCE(excluded.year, catalog_items.year),
+                media_type    = CASE WHEN (catalog_items.strm_path IS NOT NULL AND catalog_items.strm_path<>'')
+                                         OR (catalog_items.item_state=3 AND catalog_items.local_source='library')
+                                     THEN catalog_items.media_type ELSE excluded.media_type END,
                 seasons_json  = COALESCE(excluded.seasons_json, catalog_items.seasons_json),
                 strm_path     = CASE WHEN catalog_items.item_state = 3 THEN NULL
                                      ELSE COALESCE(excluded.strm_path, catalog_items.strm_path) END,
@@ -158,11 +160,7 @@ namespace InfiniteDrive.Data
             BindNullableText(cmd, "@unique_ids_json", item.UniqueIdsJson);
             BindText(cmd, "@title",          item.Title);
             BindNullableInt(cmd,  "@year",           item.Year);
-            var rawMediaType = item.MediaType;
-            var validMediaType = string.IsNullOrEmpty(rawMediaType) ? "movie" : rawMediaType;
-            if (validMediaType != "movie" && validMediaType != "series" && validMediaType != "anime" && validMediaType != "episode" && validMediaType != "other")
-                validMediaType = "movie";
-            BindText(cmd, "@media_type",     validMediaType);
+            BindText(cmd, "@media_type",     ValidCatalogMediaType(item.MediaType));
             BindText(cmd, "@source",         item.Source);
             BindNullableText(cmd, "@source_list_id", item.SourceListId);
             BindNullableText(cmd, "@seasons_json",   item.SeasonsJson);
@@ -199,9 +197,47 @@ namespace InfiniteDrive.Data
             BindNullableText(cmd, "@last_version_refresh_at", item.LastVersionRefreshAt);
         }
 
+        private static string ValidCatalogMediaType(string? type) =>
+            type is "movie" or "series" or "anime" or "episode" or "other" ? type : "movie";
+
+        // A stale worker or source refresh must not change the import family of a
+        // row that already has managed media. Such conversions require a backed-up
+        // destination repair, not a generic catalog upsert.
+        private static bool ManagedCatalogIdentityCompatible(IDatabaseConnection conn, CatalogItem item)
+        {
+            using var stmt = conn.PrepareStatement(@"
+                SELECT media_type FROM catalog_items
+                WHERE aio_id=@aio_id AND source=@source
+                  AND ((strm_path IS NOT NULL AND strm_path<>'')
+                    OR (item_state=3 AND local_source='library'));");
+            BindText(stmt, "@aio_id", item.AioId);
+            BindText(stmt, "@source", item.Source);
+            foreach (var row in stmt.AsRows())
+            {
+                var existing = row.GetString(0);
+                var incoming = ValidCatalogMediaType(item.MediaType);
+                if (existing == incoming || (existing is "series" or "anime" && incoming is "series" or "anime")) continue;
+                return false;
+            }
+            return true;
+        }
+
         public async Task UpsertCatalogItemAsync(CatalogItem item, CancellationToken cancellationToken = default)
         {
-            await ExecuteWriteAsync(UpsertCatalogItemSql, cmd => BindCatalogItemParams(cmd, item));
+            await _dbWriteGate.WaitAsync(cancellationToken);
+            try
+            {
+                using var conn = OpenConnection();
+                conn.RunInTransaction(c =>
+                {
+                    if (!ManagedCatalogIdentityCompatible(c, item))
+                        throw new InvalidOperationException("managed_identity_conflict");
+                    using var stmt = c.PrepareStatement(UpsertCatalogItemSql);
+                    BindCatalogItemParams(stmt, item);
+                    while (stmt.MoveNext()) { }
+                });
+            }
+            finally { _dbWriteGate.Release(); }
         }
 
         /// <summary>
@@ -259,10 +295,11 @@ namespace InfiniteDrive.Data
         /// Batch upsert: wraps all items in a single SQLite transaction.
         /// Orders of magnitude faster than calling UpsertCatalogItemAsync in a loop.
         /// </summary>
-        public async Task BulkUpsertCatalogItemsAsync(IEnumerable<CatalogItem> items, CancellationToken cancellationToken = default)
+        public async Task<int> BulkUpsertCatalogItemsAsync(IEnumerable<CatalogItem> items, CancellationToken cancellationToken = default)
         {
             var itemList = items as IList<CatalogItem> ?? items.ToList();
-            if (itemList.Count == 0) return;
+            if (itemList.Count == 0) return 0;
+            var accepted = 0;
 
             await _dbWriteGate.WaitAsync(cancellationToken);
             try
@@ -272,9 +309,16 @@ namespace InfiniteDrive.Data
                 {
                     foreach (var item in itemList)
                     {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!ManagedCatalogIdentityCompatible(c, item))
+                        {
+                            _logger.LogWarning("[InfiniteDrive] Skipped catalog update for {AioId}: managed_identity_conflict", item.AioId);
+                            continue;
+                        }
                         using var stmt = c.PrepareStatement(UpsertCatalogItemSql);
                         BindCatalogItemParams(stmt, item);
                         while (stmt.MoveNext()) { }
+                        accepted++;
                     }
                 });
             }
@@ -282,6 +326,7 @@ namespace InfiniteDrive.Data
             {
                 _dbWriteGate.Release();
             }
+            return accepted;
         }
 
         /// <summary>

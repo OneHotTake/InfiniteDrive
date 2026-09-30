@@ -149,16 +149,16 @@ namespace InfiniteDrive.Services
                     // Legacy format: [ ... ]
                     if (doc.RootElement.ValueKind == JsonValueKind.Object)
                     {
-                        var combined = new List<JsonElement>();
+                        var combined = new List<(JsonElement Item, string MediaType)>();
                         if (doc.RootElement.TryGetProperty("movies", out var movies))
-                            foreach (var item in movies.EnumerateArray()) combined.Add(item);
+                            foreach (var item in movies.EnumerateArray()) combined.Add((item, "movie"));
                         if (doc.RootElement.TryGetProperty("shows", out var shows))
-                            foreach (var item in shows.EnumerateArray()) combined.Add(item);
+                            foreach (var item in shows.EnumerateArray()) combined.Add((item, "series"));
                         if (combined.Count == 0) break;
 
                         foreach (var item in combined)
                         {
-                            var li = ParseMdblistItem(item);
+                            var li = ParseMdblistItem(item.Item, item.MediaType);
                             if (li != null) all.Add(li);
                         }
 
@@ -194,7 +194,7 @@ namespace InfiniteDrive.Services
             return new ListFetchResult { Ok = true, Items = all };
         }
 
-        private static ListItem? ParseMdblistItem(JsonElement item)
+        internal static ListItem? ParseMdblistItem(JsonElement item, string? bucketType = null)
         {
             string? imdbId = null;
             if (item.TryGetProperty("imdb_id", out var imdbEl) && imdbEl.ValueKind == JsonValueKind.String)
@@ -205,7 +205,25 @@ namespace InfiniteDrive.Services
                 ? titleEl.GetString() ?? "Unknown"
                 : "Unknown";
 
-            return new ListItem(title, imdbId.ToLowerInvariant(), null, null);
+            // MDBList's public /json arrays use mediatype=show and release_year.
+            // Losing these fields silently routes shows through the movie resolver.
+            var rawType = item.TryGetProperty("mediatype", out var typeEl)
+                || item.TryGetProperty("media_type", out typeEl)
+                || item.TryGetProperty("type", out typeEl)
+                ? typeEl.ValueKind == JsonValueKind.String ? typeEl.GetString()?.ToLowerInvariant() : null
+                : null;
+            var explicitType = NormalizeMediaType(rawType);
+            if (bucketType != null && explicitType != null && bucketType != explicitType) return null;
+            var mediaType = explicitType ?? bucketType;
+            if (mediaType is not ("movie" or "series")) return null;
+
+            int? year = null;
+            if (item.TryGetProperty("release_year", out var yearEl) || item.TryGetProperty("year", out yearEl))
+            {
+                if (yearEl.ValueKind == JsonValueKind.Number && yearEl.TryGetInt32(out var numericYear)) year = numericYear;
+                else if (yearEl.ValueKind == JsonValueKind.String && int.TryParse(yearEl.GetString(), out numericYear)) year = numericYear;
+            }
+            return new ListItem(title, imdbId.ToLowerInvariant(), year, mediaType);
         }
 
         // ── Trakt ────────────────────────────────────────────────────────────────
@@ -264,7 +282,7 @@ namespace InfiniteDrive.Services
             }
         }
 
-        private static ListFetchResult ParseTraktResponse(string json)
+        internal static ListFetchResult ParseTraktResponse(string json)
         {
             var items = new List<ListItem>();
             try
@@ -275,14 +293,24 @@ namespace InfiniteDrive.Services
 
                 foreach (var entry in doc.RootElement.EnumerateArray())
                 {
-                    // Wrapped format: { "movie": {...} } or { "show": {...} }
+                    if (entry.ValueKind != JsonValueKind.Object) continue;
+                    var hasType = entry.TryGetProperty("type", out var typeEl);
+                    var declaredType = hasType && typeEl.ValueKind == JsonValueKind.String
+                        ? NormalizeMediaType(typeEl.GetString()) : null;
+                    if (hasType && declaredType == null) continue;
+
+                    // Wrapper identity is authoritative; do not promote episode
+                    // history entries into their parent show or accept conflicts.
                     JsonElement? mediaObj = null;
-                    if (entry.TryGetProperty("movie", out var movieEl) && movieEl.ValueKind == JsonValueKind.Object)
-                        mediaObj = movieEl;
-                    else if (entry.TryGetProperty("show", out var showEl) && showEl.ValueKind == JsonValueKind.Object)
-                        mediaObj = showEl;
-                    else if (entry.TryGetProperty("ids", out _))
-                        mediaObj = entry; // Flat format
+                    string? mediaType = null;
+                    var hasMovie = entry.TryGetProperty("movie", out var movieEl) && movieEl.ValueKind == JsonValueKind.Object;
+                    var hasShow = entry.TryGetProperty("show", out var showEl) && showEl.ValueKind == JsonValueKind.Object;
+                    if (hasMovie && hasShow) continue;
+                    if (hasMovie) { mediaObj = movieEl; mediaType = "movie"; }
+                    else if (hasShow) { mediaObj = showEl; mediaType = "series"; }
+                    else if (entry.TryGetProperty("ids", out _) && declaredType != null)
+                    { mediaObj = entry; mediaType = declaredType; }
+                    if (declaredType != null && mediaType != declaredType) continue;
 
                     if (mediaObj == null) continue;
 
@@ -303,7 +331,7 @@ namespace InfiniteDrive.Services
                     if (m.TryGetProperty("year", out var yearEl) && yearEl.ValueKind == JsonValueKind.Number)
                         year = yearEl.GetInt32();
 
-                    items.Add(new ListItem(title, imdbId.ToLowerInvariant(), year, null));
+                    items.Add(new ListItem(title, imdbId.ToLowerInvariant(), year, mediaType));
                 }
             }
             catch
@@ -356,6 +384,19 @@ namespace InfiniteDrive.Services
                     return Fail($"TMDB returned HTTP {(int)resp.StatusCode}.");
 
                 var json = await resp.Content.ReadAsStringAsync(ct);
+                return ParseTmdbResponse(json);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                return Fail($"Could not fetch TMDB list: {ex.Message}");
+            }
+        }
+
+        internal static ListFetchResult ParseTmdbResponse(string json)
+        {
+            try
+            {
                 using var doc = JsonDocument.Parse(json);
 
                 if (!doc.RootElement.TryGetProperty("items", out var itemsEl))
@@ -370,26 +411,23 @@ namespace InfiniteDrive.Services
                         : null;
                     if (string.IsNullOrWhiteSpace(title)) continue;
 
-                    var mediaType = entry.TryGetProperty("media_type", out var mt)
-                        ? mt.GetString() ?? "movie" : "movie";
-
-                    if (!entry.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.Number)
-                        continue;
-
-                    var rawId = $"tmdb_{idEl.GetInt32()}";
-
+                    var hasType = entry.TryGetProperty("media_type", out var mt);
+                    var mediaType = hasType && mt.ValueKind == JsonValueKind.String
+                        ? NormalizeMediaType(mt.GetString())
+                        : !hasType && entry.TryGetProperty("title", out var movieTitle)
+                            && movieTitle.ValueKind == JsonValueKind.String
+                            && !string.IsNullOrWhiteSpace(movieTitle.GetString()) ? "movie" : null;
+                    // V3 movie lists omit media_type; a name-only entry is ambiguous.
+                    if (mediaType == null) continue;
+                    if (!entry.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.Number
+                        || !idEl.TryGetInt32(out var id) || id <= 0) continue;
+                    var rawId = $"tmdb_{id}";
                     int? year = null;
-                    if (entry.TryGetProperty("release_date", out var rd) && rd.ValueKind == JsonValueKind.String)
+                    var dateField = mediaType == "series" ? "first_air_date" : "release_date";
+                    if (entry.TryGetProperty(dateField, out var dateEl) && dateEl.ValueKind == JsonValueKind.String)
                     {
-                        var dateStr = rd.GetString();
-                        if (dateStr?.Length >= 4 && int.TryParse(dateStr.Substring(0, 4), out var y))
-                            year = y;
-                    }
-                    else if (entry.TryGetProperty("first_air_date", out var fad) && fad.ValueKind == JsonValueKind.String)
-                    {
-                        var dateStr = fad.GetString();
-                        if (dateStr?.Length >= 4 && int.TryParse(dateStr.Substring(0, 4), out var y))
-                            year = y;
+                        var date = dateEl.GetString();
+                        if (date?.Length >= 4 && int.TryParse(date.Substring(0, 4), out var y)) year = y;
                     }
 
                     items.Add(new ListItem(title, rawId, year, mediaType));
@@ -403,11 +441,8 @@ namespace InfiniteDrive.Services
 
                 return new ListFetchResult { Ok = true, Items = items, DisplayName = listName };
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                return Fail($"Could not fetch TMDB list: {ex.Message}");
-            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
+            { return Fail("Could not parse TMDB response."); }
         }
 
         // ── AniList ──────────────────────────────────────────────────────────────
@@ -443,6 +478,7 @@ query ($userName: String!, $type: MediaType!) {
           title { romaji english native }
           startDate { year }
           type
+          format
         }
       }
     }
@@ -470,6 +506,19 @@ query ($userName: String!, $type: MediaType!) {
                 }
 
                 var json = await resp.Content.ReadAsStringAsync(ct);
+                return ParseAnilistResponse(json, username);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                return Fail($"Could not fetch AniList: {ex.Message}");
+            }
+        }
+
+        internal static ListFetchResult ParseAnilistResponse(string json, string username)
+        {
+            try
+            {
                 using var doc = JsonDocument.Parse(json);
 
                 // Check for GraphQL errors
@@ -486,7 +535,7 @@ query ($userName: String!, $type: MediaType!) {
                     .GetProperty("MediaListCollection")
                     .GetProperty("lists");
 
-                var items = new List<(string title, string? titleEnglish, string? titleRomaji, int? year, int anilistId)>();
+                var items = new List<ListItem>();
 
                 foreach (var list in lists.EnumerateArray())
                 {
@@ -494,6 +543,16 @@ query ($userName: String!, $type: MediaType!) {
                     foreach (var entry in entries.EnumerateArray())
                     {
                         var media = entry.GetProperty("media");
+                        if (!media.TryGetProperty("type", out var typeEl) || typeEl.GetString() != "ANIME") continue;
+                        var format = media.TryGetProperty("format", out var formatEl) && formatEl.ValueKind == JsonValueKind.String
+                            ? formatEl.GetString() : null;
+                        var mediaType = format switch
+                        {
+                            "MOVIE" => "movie",
+                            "TV" or "TV_SHORT" or "OVA" or "ONA" or "SPECIAL" => "series",
+                            _ => null
+                        };
+                        if (mediaType == null) continue;
                         var titleObj = media.GetProperty("title");
                         var titleEnglish = titleObj.TryGetProperty("english", out var te) ? te.GetString() : null;
                         var titleRomaji = titleObj.TryGetProperty("romaji", out var tr) ? tr.GetString() : null;
@@ -508,7 +567,7 @@ query ($userName: String!, $type: MediaType!) {
                             && idEl.ValueKind == JsonValueKind.Number
                             ? idEl.GetInt32() : 0;
 
-                        items.Add((title, titleEnglish, titleRomaji, year, anilistId));
+                        if (anilistId > 0) items.Add(new ListItem(title, $"anilist:{anilistId}", year, mediaType));
                     }
                 }
 
@@ -518,24 +577,20 @@ query ($userName: String!, $type: MediaType!) {
                 // Return items with native AniList IDs (anilist:XXX) — resolution
                 // happens downstream via IdResolverService in UserCatalogSyncService.
                 // The official Emby AniList plugin uses these numeric IDs.
-                var result = items
-                    .Where(i => i.anilistId > 0)
-                    .Select(i => new ListItem(i.title, $"anilist:{i.anilistId}", i.year, "tv"))
-                    .ToList();
-
-                if (result.Count == 0)
-                    return Fail($"AniList user '{username}' has no anime with valid IDs.");
-
-                return new ListFetchResult { Ok = true, Items = result };
+                return new ListFetchResult { Ok = true, Items = items };
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                return Fail($"Could not fetch AniList: {ex.Message}");
-            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException)
+            { return Fail("Could not parse AniList response."); }
         }
 
         // ── Helpers ──────────────────────────────────────────────────────────────
+
+        private static string? NormalizeMediaType(string? type) => type?.ToLowerInvariant() switch
+        {
+            "movie" => "movie",
+            "show" or "series" or "tv" => "series",
+            _ => null
+        };
 
         private static ListFetchResult Fail(string error) => new()
         {

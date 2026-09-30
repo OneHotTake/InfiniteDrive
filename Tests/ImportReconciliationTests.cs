@@ -15,7 +15,7 @@ namespace InfiniteDrive.Tests;
 
 public sealed class ImportReconciliationTests
 {
-    static ImportReconciliationTests() => SQLitePCLEx.raw.SetProvider(new SQLitePCLEx.SQLite3Provider_sqlite3());
+    static ImportReconciliationTests() => SqliteTestRuntime.EnsureInitialized();
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-09-29T18:00:00Z");
     private static ImportEpisode Ep(int n = 1) => new() { Key = $"aired:1:{n}", Season = 1, Episode = n, Released = Now.AddDays(-1), Eligible = true };
 
