@@ -18,6 +18,21 @@ intent; user lists belong to their Emby user and may create native playlist
 state. Adding or refreshing a list fetches it through `ListFetcher`, normalizes
 provider IDs, and records its sync/error state.
 
+## MDBList media identity
+
+MDBList entries retain their IMDb ID, media type and release year. Public JSON
+arrays use `mediatype` (`show` becomes `series`) and `release_year`; grouped
+responses use the `movies` and `shows` buckets when an item omits its type.
+A contradictory type or an untyped array entry is rejected rather than routed
+to the movie resolver.
+
+This parser change prevents misclassification of newly imported rows. Refreshing
+a list does **not** automatically convert an existing movie row into a series.
+Previously misclassified rows need a separate, backed-up repair of their media
+type and managed destination. Existing movie STRMs must never be renamed into
+fake episodes. Preserve list memberships, user blocks, retry history and owned
+media; verify episode imports separately from playback.
+
 ## Catalog-less behavior
 
 Catalog synchronization evaluates list state before deciding that no providers

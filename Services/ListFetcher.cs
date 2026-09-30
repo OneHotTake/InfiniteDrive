@@ -149,16 +149,16 @@ namespace InfiniteDrive.Services
                     // Legacy format: [ ... ]
                     if (doc.RootElement.ValueKind == JsonValueKind.Object)
                     {
-                        var combined = new List<JsonElement>();
+                        var combined = new List<(JsonElement Item, string MediaType)>();
                         if (doc.RootElement.TryGetProperty("movies", out var movies))
-                            foreach (var item in movies.EnumerateArray()) combined.Add(item);
+                            foreach (var item in movies.EnumerateArray()) combined.Add((item, "movie"));
                         if (doc.RootElement.TryGetProperty("shows", out var shows))
-                            foreach (var item in shows.EnumerateArray()) combined.Add(item);
+                            foreach (var item in shows.EnumerateArray()) combined.Add((item, "series"));
                         if (combined.Count == 0) break;
 
                         foreach (var item in combined)
                         {
-                            var li = ParseMdblistItem(item);
+                            var li = ParseMdblistItem(item.Item, item.MediaType);
                             if (li != null) all.Add(li);
                         }
 
@@ -194,7 +194,7 @@ namespace InfiniteDrive.Services
             return new ListFetchResult { Ok = true, Items = all };
         }
 
-        private static ListItem? ParseMdblistItem(JsonElement item)
+        internal static ListItem? ParseMdblistItem(JsonElement item, string? bucketType = null)
         {
             string? imdbId = null;
             if (item.TryGetProperty("imdb_id", out var imdbEl) && imdbEl.ValueKind == JsonValueKind.String)
@@ -205,7 +205,30 @@ namespace InfiniteDrive.Services
                 ? titleEl.GetString() ?? "Unknown"
                 : "Unknown";
 
-            return new ListItem(title, imdbId.ToLowerInvariant(), null, null);
+            // MDBList's public /json arrays use mediatype=show and release_year.
+            // Losing these fields silently routes shows through the movie resolver.
+            var rawType = item.TryGetProperty("mediatype", out var typeEl)
+                || item.TryGetProperty("media_type", out typeEl)
+                || item.TryGetProperty("type", out typeEl)
+                ? typeEl.ValueKind == JsonValueKind.String ? typeEl.GetString()?.ToLowerInvariant() : null
+                : null;
+            var explicitType = rawType switch
+            {
+                "movie" => "movie",
+                "show" or "series" or "tv" => "series",
+                _ => null
+            };
+            if (bucketType != null && explicitType != null && bucketType != explicitType) return null;
+            var mediaType = explicitType ?? bucketType;
+            if (mediaType is not ("movie" or "series")) return null;
+
+            int? year = null;
+            if (item.TryGetProperty("release_year", out var yearEl) || item.TryGetProperty("year", out yearEl))
+            {
+                if (yearEl.ValueKind == JsonValueKind.Number && yearEl.TryGetInt32(out var numericYear)) year = numericYear;
+                else if (yearEl.ValueKind == JsonValueKind.String && int.TryParse(yearEl.GetString(), out numericYear)) year = numericYear;
+            }
+            return new ListItem(title, imdbId.ToLowerInvariant(), year, mediaType);
         }
 
         // ── Trakt ────────────────────────────────────────────────────────────────
