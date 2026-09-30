@@ -17,6 +17,7 @@ public partial class DatabaseManager
         await ExecuteWriteAsync("CREATE TABLE IF NOT EXISTS import_aliases (alias TEXT PRIMARY KEY, identity TEXT NOT NULL);", _ => { }, ct);
         await ExecuteWriteAsync("CREATE TABLE IF NOT EXISTS import_attempts (id TEXT PRIMARY KEY, attempted_at TEXT NOT NULL);", _ => { }, ct);
         await ExecuteWriteAsync("CREATE INDEX IF NOT EXISTS ix_import_attempts_time ON import_attempts(attempted_at);", _ => { }, ct);
+        await ExecuteWriteAsync("CREATE TABLE IF NOT EXISTS import_run_history (id TEXT PRIMARY KEY, finished_at TEXT NOT NULL, payload TEXT NOT NULL);", _ => { }, ct);
         if (GetMetadata("import_schema") != "1") await PersistMetadataAsync("import_schema", "1", ct);
     }
 
@@ -97,6 +98,31 @@ public partial class DatabaseManager
     public Task<int> GetRecentImportAttemptsAsync(DateTimeOffset now) => QueryScalarIntAsync(
         "SELECT COUNT(*) FROM import_attempts WHERE attempted_at >= @since;",
         c => BindText(c, "@since", now.AddDays(-1).ToString("o")));
+
+    public async Task<DateTimeOffset?> GetNextImportCreditAsync(DateTimeOffset now, int allowance)
+    {
+        var value = await QuerySingleAsync(@"SELECT attempted_at FROM import_attempts
+            WHERE attempted_at>=@since AND (SELECT COUNT(*) FROM import_attempts WHERE attempted_at>=@since)>=@limit
+            ORDER BY attempted_at LIMIT 1 OFFSET MAX(0,(SELECT COUNT(*) FROM import_attempts WHERE attempted_at>=@since)-@limit);",
+            c => { BindText(c, "@since", now.AddDays(-1).ToString("o")); BindInt(c, "@limit", Math.Max(1, allowance)); }, r => r.GetString(0));
+        return DateTimeOffset.TryParse(value, out var at) ? at.AddDays(1) : null;
+    }
+
+    public async Task SaveImportRunReportAsync(string id, DateTimeOffset finished, string report, CancellationToken ct)
+    {
+        await ExecuteWriteAsync("INSERT OR REPLACE INTO import_run_history(id,finished_at,payload) VALUES(@id,@at,@report);",
+            c => { BindText(c, "@id", id); BindText(c, "@at", finished.ToString("o")); BindText(c, "@report", report); }, ct);
+        // Analytics-only retention. The independent attempt ledger is never reset.
+        await ExecuteWriteAsync("DELETE FROM import_run_history WHERE finished_at<@at;",
+            c => BindText(c, "@at", finished.AddDays(-7).ToString("o")), ct);
+    }
+    public async Task<List<string>> GetImportRunHistoryAsync(int limit = 12)
+    {
+        if (await QueryScalarIntAsync("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='import_run_history';", _ => { }) == 0)
+            return new();
+        return await QueryListAsync("SELECT payload FROM import_run_history ORDER BY finished_at DESC,id LIMIT @limit;",
+            c => BindInt(c, "@limit", Math.Clamp(limit, 1, 48)), r => r.GetString(0));
+    }
 
     public async Task RecordImportAttemptAsync(string id, DateTimeOffset now, CancellationToken ct)
     {

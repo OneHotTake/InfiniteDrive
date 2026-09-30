@@ -9,7 +9,7 @@ imports titles and repairs missing files.
 
 A stream will appear. Probably.
 
-**Current release: 0.42.10**, built and tested against **Emby 4.10.0.40**.
+**Current release: 0.42.11**, built and tested against **Emby 4.10.0.40**.
 
 ## How we run it
 
@@ -203,13 +203,31 @@ Our Marvin task runs every ten minutes; a large library takes many passes.
 For a big refresh, engage **Infinite Improbability Drive** on the Marvin page.
 The switch runs up to 64 lookups together, paced to two starts a second. Each
 pass gets eight minutes, up to 4,096 attempts shared by missing-file repairs and
-existing-file refreshes, and a rolling daily ceiling of 40,000. Existing managed
-titles get priority. Completed lookups publish while inventory checks continue.
+existing-file refreshes, and a rolling daily ceiling of 40,000. Missing-file fills and existing-file refreshes alternate first priority across
+native runs; either can use capacity left by the other. Completed lookups publish while inventory checks continue.
+It isolates disputed episode numbering so confirmed siblings can proceed.
 It remembers refreshed episodes,
 keeps provider backoff and media protections, and switches itself off after seven
 days. Disengage it any time: **Normality has been restored.** Actual speed depends
 on your sources; the ceiling is not a completion estimate.
 See [Import recovery](docs/import-reconciliation.md) for limits and exclusions.
+
+### Marvin dashboard
+
+Open **Plugins → InfiniteDrive → Marvin** and use **Refresh dashboard**.
+It shows a dated snapshot of the current run: current step/title, lookups in
+flight, missing-file versus refresh attempts, matching sources, empty results,
+transport failures, lookup deadlines, actual HTTP 429 responses and publication
+outcomes. The rolling allowance is an attempt budget, not a library count.
+When it is full, the dashboard shows when the earliest usable credit ages out.
+
+Timings cover metadata, file/native observations, source resolution, publication
+and observation checkpoints. Parallel request totals overlap; they do not add
+up to elapsed time. Resolution includes dispatch pacing and provider wait.
+Mean/max/count cover the run; p95 uses the latest 512 samples per stage. Recent
+completed passes persist for seven days. Timing history starts with 0.42.11;
+older reports keep their original counters. A server restart ends the live
+sample, but preserves saved reports. Reading the dashboard starts no work.
 
 ## Set it up
 

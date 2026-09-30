@@ -99,10 +99,12 @@ namespace InfiniteDrive.Tasks
                 await Plugin.SyncLock.WaitAsync(cancellationToken);
                 try
                 {
+                    Plugin.Pipeline.SetPhase("Marvin", "ImportReconciliation");
                     await ExecuteInternalAsync(cancellationToken, progress);
                 }
                 finally
                 {
+                    Plugin.Pipeline.Clear();
                     Plugin.SyncLock.Release();
                 }
             }
@@ -220,19 +222,23 @@ namespace InfiniteDrive.Tasks
                 }
 
                 phaseSw.Restart();
+                Plugin.Pipeline.SetPhase("Marvin", "Validation");
                 await ValidationPassAsync(cancellationToken);
                 _logger.LogDebug("[Marvin] Phase 4a (Validation) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 
                 phaseSw.Restart();
+                Plugin.Pipeline.SetPhase("Marvin", "PhysicalMediaReconciliation");
                 var readoption = new LibraryPostScanReadoptionService(_libraryManager, _logManager);
                 await readoption.Run(new Progress<double>(), cancellationToken);
                 _logger.LogDebug("[Marvin] Phase 4b (PhysicalMediaReconciliation) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 
                 phaseSw.Restart();
+                Plugin.Pipeline.SetPhase("Marvin", "Enrichment");
                 await EnrichmentTrickleAsync(cancellationToken);
                 _logger.LogDebug("[Marvin] Phase 4c (Enrichment) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
 
                 phaseSw.Restart();
+                Plugin.Pipeline.SetPhase("Marvin", "TokenRenewal");
                 await TokenRenewalAsync(cancellationToken);
                 _logger.LogDebug("[Marvin] Phase 4d (TokenRenewal) completed in {Ms}ms", phaseSw.ElapsedMilliseconds);
                 progress?.Report(0.90);

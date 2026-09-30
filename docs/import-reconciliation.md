@@ -74,8 +74,16 @@ another check. The administrative API retains its technical field/state names.
 `ImportInventory` wraps source metadata, Emby's in-process
 `IProviderManager.GetAllEpisodes`, native library reads, the existing resolver and
 version selector, and the STRM writer. The source inventory remains primary.
-Provider-only keys require a compatible inventory with all source numbering keys
-represented; ambiguous inventories stop new writes. Provider unavailability is
+Numbering is checked per episode key when Emby's provider has an inventory.
+A unique matching aired season/episode remains eligible even if another source
+key is absent (including future episodes and specials). Unmatched keys are
+`unconfirmed`; duplicate source/provider keys are `conflict`. Those keys remain
+excluded, without inventing season mappings. Unverified anime stays excluded.
+Provider-only additions still require every source key to agree. Empty provider
+results/unavailable checks retain the primary-source behavior and are reported;
+they do not certify completeness. The old whole-series numbering gate gets one
+fresh metadata check under the new policy; genuine identity exclusions, stream
+backoff, attempts and user state remain untouched. Provider unavailability is
 reported explicitly. The API choice follows the [Emby developer discussion](https://emby.media/community/topic/149945-getting-missing-episodes-from-a-series-and-movies-from-collections/). No `GetAllItems` franchise expansion is enabled.
 
 Three additive SQLite tables implement the journal without changing existing
@@ -127,7 +135,13 @@ These are ceilings, not promised throughput. Upstream latency, unavailable sourc
 provider backoff, native indexing and the rest of Marvin's work determine actual
 progress. The existing task schedule stays in place. Catch-up has a separate 64-slot AIO
 maintenance lane, paced to two starts a second. Missing-file repairs and existing
-version refreshes share its larger attempt allowance. Ordinary lookups retain their
+version refreshes share its larger attempt allowance. Catch-up alternates which
+lane gets first access to credits on each native slice, with a durable priority
+checkpoint across restarts. The other lane borrows unused credits after inventory
+discovery. A page without any managed paths does not hold missing work behind an
+absent refresh lane. Observation/page deadlines can postpone borrowed work; this
+is priority rotation, not an exact 50/50 allocation or a throughput guarantee.
+Deferred calls recheck authorization, generation, leases and backoff. Ordinary lookups retain their
 shared two-slot lane. File publication and state changes remain serial. No extra
 scheduler is started. Completed lookups publish between inventory checks, rather
 than waiting for a full request batch or the end of the catalog page. Queued lookups are joined before a cancelled run releases
@@ -144,7 +158,10 @@ larger than a 200-key page. An unavailable
 episode does not prevent refreshing its eligible siblings. Valid existing managed
 files can be refreshed while native indexing is pending; publication still reports
 awaiting indexing, and an identity mismatch prevents refresh. Failed attempts
-retain their backoff; owned media, explicit blocks, pruning and publication checks
+retain their backoff and diagnostic even when an old file is indexed; native
+indexing does not clear a failed source refresh. Successful replacement clears
+that failure. LastRun distinguishes attempted upgrades from successful refreshed
+groups, empty-source failures and transport failures; owned media, explicit blocks, pruning and publication checks
 still apply. This switch changes recovery speed, not quality filters or retention.
 
 Disengagement/expiry is checked before another stream attempt and again before
@@ -197,6 +214,38 @@ thirty minutes apart. After those attempts and two hours, unresolved native
 indexing becomes `indexing_attention`. Large or blocked Emby scans can therefore
 leave publication pending; the worker does not repeatedly download/rewrite it.
 
+## Dashboard and timing history
+
+The native Marvin page has a **Refresh dashboard** button. Current worker phase is
+shown separately from the repair-pass report: Marvin can continue catalog, collection
+and maintenance work after that report finishes. Repair timings and recent passes
+have their own sections, with compact native Emby rows. It reads a timestamped
+snapshot, including the current phase/title/episode, elapsed time, lookups in
+flight (including paced waiting), episode/movie checks, missing and refresh
+attempts, source matches, empty responses, transport errors, lookup deadlines,
+explicit HTTP 429, provider configuration failures, cancellations and successful
+publication groups. Matched lookups can still fail or be discarded before
+publication. Groups are movies/episodes, not individual alternate STRMs, grouped
+Emby titles or proof of playback. Old indexed files with failed refreshes retain
+their reason and next retry in the coverage list.
+
+Five stage timers measure metadata, observation, resolution, publication and
+observation checkpoint saves. Resolution includes pacing/provider wait; publication
+includes file writes and publication state/registration. Checkpoint timings exclude
+other database operations. Parallel call totals overlap and are not wall-clock time.
+Each stage retains at most 512 recent samples for p95; count/total/mean/max cover the
+whole run. The live snapshot is process memory; no per-event database polling or
+new worker is added. Refreshing the page is read-only and does not trigger work.
+
+The additive `import_run_history` table retains seven days of completed reports
+(one write per run plus pruning old analytics). `import_last_run` stays compatible
+and gains an `Analytics` object. No history is invented for old versions. History
+pruning never resets the attempt ledger, coverage, retry/backoff or catalog/user
+state. After restart the dashboard labels the prior saved run explicitly. The
+next-credit estimate considers the correct expiring attempt when a lower normal
+ceiling follows catch-up; it is a quota estimate, not a source-availability or
+completion estimate.
+
 ## Administrative API
 
 Both routes require a native administrator session through the existing
@@ -204,8 +253,9 @@ Both routes require a native administrator session through the existing
 
 - `GET /InfiniteDrive/Imports?Offset=0&Limit=50`: read-only, bounded page; dated
   coverage, provider status, episode reasons, next retries, collection summary,
-  speed, expiry and rolling attempt usage. LastRun includes elapsed seconds and
-  publication/upgrade counts; they are not playback or completion claims.
+  speed, expiry and rolling attempt usage. CurrentRun adds the in-memory snapshot, NextCreditAt the earliest budget credit,
+  and RecentRuns up to 12 saved reports. LastRun includes elapsed seconds and
+  publication/upgrade counts and an Analytics snapshot; they are not playback or completion claims.
 - `POST /InfiniteDrive/Imports/Action`: `Action` is `mode`, `check`, `retry`,
   `include_specials`, `exclude_specials`, `resume_provider`, `start_catch_up`, or
   `stop_catch_up`. Catch-up actions need no extra fields; start requires Repair.
@@ -217,6 +267,17 @@ the existing locked Marvin path. They do not create another scheduler. Reading
 status never creates tables, contacts providers, or triggers work.
 
 ## Verification and rollout
+
+September 30, 2026, 0.42.11 regression build: 219/219 tests passed against
+pinned Emby 4.10.0.40, with no skipped tests. New cases cover partial/disjoint
+provider inventories, duplicate source/provider numbering, unverified anime,
+provider-only additions, legacy gate reevaluation, genuine identity conflict,
+failed refresh diagnostics across restart, priority rotation and late blocks. Analytics regressions cover concurrent counters,
+bounded timing samples, HTTP 429 versus operation timeouts, report retention across
+restart, and credit expiry under a lower ceiling.
+This is implementation evidence; production throughput and playback require
+separate live checks.
+
 
 September 30, 2026 pruning safety verification: the pinned Emby 4.10.0.40 build
 passed all 199 tests and published a release DLL. New cases exercise real SQLite

@@ -38,3 +38,10 @@ synthetic `example.invalid` URLs, not playback tests. Clean up only the named QA
 collection/library, fixture media/database, and temporary QA account/session. Keep
 pre-test snapshots and the prior plugin artifact for rollback. Do not reset whole
 beta datasets or restart production.
+
+Numbering regression: on a freshly prepared fixture, `partial-numbering` passes
+only episode 1 through the real per-key numbering policy. Its STRMs publish;
+episode 2 stays excluded. `discover` observes native indexing.
+`recheck-numbering` advances the fixture clock eight hours and restores the
+complete source inventory; episode 2 becomes eligible without a database reset.
+These are synthetic targets and do not establish playback.
