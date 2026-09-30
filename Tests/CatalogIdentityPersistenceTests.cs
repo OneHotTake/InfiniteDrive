@@ -113,7 +113,7 @@ public sealed class CatalogIdentityPersistenceTests
     {
         private readonly string _path = Path.Combine(Path.GetTempPath(), "catalog-identity-" + Guid.NewGuid().ToString("N"));
         public DatabaseManager Db { get; }
-        public Harness() { Directory.CreateDirectory(_path); Db = new DatabaseManager(_path, NullLogger.Instance); Db.Initialise(); }
+        public Harness() { SqliteTestRuntime.EnsureInitialized(); Directory.CreateDirectory(_path); Db = new DatabaseManager(_path, NullLogger.Instance); Db.Initialise(); }
         public CatalogItem Series() => new() { AioId = "tt32149571", Source = "external_list", Title = "Golden Axe",
             MediaType = "series", Year = 2026, TmdbId = "252105", StrmPath = "/managed/shows/Golden Axe",
             LocalPath = "/managed/shows/Golden Axe", LocalSource = "strm", ItemState = ItemState.Queued,
