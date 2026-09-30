@@ -348,10 +348,12 @@ public sealed class ImportReconciliationTests
         Assert.Equal(0, h.Inventory.Published);
     }
 
-    [Fact] public async Task CatchUpLookupsOverlapButPublicationIsSerialAndCheckpointsAllSiblings()
+    [Theory] [InlineData(false)] [InlineData(true)]
+    public async Task CatchUpLookupsOverlapButPublicationIsSerialAndCheckpointsAllSiblings(bool existingFiles)
     {
         using var h = new Harness(); h.Inventory.Count = 80;
-        h.Inventory.Files.UnionWith(Enumerable.Range(1, 80)); await h.Seed(); h.Engage();
+        if (existingFiles) h.Inventory.Files.UnionWith(Enumerable.Range(1, 80));
+        await h.Seed(); h.Engage();
         var full = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var active = 0; var maximum = 0;
@@ -391,10 +393,43 @@ public sealed class ImportReconciliationTests
         Assert.All((await h.State()).Items, e => Assert.Equal("awaiting_indexing", e.State));
         await h.Run(); Assert.Equal(2, h.Inventory.Published);
     }
-    [Fact] public async Task CatchUpDoesNotSpendTheBacklogBudgetCreatingThousandsOfMissingEpisodes()
+    [Fact] public async Task CatchUpRepairsMissingEpisodesBeyondTheNormalTwentyAttemptLimit()
     {
         using var h = new Harness(); h.Inventory.Count = 80; await h.Seed(); h.Engage();
-        await h.Run(); Assert.Equal(20, h.Inventory.Resolutions);
+        await h.Run(); Assert.Equal(80, h.Inventory.Resolutions);
+        Assert.Equal(80, h.Inventory.Published);
+        await h.Run(); Assert.Equal(80, h.Inventory.Resolutions);
+    }
+    [Fact] public async Task CatchUpMissingFillsStillShareTheRunAttemptCeiling()
+    {
+        using var h = new Harness(); h.Inventory.Count = 80; await h.Seed(); h.Engage();
+        var limit = ImportWorkBudget.For(h.Config, h.Now) with { AttemptsPerSlice = 37 };
+        var worker = new ImportReconciliationService(h.Db, h.Inventory, () => ImportMode.Repair,
+            TimeZoneInfo.Utc, () => h.Now, workBudget: () => limit);
+        await worker.RunAsync(default, new[] { h.Item });
+        Assert.Equal(37, h.Inventory.Resolutions); Assert.Equal(37, h.Inventory.Published);
+        await worker.RunAsync(default, new[] { h.Item });
+        Assert.Equal(74, h.Inventory.Resolutions); Assert.Equal(74, h.Inventory.Published);
+    }
+    [Fact] public async Task ReadyResultsPublishBeforeTheNextInventoryObservationFinishes()
+    {
+        using var h = new Harness(); await h.Seed(); h.Engage();
+        var laterObservation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Inventory.OnObserve = async ep =>
+        {
+            if (ep.Episode != 2) return;
+            laterObservation.TrySetResult(true);
+            await release.Task;
+        };
+        var run = h.Run();
+        try
+        {
+            await laterObservation.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(1, h.Inventory.Published);
+        }
+        finally { release.TrySetResult(true); await run; }
+        Assert.Equal(2, h.Inventory.Published);
     }
     [Fact] public async Task CancellationJoinsAllLookupsBeforeReturningAndKeepsOldFiles()
     {
@@ -482,9 +517,13 @@ public sealed class ImportReconciliationTests
     private sealed class FakeInventory : IImportInventory
     {
         public int Resolutions, Published, Notifications, FailEpisode, Count = 2;
-        public bool Owned, BadSnapshot, Paused, Indexed = true; public bool ProviderPaused => Paused; public HashSet<int> Files = new(); public Func<Task>? OnResolve; public Func<CancellationToken, Task>? OnResolveWithToken;
+        public bool Owned, BadSnapshot, Paused, Indexed = true; public bool ProviderPaused => Paused; public HashSet<int> Files = new(); public Func<Task>? OnResolve; public Func<CancellationToken, Task>? OnResolveWithToken; public Func<ImportEpisode, Task>? OnObserve;
         public Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct) => Task.FromResult(new ImportSnapshot(BadSnapshot ? new() : Enumerable.Range(1, Count).Select(Ep).ToList(), "success"));
-        public Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct) => Task.FromResult(new ImportObservation(Files.Contains(ep.Episode!.Value) ? new() { $"/fake/series/Season 01/e{ep.Episode}.strm" } : new(), Files.Contains(ep.Episode.Value) && Indexed ? new() { ep.Key } : new(), false));
+        public async Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
+        {
+            if (OnObserve != null) await OnObserve(ep);
+            return new ImportObservation(Files.Contains(ep.Episode!.Value) ? new() { $"/fake/series/Season 01/e{ep.Episode}.strm" } : new(), Files.Contains(ep.Episode.Value) && Indexed ? new() { ep.Key } : new(), false);
+        }
         public bool IsOwned(CatalogItem item) => Owned;
         public async Task<List<SelectedVersion>> ResolveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
         { Resolutions++; if (OnResolve != null) await OnResolve(); if (OnResolveWithToken != null) await OnResolveWithToken(ct); return ep.Episode == FailEpisode ? new() : new() { new() { Stream = new() { Url = "https://example.invalid/test" } } }; }
