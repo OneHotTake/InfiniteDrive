@@ -9,7 +9,7 @@ imports titles and repairs missing files.
 
 A stream will appear. Probably.
 
-**Current release: 0.42.9**, built and tested against **Emby 4.10.0.40**.
+**Current release: 0.42.10**, built and tested against **Emby 4.10.0.40**.
 
 ## How we run it
 
