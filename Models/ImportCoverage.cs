@@ -14,6 +14,7 @@ public sealed class ImportCoverage
     public List<string> CatalogIds { get; set; } = new();
     public string SnapshotStatus { get; set; } = "unknown";
     public string ProviderStatus { get; set; } = "not_checked";
+    public int InventoryPolicyVersion { get; set; }
     public DateTimeOffset? SnapshotAt { get; set; }
     public DateTimeOffset? CheckedAt { get; set; }
     public DateTimeOffset? MetadataRetryAt { get; set; }

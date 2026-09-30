@@ -57,6 +57,14 @@ public sealed class ImportReconciliationService
         var runId = Guid.NewGuid().ToString("N");
         var status = "success";
         var pending = new List<ResolutionWork>();
+        var deferred = new List<ResolutionCandidate>();
+        // Rotate the first claim on scarce credits across native slices. The other
+        // lane can borrow unused credits after inventory discovery; no new quota.
+        var priority = allowance.IsCatchUp && _db.GetMetadata("import_catch_up_last_priority") == "refresh"
+            ? "missing" : "refresh";
+        var sourceFailures = 0;
+        var transportFailures = 0;
+        var refreshed = 0;
 
         async Task<ResolutionResult> ResolveAsync(CatalogItem item, ImportEpisode episode)
         {
@@ -105,12 +113,15 @@ public sealed class ImportReconciliationService
                         await _db.SaveImportCoverageAsync(live, token);
                         await RegisterPathsAsync(live, work.Item, episode, result.Versions, token);
                         published++;
+                        if (work.Upgrade) refreshed++;
                     }
                     catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                     catch { failure = "publication_failed"; }
                 }
                 if (failure.Length > 0)
                 {
+                    if (failure == "source_unavailable") sourceFailures++;
+                    if (failure == "transport_failure") transportFailures++;
                     episode.State = work.Upgrade ? work.PreviousState : "retrying";
                     episode.Failure = failure;
                     episode.NextAttempt = failure == "provider_configuration" ? null :
@@ -144,9 +155,52 @@ public sealed class ImportReconciliationService
                 await CompleteAsync(work);
             }
         }
+        async Task DispatchAsync(ResolutionCandidate candidate)
+        {
+            token.ThrowIfCancellationRequested();
+            var now = _clock();
+            if (_mode() != ImportMode.Repair || attempts >= allowance.AttemptsPerSlice ||
+                candidate.Upgrade && upgrades >= allowance.UpgradesPerSlice ||
+                _inventory.ProviderPaused || _cooldown() > now ||
+                await _db.GetRecentImportAttemptsAsync(now) >= allowance.AttemptsPerDay) return;
+            if (allowance.IsCatchUp && _workBudget().CatchUpStartedAt != allowance.CatchUpStartedAt)
+            { budget.Cancel(); token.ThrowIfCancellationRequested(); }
+            // Deferred work may have waited behind earlier results. Recheck its
+            // durable authorization, generation, lease and backoff before a call.
+            Func<ResolutionWork> start;
+            await MutationGate.WaitAsync(token);
+            try
+            {
+                var live = await _db.GetImportCoverageAsync(candidate.Coverage.Identity);
+                var episode = live?.Items.FirstOrDefault(x => x.Key == candidate.Episode.Key);
+                if (live == null || episode == null || live.Generation != candidate.Generation ||
+                    live.SnapshotStatus != "success" || !episode.Expected || !episode.Eligible ||
+                    episode.NextAttempt > now || episode.LeaseUntil > now ||
+                    !await IsAuthorizedAsync(live, candidate.Item, token) || _inventory.IsOwned(candidate.Item)) return;
+                if (candidate.Upgrade && !allowance.NeedsRefresh(episode, now)) return;
+                attempts++;
+                if (candidate.Upgrade) upgrades++;
+                var lease = Guid.NewGuid().ToString("N");
+                episode.Lease = lease; episode.LeaseUntil = now.AddMinutes(10);
+                if (!candidate.Upgrade) episode.InitialFailure = true;
+                episode.Attempts++;
+                await _db.RecordImportAttemptAsync(lease, now, token);
+                await _db.SaveImportCoverageAsync(live, token);
+                var index = candidate.Coverage.Items.FindIndex(x => x.Key == episode.Key);
+                if (index >= 0) candidate.Coverage.Items[index] = episode;
+                start = () => new(candidate.Coverage, candidate.Item, episode, live.Generation, lease,
+                    candidate.Upgrade, episode.State, ResolveAsync(candidate.Item, episode));
+            }
+            finally { MutationGate.Release(); }
+            pending.Add(start());
+            await DrainCompletedAsync();
+            if (pending.Count >= allowance.Parallelism) await DrainOneAsync();
+        }
         try
         {
             await _db.EnsureImportCoverageAsync(token);
+            if (allowance.IsCatchUp && _mode() == ImportMode.Repair)
+                await _db.PersistMetadataAsync("import_catch_up_last_priority", priority, token);
             var cursorKey = allowance.IsCatchUp ? "import_catch_up_scan_cursor" : "import_scan_cursor";
             if (selected == null && allowance.IsCatchUp &&
                 _db.GetMetadata("import_catch_up_scan_window") != allowance.CatchUpStartedAt!.Value.ToString("o"))
@@ -173,6 +227,7 @@ public sealed class ImportReconciliationService
                 page = (await _db.GetDueImportCatalogAsync(_clock())).Concat(catchUp).Concat(page)
                     .DistinctBy(x => x.Id).ToList();
             }
+            var mayHaveRefresh = page.Any(x => !string.IsNullOrEmpty(x.StrmPath));
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var sourceItem in page)
             {
@@ -214,10 +269,13 @@ public sealed class ImportReconciliationService
                         await SaveObservedAsync(coverage, token);
                         continue;
                     }
-                    if (metadata < allowance.MetadataPerSlice && (coverage.MetadataRetryAt <= now ||
+                    var legacyNumberingGate = coverage.InventoryPolicyVersion == 0 &&
+                        coverage.SnapshotStatus == "identity_conflict" && coverage.ProviderStatus == "numbering_conflict";
+                    if (metadata < allowance.MetadataPerSlice && (legacyNumberingGate || coverage.MetadataRetryAt <= now ||
                         !coverage.MetadataRetryAt.HasValue && (!coverage.SnapshotAt.HasValue || coverage.SnapshotAt <= now.AddHours(-6))))
                     {
                         metadata++;
+                        coverage.InventoryPolicyVersion = 1;
                         try
                         {
                             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -269,7 +327,12 @@ public sealed class ImportReconciliationService
                             observation.Conflict, now);
                         episode.ObservedAt = now;
                         if (episode.State == "indexed")
-                        { episode.LastSuccess = now; episode.Failure = ""; episode.Lease = null; episode.LeaseUntil = null; }
+                        {
+                            episode.LastSuccess = now;
+                            // Native indexing establishes observation success, not
+                            // success of a later source refresh. Preserve its failure.
+                            if (episode.LeaseUntil <= now) { episode.Lease = null; episode.LeaseUntil = null; }
+                        }
                         coverage.Cursor = episode.Key;
                         coverage.CheckedAt = now;
                         await SaveObservedAsync(coverage, token);
@@ -296,17 +359,11 @@ public sealed class ImportReconciliationService
                         if ((episode.State != "missing" && !upgrade) || coverage.SnapshotStatus != "success" ||
                             _inventory.ProviderPaused || attempts >= allowance.AttemptsPerSlice ||
                             _cooldown() > now || await _db.GetRecentImportAttemptsAsync(now) >= allowance.AttemptsPerDay) continue;
-                        attempts++;
-                        if (upgrade) upgrades++;
-                        var lease = Guid.NewGuid().ToString("N");
-                        episode.Lease = lease; episode.LeaseUntil = now.AddMinutes(10);
-                        if (!upgrade) episode.InitialFailure = true; episode.Attempts++;
-                        await _db.RecordImportAttemptAsync(lease, now, token);
-                        await SaveObservedAsync(coverage, token);
-                        pending.Add(new(coverage, item, episode, coverage.Generation, lease, upgrade,
-                            episode.State, ResolveAsync(item, episode)));
-                        await DrainCompletedAsync();
-                        if (pending.Count >= allowance.Parallelism) await DrainOneAsync();
+                        var candidate = new ResolutionCandidate(coverage, item, episode, coverage.Generation, upgrade);
+                        if (allowance.IsCatchUp && (upgrade ? "refresh" : "missing") != priority &&
+                            (priority != "refresh" || mayHaveRefresh))
+                            deferred.Add(candidate);
+                        else await DispatchAsync(candidate);
                     }
                     scanned++;
                     if (coverage.SnapshotStatus == "success" && coverage.Items.Any(x => x.ObservedAt.HasValue))
@@ -325,6 +382,11 @@ public sealed class ImportReconciliationService
                         await _db.PersistMetadataAsync(cursorKey, sourceItem.Id, token);
                 }
             }
+            foreach (var candidate in deferred)
+            {
+                await DrainCompletedAsync();
+                await DispatchAsync(candidate);
+            }
             while (pending.Count > 0) await DrainOneAsync();
         }
         catch (OperationCanceledException) { status = ct.IsCancellationRequested ? "cancelled" : "budget_deferred"; }
@@ -336,13 +398,15 @@ public sealed class ImportReconciliationService
             await Task.WhenAll(pending.Select(x => x.Resolution));
             try { await _db.PersistMetadataAsync("import_last_run", System.Text.Json.JsonSerializer.Serialize(new
                 { Id = runId, Status = status, FinishedAt = _clock(), Scanned = scanned, Attempts = attempts, Metadata = metadata, Published = published,
-                    Upgrades = upgrades, ElapsedSeconds = elapsed.Elapsed.TotalSeconds,
+                    Upgrades = upgrades, Refreshed = refreshed, SourceFailures = sourceFailures,
+                    TransportFailures = transportFailures, Priority = allowance.IsCatchUp ? priority : "normal", ElapsedSeconds = elapsed.Elapsed.TotalSeconds,
                     Speed = allowance.IsCatchUp ? "catch_up" : "normal", allowance.AttemptsPerDay, allowance.Parallelism,
                     allowance.CatchUpStartedAt, allowance.CatchUpUntil }), CancellationToken.None); }
             finally { RunGate.Release(); }
         }
     }
 
+    private sealed record ResolutionCandidate(ImportCoverage Coverage, CatalogItem Item, ImportEpisode Episode, long Generation, bool Upgrade);
     private sealed record ResolutionResult(List<SelectedVersion>? Versions, string Failure);
     private sealed record ResolutionWork(ImportCoverage Coverage, CatalogItem Item, ImportEpisode Episode,
         long Generation, string Lease, bool Upgrade, string PreviousState, Task<ResolutionResult> Resolution);

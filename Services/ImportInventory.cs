@@ -112,6 +112,7 @@ public sealed class ImportInventory : IImportInventory
                     && string.IsNullOrEmpty(item.TvdbId) && string.IsNullOrEmpty(item.TmdbId) ? "unverified" : "aired"
             }).ToList();
         }
+        expected = NormalizeSourceNumbering(expected);
         var providerStatus = "not_applicable";
         if (IsSeries(item))
         {
@@ -125,21 +126,11 @@ public sealed class ImportInventory : IImportInventory
                     var results = await _providers.GetAllEpisodes(series, _library.GetLibraryOptions(series), ct);
                     if (results.Length > 0)
                     {
-                        var providerKeys = results.Where(x => x.ParentIndexNumber.HasValue && x.IndexNumber.HasValue)
-                            .Select(x => $"aired:{x.ParentIndexNumber}:{x.IndexNumber}").ToHashSet(StringComparer.Ordinal);
-                        var common = expected.Count(x => providerKeys.Contains(x.Key));
-                        var compatible = expected.All(x => x.Numbering == "aired") && common == expected.Count
-                            && results.Count(x => x.ParentIndexNumber.HasValue && x.IndexNumber.HasValue) == providerKeys.Count;
-                        providerStatus = compatible ? "success" : "numbering_conflict";
-                        // Only accept provider-only keys when the inventories establish matching numbering.
-                        if (compatible)
-                            foreach (var result in results.Where(x => x.ParentIndexNumber.HasValue && x.IndexNumber.HasValue))
-                            {
-                                var key = $"aired:{result.ParentIndexNumber}:{result.IndexNumber}";
-                                if (expected.All(x => x.Key != key)) expected.Add(new ImportEpisode
-                                { Key = key, Season = result.ParentIndexNumber, Episode = result.IndexNumber,
-                                    Released = result.PremiereDate });
-                            }
+                        var providerEpisodes = results.Where(x => x.ParentIndexNumber.HasValue && x.IndexNumber.HasValue)
+                            .Select(x => new ImportEpisode
+                            { Key = $"aired:{x.ParentIndexNumber}:{x.IndexNumber}", Season = x.ParentIndexNumber,
+                                Episode = x.IndexNumber, Released = x.PremiereDate }).ToList();
+                        providerStatus = ReconcileNumbering(expected, providerEpisodes);
                     }
                 }
                 catch (OperationCanceledException) { throw; }
@@ -147,6 +138,31 @@ public sealed class ImportInventory : IImportInventory
             }
         }
         return new(expected, providerStatus);
+    }
+
+    public static List<ImportEpisode> NormalizeSourceNumbering(IEnumerable<ImportEpisode> episodes) =>
+        episodes.GroupBy(x => x.Key, StringComparer.Ordinal).Select(group =>
+        {
+            var episode = group.First();
+            if (group.Count() > 1) episode.Numbering = "conflict";
+            return episode;
+        }).ToList();
+
+    // Provider coverage is checked per key. A future/special/missing provider row
+    // does not invalidate siblings whose aired numbering agrees. No episode is
+    // mapped to another season or an absolute number to manufacture agreement.
+    public static string ReconcileNumbering(List<ImportEpisode> source, IReadOnlyList<ImportEpisode> provider)
+    {
+        var keys = provider.GroupBy(x => x.Key).ToDictionary(x => x.Key, x => x.ToList(), StringComparer.Ordinal);
+        foreach (var episode in source.Where(x => x.Numbering == "aired"))
+            episode.Numbering = !keys.TryGetValue(episode.Key, out var rows) ? "unconfirmed"
+                : rows.Count != 1 ? "conflict" : "aired";
+        var completeAgreement = source.All(x => x.Numbering == "aired");
+        // Provider-only additions retain the earlier strict agreement requirement.
+        if (completeAgreement)
+            foreach (var rows in keys.Values.Where(x => x.Count == 1))
+                if (source.All(x => x.Key != rows[0].Key)) source.Add(rows[0]);
+        return completeAgreement && keys.Values.All(x => x.Count == 1) ? "success" : "partial_numbering";
     }
 
     public static DateTimeOffset? ParseRelease(string? value) => DateTimeOffset.TryParse(value,

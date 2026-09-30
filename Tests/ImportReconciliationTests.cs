@@ -491,6 +491,116 @@ public sealed class ImportReconciliationTests
         await worker.RunAsync(default); Assert.Equal(2, h.Inventory.Published);
     }
 
+    [Fact] public void MissingFutureAndSpecialProviderRowsDoNotBlockConfirmedSiblings()
+    {
+        var source = new List<ImportEpisode> { Ep(), Ep(2),
+            new() { Key = "aired:2:1", Season = 2, Episode = 1, Released = Now.AddDays(1) },
+            new() { Key = "aired:0:1", Season = 0, Episode = 1, Released = Now.AddDays(-1) } };
+        Assert.Equal("partial_numbering", ImportInventory.ReconcileNumbering(source, new[] { Ep() }));
+        Assert.Equal("eligible", ImportCoveragePolicy.Eligibility(source[0], false, Now, TimeZoneInfo.Utc));
+        Assert.All(source.Skip(1), e => Assert.NotEqual("eligible", ImportCoveragePolicy.Eligibility(e, false, Now, TimeZoneInfo.Utc)));
+        Assert.Equal(4, source.Count);
+    }
+    [Fact] public void DuplicateProviderEpisodeBlocksOnlyThatKeyAndDoesNotInventASeason()
+    {
+        var source = new List<ImportEpisode> { Ep(), Ep(2) };
+        ImportInventory.ReconcileNumbering(source, new[] { Ep(), Ep(), Ep(2), Ep(3) });
+        Assert.Equal("conflict", source[0].Numbering);
+        Assert.Equal("aired", source[1].Numbering);
+        Assert.Equal(2, source.Count); // No provider-only expansion on partial agreement.
+    }
+    [Fact] public void DuplicateSourceKeysRemainExplicitlyConflictedWithConfirmedSiblingsUsable()
+    {
+        var source = ImportInventory.NormalizeSourceNumbering(new[] { Ep(), Ep(), Ep(2) });
+        Assert.True(ImportCoveragePolicy.AcceptSnapshot(new List<ImportEpisode>(), source));
+        ImportInventory.ReconcileNumbering(source, new[] { Ep(), Ep(2) });
+        Assert.Equal("conflict", source[0].Numbering); Assert.Equal("aired", source[1].Numbering);
+    }
+    [Fact] public void UnverifiedAnimeAndDisjointInventoriesNeverForceMatches()
+    {
+        var source = new List<ImportEpisode> { Ep() }; source[0].Numbering = "unverified";
+        ImportInventory.ReconcileNumbering(source, new[] { Ep() });
+        Assert.Equal("unverified", source[0].Numbering);
+        source = new() { Ep() }; ImportInventory.ReconcileNumbering(source, new[] { Ep(2) });
+        Assert.Single(source); Assert.Equal("unconfirmed", source[0].Numbering);
+    }
+    [Fact] public void ProviderOnlyEpisodesRequireCompleteSourceAgreement()
+    {
+        var source = new List<ImportEpisode> { Ep() };
+        Assert.Equal("success", ImportInventory.ReconcileNumbering(source, new[] { Ep(), Ep(2) }));
+        Assert.Equal(new[] { 1, 2 }, source.Select(x => x.Episode!.Value));
+    }
+    [Fact] public async Task PartialNumberingPublishesConfirmedEpisodesAndKeepsDisputedOnesExcluded()
+    {
+        using var h = new Harness(); await h.Seed(); h.Inventory.DisputedEpisode = 2;
+        await h.Run(); Assert.Equal(1, h.Inventory.Published);
+        var state = await h.State(); Assert.Equal("success", state.SnapshotStatus);
+        Assert.Equal("partial_numbering", state.ProviderStatus);
+        Assert.Equal("numbering_conflict", state.Items.Single(x => x.Episode == 2).Eligibility);
+    }
+    [Fact] public async Task LegacyWholeSeriesGateIsRecheckedWithoutResettingRetriesOrIdentityExclusions()
+    {
+        using var h = new Harness(); await h.Seed(); await h.Run(ImportMode.Observe);
+        var state = await h.State(); state.SnapshotStatus = "identity_conflict";
+        state.ProviderStatus = "numbering_conflict"; state.InventoryPolicyVersion = 0;
+        state.MetadataRetryAt = h.Now.AddHours(6);
+        state.Items[0].NextAttempt = h.Now.AddHours(2); state.Items[0].Attempts = 3;
+        await h.Db.SaveImportCoverageAsync(state); h.Inventory.DisputedEpisode = 2;
+        await h.Run(); state = await h.State(); Assert.Equal("success", state.SnapshotStatus);
+        Assert.Equal(1, state.InventoryPolicyVersion); Assert.Equal(3, state.Items[0].Attempts);
+        Assert.Equal(h.Now.AddHours(2), state.Items[0].NextAttempt);
+        Assert.Equal(0, h.Inventory.Resolutions);
+    }
+    [Fact] public async Task GenuineIdentityConflictDoesNotBecomeAOneTimeNumberingRetry()
+    {
+        using var h = new Harness(); await h.Seed(); await h.Run(ImportMode.Observe);
+        var state = await h.State(); state.SnapshotStatus = "identity_conflict";
+        state.ProviderStatus = "success"; state.MetadataRetryAt = h.Now.AddHours(6);
+        state.InventoryPolicyVersion = 0; await h.Db.SaveImportCoverageAsync(state);
+        await h.Run(); Assert.Equal("identity_conflict", (await h.State()).SnapshotStatus);
+        Assert.Equal(0, h.Inventory.Resolutions);
+    }
+    [Fact] public async Task IndexedOldFilePreservesFailedRefreshReasonAndBackoffUntilSuccess()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1; h.Inventory.Files.Add(1);
+        h.Inventory.FailEpisode = 1; await h.Seed(); h.Engage(); await h.Run();
+        var before = (await h.State()).Items.Single(); Assert.Equal("source_unavailable", before.Failure);
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        h.Now = h.Now.AddHours(1); await h.Run(); var after = (await h.State()).Items.Single();
+        Assert.Equal("indexed", after.State); Assert.Equal(before.Failure, after.Failure);
+        Assert.Equal(before.NextAttempt, after.NextAttempt); Assert.Equal(1, h.Inventory.Resolutions);
+        Assert.Contains(1, h.Inventory.Files); Assert.Null(after.LastVersionRefresh);
+        h.Now = h.Now.AddDays(1); h.Inventory.FailEpisode = 0; await h.Run();
+        after = (await h.State()).Items.Single(); Assert.Equal("", after.Failure);
+        Assert.Null(after.NextAttempt); Assert.Equal(h.Now, after.LastVersionRefresh);
+    }
+    [Fact] public async Task ScarceSliceCreditsRotateAcrossMissingAndRefreshWorkAfterRestart()
+    {
+        using var h = new Harness(); h.Inventory.Count = 10; h.Item.StrmPath = "/fake/series";
+        h.Inventory.Files.UnionWith(Enumerable.Range(6, 5)); await h.Seed(); h.Engage();
+        var limit = ImportWorkBudget.For(h.Config, h.Now) with { AttemptsPerSlice = 2 };
+        Task Run() => new ImportReconciliationService(h.Db, h.Inventory, () => ImportMode.Repair,
+            TimeZoneInfo.Utc, () => h.Now, workBudget: () => limit).RunAsync(default, new[] { h.Item });
+        await Run(); Assert.All(h.Inventory.ResolvedEpisodes, e => Assert.True(e >= 6));
+        Assert.Equal(2, h.Inventory.Published);
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        h.Inventory.ResolvedEpisodes.Clear(); await Run();
+        Assert.Equal(2, h.Inventory.ResolvedEpisodes.Count);
+        Assert.All(h.Inventory.ResolvedEpisodes, e => Assert.True(e < 6));
+        Assert.Equal(4, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+    [Fact] public async Task NonPriorityLaneBorrowsUnusedCreditsAndRechecksALateBlock()
+    {
+        using var h = new Harness(); h.Item.StrmPath = "/fake/series";
+        await h.Seed(); h.Engage(); await h.Run(); Assert.Equal(2, h.Inventory.Published);
+        h.Inventory.Files.Clear(); h.Now = h.Now.AddMinutes(1);
+        await h.Db.PersistMetadataAsync("import_catch_up_last_priority", "missing");
+        h.Inventory.OnObserve = async ep => { if (ep.Episode == 2)
+            await h.Db.UpsertBlockedItemAsync(h.Item.AioId, null, null, "fixture", "series", "test"); };
+        var previous = h.Inventory.Resolutions; await h.Run();
+        Assert.Equal(previous, h.Inventory.Resolutions);
+    }
+
     public class NullLogProxy : System.Reflection.DispatchProxy
     {
         protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
@@ -516,9 +626,15 @@ public sealed class ImportReconciliationTests
     }
     private sealed class FakeInventory : IImportInventory
     {
-        public int Resolutions, Published, Notifications, FailEpisode, Count = 2;
+        public int Resolutions, Published, Notifications, FailEpisode, DisputedEpisode, Count = 2;
+        public List<int> ResolvedEpisodes = new();
         public bool Owned, BadSnapshot, Paused, Indexed = true; public bool ProviderPaused => Paused; public HashSet<int> Files = new(); public Func<Task>? OnResolve; public Func<CancellationToken, Task>? OnResolveWithToken; public Func<ImportEpisode, Task>? OnObserve;
-        public Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct) => Task.FromResult(new ImportSnapshot(BadSnapshot ? new() : Enumerable.Range(1, Count).Select(Ep).ToList(), "success"));
+        public Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct)
+        {
+            var episodes = BadSnapshot ? new List<ImportEpisode>() : Enumerable.Range(1, Count).Select(Ep).ToList();
+            if (DisputedEpisode > 0) foreach (var ep in episodes.Where(x => x.Episode == DisputedEpisode)) ep.Numbering = "unconfirmed";
+            return Task.FromResult(new ImportSnapshot(episodes, DisputedEpisode > 0 ? "partial_numbering" : "success"));
+        }
         public async Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
         {
             if (OnObserve != null) await OnObserve(ep);
@@ -526,7 +642,7 @@ public sealed class ImportReconciliationTests
         }
         public bool IsOwned(CatalogItem item) => Owned;
         public async Task<List<SelectedVersion>> ResolveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
-        { Resolutions++; if (OnResolve != null) await OnResolve(); if (OnResolveWithToken != null) await OnResolveWithToken(ct); return ep.Episode == FailEpisode ? new() : new() { new() { Stream = new() { Url = "https://example.invalid/test" } } }; }
+        { Resolutions++; ResolvedEpisodes.Add(ep.Episode!.Value); if (OnResolve != null) await OnResolve(); if (OnResolveWithToken != null) await OnResolveWithToken(ct); return ep.Episode == FailEpisode ? new() : new() { new() { Stream = new() { Url = "https://example.invalid/test" } } }; }
         public Task<List<string>> PublishAsync(CatalogItem item, ImportEpisode ep, List<SelectedVersion> versions, CancellationToken ct)
         { Published++; Files.Add(ep.Episode!.Value); return Task.FromResult(new List<string> { $"/fake/series/Season 01/e{ep.Episode}.strm" }); }
         public void Notify(CatalogItem item) => Notifications++;

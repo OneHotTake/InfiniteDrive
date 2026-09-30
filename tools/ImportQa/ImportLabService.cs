@@ -54,6 +54,10 @@ public sealed class ImportLabService : IService, IRequiresRequest
                 }
                 mode = ImportMode.Observe;
                 break;
+            case "partial-numbering":
+                fake.PartialNumbering = true; now = now.AddHours(8);
+                break;
+            case "recheck-numbering": now = now.AddHours(16); break;
             case "fail-second": fake.FailSecond = true; break;
             case "retry": now = now.AddHours(8); break;
             case "observe": mode = ImportMode.Observe; break;
@@ -118,11 +122,16 @@ public sealed class ImportLabService : IService, IRequiresRequest
     private sealed class LabInventory : IImportInventory
     {
         private readonly ImportInventory _real;
-        public bool FailSecond; public int Resolutions, Published;
+        public bool FailSecond, PartialNumbering; public int Resolutions, Published;
         public List<ImportEpisode> Episodes => Enumerable.Range(1, 2).Select(n => new ImportEpisode
             { Key = $"aired:1:{n}", Season = 1, Episode = n, Released = DateTimeOffset.Parse("2020-01-01T00:00:00Z") }).ToList();
         public LabInventory(ImportInventory real) { _real = real; }
-        public Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct) => Task.FromResult(new ImportSnapshot(Episodes, "fixture"));
+        public Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct)
+        {
+            var episodes = Episodes;
+            var status = PartialNumbering ? ImportInventory.ReconcileNumbering(episodes, episodes.Take(1).ToList()) : "fixture";
+            return Task.FromResult(new ImportSnapshot(episodes, status));
+        }
         public Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct) => _real.ObserveAsync(item, ep, ct);
         public bool IsOwned(CatalogItem item) => false;
         public Task<List<SelectedVersion>> ResolveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)

@@ -1,6 +1,27 @@
 # Import reconciliation QA — September 29, 2026
 
 
+## Episode numbering and fair reconciliation — September 30, 2026
+
+Version 0.42.11: **213/213 tests passed**, zero skipped, against pinned Emby
+4.10.0.40 and real SQLite. New regressions check per-key source/provider
+agreement, duplicate and unverified numbering, legacy whole-series gate
+reevaluation, identity safeguards, failed-refresh diagnostics/backoff across a
+database reopen, alternating lane priority and authorization of deferred calls.
+
+An isolated frozen beta used a new fixed fixture root and separate fixture DB.
+With only episode 1 confirmed by the provider inventory, one episode group/two
+STRMs published and indexed; episode 2 remained excluded with numbering conflict.
+A native restart preserved both outcomes. Advancing the fixture clock and
+restoring complete numbering published episode 2 and refreshed episode 1; four
+STRMs then indexed as two matching native episodes. There was no fixture DB reset.
+These synthetic targets verify publication and native identity/numbering/indexing,
+not playback. Production was unchanged throughout this QA. The lab retains its
+freeze, read-only physical-media mounts and network isolation; its prior artifact,
+configuration and unrelated state are preserved. Temporary QA code never enters
+the release DLL. Only the named fixture/library and temporary hidden administrator
+are removed during cleanup; the private backup is retained.
+
 ## Scheduled cursor correction — September 29, 2026
 
 All **126 tests passed** against the pinned Emby runtime and real SQLite, with
