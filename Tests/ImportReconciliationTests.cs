@@ -601,6 +601,25 @@ public sealed class ImportReconciliationTests
         Assert.Equal(previous, h.Inventory.Resolutions);
     }
 
+    [Fact] public async Task AnalyticsSeparatesExplicitHttp429FromEmptySourcesAndKeepsBackoff()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1; h.Inventory.RateLimit = true;
+        await h.Seed(); await h.Run(); var run = ImportRunTelemetry.Current!;
+        Assert.Equal(1, run.Http429); Assert.Equal(0, run.EmptyResults);
+        Assert.Equal(0, run.TransportFailures); Assert.Equal(0, run.Published);
+        Assert.Equal(0, run.ActiveLookups); Assert.Equal(1, run.MissingAttempts);
+        var episode = (await h.State()).Items.Single(); Assert.Equal("http_429", episode.Failure);
+        Assert.True(episode.NextAttempt > h.Now); Assert.Single(await h.Db.GetImportRunHistoryAsync());
+    }
+    [Fact] public async Task AnalyticsDoesNotCallAnUncancelledHttpOperationTimeoutALookupDeadline()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1;
+        h.Inventory.OnResolve = () => throw new OperationCanceledException();
+        await h.Seed(); await h.Run(); var run = ImportRunTelemetry.Current!;
+        Assert.Equal(1, run.TransportFailures); Assert.Equal(0, run.LookupDeadlines);
+        Assert.Equal(0, run.ActiveLookups); Assert.Equal("transport_failure", (await h.State()).Items.Single().Failure);
+    }
+
     public class NullLogProxy : System.Reflection.DispatchProxy
     {
         protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
@@ -628,7 +647,7 @@ public sealed class ImportReconciliationTests
     {
         public int Resolutions, Published, Notifications, FailEpisode, DisputedEpisode, Count = 2;
         public List<int> ResolvedEpisodes = new();
-        public bool Owned, BadSnapshot, Paused, Indexed = true; public bool ProviderPaused => Paused; public HashSet<int> Files = new(); public Func<Task>? OnResolve; public Func<CancellationToken, Task>? OnResolveWithToken; public Func<ImportEpisode, Task>? OnObserve;
+        public bool Owned, BadSnapshot, Paused, RateLimit, Indexed = true; public bool ProviderPaused => Paused; public HashSet<int> Files = new(); public Func<Task>? OnResolve; public Func<CancellationToken, Task>? OnResolveWithToken; public Func<ImportEpisode, Task>? OnObserve;
         public Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct)
         {
             var episodes = BadSnapshot ? new List<ImportEpisode>() : Enumerable.Range(1, Count).Select(Ep).ToList();
@@ -642,7 +661,7 @@ public sealed class ImportReconciliationTests
         }
         public bool IsOwned(CatalogItem item) => Owned;
         public async Task<List<SelectedVersion>> ResolveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
-        { Resolutions++; ResolvedEpisodes.Add(ep.Episode!.Value); if (OnResolve != null) await OnResolve(); if (OnResolveWithToken != null) await OnResolveWithToken(ct); return ep.Episode == FailEpisode ? new() : new() { new() { Stream = new() { Url = "https://example.invalid/test" } } }; }
+        { Resolutions++; ResolvedEpisodes.Add(ep.Episode!.Value); if (RateLimit) throw new ImportHttpRateLimitException(); if (OnResolve != null) await OnResolve(); if (OnResolveWithToken != null) await OnResolveWithToken(ct); return ep.Episode == FailEpisode ? new() : new() { new() { Stream = new() { Url = "https://example.invalid/test" } } }; }
         public Task<List<string>> PublishAsync(CatalogItem item, ImportEpisode ep, List<SelectedVersion> versions, CancellationToken ct)
         { Published++; Files.Add(ep.Episode!.Value); return Task.FromResult(new List<string> { $"/fake/series/Season 01/e{ep.Episode}.strm" }); }
         public void Notify(CatalogItem item) => Notifications++;

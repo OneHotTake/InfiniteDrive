@@ -6,6 +6,7 @@ using InfiniteDrive.Models;
 using ItemStatus = Emby.Web.GenericEdit.Elements.ItemStatus;
 using Emby.Web.GenericEdit.Elements.List;
 using System.Threading.Tasks;
+using System.Threading;
 using Emby.Web.GenericEdit.Elements;
 using InfiniteDrive.UI;
 using MediaBrowser.Model.Plugins.UI.Views;
@@ -23,6 +24,7 @@ namespace InfiniteDrive.UI.Settings
         }
 
         private int _importOffset;
+        private readonly SemaphoreSlim _loadGate = new(1, 1);
         private SyncAndMarvinUI UI => (SyncAndMarvinUI)ContentData;
 
         public override bool IsCommandAllowed(string commandKey) => true;
@@ -84,6 +86,7 @@ namespace InfiniteDrive.UI.Settings
 
         private async Task LoadImportsAsync()
         {
+            await _loadGate.WaitAsync();
             try
             {
                 var db = Plugin.Instance.DatabaseManager;
@@ -113,20 +116,46 @@ namespace InfiniteDrive.UI.Settings
                         CommandId = speed.IsCatchUp ? "ImportNormalSpeed" : "ImportCatchUp",
                     },
                 });
+                var hasLedger = db.GetMetadata("import_schema") == "1";
+                var used = hasLedger ? await db.GetRecentImportAttemptsAsync(now) : 0;
+                var nextCredit = hasLedger ? await db.GetNextImportCreditAsync(now, speed.AttemptsPerDay) : null;
+                UI.DashboardItems.Clear(); UI.RecentRuns.Clear();
+                AddDashboard("Read at", $"{now:yyyy-MM-dd HH:mm:ss} UTC · Refresh dashboard to update");
+                AddDashboard("Rolling 24-hour allowance", $"{used:N0} / {speed.AttemptsPerDay:N0} attempts · {Math.Max(0, speed.AttemptsPerDay-used):N0} available" +
+                    (nextCredit.HasValue ? $" · earliest credit {When(nextCredit, now)}" : ""));
+                var current = ImportRunTelemetry.Current;
                 var lastRun = db.GetMetadata("import_last_run");
+                if (current != null) DrawRun(current, current.Status == "running" ? "Current run" : "Latest run in this server session");
+                else if (lastRun != null)
+                {
+                    using var saved = JsonDocument.Parse(lastRun);
+                    if (saved.RootElement.TryGetProperty("Analytics", out var analytics))
+                    {
+                        var restored = analytics.Deserialize<ImportRunSnapshot>();
+                        if (restored != null) DrawRun(restored, "Last saved run (before this server restart)");
+                    }
+                    else AddDashboard("Current run", "No timing sample yet. Older reports have counts only.");
+                }
+                foreach (var payload in await db.GetImportRunHistoryAsync())
+                {
+                    using var document = JsonDocument.Parse(payload); var row = document.RootElement;
+                    UI.RecentRuns.Add(new GenericListItem {
+                        PrimaryText = $"{row.GetProperty("FinishedAt").GetDateTimeOffset():HH:mm:ss} UTC · {row.GetProperty("Status").GetString()}",
+                        SecondaryText = $"{row.GetProperty("ElapsedSeconds").GetDouble():N0}s · {row.GetProperty("Attempts").GetInt32():N0} attempts · {row.GetProperty("Published").GetInt32():N0} groups written" });
+                }
                 if (lastRun == null)
                 {
                     UI.MarvinStatus.StatusText = "No report yet. Run Marvin to check the library.";
                     UI.MarvinStatus.Status = ItemStatus.None;
                     return;
                 }
-                UI.ImportStatus.StatusText += $" · {await db.GetRecentImportAttemptsAsync(now):N0} of {speed.AttemptsPerDay:N0} stream checks used in the last 24 hours";
+                UI.ImportStatus.StatusText += $" · {used:N0} of {speed.AttemptsPerDay:N0} stream checks used in the last 24 hours";
                 using (var report = JsonDocument.Parse(lastRun))
                 {
                     var run = report.RootElement;
                     var finished = run.GetProperty("FinishedAt").GetDateTimeOffset();
                     var summary = $"{When(finished, now)} · {run.GetProperty("Attempts").GetInt32()} stream checks";
-                    if (run.TryGetProperty("Published", out var published)) summary += $" · {published.GetInt32()} items refreshed";
+                    if (run.TryGetProperty("Published", out var published)) summary += $" · {published.GetInt32()} groups written";
                     var status = run.GetProperty("Status").GetString();
                     UI.MarvinStatus.StatusText = summary + (status switch
                     {
@@ -148,16 +177,16 @@ namespace InfiniteDrive.UI.Settings
                     var detail = (expected > 0 ? $"{indexed}/{expected} released items in Emby" : "No released items confirmed") + $" · checked {When(title.CheckedAt, now)}";
                     if (title.Exclusion.Length > 0) detail += " · " + Explain(title.Exclusion);
                     else if (title.SnapshotStatus != "success") detail += " · " + Explain(title.SnapshotStatus);
-                    if (title.ProviderStatus is "provider_check_unavailable" or "numbering_conflict")
+                    if (title.ProviderStatus is "provider_check_unavailable" or "numbering_conflict" or "partial_numbering")
                         detail += " · " + Explain(title.ProviderStatus);
                     UI.ImportItems.Add(new GenericListItem { PrimaryText = title.Title,
                         SecondaryText = detail,
                         Icon = IconNames.info, IconMode = ItemListIconMode.SmallRegular,
                         Button1 = new ButtonItem(title.IncludeSpecials ? "Skip specials" : "Include released specials")
                         { Data1 = title.Identity, CommandId = title.IncludeSpecials ? "ImportExcludeSpecials" : "ImportIncludeSpecials" } });
-                    foreach (var episode in title.Items.Where(x => x.State != "indexed").Take(50))
+                    foreach (var episode in title.Items.Where(x => x.State != "indexed" || x.Failure.Length > 0).Take(50))
                     {
-                        var reason = episode.State == "excluded" ? Explain(episode.Eligibility) : Explain(episode.State);
+                        var reason = episode.State == "indexed" && episode.Failure.Length > 0 ? "In Emby; source refresh failed" : episode.State == "excluded" ? Explain(episode.Eligibility) : Explain(episode.State);
                         var more = episode.Failure.Length > 0 ? Explain(episode.Failure) : "";
                         if (episode.NextAttempt.HasValue) more += (more.Length > 0 ? " · " : "") + (episode.NextAttempt > now ? "Retry " + When(episode.NextAttempt, now) : "Retry due");
                         UI.ImportItems.Add(new GenericListItem
@@ -173,7 +202,26 @@ namespace InfiniteDrive.UI.Settings
                 UI.ImportStatus.StatusText = "Couldn't load the library checks. Try Refresh status.";
                 UI.ImportStatus.Status = ItemStatus.Warning;
             }
-            finally { RaiseUIViewInfoChanged(); }
+            finally { _loadGate.Release(); RaiseUIViewInfoChanged(); }
+        }
+
+        private void AddDashboard(string title, string detail) =>
+            UI.DashboardItems.Add(new GenericListItem { PrimaryText = title, SecondaryText = detail });
+
+        private void DrawRun(ImportRunSnapshot run, string label)
+        {
+            AddDashboard(label, $"{run.Status} · {run.ElapsedSeconds:N0}s elapsed · started {run.StartedAt:HH:mm:ss} UTC");
+            if (run.Status == "running") AddDashboard("Doing", $"{run.Phase.Replace('_',' ')} · {run.PhaseSeconds:N0}s in this step" +
+                (run.Title.Length > 0 ? $" · {run.Title} {run.EpisodeKey}" : ""));
+            AddDashboard("Lookups", $"{run.ActiveLookups:N0} in flight (includes paced waiting) · {run.MissingAttempts:N0} missing-file attempts · {run.RefreshAttempts:N0} refresh attempts");
+            AddDashboard("Results", $"{run.Matched:N0} matched · {run.EmptyResults:N0} empty · {run.TransportFailures:N0} transport failures · {run.LookupDeadlines:N0} deadlines · {run.Http429:N0} HTTP 429 · {run.ProviderConfigurationFailures:N0} provider settings failures · {run.CancelledLookups:N0} cancelled");
+            AddDashboard("Files published", $"{run.Published:N0} movie/episode groups written · {run.Refreshed:N0} replaced old choices · {run.PublicationFailures:N0} publication failures · {run.EpisodesChecked:N0} episode/movie checks");
+            foreach (var entry in run.Timings)
+            {
+                var timing = entry.Value;
+                AddDashboard(entry.Key + " timing", $"{timing.Count:N0} calls · mean {timing.MeanSeconds:N2}s · p95 {timing.P95Seconds:N2}s · max {timing.MaxSeconds:N2}s · total {timing.TotalSeconds:N1}s");
+            }
+            AddDashboard("Timing scope", "Resolution includes dispatch pacing and provider wait. Parallel call totals overlap; they are not wall-clock time. p95 uses the latest 512 samples per stage; other statistics cover this run. Checkpoint timing covers observation saves only.");
         }
 
         private static string When(DateTimeOffset? value, DateTimeOffset now)
@@ -206,6 +254,9 @@ namespace InfiniteDrive.UI.Settings
             "stale_or_unavailable" => "Couldn't refresh the episode list",
             "provider_check_unavailable" => "Emby's episode metadata is unavailable",
             "source_unavailable" => "No streams matched your settings",
+            "partial_numbering" => "Some episode numbers need a check; confirmed siblings can proceed",
+            "lookup_deadline" => "Source lookup reached its deadline",
+            "http_429" => "Source returned HTTP 429; waiting to retry",
             "transport_failure" => "Couldn't reach the source",
             "provider_configuration" => "Check your provider settings, then retry",
             _ => "Needs another check",

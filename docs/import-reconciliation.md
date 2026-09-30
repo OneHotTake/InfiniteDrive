@@ -214,6 +214,35 @@ thirty minutes apart. After those attempts and two hours, unresolved native
 indexing becomes `indexing_attention`. Large or blocked Emby scans can therefore
 leave publication pending; the worker does not repeatedly download/rewrite it.
 
+## Dashboard and timing history
+
+The native Marvin page has a **Refresh dashboard** button. It reads a timestamped
+snapshot, including the current phase/title/episode, elapsed time, lookups in
+flight (including paced waiting), episode/movie checks, missing and refresh
+attempts, source matches, empty responses, transport errors, lookup deadlines,
+explicit HTTP 429, provider configuration failures, cancellations and successful
+publication groups. Matched lookups can still fail or be discarded before
+publication. Groups are movies/episodes, not individual alternate STRMs, grouped
+Emby titles or proof of playback. Old indexed files with failed refreshes retain
+their reason and next retry in the coverage list.
+
+Five stage timers measure metadata, observation, resolution, publication and
+observation checkpoint saves. Resolution includes pacing/provider wait; publication
+includes file writes and publication state/registration. Checkpoint timings exclude
+other database operations. Parallel call totals overlap and are not wall-clock time.
+Each stage retains at most 512 recent samples for p95; count/total/mean/max cover the
+whole run. The live snapshot is process memory; no per-event database polling or
+new worker is added. Refreshing the page is read-only and does not trigger work.
+
+The additive `import_run_history` table retains seven days of completed reports
+(one write per run plus pruning old analytics). `import_last_run` stays compatible
+and gains an `Analytics` object. No history is invented for old versions. History
+pruning never resets the attempt ledger, coverage, retry/backoff or catalog/user
+state. After restart the dashboard labels the prior saved run explicitly. The
+next-credit estimate considers the correct expiring attempt when a lower normal
+ceiling follows catch-up; it is a quota estimate, not a source-availability or
+completion estimate.
+
 ## Administrative API
 
 Both routes require a native administrator session through the existing
@@ -221,8 +250,9 @@ Both routes require a native administrator session through the existing
 
 - `GET /InfiniteDrive/Imports?Offset=0&Limit=50`: read-only, bounded page; dated
   coverage, provider status, episode reasons, next retries, collection summary,
-  speed, expiry and rolling attempt usage. LastRun includes elapsed seconds and
-  publication/upgrade counts; they are not playback or completion claims.
+  speed, expiry and rolling attempt usage. CurrentRun adds the in-memory snapshot, NextCreditAt the earliest budget credit,
+  and RecentRuns up to 12 saved reports. LastRun includes elapsed seconds and
+  publication/upgrade counts and an Analytics snapshot; they are not playback or completion claims.
 - `POST /InfiniteDrive/Imports/Action`: `Action` is `mode`, `check`, `retry`,
   `include_specials`, `exclude_specials`, `resume_provider`, `start_catch_up`, or
   `stop_catch_up`. Catch-up actions need no extra fields; start requires Repair.
@@ -235,11 +265,13 @@ status never creates tables, contacts providers, or triggers work.
 
 ## Verification and rollout
 
-September 30, 2026, 0.42.11 regression build: 213/213 tests passed against
+September 30, 2026, 0.42.11 regression build: 219/219 tests passed against
 pinned Emby 4.10.0.40, with no skipped tests. New cases cover partial/disjoint
 provider inventories, duplicate source/provider numbering, unverified anime,
 provider-only additions, legacy gate reevaluation, genuine identity conflict,
-failed refresh diagnostics across restart, priority rotation and late blocks.
+failed refresh diagnostics across restart, priority rotation and late blocks. Analytics regressions cover concurrent counters,
+bounded timing samples, HTTP 429 versus operation timeouts, report retention across
+restart, and credit expiry under a lower ceiling.
 This is implementation evidence; production throughput and playback require
 separate live checks.
 

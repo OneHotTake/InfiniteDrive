@@ -11,6 +11,12 @@ namespace InfiniteDrive.UI.Settings
         public override string EditorTitle => "Marvin";
         public override string EditorDescription => "Brain the size of a planet. Still on library duty.";
 
+        public CaptionItem DashboardCaption { get; set; } = new CaptionItem("Marvin dashboard");
+        public LabelItem DashboardHelp { get; set; } = new LabelItem("A dated snapshot of the worker. Refresh to update. Writes are movie/episode groups, not alternate files or proof of playback.");
+        public ButtonItem RefreshDashboard { get; set; } = new ButtonItem("Refresh dashboard") { Data1 = "ImportRefresh" };
+        public GenericItemList DashboardItems { get; set; } = new GenericItemList();
+        public CaptionItem HistoryCaption { get; set; } = new CaptionItem("Recent passes");
+        public GenericItemList RecentRuns { get; set; } = new GenericItemList();
         public StatusItem MarvinStatus { get; set; } = new StatusItem("Last library pass", "No report yet", ItemStatus.None);
         public ButtonItem RunMarvinNowButton { get; set; } = new ButtonItem("Run Marvin now")
         {

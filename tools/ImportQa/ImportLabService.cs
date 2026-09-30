@@ -106,6 +106,10 @@ public sealed class ImportLabService : IService, IRequiresRequest
                 await db.PersistMetadataAsync("qa_collection", boxes.Contains(box, seriesItem.Id) ? "confirmed" : "failed");
                 mode = ImportMode.Observe;
                 break;
+            case "dashboard":
+                var view = new InfiniteDrive.UI.Settings.SyncAndMarvinTabView(p.Id.ToString(), new());
+                await view.RunCommand("", "ImportRefresh", "");
+                return new { Dashboard = view.ContentData, CurrentRun = ImportRunTelemetry.Current };
             case "status": return await Status(db, fake);
             default: throw new ArgumentException("Unknown QA step");
         }

@@ -36,13 +36,14 @@ public sealed class ImportHealthService : IService, IRequiresRequest
         if (deny != null) return deny;
         var db = Plugin.Instance.DatabaseManager;
         // No schema creation, provider calls, notifications, or task launch from GET.
-        if (db.GetMetadata("import_last_run") == null) return new { Status = "not_observed", Mode = Plugin.Instance.Configuration.ImportRecoveryMode.ToString() };
+        if (db.GetMetadata("import_last_run") == null) return new { Status = "not_observed", Mode = Plugin.Instance.Configuration.ImportRecoveryMode.ToString(), CurrentRun = ImportRunTelemetry.Current };
         var speed = ImportWorkBudget.For(Plugin.Instance.Configuration, DateTimeOffset.UtcNow);
         var used = await db.GetRecentImportAttemptsAsync(DateTimeOffset.UtcNow);
         var page = await db.GetImportCoveragePageAsync(request.Offset, request.Limit);
         return new { Mode = Plugin.Instance.Configuration.ImportRecoveryMode.ToString(),
             Speed = speed.IsCatchUp ? "catch_up" : "normal", speed.CatchUpUntil, speed.AttemptsPerDay, AttemptsUsed = used,
-            LastRun = db.GetMetadata("import_last_run"), CollectionHealth = db.GetMetadata("import_collection_health"), NextOffset = request.Offset + page.Count,
+            CurrentRun = ImportRunTelemetry.Current, NextCreditAt = await db.GetNextImportCreditAsync(DateTimeOffset.UtcNow, speed.AttemptsPerDay),
+            RecentRuns = await db.GetImportRunHistoryAsync(), LastRun = db.GetMetadata("import_last_run"), CollectionHealth = db.GetMetadata("import_collection_health"), NextOffset = request.Offset + page.Count,
             Items = page.Select(x => new { x.Identity, x.Title, Complete = x.Complete && x.SnapshotAt >= DateTimeOffset.UtcNow.AddHours(-6), x.SnapshotAt, x.CheckedAt,
                 x.SnapshotStatus, x.ProviderStatus, x.Exclusion,
                 Stale = x.SnapshotAt == null || x.SnapshotAt < DateTimeOffset.UtcNow.AddHours(-6),

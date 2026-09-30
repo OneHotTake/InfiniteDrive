@@ -3,7 +3,7 @@
 
 ## Episode numbering and fair reconciliation — September 30, 2026
 
-Version 0.42.11: **213/213 tests passed**, zero skipped, against pinned Emby
+Version 0.42.11: **219/219 tests passed**, zero skipped, against pinned Emby
 4.10.0.40 and real SQLite. New regressions check per-key source/provider
 agreement, duplicate and unverified numbering, legacy whole-series gate
 reevaluation, identity safeguards, failed-refresh diagnostics/backoff across a

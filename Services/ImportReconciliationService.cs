@@ -22,6 +22,7 @@ public sealed class ImportReconciliationService
     private readonly Func<DateTimeOffset> _cooldown;
     private readonly TimeZoneInfo _timezone;
     private readonly Func<ImportWorkBudget> _workBudget;
+    private ImportRunTelemetry? _activeTelemetry;
 
     public ImportReconciliationService(DatabaseManager db, IImportInventory inventory,
         Func<ImportMode> mode, TimeZoneInfo timezone, Func<DateTimeOffset>? clock = null,
@@ -56,6 +57,8 @@ public sealed class ImportReconciliationService
         var notified = false;
         var runId = Guid.NewGuid().ToString("N");
         var status = "success";
+        var telemetry = ImportRunTelemetry.Start(runId);
+        _activeTelemetry = telemetry;
         var pending = new List<ResolutionWork>();
         var deferred = new List<ResolutionCandidate>();
         // Rotate the first claim on scarce credits across native slices. The other
@@ -68,18 +71,29 @@ public sealed class ImportReconciliationService
 
         async Task<ResolutionResult> ResolveAsync(CatalogItem item, ImportEpisode episode)
         {
+            telemetry.LookupStarted();
+            var timer = Stopwatch.StartNew();
+            var failure = "";
+            List<SelectedVersion>? versions = null;
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+            deadline.CancelAfter(TimeSpan.FromSeconds(allowance.IsCatchUp ? 120 : 60));
             try
             {
-                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-                deadline.CancelAfter(TimeSpan.FromSeconds(allowance.IsCatchUp ? 120 : 60));
-                var versions = allowance.IsCatchUp
+                versions = allowance.IsCatchUp
                     ? await _inventory.ResolveCatchUpAsync(item, episode, deadline.Token)
                     : await _inventory.ResolveAsync(item, episode, deadline.Token);
-                return new(versions, versions.Count == 0 ? "source_unavailable" : "");
+                failure = versions.Count == 0 ? "source_unavailable" : "";
             }
-            catch (ImportProviderConfigurationException) { return new(null, "provider_configuration"); }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { return new(null, "cancelled"); }
-            catch { return new(null, "transport_failure"); }
+            catch (ImportProviderConfigurationException) { failure = "provider_configuration"; }
+            catch (ImportHttpRateLimitException) { failure = "http_429"; }
+            catch (OperationCanceledException) { failure = token.IsCancellationRequested ? "cancelled" : deadline.IsCancellationRequested ? "lookup_deadline" : "transport_failure"; }
+            catch { failure = "transport_failure"; }
+            finally
+            {
+                telemetry.RecordTiming("resolution", timer.Elapsed.TotalSeconds);
+                telemetry.LookupFinished(failure);
+            }
+            return new(versions, failure);
         }
 
         async Task CompleteAsync(ResolutionWork work)
@@ -101,6 +115,8 @@ public sealed class ImportReconciliationService
                 var failure = result.Failure;
                 if (result.Versions is { Count: > 0 })
                 {
+                    telemetry.Work("publication", work.Item.Title, episode.Key);
+                    var publishTimer = Stopwatch.StartNew();
                     try
                     {
                         episode.Paths = await _inventory.PublishAsync(work.Item, episode, result.Versions, token);
@@ -114,9 +130,11 @@ public sealed class ImportReconciliationService
                         await RegisterPathsAsync(live, work.Item, episode, result.Versions, token);
                         published++;
                         if (work.Upgrade) refreshed++;
+                        telemetry.Published(work.Upgrade);
                     }
                     catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-                    catch { failure = "publication_failed"; }
+                    catch { failure = "publication_failed"; telemetry.PublicationFailed(); }
+                    finally { telemetry.RecordTiming("publication", publishTimer.Elapsed.TotalSeconds); }
                 }
                 if (failure.Length > 0)
                 {
@@ -185,6 +203,7 @@ public sealed class ImportReconciliationService
                 if (!candidate.Upgrade) episode.InitialFailure = true;
                 episode.Attempts++;
                 await _db.RecordImportAttemptAsync(lease, now, token);
+                telemetry.Attempt(candidate.Upgrade);
                 await _db.SaveImportCoverageAsync(live, token);
                 var index = candidate.Coverage.Items.FindIndex(x => x.Key == episode.Key);
                 if (index >= 0) candidate.Coverage.Items[index] = episode;
@@ -237,6 +256,7 @@ public sealed class ImportReconciliationService
                 if (_mode() == ImportMode.Off) break;
                 try
                 {
+                    telemetry.Work("inventory", item.Title);
                     var aliases = ImportInventory.Aliases(item);
                     if (aliases.Count == 0) continue;
                     var identity = await _db.FindImportIdentityAsync(aliases, token) ?? aliases[0];
@@ -276,6 +296,8 @@ public sealed class ImportReconciliationService
                     {
                         metadata++;
                         coverage.InventoryPolicyVersion = 1;
+                        telemetry.Work("metadata", item.Title);
+                        var metadataTimer = Stopwatch.StartNew();
                         try
                         {
                             using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -295,6 +317,7 @@ public sealed class ImportReconciliationService
                             coverage.SnapshotStatus = "stale_or_unavailable";
                             coverage.MetadataRetryAt = now.AddMinutes(15);
                         }
+                        finally { telemetry.RecordTiming("metadata", metadataTimer.Elapsed.TotalSeconds); }
                     }
                     // Existing source inventories are an explicitly stale migration baseline,
                     // useful for observing files, never sufficient for new automatic imports.
@@ -312,11 +335,14 @@ public sealed class ImportReconciliationService
                         await DrainCompletedAsync();
                         token.ThrowIfCancellationRequested();
                         now = _clock();
+                        telemetry.Work("observation", item.Title, episode.Key);
                         ImportObservation observation;
+                        var observationTimer = Stopwatch.StartNew();
                         try { observation = await _inventory.ObserveAsync(item, episode, token); }
                         catch (OperationCanceledException) { throw; }
                         catch { episode.State = "observation_unavailable"; episode.ObservedAt = now; coverage.Cursor = episode.Key;
                             await SaveObservedAsync(coverage, token); continue; }
+                        finally { telemetry.Checked(); telemetry.RecordTiming("observation", observationTimer.Elapsed.TotalSeconds); }
                         var file = observation.Paths.Count > 0;
                         if (file) episode.EverPublished = true;
                         episode.Paths = observation.Paths;
@@ -382,11 +408,13 @@ public sealed class ImportReconciliationService
                         await _db.PersistMetadataAsync(cursorKey, sourceItem.Id, token);
                 }
             }
+            telemetry.Work("borrowed_capacity");
             foreach (var candidate in deferred)
             {
                 await DrainCompletedAsync();
                 await DispatchAsync(candidate);
             }
+            telemetry.Work("waiting_for_sources");
             while (pending.Count > 0) await DrainOneAsync();
         }
         catch (OperationCanceledException) { status = ct.IsCancellationRequested ? "cancelled" : "budget_deferred"; }
@@ -396,12 +424,15 @@ public sealed class ImportReconciliationService
             // Cancellation ends all lookups before another run can acquire RunGate.
             budget.Cancel();
             await Task.WhenAll(pending.Select(x => x.Resolution));
-            try { await _db.PersistMetadataAsync("import_last_run", System.Text.Json.JsonSerializer.Serialize(new
+            telemetry.Finish(status);
+            try { var report = System.Text.Json.JsonSerializer.Serialize(new
                 { Id = runId, Status = status, FinishedAt = _clock(), Scanned = scanned, Attempts = attempts, Metadata = metadata, Published = published,
                     Upgrades = upgrades, Refreshed = refreshed, SourceFailures = sourceFailures,
                     TransportFailures = transportFailures, Priority = allowance.IsCatchUp ? priority : "normal", ElapsedSeconds = elapsed.Elapsed.TotalSeconds,
                     Speed = allowance.IsCatchUp ? "catch_up" : "normal", allowance.AttemptsPerDay, allowance.Parallelism,
-                    allowance.CatchUpStartedAt, allowance.CatchUpUntil }), CancellationToken.None); }
+                    allowance.CatchUpStartedAt, allowance.CatchUpUntil, Analytics = telemetry.Snapshot() });
+                await _db.PersistMetadataAsync("import_last_run", report, CancellationToken.None);
+                await _db.SaveImportRunReportAsync(runId, DateTimeOffset.UtcNow, report, CancellationToken.None); }
             finally { RunGate.Release(); }
         }
     }
@@ -435,6 +466,7 @@ public sealed class ImportReconciliationService
 
     private async Task SaveObservedAsync(ImportCoverage state, CancellationToken ct)
     {
+        var timer = Stopwatch.StartNew();
         await MutationGate.WaitAsync(ct);
         try
         {
@@ -446,7 +478,7 @@ public sealed class ImportReconciliationService
             }
             await _db.SaveImportCoverageAsync(state, ct);
         }
-        finally { MutationGate.Release(); }
+        finally { MutationGate.Release(); _activeTelemetry?.RecordTiming("checkpoint", timer.Elapsed.TotalSeconds); }
     }
 
     private async Task RegisterPathsAsync(ImportCoverage state, CatalogItem item, ImportEpisode episode, List<SelectedVersion> versions, CancellationToken ct)

@@ -298,6 +298,7 @@ public sealed class ImportInventory : IImportInventory
             await Plugin.Instance!.DatabaseManager.PersistMetadataAsync("import_provider_pause_" + client.ConfigurationFingerprint, DateTimeOffset.UtcNow.ToString("o"), ct);
             throw new ImportProviderConfigurationException();
         }
+        if (client.LastHttpStatus == 429) throw new ImportHttpRateLimitException();
         if (response == null) throw new IOException("stream_transport_unavailable");
         return VersionSelectorService.SelectBestVersions(StreamParser.ParseAll(response.Streams),
             _config.DesiredVersions, RuntimePolicy.EmbyVersionLimit, _config);
@@ -338,3 +339,5 @@ public sealed class ImportInventory : IImportInventory
 }
 
 public sealed class ImportProviderConfigurationException : Exception { }
+
+public sealed class ImportHttpRateLimitException : IOException { }

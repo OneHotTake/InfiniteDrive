@@ -212,6 +212,23 @@ days. Disengage it any time: **Normality has been restored.** Actual speed depen
 on your sources; the ceiling is not a completion estimate.
 See [Import recovery](docs/import-reconciliation.md) for limits and exclusions.
 
+### Marvin dashboard
+
+Open **Plugins → InfiniteDrive → Marvin** and use **Refresh dashboard**.
+It shows a dated snapshot of the current run: current step/title, lookups in
+flight, missing-file versus refresh attempts, matching sources, empty results,
+transport failures, lookup deadlines, actual HTTP 429 responses and publication
+outcomes. The rolling allowance is an attempt budget, not a library count.
+When it is full, the dashboard shows when the earliest usable credit ages out.
+
+Timings cover metadata, file/native observations, source resolution, publication
+and observation checkpoints. Parallel request totals overlap; they do not add
+up to elapsed time. Resolution includes dispatch pacing and provider wait.
+Mean/max/count cover the run; p95 uses the latest 512 samples per stage. Recent
+completed passes persist for seven days. Timing history starts with 0.42.11;
+older reports keep their original counters. A server restart ends the live
+sample, but preserves saved reports. Reading the dashboard starts no work.
+
 ## Set it up
 
 You'll need Emby Server **4.10.0.40**, an AIOStreams manifest and a compatible
