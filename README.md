@@ -9,9 +9,9 @@ imports titles and repairs missing files.
 
 A stream will appear. Probably.
 
-**Current released version: 0.42.12**
+**Current released version: 0.42.13**
 
-This branch prepares 0.42.13 title block controls. It has not been deployed to production. The candidate targets **Emby 4.10.0.40**.
+Release 0.42.13 adds administrator whole-title blocks and recoverable managed-stream cleanup. It targets **Emby 4.10.0.40**.
 
 ## How we run it
 

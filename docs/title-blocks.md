@@ -1,6 +1,6 @@
-# Whole-title blocks (0.42.13 candidate)
+# Whole-title blocks (0.42.13)
 
-This candidate is not a production deployment. It builds on the released 0.42.12 maintenance recovery changes. Production on October 1 remains 0.42.11 until an explicitly approved guarded cutover.
+Release 0.42.13 builds on the 0.42.12 maintenance recovery changes. The guarded production cutover on October 1 verified native initialization, configuration, subscriptions, schedule and attempt-ledger preservation.
 
 The administrator-only GET/POST `/InfiniteDrive/Admin/TitleBlocks` uses confirmed `movie:imdb:tt...` or `series:imdb:tt...` identities. A batch accepts at most 25 titles, revalidates catalogue aliases and refuses conflicting media/provider identities. A confirmed IMDb ID, title and media type can also create a future block before any catalogue entry exists. Plain display names are never identities.
 
@@ -12,4 +12,4 @@ The Vault UI can sort by whole-series eligible missing counts and review whole t
 
 Validation: synthetic exact-copy/recovery, size/hash/root/symlink/error preservation, stable ID validation and concurrent idempotent native block tests run in the pinned ABI build. Portal tests cover anonymous refusal, cross-origin/oversized rejection, administrator versus regular-user login, fixed-target routing and private-field exclusion. October 1 isolated Emby 4.10.0.40 native QA verified initialization, administrator capability, anonymous refusal, idempotent future blocks, blocking an unprocessed catalogue title, one verified archive with a private restore map, unknown-size/changed/owned preservation, conflicting aliases refused without a block, and unchanged coverage/backoff/attempt rows. The QA container was removed; production and frozen beta were untouched. All 240 tests and the pinned ABI publish passed. No production title is blocked merely to test the UI.
 
-Rollback: restore individual archived STRMs from the private restore map only after reconciling current paths, ownership and playback. Unblock through the native block list if future imports should resume. Revert the candidate DLL through a fresh guarded deployment; never restore older databases or reset import ledgers.
+Rollback: restore individual archived STRMs from the private restore map only after reconciling current paths, ownership and playback. Unblock through the native block list if future imports should resume. Revert the DLL through a fresh guarded deployment; never restore older databases or reset import ledgers.
