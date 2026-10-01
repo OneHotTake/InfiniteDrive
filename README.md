@@ -9,7 +9,7 @@ imports titles and repairs missing files.
 
 A stream will appear. Probably.
 
-**Current release: 0.42.11**, built and tested against **Emby 4.10.0.40**.
+**Current release: 0.42.12**, built and tested against **Emby 4.10.0.40**.
 
 ## How we run it
 
@@ -212,17 +212,37 @@ days. Disengage it any time: **Normality has been restored.** Actual speed depen
 on your sources; the ceiling is not a completion estimate.
 See [Import recovery](docs/import-reconciliation.md) for limits and exclusions.
 
+### Backoff and deferred recovery
+
+Marvin keeps a separate failure streak for each movie or episode. Transport failures
+wait about 15 minutes, 1 hour, 4 hours, 1 day, 3 days, then 7 days. No matching
+sources wait 6 hours, 1 day, 2 days, 3 days, then 7 days. Retries include up to
+20% jitter and respect longer provider cooldowns. A successful publication clears
+that item’s failure streak; attempts remain in the rolling ledger.
+
+Repeated source errors open a maintenance circuit with waits of 5 minutes,
+15 minutes, 1 hour, 4 hours and 1 day. Playback uses its own lane. After the pause,
+Marvin probes once per pass until three recent responses include a source match.
+This is AIO responsiveness, not a test of every indexer.
+
+Use **Reprocess deferred items** for one durable pass over current eligible failures.
+It preserves the saved files, original retry times and attempt history until an
+actual lookup completes. While recovery is unproven it probes one item per pass;
+when ready it uses the existing run budget. **Cancel pending reprocessing** leaves
+in-flight work alone. Blocks, removals, owned media and disputed episode identities
+always win. It does not add a missing provider slot to already successful choices.
+
 ### Marvin dashboard
 
 Open **Plugins → InfiniteDrive → Marvin** and use **Refresh dashboard**.
 It shows a dated snapshot of the current run: current step/title, lookups in
 flight, missing-file versus refresh attempts, matching sources, empty results,
-transport failures, lookup deadlines, actual HTTP 429 responses and publication
+actual AIO HTTP submissions/retries, transport failures, lookup deadlines, actual HTTP 429 responses and publication
 outcomes. The rolling allowance is an attempt budget, not a library count.
 When it is full, the dashboard shows when the earliest usable credit ages out.
 
 Timings cover metadata, file/native observations, source resolution, publication
-and observation checkpoints. Parallel request totals overlap; they do not add
+dispatch pacing, AIO HTTP response and observation checkpoints. Parallel request totals overlap; they do not add
 up to elapsed time. Resolution includes dispatch pacing and provider wait.
 Mean/max/count cover the run; p95 uses the latest 512 samples per stage. Recent
 completed passes persist for seven days. Timing history starts with 0.42.11;

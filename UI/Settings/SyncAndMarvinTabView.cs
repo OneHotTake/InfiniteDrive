@@ -47,6 +47,8 @@ namespace InfiniteDrive.UI.Settings
                     case "ImportOff": result = await ImportHealthService.ApplyAsync(new() { Action = "mode", Mode = "Off" }); break;
                     case "ImportResumeProvider": result = await ImportHealthService.ApplyAsync(new() { Action = "resume_provider" }); break;
                     case "ImportCheck": result = await ImportHealthService.ApplyAsync(new() { Action = "check" }); break;
+                    case "ImportReprocess": result = await ImportHealthService.ApplyAsync(new() { Action = "reprocess_deferred" }); break;
+                    case "ImportCancelReprocess": result = await ImportHealthService.ApplyAsync(new() { Action = "cancel_reprocess" }); break;
                     case "ImportIncludeSpecials":
                     case "ImportExcludeSpecials":
                         result = await ImportHealthService.ApplyAsync(new() { Action = cmd == "ImportIncludeSpecials" ? "include_specials" : "exclude_specials", Identity = itemId }); break;
@@ -63,6 +65,7 @@ namespace InfiniteDrive.UI.Settings
                         "observe_first" => "Choose Check only and let Marvin finish a pass first.",
                         "enable_recovery_first" => "Turn on Repair & refresh first.",
                         "already_running" => "Already engaged. The original timer still applies.",
+                        "already_queued" => "A recovery pass is already queued. Its progress is shown above.",
                         "queued_or_deferred" => "Request saved. Marvin will pick it up.",
                         _ => "Couldn't apply that change. Refresh status and try again.",
                     });
@@ -125,6 +128,14 @@ namespace InfiniteDrive.UI.Settings
                 AddDashboard("Read at", $"{now:yyyy-MM-dd HH:mm:ss} UTC · Refresh dashboard to update");
                 AddDashboard("Rolling 24-hour allowance", $"{used:N0} / {speed.AttemptsPerDay:N0} attempts · {Math.Max(0, speed.AttemptsPerDay-used):N0} available" +
                     (nextCredit.HasValue ? $" · earliest credit {When(nextCredit, now)}" : ""));
+                var health = db.GetImportSourceHealth();
+                AddDashboard("AIO response circuit", health.Paused(now)
+                    ? $"Paused until {When(health.PausedUntil, now)} · {Explain(health.LastOutcome)} · recovery step {health.Escalation}"
+                    : $"{health.ResponsiveReplies}/3 responsive replies · last match {When(health.LastMatchAt, now)} · does not test every indexer");
+                var recovery = await db.GetImportReprocessSummaryAsync();
+                AddDashboard("Recovery pass", recovery.RequestId == null ? "No recovery pass requested" :
+                    $"{recovery.Pending:N0} pending · {recovery.InFlight:N0} in flight · {recovery.Published:N0} published · {recovery.Failed:N0} failed · {recovery.Cancelled:N0} cancelled" +
+                    (!health.RecoveryReady(now) && recovery.Pending > 0 ? " · one probe per pass until three recent replies include a source match" : ""));
                 var current = ImportRunTelemetry.Current;
                 var lastRun = db.GetMetadata("import_last_run");
                 if (current != null) DrawRun(current, current.Status == "running" ? "Current repair pass" : "Latest repair pass");
@@ -191,6 +202,7 @@ namespace InfiniteDrive.UI.Settings
                     {
                         var reason = episode.State == "indexed" && episode.Failure.Length > 0 ? "In Emby; source refresh failed" : episode.State == "excluded" ? Explain(episode.Eligibility) : Explain(episode.State);
                         var more = episode.Failure.Length > 0 ? Explain(episode.Failure) : "";
+                        if (episode.ConsecutiveFailures > 0) more += $" · failure step {episode.ConsecutiveFailures}";
                         if (episode.NextAttempt.HasValue) more += (more.Length > 0 ? " · " : "") + (episode.NextAttempt > now ? "Retry " + When(episode.NextAttempt, now) : "Retry due");
                         UI.ImportItems.Add(new GenericListItem
                         {
@@ -217,6 +229,7 @@ namespace InfiniteDrive.UI.Settings
             if (run.Status == "running") AddDashboard("Doing", $"{run.Phase.Replace('_',' ')} · {run.PhaseSeconds:N0}s in this step" +
                 (run.Title.Length > 0 ? $" · {run.Title} {run.EpisodeKey}" : ""));
             AddDashboard("Lookups", $"{run.ActiveLookups:N0} in flight (includes paced waiting) · {run.MissingAttempts:N0} missing-file attempts · {run.RefreshAttempts:N0} refresh attempts");
+            AddDashboard("AIO HTTP traffic", $"{run.HttpRequests:N0} submissions · {run.HttpRetries:N0} transport retries · excludes AIO's downstream indexer calls");
             AddDashboard("Source results", $"{run.Matched:N0} matched · {run.EmptyResults:N0} empty · {run.CancelledLookups:N0} cancelled");
             AddDashboard("Source failures", $"{run.TransportFailures:N0} transport · {run.LookupDeadlines:N0} lookup deadlines · {run.Http429:N0} HTTP 429 · {run.ProviderConfigurationFailures:N0} provider settings");
             AddDashboard("Files published", $"{run.Published:N0} movie/episode groups written · {run.Refreshed:N0} replaced old choices · {run.PublicationFailures:N0} publication failures · {run.EpisodesChecked:N0} episode/movie checks");
@@ -236,6 +249,7 @@ namespace InfiniteDrive.UI.Settings
             "Validation" => "Validating the library", "PhysicalMediaReconciliation" => "Checking owned media",
             "Enrichment" => "Enriching metadata", "TokenRenewal" => "Renewing stream tokens",
             "metadata" => "Metadata", "observation" => "Library observation", "resolution" => "Source lookup",
+            "dispatch_queue" => "Waiting for AIO dispatch", "source_http" => "AIO HTTP response",
             "publication" => "File publication", "checkpoint" => "Saving observations", _ => phase.Replace('_',' '),
         };
 
@@ -269,6 +283,7 @@ namespace InfiniteDrive.UI.Settings
             "stale_or_unavailable" => "Couldn't refresh the episode list",
             "provider_check_unavailable" => "Emby's episode metadata is unavailable",
             "source_unavailable" => "No streams matched your settings",
+            "slice_cancelled" => "Deferred at the pass deadline; retrying later",
             "partial_numbering" => "Some episode numbers need a check; confirmed siblings can proceed",
             "lookup_deadline" => "Source lookup reached its deadline",
             "http_429" => "Source returned HTTP 429; waiting to retry",

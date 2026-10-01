@@ -18,6 +18,8 @@ public partial class DatabaseManager
         await ExecuteWriteAsync("CREATE TABLE IF NOT EXISTS import_attempts (id TEXT PRIMARY KEY, attempted_at TEXT NOT NULL);", _ => { }, ct);
         await ExecuteWriteAsync("CREATE INDEX IF NOT EXISTS ix_import_attempts_time ON import_attempts(attempted_at);", _ => { }, ct);
         await ExecuteWriteAsync("CREATE TABLE IF NOT EXISTS import_run_history (id TEXT PRIMARY KEY, finished_at TEXT NOT NULL, payload TEXT NOT NULL);", _ => { }, ct);
+        await ExecuteWriteAsync("CREATE TABLE IF NOT EXISTS import_reprocess (request_id TEXT NOT NULL, identity TEXT NOT NULL, episode_key TEXT NOT NULL, status TEXT NOT NULL, requested_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(request_id,identity,episode_key));", _ => { }, ct);
+        await ExecuteWriteAsync("CREATE INDEX IF NOT EXISTS ix_import_reprocess_status ON import_reprocess(status,identity);", _ => { }, ct);
         if (GetMetadata("import_schema") != "1") await PersistMetadataAsync("import_schema", "1", ct);
     }
 
@@ -34,6 +36,88 @@ public partial class DatabaseManager
         "INSERT INTO import_coverage(identity,checked_at,payload) VALUES(@id,@at,@json) ON CONFLICT(identity) DO UPDATE SET checked_at=excluded.checked_at,payload=excluded.payload;",
         c => { BindText(c, "@id", state.Identity); BindText(c, "@at", state.CheckedAt?.ToString("o") ?? "");
             BindText(c, "@json", JsonSerializer.Serialize(state)); }, ct);
+
+    public ImportSourceHealth GetImportSourceHealth() =>
+        JsonSerializer.Deserialize<ImportSourceHealth>(GetMetadata("import_source_health") ?? "{}") ?? new();
+
+    public Task SaveImportSourceHealthAsync(ImportSourceHealth state, CancellationToken ct = default) =>
+        PersistMetadataAsync("import_source_health", JsonSerializer.Serialize(state), ct);
+
+    public async Task<ImportReprocessSummary> GetImportReprocessSummaryAsync()
+    {
+        if (await QueryScalarIntAsync("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='import_reprocess';", _ => { }) == 0)
+            return new(null, 0, 0, 0, 0, 0);
+        var id = GetMetadata("import_reprocess_request");
+        return await QuerySingleAsync(@"SELECT
+            COALESCE(SUM(status='pending'),0),COALESCE(SUM(status='in_flight'),0),
+            COALESCE(SUM(status='published'),0),COALESCE(SUM(status='failed'),0),
+            COALESCE(SUM(status='cancelled'),0) FROM import_reprocess WHERE request_id=@id;",
+            c => BindText(c, "@id", id ?? ""), r => new ImportReprocessSummary(id,
+                r.GetInt(0), r.GetInt(1), r.GetInt(2), r.GetInt(3), r.GetInt(4))) ?? new(null, 0, 0, 0, 0, 0);
+    }
+
+    // Called under MutationGate: snapshot only; no failure, backoff, generation,
+    // attempt ledger or saved-file evidence is rewritten by the admin action.
+    public async Task<string> QueueImportReprocessAsync(DateTimeOffset now, CancellationToken ct = default)
+    {
+        var previous = await GetImportReprocessSummaryAsync();
+        if (previous.Pending + previous.InFlight > 0) return "already_queued";
+        var id = Guid.NewGuid().ToString("N");
+        await ExecuteWriteAsync(@"INSERT INTO import_reprocess(request_id,identity,episode_key,status,requested_at,updated_at)
+            SELECT @id,s.identity,json_extract(e.value,'$.Key'),'pending',@now,@now
+            FROM import_coverage s,json_each(s.payload,'$.Items') e
+            WHERE json_extract(s.payload,'$.Exclusion')='' AND json_extract(s.payload,'$.SnapshotStatus')='success'
+            AND json_extract(e.value,'$.Expected')=1 AND json_extract(e.value,'$.Eligible')=1
+            AND json_extract(e.value,'$.State') NOT IN ('excluded','index_mismatch')
+            AND json_extract(e.value,'$.Failure') IN ('source_unavailable','transport_failure','lookup_deadline','http_429','publication_failed','slice_cancelled');",
+            c => { BindText(c, "@id", id); BindText(c, "@now", now.ToString("o")); }, ct);
+        await PersistMetadataAsync("import_reprocess_request", id, ct);
+        return "queued_or_deferred";
+    }
+
+    public async Task<bool> IsImportReprocessPendingAsync(string identity, string key) => await QueryScalarIntAsync(
+        "SELECT COUNT(*) FROM import_reprocess WHERE request_id=@id AND identity=@identity AND episode_key=@key AND status='pending';",
+        c => { BindText(c, "@id", GetMetadata("import_reprocess_request") ?? ""); BindText(c, "@identity", identity); BindText(c, "@key", key); }) > 0;
+
+    public Task SetImportReprocessStatusAsync(string identity, string key, string status, DateTimeOffset now,
+        CancellationToken ct = default) => ExecuteWriteAsync(
+        "UPDATE import_reprocess SET status=@status,updated_at=@now WHERE request_id=@id AND identity=@identity AND episode_key=@key AND status IN ('pending','in_flight');",
+        c => { BindText(c, "@id", GetMetadata("import_reprocess_request") ?? ""); BindText(c, "@identity", identity);
+            BindText(c, "@key", key); BindText(c, "@status", status); BindText(c, "@now", now.ToString("o")); }, ct);
+
+    public Task CancelImportReprocessAsync(DateTimeOffset now, CancellationToken ct = default) => ExecuteWriteAsync(
+        "UPDATE import_reprocess SET status='cancelled',updated_at=@now WHERE request_id=@id AND status='pending';",
+        c => { BindText(c, "@id", GetMetadata("import_reprocess_request") ?? ""); BindText(c, "@now", now.ToString("o")); }, ct);
+
+    public Task<List<CatalogItem>> GetReprocessImportCatalogAsync() => QueryListAsync(@"SELECT DISTINCT c.*
+        FROM import_reprocess q JOIN import_coverage s ON s.identity=q.identity
+        JOIN catalog_items c ON c.id=json_extract(s.payload,'$.CatalogIds[0]')
+        WHERE q.request_id=@id AND q.status='pending'
+        AND json_extract(s.payload,'$.SnapshotStatus')='success' AND json_extract(s.payload,'$.Exclusion')=''
+        ORDER BY q.requested_at,c.id LIMIT 100;",
+        c => BindText(c, "@id", GetMetadata("import_reprocess_request") ?? ""), ReadCatalogItem);
+
+    public Task ReconcileInterruptedReprocessAsync(DateTimeOffset now, CancellationToken ct = default) => ExecuteWriteAsync(@"UPDATE import_reprocess
+        SET status='cancelled',updated_at=@now WHERE status='in_flight' AND NOT EXISTS
+        (SELECT 1 FROM import_coverage s,json_each(s.payload,'$.Items') e WHERE s.identity=import_reprocess.identity
+         AND json_extract(e.value,'$.Key')=import_reprocess.episode_key AND julianday(json_extract(e.value,'$.LeaseUntil'))>julianday(@now));",
+        c => BindText(c, "@now", now.ToString("o")), ct);
+
+    // A normal repair or a later identity/removal decision can supersede queued
+    // work. Retire that request without changing coverage, backoff or attempts.
+    public Task RetireSupersededReprocessAsync(DateTimeOffset now, CancellationToken ct = default) => ExecuteWriteAsync(@"UPDATE import_reprocess
+        SET status='cancelled',updated_at=@now WHERE status='pending'
+        AND (NOT EXISTS (SELECT 1 FROM import_coverage s WHERE s.identity=import_reprocess.identity)
+        OR EXISTS (SELECT 1 FROM import_coverage s WHERE s.identity=import_reprocess.identity
+         AND (json_extract(s.payload,'$.Exclusion')<>'' OR json_extract(s.payload,'$.SnapshotStatus')='success')))
+        AND NOT EXISTS
+        (SELECT 1 FROM import_coverage s,json_each(s.payload,'$.Items') e
+         WHERE s.identity=import_reprocess.identity AND json_extract(e.value,'$.Key')=import_reprocess.episode_key
+         AND json_extract(s.payload,'$.Exclusion')='' AND json_extract(s.payload,'$.SnapshotStatus')='success'
+         AND json_extract(e.value,'$.Expected')=1 AND json_extract(e.value,'$.Eligible')=1
+         AND json_extract(e.value,'$.State') NOT IN ('excluded','index_mismatch')
+         AND json_extract(e.value,'$.Failure') IN ('source_unavailable','transport_failure','lookup_deadline','http_429','publication_failed','slice_cancelled'));",
+        c => BindText(c, "@now", now.ToString("o")), ct);
 
     // Emby SQLite binds empty strings as NULL; the initial/wrapped cursor must still scan.
     public Task<List<CatalogItem>> GetImportCatalogPageAsync(string after, int limit = 50) => QueryListAsync(

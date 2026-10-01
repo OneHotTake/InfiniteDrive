@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -94,7 +95,7 @@ namespace InfiniteDrive.Services
         // instances. HttpClient is thread-safe and designed for reuse.
         private static readonly HttpClient _sharedHttp = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(TimeoutSeconds)
+            Timeout = System.Threading.Timeout.InfiniteTimeSpan
         };
 
         static AioStreamsClient()
@@ -116,6 +117,7 @@ namespace InfiniteDrive.Services
         public string ConfigurationFingerprint => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(_stremioBase)));
 
         public CooldownGate? Cooldown { get; set; }
+        internal HttpClient? HttpTransport { get; set; }
 
         /// <summary>
         /// The cooldown kind to use for WaitAsync calls. Default: StreamResolve.
@@ -353,7 +355,11 @@ namespace InfiniteDrive.Services
             _logger.LogInformation("[AioStreamsClient] START: {Label} for {Id}", label, id);
             try
             {
-                if (MaintenanceResolution) await PaceMaintenanceAsync(ct);
+                if (MaintenanceResolution)
+                {
+                    await PaceMaintenanceAsync(ct);
+                    ImportRunTelemetry.RecordCurrentTiming("dispatch_queue", sw.Elapsed.TotalSeconds);
+                }
                 var path = $"/stream/{type}/{Uri.EscapeDataString(id)}.json";
                 if (!string.IsNullOrEmpty(sel))
                     path += $"?sel={Uri.EscapeDataString(sel)}";
@@ -497,6 +503,7 @@ namespace InfiniteDrive.Services
                     "[InfiniteDrive] Error stub detected for item {Item}: Title='{Title}', Name='{Name}'. " +
                     "Treating as resolution failure.",
                     itemId, title, name);
+                if (MaintenanceResolution) throw new IOException("maintenance_source_error");
                 return new AioStreamsStreamResponse { Streams = new List<AioStreamsStream>() };
             }
 
@@ -792,7 +799,7 @@ namespace InfiniteDrive.Services
             bool throwOnUnreachable = false)
         {
             var safeUrl = SanitizeUrl(url);
-            const int maxAttempts = 3;
+            var maxAttempts = MaintenanceResolution ? 1 : 3;
             var totalSw = Stopwatch.StartNew();
 
             _logger.LogInformation("[GetRawStringAsync] START: {Url}", safeUrl);
@@ -808,9 +815,15 @@ namespace InfiniteDrive.Services
                         await Cooldown.WaitAsync(ActiveCooldownKind, cancellationToken);
 
                     var httpSw = Stopwatch.StartNew();
-                    using var response = await _sharedHttp.GetAsync(url, cancellationToken);
+                    using var requestDeadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    requestDeadline.CancelAfter(TimeSpan.FromSeconds(MaintenanceResolution ? 120 : TimeoutSeconds));
+                    using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                    if (MaintenanceResolution) request.Headers.TryAddWithoutValidation("X-AIOStreams-Maintenance", "1");
+                    if (MaintenanceResolution) ImportRunTelemetry.RecordCurrentHttp(attempt > 1);
+                    using var response = await (HttpTransport ?? _sharedHttp).SendAsync(request, requestDeadline.Token);
                     LastHttpStatus = (int)response.StatusCode;
                     httpSw.Stop();
+                    if (MaintenanceResolution) ImportRunTelemetry.RecordCurrentTiming("source_http", httpSw.Elapsed.TotalSeconds);
                     _logger.LogDebug("[GetRawStringAsync] HTTP GET completed in {ElapsedMs}ms for {Url}",
                         httpSw.ElapsedMilliseconds, safeUrl);
 
@@ -836,7 +849,7 @@ namespace InfiniteDrive.Services
                     }
 
                     var contentSw = Stopwatch.StartNew();
-                    var content = await response.Content.ReadAsStringAsync();
+                    var content = await response.Content.ReadAsStringAsync(requestDeadline.Token);
                     contentSw.Stop();
                     totalSw.Stop();
 

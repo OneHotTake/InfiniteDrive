@@ -86,7 +86,7 @@ fresh metadata check under the new policy; genuine identity exclusions, stream
 backoff, attempts and user state remain untouched. Provider unavailability is
 reported explicitly. The API choice follows the [Emby developer discussion](https://emby.media/community/topic/149945-getting-missing-episodes-from-a-series-and-movies-from-collections/). No `GetAllItems` franchise expansion is enabled.
 
-Three additive SQLite tables implement the journal without changing existing
+Additive SQLite tables implement the journal without changing existing
 catalog state enum values or enrichment counters:
 
 - `import_coverage`: one JSON document per canonical identity, containing catalog
@@ -304,3 +304,49 @@ and `INFINITEDRIVE_LAB_FREEZE=1`. It must never be included in a production arti
 Start production rollout in Observe and review dated exclusions and source/provider
 agreement before enabling Repair. The feature shipped in 0.42.4; franchise expansion remains outside scope. Native indexing QA uses synthetic stream targets; it does
 not claim debrid playback or externally verified complete series inventories.
+
+## Failure ladder and one-pass reprocessing (0.42.12)
+
+The per-item journal retains `ConsecutiveFailures`, `LastFailureKind` and
+`LastFailureAt` separately from dispatch attempts. Transport/deadline/HTTP errors
+use 15m → 1h → 4h → 1d → 3d → 7d; empty matches use 6h → 1d → 2d → 3d → 7d.
+Jitter is 0–20%; an existing longer provider cooldown wins. A changed failure
+class starts its own streak. Older rows without a streak conservatively seed from
+their retained attempts. Successful publication resets the failure streak and
+retry time, without erasing the rolling dispatch ledger.
+
+`import_source_health` metadata persists a maintenance-only circuit. Three
+consecutive transport/deadline errors, or an explicit HTTP429/provider-settings
+error, open a pause: 5m → 15m → 1h → 4h → 24h. Completions from the same in-flight
+batch cannot multiply the pause. After expiry, allow one probe per native pass
+until three replies in the recent recovery period include a match within 15m.
+Empty responses establish responsiveness but do not alone qualify bulk recovery.
+This circuit does not certify all indexers or playback, and does not change the
+provider configuration, native schedule or catch-up expiry.
+
+Admin `reprocess_deferred` snapshots current eligible failure keys into additive
+`import_reprocess`; repeated actions while pending/in-flight are idempotent.
+The action does not clear failure/backoff, generations, saved evidence or attempts.
+A worker can override the snapshot item’s future retry once, only through its
+normal authorization, ownership, identity, lease, cooldown and daily-budget guards.
+It is limited to one recovery probe per pass until the circuit is ready. Each
+entry finishes published, failed or cancelled. Failed probes advance their own
+ladder. Interruptions are checkpointed and expired leases cancelled; normal repairs
+or later exclusions retire superseded pending entries. `cancel_reprocess` cancels
+pending entries only. A new admin request can snapshot later failures again.
+Provider-configuration failures require settings repair and are not bulk queued.
+
+Maintenance submits one HTTP request per resolution, with aligned outer/HTTP
+deadlines and `X-AIOStreams-Maintenance: 1`. Normal playback retains its retries.
+An error stub is not an empty success. Cancelled eight-minute slices release leases
+and retry after five minutes without escalating an upstream failure. Due episodes
+precede the rolling observation cursor; recent indexed evidence is skipped only
+while a saved file is still present. Observation JSON checkpoints batch every25
+checks, and flush before dispatch or notification. Actual HTTP counts exclude
+AIO’s downstream fanout; overlapping stage timings do not add to wall time.
+
+The companion self-hosted AIO change reuses raw season inventories and bounds
+Prowlarr search submission globally. InfiniteDrive still validates and preselects
+STRMs ahead of playback. No reserved Usenet/TorBox slot or provider policy change
+is included. Back up the current plugin DB/configuration before deploying; retain
+additive recovery rows when rolling back the DLL, and never restore older DB state.
