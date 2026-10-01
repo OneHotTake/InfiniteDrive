@@ -6,6 +6,7 @@
 - [Configuration](configuration.md): destinations, providers, quality and recovery.
 - [Discover](USER_DISCOVER_UI.md): browser discovery and saved titles.
 - [External lists](EXTERNAL_LISTS.md): system and user catalog sources.
+- [Title blocks](title-blocks.md): administrator whole-title blocking and recoverable stream cleanup.
 - [Import recovery](import-reconciliation.md): Observe/Repair, limits and retention.
 - [Troubleshooting](troubleshooting.md): diagnosis and recovery.
 - [Security](SECURITY.md): private configuration, STRMs and administrative access.
@@ -26,4 +27,4 @@
 old test plans and dated reports. These are not current configuration instructions.
 The implementation and current guides take precedence over historical claims.
 
-Updated October 1, 2026 for the 0.42.12 source tree.
+Updated October 1, 2026 for the 0.42.13 candidate source tree.

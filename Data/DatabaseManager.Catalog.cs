@@ -774,7 +774,11 @@ namespace InfiniteDrive.Data
             {
             const string sql = @"
                 INSERT INTO blocked_items (aio_id, tmdb_id, anilist_id, title, media_type, blocked_at, blocked_by)
-                VALUES (@aio_id, @tmdb_id, @anilist_id, @title, @media_type, datetime('now'), @blocked_by)";
+                SELECT @aio_id, @tmdb_id, @anilist_id, @title, @media_type, datetime('now'), @blocked_by
+                WHERE NOT EXISTS (SELECT 1 FROM blocked_items WHERE unblocked_at IS NULL
+                  AND ((@aio_id IS NOT NULL AND lower(aio_id)=lower(@aio_id))
+                    OR (@tmdb_id IS NOT NULL AND lower(tmdb_id)=lower(@tmdb_id))
+                    OR (@anilist_id IS NOT NULL AND lower(anilist_id)=lower(@anilist_id))))";
 
             await ExecuteWriteAsync(sql, cmd =>
             {
