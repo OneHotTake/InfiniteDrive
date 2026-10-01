@@ -24,6 +24,7 @@ public sealed record ImportObservation(List<string> Paths, List<string> NativeId
 public interface IImportInventory
 {
     bool ProviderPaused => false;
+    bool HasSavedFiles(ImportEpisode episode) => episode.Paths.Any(File.Exists);
     Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct);
     Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct);
     bool IsOwned(CatalogItem item);
@@ -288,7 +289,9 @@ public sealed class ImportInventory : IImportInventory
     private async Task<List<SelectedVersion>> ResolveCoreAsync(CatalogItem item, ImportEpisode episode, bool maintenance, CancellationToken ct)
     {
         using var client = AioStreamsClientFactory.Create(_logger);
-        client.MaintenanceResolution = maintenance;
+        // Every Repair lookup uses one HTTP submission and the coordinator's
+        // deadline. Catch-up changes the worker budget, not transport retries.
+        client.MaintenanceResolution = true;
         client.Cooldown = Plugin.Instance?.CooldownGate;
         var response = episode.Season.HasValue
             ? await client.GetSeriesStreamsAsync(item.AioId, episode.Season.Value, episode.Episode!.Value, ct)

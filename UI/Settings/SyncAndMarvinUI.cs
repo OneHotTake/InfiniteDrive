@@ -47,6 +47,9 @@ namespace InfiniteDrive.UI.Settings
         public ButtonItem RefreshImports { get; set; } = new ButtonItem("Refresh status") { Data1 = "ImportRefresh" };
         public ButtonItem CheckImports { get; set; } = new ButtonItem("Retry due items") { Data1 = "ImportCheck" };
         public ButtonItem ResumeProvider { get; set; } = new ButtonItem("Retry after fixing provider settings") { Data1 = "ImportResumeProvider" };
+        public LabelItem ReprocessHelp { get; set; } = new LabelItem("After an outage, queue one retry of the deferred items. Marvin waits through provider cooldowns, tests a small sample, then drains the queue as AIO responds. Existing files and retry history stay intact.");
+        public ButtonItem ReprocessDeferred { get; set; } = new ButtonItem("Reprocess deferred items") { Data1 = "ImportReprocess" };
+        public ButtonItem CancelReprocess { get; set; } = new ButtonItem("Cancel pending reprocessing") { Data1 = "ImportCancelReprocess" };
         public GenericItemList ImportItems { get; set; } = new GenericItemList();
         public ButtonItem NextImports { get; set; } = new ButtonItem("Next 25 titles") { Data1 = "ImportNext" };
     }

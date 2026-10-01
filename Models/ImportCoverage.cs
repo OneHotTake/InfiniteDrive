@@ -46,6 +46,9 @@ public sealed class ImportEpisode
     public List<string> NativeIds { get; set; } = new();
     public List<ImportVersionEvidence> Versions { get; set; } = new();
     public int Attempts { get; set; }
+    public int ConsecutiveFailures { get; set; }
+    public string LastFailureKind { get; set; } = "";
+    public DateTimeOffset? LastFailureAt { get; set; }
     public int Notifications { get; set; }
     public DateTimeOffset? FirstNotification { get; set; }
     public DateTimeOffset? LastNotification { get; set; }
@@ -97,12 +100,33 @@ public static class ImportCoveragePolicy
         double jitter = 0, DateTimeOffset? cooldown = null)
     {
         var delay = noSource
-            ? (attempt >= 8 ? TimeSpan.FromDays(7) : attempt == 1 ? TimeSpan.FromHours(6) : TimeSpan.FromDays(1))
+            ? attempt switch { <= 1 => TimeSpan.FromHours(6), 2 => TimeSpan.FromDays(1),
+                3 => TimeSpan.FromDays(2), 4 => TimeSpan.FromDays(3), _ => TimeSpan.FromDays(7) }
             : attempt switch { 1 => TimeSpan.FromMinutes(15), 2 => TimeSpan.FromHours(1),
-                3 => TimeSpan.FromHours(4), _ => TimeSpan.FromDays(1) };
+                3 => TimeSpan.FromHours(4), 4 => TimeSpan.FromDays(1),
+                5 => TimeSpan.FromDays(3), _ => TimeSpan.FromDays(7) };
         var next = now + TimeSpan.FromTicks((long)(delay.Ticks * (1 + Math.Clamp(jitter, 0, .2))));
         return cooldown > next ? cooldown.Value : next;
     }
+
+    public static void Failed(ImportEpisode episode, string failure, DateTimeOffset now,
+        double jitter, DateTimeOffset? cooldown)
+    {
+        // Upgrade old saved records conservatively; attempts/ledger remain untouched.
+        episode.ConsecutiveFailures = episode.LastFailureKind == failure
+            ? episode.ConsecutiveFailures + 1
+            : episode.LastFailureKind.Length == 0 ? Math.Max(1, episode.Attempts) : 1;
+        episode.LastFailureKind = failure; episode.LastFailureAt = now;
+        episode.Failure = failure;
+        episode.NextAttempt = failure == "provider_configuration" ? null :
+            RetryAt(episode.ConsecutiveFailures, failure == "source_unavailable", now, jitter, cooldown);
+    }
+
+    public static bool Reprocessable(ImportCoverage coverage, ImportEpisode episode) =>
+        coverage.Exclusion.Length == 0 && coverage.SnapshotStatus == "success" &&
+        episode.Expected && episode.Eligible && episode.State is not ("excluded" or "index_mismatch") &&
+        episode.Failure is "source_unavailable" or "transport_failure" or "lookup_deadline" or
+            "http_429" or "publication_failed" or "slice_cancelled";
 
     public static bool AcceptSnapshot(IReadOnlyCollection<ImportEpisode> previous,
         IReadOnlyCollection<ImportEpisode> fresh)

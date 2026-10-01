@@ -13,7 +13,8 @@ public sealed record ImportRunSnapshot(string Id, DateTimeOffset StartedAt, Date
     double ElapsedSeconds, double PhaseSeconds, int EpisodesChecked, int MissingAttempts,
     int RefreshAttempts, int ActiveLookups, int Matched, int EmptyResults, int TransportFailures,
     int LookupDeadlines, int Http429, int ProviderConfigurationFailures, int CancelledLookups, int Published, int Refreshed,
-    int PublicationFailures, IReadOnlyDictionary<string, ImportStageTiming> Timings);
+    int PublicationFailures, IReadOnlyDictionary<string, ImportStageTiming> Timings,
+    int HttpRequests = 0, int HttpRetries = 0);
 
 /// <summary>One bounded, thread-safe run observation. Contains no target URLs or exception messages.</summary>
 public sealed class ImportRunTelemetry
@@ -30,6 +31,7 @@ public sealed class ImportRunTelemetry
     private string _status = "running", _phase = "inventory", _title = "", _episode = "";
     private int _checked, _missing, _refresh, _active, _matched, _empty, _transport, _deadlines,
         _http429, _providerConfiguration, _cancelled, _published, _refreshed, _publicationFailures;
+    private int _httpRequests, _httpRetries;
     public ImportRunTelemetry(string id) { _id = id; }
     public static ImportRunTelemetry Start(string id)
     {
@@ -40,6 +42,13 @@ public sealed class ImportRunTelemetry
         lock (_gate) { _phase = phase; _title = title; _episode = episode; _phaseTime.Restart(); }
     }
     public void Checked() { lock (_gate) _checked++; }
+    public static void RecordCurrentHttp(bool retry)
+    {
+        var current = Volatile.Read(ref _current);
+        if (current == null) return;
+        lock (current._gate) { current._httpRequests++; if (retry) current._httpRetries++; }
+    }
+    public static void RecordCurrentTiming(string stage, double seconds) => Volatile.Read(ref _current)?.RecordTiming(stage, seconds);
     public void Attempt(bool refresh) { lock (_gate) { if (refresh) _refresh++; else _missing++; } }
     public void LookupStarted() { lock (_gate) _active++; }
     public void LookupFinished(string failure)
@@ -63,7 +72,7 @@ public sealed class ImportRunTelemetry
     public void PublicationFailed() { lock (_gate) _publicationFailures++; }
     public void RecordTiming(string stage, double seconds)
     {
-        if (stage is not ("metadata" or "observation" or "resolution" or "publication" or "checkpoint") ||
+        if (stage is not ("metadata" or "observation" or "resolution" or "publication" or "checkpoint" or "dispatch_queue" or "source_http") ||
             !double.IsFinite(seconds) || seconds < 0) throw new ArgumentOutOfRangeException(nameof(stage));
         lock (_gate)
         {
@@ -91,7 +100,7 @@ public sealed class ImportRunTelemetry
             return new(_id, _started, DateTimeOffset.UtcNow, _finished, _status, _phase, _title, _episode,
                 Math.Round(_elapsed.Elapsed.TotalSeconds, 3), Math.Round(_phaseTime.Elapsed.TotalSeconds, 3),
                 _checked, _missing, _refresh, _active, _matched, _empty, _transport, _deadlines, _http429,
-                _providerConfiguration, _cancelled, _published, _refreshed, _publicationFailures, times);
+                _providerConfiguration, _cancelled, _published, _refreshed, _publicationFailures, times, _httpRequests, _httpRetries);
         }
     }
     private sealed class Stage

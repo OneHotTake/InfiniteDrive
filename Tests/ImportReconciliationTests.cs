@@ -285,7 +285,7 @@ public sealed class ImportReconciliationTests
         await h.Run(); Assert.Equal(205, h.Inventory.Published);
         Assert.Empty(await h.Db.GetCatchUpImportCatalogAsync(Now, h.Now));
         h.Now = h.Now.AddMinutes(1); h.Engage(); await h.Run();
-        Assert.Equal(210, h.Inventory.Published);
+        Assert.Equal(405, h.Inventory.Published); // Due work precedes the observation cursor.
         await h.Run(); Assert.Equal(410, h.Inventory.Published);
     }
     [Fact] public async Task ImprobabilityHasABoundedAttemptAllowance()
@@ -620,6 +620,102 @@ public sealed class ImportReconciliationTests
         Assert.Equal(0, run.ActiveLookups); Assert.Equal("transport_failure", (await h.State()).Items.Single().Failure);
     }
 
+    [Fact] public async Task RecoveryQueueIsDurableIdempotentAndDoesNotResetBackoffOrLedger()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1; h.Inventory.FailEpisode = 1;
+        await h.Seed(); await h.Run(); var before = (await h.State()).Items.Single();
+        Assert.Equal("queued_or_deferred", await h.Db.QueueImportReprocessAsync(h.Now));
+        Assert.Equal("already_queued", await h.Db.QueueImportReprocessAsync(h.Now));
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Pending);
+        Assert.Equal(before.NextAttempt, (await h.State()).Items.Single().NextAttempt);
+        Assert.Equal(1, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+        h.Inventory.FailEpisode = 0; await h.Run();
+        Assert.Equal(2, h.Inventory.Resolutions); Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Published);
+        Assert.Null((await h.State()).Items.Single().NextAttempt);
+        Assert.Equal(2, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+        await h.Run(); Assert.Equal(2, h.Inventory.Resolutions);
+    }
+
+    [Fact] public async Task RecoveryProbeIsBoundedUntilResponsesAreHealthyAndPreservesFiles()
+    {
+        using var h = new Harness(); h.Inventory.Count = 5; h.Inventory.Files.UnionWith(Enumerable.Range(1,5));
+        await h.Seed(); await h.Run(ImportMode.Observe);
+        var state = await h.State(); foreach(var e in state.Items)
+        { e.Failure = "source_unavailable"; e.Attempts = 2; e.NextAttempt = h.Now.AddDays(1); }
+        await h.Db.SaveImportCoverageAsync(state); await h.Db.QueueImportReprocessAsync(h.Now);
+        await h.Run(); Assert.Equal(1, h.Inventory.Resolutions); Assert.Equal(4, (await h.Db.GetImportReprocessSummaryAsync()).Pending);
+        Assert.Equal(5, h.Inventory.Files.Count);
+        var health = h.Db.GetImportSourceHealth(); health.Record("",h.Now); health.Record("",h.Now);
+        await h.Db.SaveImportSourceHealthAsync(health); await h.Run();
+        Assert.Equal(0, (await h.Db.GetImportReprocessSummaryAsync()).Pending);
+        Assert.Equal(5, (await h.Db.GetImportReprocessSummaryAsync()).Published);
+    }
+
+    [Fact] public async Task RecoveryPreservesBlocksOwnershipCooldownAndDoesNotTouchExcludedEpisodes()
+    {
+        using var h = new Harness(); h.Inventory.Count = 2; await h.Seed(); await h.Run(ImportMode.Observe);
+        var state = await h.State(); foreach(var e in state.Items)
+        { e.Failure = "transport_failure"; e.NextAttempt = h.Now.AddDays(1); }
+        state.Items[1].Numbering = "unconfirmed"; state.Items[1].Eligible = false;
+        await h.Db.SaveImportCoverageAsync(state); await h.Db.QueueImportReprocessAsync(h.Now);
+        Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Pending);
+        h.Cooldown = h.Now.AddMinutes(30); await h.Run(); Assert.Equal(0, h.Inventory.Resolutions);
+        h.Cooldown = DateTimeOffset.MinValue; h.Inventory.Owned = true; await h.Run();
+        Assert.Equal(0, h.Inventory.Resolutions); Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Cancelled);
+        Assert.Equal(h.Now.AddDays(1), (await h.State()).Items[0].NextAttempt);
+        Assert.Equal(0, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+
+    [Fact] public async Task SupersededRecoveryIsRetiredAndCancellationLeavesInFlightAlone()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1; h.Inventory.FailEpisode = 1;
+        await h.Seed(); await h.Run(); await h.Db.QueueImportReprocessAsync(h.Now);
+        var state = await h.State(); var episode = state.Items.Single();
+        state.SnapshotStatus = "stale_or_unavailable"; await h.Db.SaveImportCoverageAsync(state);
+        await h.Db.RetireSupersededReprocessAsync(h.Now);
+        Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Pending);
+        state.SnapshotStatus = "success";
+        var originalAttempts = episode.Attempts; episode.Failure = "";
+        await h.Db.SaveImportCoverageAsync(state); await h.Db.RetireSupersededReprocessAsync(h.Now);
+        Assert.Equal(0, (await h.Db.GetImportReprocessSummaryAsync()).Pending);
+        Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Cancelled);
+        Assert.Equal(originalAttempts, (await h.State()).Items.Single().Attempts);
+        episode.Failure = "source_unavailable"; await h.Db.SaveImportCoverageAsync(state);
+        await h.Db.QueueImportReprocessAsync(h.Now);
+        await h.Db.SetImportReprocessStatusAsync(state.Identity, episode.Key, "in_flight", h.Now);
+        await h.Db.CancelImportReprocessAsync(h.Now);
+        Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).InFlight);
+    }
+
+    [Fact] public async Task FailedRecoveryEscalatesAndAnOpenCircuitPreventsMoreDispatches()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1; h.Inventory.FailEpisode = 1;
+        await h.Seed(); await h.Run(); await h.Db.QueueImportReprocessAsync(h.Now); await h.Run();
+        var ep = (await h.State()).Items.Single();
+        Assert.Equal(2, ep.ConsecutiveFailures); Assert.Equal(2, ep.Attempts);
+        Assert.True(ep.NextAttempt >= h.Now.AddDays(1));
+        Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Failed);
+        await h.Db.QueueImportReprocessAsync(h.Now);
+        var health = h.Db.GetImportSourceHealth(); health.Record("http_429", h.Now);
+        await h.Db.SaveImportSourceHealthAsync(health); h.Inventory.FailEpisode = 0;
+        await h.Run(); Assert.Equal(2, h.Inventory.Resolutions);
+        Assert.Equal(1, (await h.Db.GetImportReprocessSummaryAsync()).Pending);
+    }
+
+    [Fact] public async Task CancellationCheckpointsLeasesWithoutEscalatingSourceFailures()
+    {
+        using var h = new Harness(); h.Inventory.Count = 1; await h.Seed(); h.Engage();
+        h.Inventory.OnResolveWithToken = ct => Task.Delay(Timeout.Infinite,ct);
+        var allowance = ImportWorkBudget.For(h.Config,h.Now) with { SliceSeconds = 1 };
+        await new ImportReconciliationService(h.Db,h.Inventory,()=>ImportMode.Repair,TimeZoneInfo.Utc,()=>h.Now,
+            workBudget:()=>allowance).RunAsync(default,new[]{h.Item});
+        var ep = (await h.State()).Items.Single(); Assert.Null(ep.Lease); Assert.Null(ep.LeaseUntil);
+        Assert.Equal("slice_cancelled",ep.Failure); Assert.Equal(0,ep.ConsecutiveFailures);
+        Assert.Equal(h.Now.AddMinutes(5),ep.NextAttempt); Assert.Equal(0,h.Db.GetImportSourceHealth().Escalation);
+        Assert.Equal(1,await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+
     public class NullLogProxy : System.Reflection.DispatchProxy
     {
         protected override object? Invoke(System.Reflection.MethodInfo? method, object?[]? args)
@@ -646,6 +742,7 @@ public sealed class ImportReconciliationTests
     private sealed class FakeInventory : IImportInventory
     {
         public int Resolutions, Published, Notifications, FailEpisode, DisputedEpisode, Count = 2;
+        public bool HasSavedFiles(ImportEpisode episode) => episode.Episode.HasValue && Files.Contains(episode.Episode.Value);
         public List<int> ResolvedEpisodes = new();
         public bool Owned, BadSnapshot, Paused, RateLimit, Indexed = true; public bool ProviderPaused => Paused; public HashSet<int> Files = new(); public Func<Task>? OnResolve; public Func<CancellationToken, Task>? OnResolveWithToken; public Func<ImportEpisode, Task>? OnObserve;
         public Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct)

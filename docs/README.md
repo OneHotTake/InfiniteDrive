@@ -26,4 +26,4 @@
 old test plans and dated reports. These are not current configuration instructions.
 The implementation and current guides take precedence over historical claims.
 
-Updated September 30, 2026 for the 0.42.11 source tree.
+Updated October 1, 2026 for the 0.42.12 source tree.
