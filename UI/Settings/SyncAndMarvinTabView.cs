@@ -49,6 +49,8 @@ namespace InfiniteDrive.UI.Settings
                     case "ImportCheck": result = await ImportHealthService.ApplyAsync(new() { Action = "check" }); break;
                     case "ImportReprocess": result = await ImportHealthService.ApplyAsync(new() { Action = "reprocess_deferred" }); break;
                     case "ImportCancelReprocess": result = await ImportHealthService.ApplyAsync(new() { Action = "cancel_reprocess" }); break;
+                    case "ImportEnableDiversity": result = await ImportHealthService.ApplyAsync(new() { Action = "enable_diversity" }); break;
+                    case "ImportDisableDiversity": result = await ImportHealthService.ApplyAsync(new() { Action = "disable_diversity" }); break;
                     case "ImportIncludeSpecials":
                     case "ImportExcludeSpecials":
                         result = await ImportHealthService.ApplyAsync(new() { Action = cmd == "ImportIncludeSpecials" ? "include_specials" : "exclude_specials", Identity = itemId }); break;
@@ -133,6 +135,9 @@ namespace InfiniteDrive.UI.Settings
                     ? $"Paused until {When(health.PausedUntil, now)} · {Explain(health.LastOutcome)} · recovery step {health.Escalation}"
                     : $"{health.ResponsiveReplies}/3 responsive replies · last match {When(health.LastMatchAt, now)} · does not test every indexer");
                 var recovery = await db.GetImportReprocessSummaryAsync();
+                AddDashboard("Eventual source diversity", Plugin.Instance.Configuration.ImportProviderDiversityEnabled
+                    ? "Enabled · after essential work · at most 2 normal / 8 catch-up checks per pass · one probe with stale health · see episode queue state"
+                    : "Paused · durable entries and due times retained · essential repair continues");
                 AddDashboard("Recovery pass", recovery.RequestId == null ? "No recovery pass requested" :
                     $"{recovery.Pending:N0} pending · {recovery.InFlight:N0} in flight · {recovery.Published:N0} published · {recovery.Failed:N0} failed · {recovery.Cancelled:N0} cancelled" +
                     (!health.RecoveryReady(now) && recovery.Pending > 0 ? " · one probe per pass until three recent replies include a source match" : ""));
@@ -198,12 +203,15 @@ namespace InfiniteDrive.UI.Settings
                         Icon = IconNames.info, IconMode = ItemListIconMode.SmallRegular,
                         Button1 = new ButtonItem(title.IncludeSpecials ? "Skip specials" : "Include released specials")
                         { Data1 = title.Identity, CommandId = title.IncludeSpecials ? "ImportExcludeSpecials" : "ImportIncludeSpecials" } });
-                    foreach (var episode in title.Items.Where(x => x.State != "indexed" || x.Failure.Length > 0).Take(50))
+                    foreach (var episode in title.Items.Where(x => x.State != "indexed" || x.Failure.Length > 0 || x.Diversity?.Status is "waiting" or "in_flight" or "capacity").Take(50))
                     {
                         var reason = episode.State == "indexed" && episode.Failure.Length > 0 ? "In Emby; source refresh failed" : episode.State == "excluded" ? Explain(episode.Eligibility) : Explain(episode.State);
                         var more = episode.Failure.Length > 0 ? Explain(episode.Failure) : "";
                         if (episode.ConsecutiveFailures > 0) more += $" · failure step {episode.ConsecutiveFailures}";
                         if (episode.NextAttempt.HasValue) more += (more.Length > 0 ? " · " : "") + (episode.NextAttempt > now ? "Retry " + When(episode.NextAttempt, now) : "Retry due");
+                        if (episode.Diversity is { } diversity)
+                            more += $" · source diversity {diversity.Status} ({diversity.Reason}) · {diversity.Attempts} reserved checks" +
+                                (diversity.NextAttempt.HasValue ? $" · check after {When(diversity.NextAttempt, now)}" : "");
                         UI.ImportItems.Add(new GenericListItem
                         {
                             PrimaryText = (episode.Season.HasValue ? $"S{episode.Season:D2}E{episode.Episode:D2}" : "Movie") + " · " + reason,
@@ -228,7 +236,7 @@ namespace InfiniteDrive.UI.Settings
             AddDashboard(label, $"{run.Status} · {run.ElapsedSeconds:N0}s elapsed · started {run.StartedAt:HH:mm:ss} UTC");
             if (run.Status == "running") AddDashboard("Doing", $"{run.Phase.Replace('_',' ')} · {run.PhaseSeconds:N0}s in this step" +
                 (run.Title.Length > 0 ? $" · {run.Title} {run.EpisodeKey}" : ""));
-            AddDashboard("Lookups", $"{run.ActiveLookups:N0} in flight (includes paced waiting) · {run.MissingAttempts:N0} missing-file attempts · {run.RefreshAttempts:N0} refresh attempts");
+            AddDashboard("Lookups", $"{run.ActiveLookups:N0} in flight (includes paced waiting) · {run.MissingAttempts:N0} missing-file attempts · {run.RefreshAttempts:N0} refresh attempts · {run.DiversityAttempts:N0} diversity attempts");
             AddDashboard("AIO HTTP traffic", $"{run.HttpRequests:N0} submissions · {run.HttpRetries:N0} transport retries · excludes AIO's downstream indexer calls");
             AddDashboard("Source results", $"{run.Matched:N0} matched · {run.EmptyResults:N0} empty · {run.CancelledLookups:N0} cancelled");
             AddDashboard("Source failures", $"{run.TransportFailures:N0} transport · {run.LookupDeadlines:N0} lookup deadlines · {run.Http429:N0} HTTP 429 · {run.ProviderConfigurationFailures:N0} provider settings");

@@ -45,12 +45,14 @@ public sealed class ImportHealthService : IService, IRequiresRequest
             PipelinePhase = Plugin.Pipeline.Current, CurrentRun = ImportRunTelemetry.Current, NextCreditAt = await db.GetNextImportCreditAsync(DateTimeOffset.UtcNow, speed.AttemptsPerDay),
             RecentRuns = await db.GetImportRunHistoryAsync(), LastRun = db.GetMetadata("import_last_run"), CollectionHealth = db.GetMetadata("import_collection_health"), NextOffset = request.Offset + page.Count,
             SourceHealth = db.GetImportSourceHealth(), Reprocessing = await db.GetImportReprocessSummaryAsync(),
+            DiversityEnabled = Plugin.Instance.Configuration.ImportProviderDiversityEnabled,
             Items = page.Select(x => new { x.Identity, x.Title, Complete = x.Complete && x.SnapshotAt >= DateTimeOffset.UtcNow.AddHours(-6), x.SnapshotAt, x.CheckedAt,
                 x.SnapshotStatus, x.ProviderStatus, x.Exclusion,
                 Stale = x.SnapshotAt == null || x.SnapshotAt < DateTimeOffset.UtcNow.AddHours(-6),
                 Expected = x.Items.Count(i => i.Eligible), Indexed = x.Items.Count(i => i.Eligible && i.State == "indexed"),
                 Episodes = x.Items.Select(i => new { i.Key, i.Season, i.Episode, i.State, i.Eligibility,
-                    i.Failure, i.Attempts, i.ConsecutiveFailures, i.LastFailureAt, i.NextAttempt, i.ObservedAt }) }) };
+                    i.Failure, i.Attempts, i.ConsecutiveFailures, i.LastFailureAt, i.NextAttempt, i.ObservedAt,
+                    Providers = ImportDiversityPolicy.Providers(i), i.Diversity }) }) };
     }
 
     public async Task<object> Post(ImportActionRequest request)
@@ -71,6 +73,12 @@ public sealed class ImportHealthService : IService, IRequiresRequest
             await db.EnsureImportCoverageAsync();
             switch (request.Action)
             {
+                case "enable_diversity":
+                case "disable_diversity":
+                    plugin.Configuration.ImportProviderDiversityEnabled = request.Action == "enable_diversity";
+                    plugin.SaveConfiguration();
+                    // No kickoff, early retry, queue deletion or repair-policy change.
+                    return new { Status = "setting_changed", DiversityEnabled = plugin.Configuration.ImportProviderDiversityEnabled };
                 case "mode":
                     if (!Enum.TryParse<ImportMode>(request.Mode, false, out var mode) || !Enum.IsDefined(mode))
                         return new { Status = "invalid_mode" };

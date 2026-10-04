@@ -50,6 +50,9 @@ namespace InfiniteDrive.UI.Settings
         public LabelItem ReprocessHelp { get; set; } = new LabelItem("After an outage, queue one retry of the deferred items. Marvin waits through provider cooldowns, tests a small sample, then drains the queue as AIO responds. Existing files and retry history stay intact.");
         public ButtonItem ReprocessDeferred { get; set; } = new ButtonItem("Reprocess deferred items") { Data1 = "ImportReprocess" };
         public ButtonItem CancelReprocess { get; set; } = new ButtonItem("Cancel pending reprocessing") { Data1 = "ImportCancelReprocess" };
+        public LabelItem DiversityHelp { get; set; } = new LabelItem("Single-source items wait in a durable, low-priority queue. Marvin adds another validated source when credits and health allow; working files stay intact. Eight-version items wait for room. This does not guarantee playback or a second available source.");
+        public ButtonItem EnableDiversity { get; set; } = new ButtonItem("Enable eventual source diversity") { Data1 = "ImportEnableDiversity" };
+        public ButtonItem DisableDiversity { get; set; } = new ButtonItem("Pause source diversity") { Data1 = "ImportDisableDiversity" };
         public GenericItemList ImportItems { get; set; } = new GenericItemList();
         public ButtonItem NextImports { get; set; } = new ButtonItem("Next 25 titles") { Data1 = "ImportNext" };
     }

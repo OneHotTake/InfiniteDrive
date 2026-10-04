@@ -23,12 +23,14 @@ public sealed class ImportReconciliationService
     private readonly TimeZoneInfo _timezone;
     private readonly Func<ImportWorkBudget> _workBudget;
     private ImportRunTelemetry? _activeTelemetry;
+    private readonly Func<bool> _diversityEnabled;
 
     public ImportReconciliationService(DatabaseManager db, IImportInventory inventory,
         Func<ImportMode> mode, TimeZoneInfo timezone, Func<DateTimeOffset>? clock = null,
-        Func<DateTimeOffset>? cooldown = null, Func<ImportWorkBudget>? workBudget = null)
+        Func<DateTimeOffset>? cooldown = null, Func<ImportWorkBudget>? workBudget = null, Func<bool>? diversityEnabled = null)
     { _db = db; _inventory = inventory; _mode = mode; _timezone = timezone;
         _workBudget = workBudget ?? (() => ImportWorkBudget.Normal);
+        _diversityEnabled = diversityEnabled ?? (() => true);
         _clock = clock ?? (() => DateTimeOffset.UtcNow); _cooldown = cooldown ?? (() => DateTimeOffset.MinValue); }
 
     public static ImportReconciliationService Create()
@@ -38,7 +40,8 @@ public sealed class ImportReconciliationService
             p.Configuration, p.ProviderManager, p.StrmFileManager!), () => p.Configuration.ImportRecoveryMode,
             TimeZoneInfo.FindSystemTimeZoneById(p.Configuration.ImportHouseholdTimezone),
             cooldown: () => p.CooldownGate?.GlobalCooldownUntil ?? DateTimeOffset.MinValue,
-            workBudget: () => ImportWorkBudget.For(p.Configuration, DateTimeOffset.UtcNow));
+            workBudget: () => ImportWorkBudget.For(p.Configuration, DateTimeOffset.UtcNow),
+            diversityEnabled: () => p.Configuration.ImportProviderDiversityEnabled);
     }
 
     public async Task RunAsync(CancellationToken ct, IReadOnlyList<CatalogItem>? selected = null)
@@ -61,6 +64,9 @@ public sealed class ImportReconciliationService
         _activeTelemetry = telemetry;
         var pending = new List<ResolutionWork>();
         var deferred = new List<ResolutionCandidate>();
+        var diversity = new List<ResolutionCandidate>();
+        var diversityAttempts = 0;
+        var diversityPublished = 0;
         // Rotate the first claim on scarce credits across native slices. The other
         // lane can borrow unused credits after inventory discovery; no new quota.
         var priority = allowance.IsCatchUp && _db.GetMetadata("import_catch_up_last_priority") == "refresh"
@@ -73,7 +79,7 @@ public sealed class ImportReconciliationService
         var healthLoaded = false;
         var rollingUsed = 0;
 
-        async Task<ResolutionResult> ResolveAsync(CatalogItem item, ImportEpisode episode)
+        async Task<ResolutionResult> ResolveAsync(CatalogItem item, ImportEpisode episode, bool diverse = false)
         {
             telemetry.LookupStarted();
             var timer = Stopwatch.StartNew();
@@ -83,7 +89,7 @@ public sealed class ImportReconciliationService
             deadline.CancelAfter(TimeSpan.FromSeconds(allowance.IsCatchUp ? 120 : 60));
             try
             {
-                versions = allowance.IsCatchUp
+                versions = diverse ? await _inventory.ResolveDiversityAsync(item, episode, deadline.Token) : allowance.IsCatchUp
                     ? await _inventory.ResolveCatchUpAsync(item, episode, deadline.Token)
                     : await _inventory.ResolveAsync(item, episode, deadline.Token);
                 failure = versions.Count == 0 ? "source_unavailable" : "";
@@ -116,6 +122,52 @@ public sealed class ImportReconciliationService
                     !episode.Eligible || !episode.Expected ||
                     !await IsAuthorizedAsync(live, work.Item, token) || _inventory.IsOwned(work.Item)) return;
                 var now = _clock();
+                if (work.Diversity)
+                {
+                    var entry = episode.Diversity;
+                    if (!_diversityEnabled() || entry == null || entry.Profile != _inventory.ProfileFingerprint ||
+                        entry.Generation != live.Generation || !ImportDiversityPolicy.Eligible(live, episode) ||
+                        DiversitySignature(episode) != work.Signature)
+                    {
+                        if (entry != null) { entry.Status = "waiting"; entry.Reason = "guard_changed"; entry.NextAttempt = now.AddMinutes(5); }
+                        episode.Lease = null; episode.LeaseUntil = null;
+                        await _db.SaveImportCoverageAsync(live, token); return;
+                    }
+                    sourceHealth.Record(result.Failure, now);
+                    await _db.SaveImportSourceHealthAsync(sourceHealth, token);
+                    var reason = result.Failure;
+                    var providers = ImportDiversityPolicy.Providers(episode)!;
+                    var additions = result.Versions?.Where(x => ImportDiversityPolicy.Provider(x.Stream.ServiceLabel) is { } label &&
+                        !providers.Contains(label) && x.Stream.SizeBytes is > 0 and <= 40_000_000_000).Take(1).ToList() ?? new();
+                    if (reason.Length == 0 && additions.Count == 0)
+                        reason = result.Versions?.Any(x => providers.Contains(ImportDiversityPolicy.Provider(x.Stream.ServiceLabel) ?? "")) == true
+                            ? "same_source" : "no_valid_addition";
+                    if (reason.Length == 0)
+                    {
+                        var timer = Stopwatch.StartNew();
+                        try
+                        {
+                            var paths = await _inventory.PublishAdditionAsync(work.Item, episode, additions, token);
+                            if (paths.Count == 0) throw new IOException("addition_failed");
+                            episode.Paths = paths;
+                            if (ImportDiversityPolicy.Providers(episode)?.Count is not >= 2) throw new IOException("addition_unverified");
+                            entry.Status = "resolved"; entry.Reason = "multiple_sources"; entry.CheckedAt = now;
+                            entry.NextAttempt = null; entry.Streak = 0;
+                            await _db.SaveImportCoverageAsync(live, token);
+                            await RegisterPathsAsync(live, work.Item, episode, additions, token, true);
+                            diversityPublished++; published++; telemetry.Published(false, true);
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                        catch { reason = "publication_failed"; telemetry.PublicationFailed(); }
+                        finally { telemetry.RecordTiming("publication", timer.Elapsed.TotalSeconds); }
+                    }
+                    if (reason.Length > 0) ImportDiversityPolicy.Defer(entry, reason, now, Random.Shared.NextDouble() * .2, _cooldown());
+                    episode.Lease = null; episode.LeaseUntil = null;
+                    await _db.SaveImportCoverageAsync(live, token);
+                    var ix = work.Coverage.Items.FindIndex(x => x.Key == episode.Key);
+                    if (ix >= 0) work.Coverage.Items[ix] = episode;
+                    return;
+                }
                 var failure = result.Failure;
                 sourceHealth.Record(failure, now);
                 await _db.SaveImportSourceHealthAsync(sourceHealth, token);
@@ -151,6 +203,9 @@ public sealed class ImportReconciliationService
                     ImportCoveragePolicy.Failed(episode, failure, now, Random.Shared.NextDouble() * .2, _cooldown());
                 }
                 episode.Lease = null; episode.LeaseUntil = null;
+                ImportDiversityPolicy.Reconcile(live, episode, _inventory.ProfileFingerprint, now);
+                if (failure.Length == 0 && episode.Diversity?.Status == "waiting")
+                    episode.Diversity.NextAttempt = now.AddHours(6);
                 await _db.SaveImportCoverageAsync(live, token);
                 if (work.Reprocess) await _db.SetImportReprocessStatusAsync(live.Identity, episode.Key,
                     failure.Length == 0 ? "published" : "failed", now, token);
@@ -207,25 +262,45 @@ public sealed class ImportReconciliationService
                     episode.NextAttempt > now && !reprocess || episode.LeaseUntil > now ||
                     !await IsAuthorizedAsync(live, candidate.Item, token) || _inventory.IsOwned(candidate.Item)) return;
                 if (reprocess && !sourceHealth.RecoveryReady(now) && reprocessAttempts >= 1) return;
-                if (candidate.Upgrade && !allowance.NeedsRefresh(episode, now) && !reprocess) return;
+                if (candidate.Diversity)
+                {
+                    var entry = episode.Diversity;
+                    if (!_diversityEnabled() || !_inventory.HasSavedFiles(episode) || !ImportDiversityPolicy.Eligible(live, episode) || entry == null ||
+                        entry.Profile != _inventory.ProfileFingerprint || entry.Generation != live.Generation ||
+                        entry.Status != "waiting" || entry.NextAttempt > now ||
+                        episode.Paths.Distinct().Count() >= RuntimePolicy.EmbyVersionLimit ||
+                        diversityAttempts >= (allowance.IsCatchUp ? 8 : 2) ||
+                        !sourceHealth.RecoveryReady(now) && attempts >= 1) return;
+                    // A diverse lookup is additive work, never an early repair/reprocess retry.
+                    if (reprocess) return;
+                    if (!_inventory.CanAddSource(candidate.Item, episode))
+                    {
+                        entry.Reason = "retained_file_changed"; entry.NextAttempt = now.AddHours(6);
+                        await _db.SaveImportCoverageAsync(live, token); return;
+                    }
+                    entry.Status = "in_flight"; entry.Attempts++; entry.CheckedAt = now;
+                    diversityAttempts++;
+                }
+                if (candidate.Upgrade && !candidate.Diversity && !allowance.NeedsRefresh(episode, now) && !reprocess) return;
                 attempts++;
                 if (candidate.Upgrade) upgrades++;
                 var lease = Guid.NewGuid().ToString("N");
                 episode.Lease = lease; episode.LeaseUntil = now.AddMinutes(10);
-                if (!candidate.Upgrade) episode.InitialFailure = true;
-                episode.Attempts++;
+                if (!candidate.Upgrade && !candidate.Diversity) episode.InitialFailure = true;
+                if (!candidate.Diversity) episode.Attempts++;
                 await _db.RecordImportAttemptAsync(lease, now, token);
                 if (reprocess)
                 {
                     reprocessAttempts++;
                     await _db.SetImportReprocessStatusAsync(live.Identity, episode.Key, "in_flight", now, token);
                 }
-                telemetry.Attempt(candidate.Upgrade);
+                telemetry.Attempt(candidate.Upgrade, candidate.Diversity);
                 await _db.SaveImportCoverageAsync(live, token);
                 var index = candidate.Coverage.Items.FindIndex(x => x.Key == episode.Key);
                 if (index >= 0) candidate.Coverage.Items[index] = episode;
                 start = () => new(candidate.Coverage, candidate.Item, episode, live.Generation, lease,
-                    candidate.Upgrade, episode.State, reprocess, ResolveAsync(candidate.Item, episode));
+                    candidate.Upgrade, episode.State, reprocess, candidate.Diversity, DiversitySignature(episode),
+                    ResolveAsync(candidate.Item, episode, candidate.Diversity));
             }
             finally { MutationGate.Release(); }
             pending.Add(start());
@@ -235,6 +310,8 @@ public sealed class ImportReconciliationService
         try
         {
             await _db.EnsureImportCoverageAsync(token);
+            await _db.PersistMetadataAsync("import_diversity_schema", "1", token);
+            await _db.PersistMetadataAsync("import_diversity_enabled", _diversityEnabled() ? "true" : "false", token);
             sourceHealth = _db.GetImportSourceHealth();
             healthLoaded = true;
             rollingUsed = await _db.GetRecentImportAttemptsAsync(_clock());
@@ -265,7 +342,7 @@ public sealed class ImportReconciliationService
                 var catchUp = allowance.CatchUpStartedAt.HasValue
                     ? await _db.GetCatchUpImportCatalogAsync(allowance.CatchUpStartedAt.Value, _clock())
                     : new List<CatalogItem>();
-                page = (await _db.GetReprocessImportCatalogAsync()).Concat(await _db.GetDueImportCatalogAsync(_clock())).Concat(catchUp).Concat(page)
+                page = (await _db.GetReprocessImportCatalogAsync()).Concat(await _db.GetDueImportCatalogAsync(_clock())).Concat(catchUp).Concat(page).Concat(await _db.GetDiversityImportCatalogAsync(_clock()))
                     .DistinctBy(x => x.Id).ToList();
             }
             var mayHaveRefresh = page.Any(x => !string.IsNullOrEmpty(x.StrmPath));
@@ -308,7 +385,10 @@ public sealed class ImportReconciliationService
                     if (coverage.Exclusion.Length > 0)
                     {
                         foreach (var e in coverage.Items)
+                        {
                             await _db.SetImportReprocessStatusAsync(coverage.Identity, e.Key, "cancelled", now, token);
+                            ImportDiversityPolicy.Reconcile(coverage, e, _inventory.ProfileFingerprint, now);
+                        }
                         coverage.CheckedAt = now;
                         await SaveObservedAsync(coverage, token);
                         continue;
@@ -351,6 +431,8 @@ public sealed class ImportReconciliationService
                     if (coverage.Items.Count == 0 && !ImportInventory.IsSeries(item))
                         coverage.Items.Add(new ImportEpisode { Key = "movie" });
 
+                    foreach (var entryEpisode in coverage.Items)
+                        ImportDiversityPolicy.Reconcile(coverage, entryEpisode, _inventory.ProfileFingerprint, now);
                     var due = coverage.Items.Where(x => x.Expected && x.Eligible &&
                         (!x.LeaseUntil.HasValue || x.LeaseUntil <= now) && (!x.NextAttempt.HasValue || x.NextAttempt <= now) &&
                         (x.State is "missing" or "retrying" || allowance.NeedsRefresh(x, now))).ToList();
@@ -391,6 +473,7 @@ public sealed class ImportReconciliationService
                         episode.State = ImportCoveragePolicy.Classify(episode, file, observation.NativeIds.Count > 0,
                             observation.Conflict, now);
                         episode.ObservedAt = now;
+                        ImportDiversityPolicy.Reconcile(coverage, episode, _inventory.ProfileFingerprint, now);
                         if (episode.State == "indexed")
                         {
                             episode.LastSuccess = now;
@@ -431,6 +514,9 @@ public sealed class ImportReconciliationService
                             deferred.Add(candidate);
                         else await DispatchAsync(candidate);
                     }
+                    foreach (var entryEpisode in coverage.Items)
+                        if (ImportDiversityPolicy.Eligible(coverage, entryEpisode) && entryEpisode.Diversity is { Status: "waiting" } entry && entry.NextAttempt <= now)
+                            diversity.Add(new(coverage, item, entryEpisode, coverage.Generation, false, true));
                     await SaveObservedAsync(coverage, token);
                     scanned++;
                     if (coverage.SnapshotStatus == "success" && coverage.Items.Any(x => x.ObservedAt.HasValue))
@@ -457,6 +543,13 @@ public sealed class ImportReconciliationService
             }
             telemetry.Work("waiting_for_sources");
             while (pending.Count > 0) await DrainOneAsync();
+            // Lower priority than every discovered missing/refresh candidate, serial publication.
+            foreach (var candidate in diversity.OrderBy(x => x.Episode.Diversity!.NextAttempt).ThenBy(x => x.Coverage.Identity, StringComparer.Ordinal).ThenBy(x => x.Episode.Key, StringComparer.Ordinal))
+            {
+                await DispatchAsync(candidate);
+                while (pending.Count > 0) await DrainOneAsync();
+                if (diversityAttempts >= (allowance.IsCatchUp ? 8 : 2)) break;
+            }
         }
         catch (OperationCanceledException) { status = ct.IsCancellationRequested ? "cancelled" : "budget_deferred"; }
         catch { status = "failed"; throw; }
@@ -479,6 +572,18 @@ public sealed class ImportReconciliationService
                         var episode = live?.Items.FirstOrDefault(x => x.Key == work.Episode.Key);
                         if (live == null || episode == null || episode.Lease != work.Lease) continue;
                         var result = await work.Resolution;
+                        if (work.Diversity)
+                        {
+                            if (episode.Diversity != null)
+                            {
+                                if (result.Failure.Length > 0 && result.Failure != "cancelled")
+                                { ImportDiversityPolicy.Defer(episode.Diversity, result.Failure, _clock(), Random.Shared.NextDouble() * .2, _cooldown()); sourceHealth.Record(result.Failure, _clock()); }
+                                else { episode.Diversity.Status = "waiting"; episode.Diversity.Reason = "slice_cancelled";
+                                    episode.Diversity.NextAttempt = _clock().AddMinutes(5); }
+                            }
+                            episode.Lease = null; episode.LeaseUntil = null;
+                            await _db.SaveImportCoverageAsync(live, CancellationToken.None); continue;
+                        }
                         if (result.Failure.Length > 0 && result.Failure != "cancelled")
                         { ImportCoveragePolicy.Failed(episode, result.Failure, _clock(), Random.Shared.NextDouble() * .2, _cooldown());
                             sourceHealth.Record(result.Failure, _clock()); }
@@ -494,7 +599,7 @@ public sealed class ImportReconciliationService
                 telemetry.Finish(status);
                 var report = System.Text.Json.JsonSerializer.Serialize(new
                     { Id = runId, Status = status, FinishedAt = _clock(), Scanned = scanned, Attempts = attempts, Metadata = metadata, Published = published,
-                        Upgrades = upgrades, Refreshed = refreshed, ReprocessAttempts = reprocessAttempts, SourceHealth = sourceHealth, SourceFailures = sourceFailures,
+                        Upgrades = upgrades, Refreshed = refreshed, ReprocessAttempts = reprocessAttempts, DiversityAttempts = diversityAttempts, DiversityPublished = diversityPublished, SourceHealth = sourceHealth, SourceFailures = sourceFailures,
                         TransportFailures = transportFailures, Priority = allowance.IsCatchUp ? priority : "normal", ElapsedSeconds = elapsed.Elapsed.TotalSeconds,
                         Speed = allowance.IsCatchUp ? "catch_up" : "normal", allowance.AttemptsPerDay, allowance.Parallelism,
                         allowance.CatchUpStartedAt, allowance.CatchUpUntil, Analytics = telemetry.Snapshot() });
@@ -505,10 +610,14 @@ public sealed class ImportReconciliationService
         }
     }
 
-    private sealed record ResolutionCandidate(ImportCoverage Coverage, CatalogItem Item, ImportEpisode Episode, long Generation, bool Upgrade);
+    private static string DiversitySignature(ImportEpisode episode) => string.Join("\n",
+        episode.Paths.OrderBy(x => x, StringComparer.Ordinal).Select(path => path + "|" + string.Join(",",
+            episode.Versions.Where(x => x.Path == path).Select(x => x.UrlSha256 + ":" + x.ServiceLabel).OrderBy(x => x, StringComparer.Ordinal))));
+
+    private sealed record ResolutionCandidate(ImportCoverage Coverage, CatalogItem Item, ImportEpisode Episode, long Generation, bool Upgrade, bool Diversity = false);
     private sealed record ResolutionResult(List<SelectedVersion>? Versions, string Failure);
     private sealed record ResolutionWork(ImportCoverage Coverage, CatalogItem Item, ImportEpisode Episode,
-        long Generation, string Lease, bool Upgrade, string PreviousState, bool Reprocess, Task<ResolutionResult> Resolution);
+        long Generation, string Lease, bool Upgrade, string PreviousState, bool Reprocess, bool Diversity, string Signature, Task<ResolutionResult> Resolution);
 
     internal static async Task<bool> IsBlockedAsync(DatabaseManager db, CatalogItem item, CancellationToken ct)
     {
@@ -549,7 +658,7 @@ public sealed class ImportReconciliationService
         finally { MutationGate.Release(); _activeTelemetry?.RecordTiming("checkpoint", timer.Elapsed.TotalSeconds); }
     }
 
-    private async Task RegisterPathsAsync(ImportCoverage state, CatalogItem item, ImportEpisode episode, List<SelectedVersion> versions, CancellationToken ct)
+    private async Task RegisterPathsAsync(ImportCoverage state, CatalogItem item, ImportEpisode episode, List<SelectedVersion> versions, CancellationToken ct, bool additive = false)
     {
         var directory = Path.GetDirectoryName(episode.Paths[0])!;
         var titleRoot = episode.Season.HasValue ? Path.GetDirectoryName(directory)! : directory;
@@ -560,7 +669,10 @@ public sealed class ImportReconciliationService
             current.StrmPath = titleRoot;
             current.LocalSource = "strm"; current.LocalPath = titleRoot;
             current.ItemState = ItemState.Written;
-            current.SelectedVersionsJson = StrmFileManager.SerializeVersions(versions);
+            current.SelectedVersionsJson = additive ? System.Text.Json.JsonSerializer.Serialize(
+                StrmFileManager.DeserializeVersions(current.SelectedVersionsJson).Concat(
+                    StrmFileManager.DeserializeVersions(StrmFileManager.SerializeVersions(versions))).DistinctBy(x => x.Url))
+                : StrmFileManager.SerializeVersions(versions);
             current.LastVersionRefreshAt = _clock().ToString("o");
             current.UpdatedAt = _clock().ToString("o");
             if (ImportInventory.IsSeries(item))

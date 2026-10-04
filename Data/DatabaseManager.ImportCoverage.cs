@@ -138,6 +138,15 @@ public partial class DatabaseManager
             AND (json_extract(e.value,'$.LeaseUntil') IS NULL OR json_extract(e.value,'$.LeaseUntil')<=@now))
           ORDER BY s.checked_at,c.id LIMIT 10;", c => BindText(c, "@now", now.ToString("o")), ReadCatalogItem);
 
+    public Task<List<CatalogItem>> GetDiversityImportCatalogAsync(DateTimeOffset now) => QueryListAsync(
+        @"SELECT c.* FROM import_coverage s JOIN catalog_items c ON c.id=json_extract(s.payload,'$.CatalogIds[0]')
+          WHERE json_extract(s.payload,'$.Exclusion')=''
+          AND EXISTS (SELECT 1 FROM json_each(s.payload,'$.Items') e
+            WHERE json_extract(e.value,'$.Diversity.Status') IN ('waiting','in_flight')
+            AND julianday(json_extract(e.value,'$.Diversity.NextAttempt'))<=julianday(@now)
+            AND (json_extract(e.value,'$.LeaseUntil') IS NULL OR julianday(json_extract(e.value,'$.LeaseUntil'))<=julianday(@now)))
+          ORDER BY s.checked_at,c.id LIMIT 10;", c => BindText(c, "@now", now.ToString("o")), ReadCatalogItem);
+
     // Revisit unfinished existing versions before advancing the catalog cursor. Failed
     // episodes retain their own backoff; successfully refreshed siblings leave this queue.
     public Task<List<CatalogItem>> GetCatchUpImportCatalogAsync(DateTimeOffset started, DateTimeOffset now) => QueryListAsync(

@@ -159,6 +159,48 @@ namespace InfiniteDrive.Services
             finally { gate.Release(); }
         }
 
+        /// <summary>Add one deterministic variant without overwriting or deleting any existing file.</summary>
+        public async Task<string> WriteAdditionalStrmAsync(string folder, string name,
+            SelectedVersion version, CancellationToken ct)
+        {
+            if (!Uri.TryCreate(version.Stream.Url, UriKind.Absolute, out var uri) ||
+                uri.Scheme is not ("http" or "https") || version.Stream.SizeBytes is not (> 0 and <= 40_000_000_000) ||
+                ImportDiversityPolicy.Provider(version.Stream.ServiceLabel) is not { } provider)
+                throw new InvalidOperationException("invalid_additional_source");
+            var gate = _rewriteLocks.GetOrAdd(Path.GetFullPath(folder), _ => new SemaphoreSlim(1, 1));
+            await gate.WaitAsync(ct);
+            string? tmp = null;
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!Directory.Exists(folder) || new DirectoryInfo(folder).LinkTarget != null)
+                    throw new IOException("destination_changed");
+                var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(version.Stream.Url))).ToLowerInvariant();
+                var path = Path.Combine(folder, $"{SanitiseFileName(name)} - {SanitiseFileName(version.VersionLabel)} - addition {hash[..16]}.strm");
+                if (File.Exists(path))
+                {
+                    if (new FileInfo(path).LinkTarget != null || File.ReadAllText(path) != version.Stream.Url)
+                        throw new IOException("addition_collision");
+                    return path;
+                }
+                if (ImportInventory.FindFiles(folder, name).Count >= RuntimePolicy.EmbyVersionLimit)
+                    throw new IOException("version_limit");
+                tmp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                await File.WriteAllTextAsync(tmp, version.Stream.Url, new UTF8Encoding(false), ct);
+                ct.ThrowIfCancellationRequested();
+                File.Move(tmp, path, overwrite: false);
+                tmp = null;
+                if (File.ReadAllText(path) != version.Stream.Url) throw new IOException("addition_verification_failed");
+                NotifyLibraryMonitor(path);
+                return path;
+            }
+            finally
+            {
+                if (tmp != null && File.Exists(tmp)) File.Delete(tmp);
+                gate.Release();
+            }
+        }
+
         /// <summary>
         /// Deletes the primary .strm file at <paramref name="strmPath"/> plus any
         /// multi-version variants sharing the same base name (e.g. "Title - 1080p.strm"),

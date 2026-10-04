@@ -59,6 +59,8 @@ public sealed class ImportEpisode
     public string Failure { get; set; } = "";
     public string? Lease { get; set; }
     public DateTimeOffset? LeaseUntil { get; set; }
+    // Additive JSON migration: old observations deserialize without queue state.
+    public ImportDiversityEntry? Diversity { get; set; }
 }
 
 /// <summary>Fresh per-file metadata bound to its current URL hash, without storing the URL.</summary>

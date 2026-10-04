@@ -9,9 +9,9 @@ imports titles and repairs missing files.
 
 A stream will appear. Probably.
 
-**Current released version: 0.42.13**
+**Current version: 0.42.14**
 
-Release 0.42.13 adds administrator whole-title blocks and recoverable managed-stream cleanup. It targets **Emby 4.10.0.40**.
+Release 0.42.14 adds eventual provider diversity while retaining the administrator whole-title blocks and recoverable managed-stream cleanup from 0.42.13. It targets **Emby 4.10.0.40**.
 
 ## How we run it
 
@@ -233,6 +233,18 @@ actual lookup completes. While recovery is unproven it probes one item per pass;
 when ready it uses the existing run budget. **Cancel pending reprocessing** leaves
 in-flight work alone. Blocks, removals, owned media and disputed episode identities
 always win. It does not add a missing provider slot to already successful choices.
+
+### Eventual source diversity
+
+With **Repair & refresh** enabled, Marvin gradually revisits indexed movies and episodes that have one known saved delivery source. Several TorBox quality variants still count as one source. A series is counted per episode; having TorBox on one episode and Usenet on another does not resolve either episode's gap.
+
+The queue defaults on. **Pause source diversity** stops its lookups/additions while essential repair continues; **Enable eventual source diversity** resumes normal scheduled processing. Entries, backoff and attempt history persist. Neither button triggers a pass or resets retries. There is no force-drain action. Unknown labels, blocked/removed/owned titles, unconfirmed identities and essential failures are excluded.
+
+New entries wait six hours. Missing items and ordinary refreshes have priority; diversity borrows at most two checks per normal pass or eight per catch-up pass from the existing shared allowance, serially. With stale health it can make one shared probe only if essential work has not already reserved a check. Same-source/empty diversity results escalate through 6h, 1d, 2d, 3d and 7d, plus up to 20% jitter and longer cooldowns. The queue persists beyond catch-up expiry; gradual processing does not guarantee a second source exists.
+
+A successful diversity check **adds** one validated variant and preserves every working file. New variants require a known different label and positive exact upstream size no greater than 40GB. An item with all eight version slots occupied waits for capacity; Marvin does not delete a working choice to force diversity. A saved addition does not prove playback or independent provider infrastructure. Ordinary refresh retains its existing replacement behavior and can change coverage later.
+
+Inspect dated queue state, reasons, streak and due time in native import status or the Failure Library. A one-source flag is not proof of a queue entry. **[Read the exact queue contract](docs/provider-diversity-queue.md)** for schema/leases, state transitions, health predicate, every ladder/counter, restart and partial-write recovery, operator controls, examples and rollback.
 
 ### Marvin dashboard
 

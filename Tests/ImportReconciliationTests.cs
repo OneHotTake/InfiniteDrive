@@ -726,6 +726,74 @@ public sealed class ImportReconciliationTests
         }
     }
 
+    private static async Task SeedDiversity(Harness h, int count = 1)
+    {
+        h.Inventory.Count = count; h.Engage();
+        foreach (var n in Enumerable.Range(1, count)) h.Inventory.Files.Add(n);
+        await h.Seed(); await h.Run(ImportMode.Observe);
+        var c = await h.State();
+        foreach (var e in c.Items)
+        {
+            e.LastVersionRefresh = h.Now; e.Versions = new() { new(e.Paths[0], "saved", "TorBox", "1080p", null, null, h.Now) };
+            ImportDiversityPolicy.Reconcile(c, e, h.Inventory.ProfileFingerprint, h.Now);
+            e.Diversity!.NextAttempt = h.Now;
+        }
+        await h.Db.SaveImportCoverageAsync(c);
+    }
+    [Fact] public async Task DiversitySameSourcePersistsWithoutLoopOrRepairFailure()
+    {
+        using var h = new Harness(); await SeedDiversity(h); h.Inventory.Service = "TorBox";
+        await h.Run(); var e = (await h.State()).Items[0];
+        Assert.Equal(1, h.Inventory.Resolutions); Assert.Equal(0, h.Inventory.Published);
+        Assert.Equal("same_source", e.Diversity!.Reason); Assert.Equal("", e.Failure); Assert.Null(e.NextAttempt);
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        await h.Run(); Assert.Equal(1, h.Inventory.Resolutions); Assert.Equal(1, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+    [Fact] public async Task DiversityAddsSecondSourceWithoutReplacementAndCompletesOnlyThatEpisode()
+    {
+        using var h = new Harness(); await SeedDiversity(h, 2); h.Inventory.Service = "Usenet";
+        await h.Run(); var items = (await h.State()).Items;
+        Assert.Equal(1, h.Inventory.Added); Assert.Equal(0, h.Inventory.Published);
+        Assert.Equal(2, items[0].Paths.Count); Assert.Equal("resolved", items[0].Diversity!.Status);
+        Assert.Equal("waiting", items[1].Diversity!.Status); Assert.Equal(0, items[0].Attempts);
+    }
+    [Fact] public async Task DiversityWaitsForCooldownAndDisabledSettingAndExhaustedCredit()
+    {
+        using var h = new Harness(); await SeedDiversity(h); h.Inventory.Service = "Usenet";
+        h.Cooldown = h.Now.AddHours(1); await h.Run(); Assert.Equal(0, h.Inventory.Resolutions);
+        h.Cooldown = DateTimeOffset.MinValue; h.Config.ImportProviderDiversityEnabled = false;
+        await h.Run(); Assert.Equal(0, h.Inventory.Resolutions);
+        h.Config.ImportProviderDiversityEnabled = true;
+        await new ImportReconciliationService(h.Db,h.Inventory,()=>ImportMode.Repair,TimeZoneInfo.Utc,()=>h.Now,
+            workBudget:()=>new ImportWorkBudget(120,20,5,5,0,h.Now,h.Now.AddDays(7))).RunAsync(default,new[]{h.Item});
+        Assert.Equal(0,h.Inventory.Resolutions); Assert.Equal("waiting",(await h.State()).Items[0].Diversity!.Status);
+    }
+    [Fact] public async Task DiversityProfileChangeAndBlockInFlightPreventPublication()
+    {
+        using var h = new Harness(); await SeedDiversity(h); h.Inventory.Service = "Usenet";
+        h.Inventory.OnResolve = () => { h.Inventory.ProfileFingerprint = "changed"; return Task.CompletedTask; };
+        await h.Run(); Assert.Equal(0,h.Inventory.Added);
+        h.Inventory.OnResolve = null; var c = await h.State();
+        ImportDiversityPolicy.Reconcile(c,c.Items[0],h.Inventory.ProfileFingerprint,h.Now); c.Items[0].Diversity!.NextAttempt=h.Now; await h.Db.SaveImportCoverageAsync(c);
+        h.Inventory.OnResolve = async()=>{await h.Db.UpsertBlockedItemAsync(h.Item.AioId,null,null,"fixture","series","test");};
+        await h.Run(); Assert.Equal(0,h.Inventory.Added);
+    }
+    [Fact] public async Task DiversityRateLimitKeepsWorkingSourceAndSeparateBackoff()
+    {
+        using var h = new Harness(); await SeedDiversity(h); h.Inventory.RateLimit=true;
+        await h.Run(); var e=(await h.State()).Items[0];
+        Assert.Equal("http_429",e.Diversity!.Reason); Assert.True(e.Diversity.NextAttempt>h.Now);
+        Assert.Equal("",e.Failure); Assert.Single(e.Paths); Assert.True(h.Db.GetImportSourceHealth().Paused(h.Now));
+    }
+    [Fact] public async Task DiversityEssentialAttemptWinsAndStaleHealthAllowsOnlyOneProbe()
+    {
+        using var h = new Harness(); await SeedDiversity(h,2); h.Inventory.Service="Usenet";
+        var c=await h.State(); c.Items[1].Paths.Clear();c.Items[1].State="missing";c.Items[1].LastVersionRefresh=null;
+        h.Inventory.Files.Remove(2);await h.Db.SaveImportCoverageAsync(c);
+        await h.Run();Assert.Equal(1,h.Inventory.Published);Assert.Equal(0,h.Inventory.Added);
+        Assert.Equal(new[]{2},h.Inventory.ResolvedEpisodes);
+    }
+
     private sealed class Harness : IDisposable
     {
         public TempDir Directory = new(); public DatabaseManager Db; public FakeInventory Inventory = new();
@@ -735,13 +803,15 @@ public sealed class ImportReconciliationTests
         public PluginConfiguration Config = new() { ImportRecoveryMode = ImportMode.Repair };
         public void Engage() { Config.ImportCatchUpStartedAt = Now.ToString("o"); Config.ImportCatchUpUntil = Now.AddDays(7).ToString("o"); }
         public Task Seed() => Db.UpsertCatalogItemAsync(Item);
-        public Task Run(ImportMode mode = ImportMode.Repair) => new ImportReconciliationService(Db, Inventory, () => mode, TimeZoneInfo.Utc, () => Now, () => Cooldown, () => ImportWorkBudget.For(Config, Now)).RunAsync(default, new[] { Item });
+        public Task Run(ImportMode mode = ImportMode.Repair) => new ImportReconciliationService(Db, Inventory, () => mode, TimeZoneInfo.Utc, () => Now, () => Cooldown, () => ImportWorkBudget.For(Config, Now), () => Config.ImportProviderDiversityEnabled).RunAsync(default, new[] { Item });
         public async Task<ImportCoverage> State() => (await Db.GetImportCoverageAsync("series:imdb:tt999999991"))!;
         public void Dispose() => Directory.Dispose();
     }
     private sealed class FakeInventory : IImportInventory
     {
-        public int Resolutions, Published, Notifications, FailEpisode, DisputedEpisode, Count = 2;
+        public int Resolutions, Published, Notifications, FailEpisode, DisputedEpisode, Count = 2, Added;
+        public string Service = ""; public string ProfileFingerprint { get; set; } = "fixture";
+        public Dictionary<int,string> Additions = new();
         public bool HasSavedFiles(ImportEpisode episode) => episode.Episode.HasValue && Files.Contains(episode.Episode.Value);
         public List<int> ResolvedEpisodes = new();
         public bool Owned, BadSnapshot, Paused, RateLimit, Indexed = true; public bool ProviderPaused => Paused; public HashSet<int> Files = new(); public Func<Task>? OnResolve; public Func<CancellationToken, Task>? OnResolveWithToken; public Func<ImportEpisode, Task>? OnObserve;
@@ -754,13 +824,21 @@ public sealed class ImportReconciliationTests
         public async Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
         {
             if (OnObserve != null) await OnObserve(ep);
-            return new ImportObservation(Files.Contains(ep.Episode!.Value) ? new() { $"/fake/series/Season 01/e{ep.Episode}.strm" } : new(), Files.Contains(ep.Episode.Value) && Indexed ? new() { ep.Key } : new(), false);
+            var paths = Files.Contains(ep.Episode!.Value) ? new List<string> { $"/fake/series/Season 01/e{ep.Episode}.strm" } : new();
+            if (Additions.TryGetValue(ep.Episode.Value,out var addition)) paths.Add(addition);
+            return new ImportObservation(paths, Files.Contains(ep.Episode.Value) && Indexed ? new() { ep.Key } : new(), false);
         }
         public bool IsOwned(CatalogItem item) => Owned;
         public async Task<List<SelectedVersion>> ResolveAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
-        { Resolutions++; ResolvedEpisodes.Add(ep.Episode!.Value); if (RateLimit) throw new ImportHttpRateLimitException(); if (OnResolve != null) await OnResolve(); if (OnResolveWithToken != null) await OnResolveWithToken(ct); return ep.Episode == FailEpisode ? new() : new() { new() { Stream = new() { Url = "https://example.invalid/test" } } }; }
+        { Resolutions++; ResolvedEpisodes.Add(ep.Episode!.Value); if (RateLimit) throw new ImportHttpRateLimitException(); if (OnResolve != null) await OnResolve(); if (OnResolveWithToken != null) await OnResolveWithToken(ct); return ep.Episode == FailEpisode ? new() : new() { new() { Stream = new() { Url = "https://example.invalid/test", ServiceLabel=Service, SizeBytes=100 } } }; }
         public Task<List<string>> PublishAsync(CatalogItem item, ImportEpisode ep, List<SelectedVersion> versions, CancellationToken ct)
         { Published++; Files.Add(ep.Episode!.Value); return Task.FromResult(new List<string> { $"/fake/series/Season 01/e{ep.Episode}.strm" }); }
+        public Task<List<string>> PublishAdditionAsync(CatalogItem item,ImportEpisode ep,List<SelectedVersion> versions,CancellationToken ct)
+        {
+            Added++; var path=$"/fake/series/Season 01/e{ep.Episode} - addition.strm";Additions[ep.Episode!.Value]=path;
+            ep.Versions.Add(new(path,"additional",versions[0].Stream.ServiceLabel,"1080p",null,100,Now));
+            return Task.FromResult(ep.Paths.Append(path).ToList());
+        }
         public void Notify(CatalogItem item) => Notifications++;
     }
     private sealed class TempDir : IDisposable
