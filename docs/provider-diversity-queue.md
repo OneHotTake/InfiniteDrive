@@ -1,6 +1,6 @@
 # Eventual source diversity — Marvin's durable queue
 
-Implemented for 0.42.14, targeting Emby 4.10.0.40. Deployment and dated QA evidence are recorded separately in the release notes and stack handoff. This queue improves already indexed items with one known delivery source. It does not guarantee a second source exists, represent a download, or establish playback.
+Implemented in 0.42.14; the 0.42.15 source fixes refresh/indexing deadlines and final-guard lease cleanup, targeting Emby 4.10.0.40. Deployment and dated QA evidence are recorded separately in the release notes and stack handoff. This queue improves already indexed items with one known delivery source. It does not guarantee a second source exists, represent a download, or establish playback.
 
 ## Enable, pause and ownership
 
@@ -36,7 +36,9 @@ Before an outbound diversity lookup, production also verifies the retained file 
 
 Creation, endpoint/profile fingerprint change or coverage generation change creates one new entry with a **six-hour** initial wait and zero diversity streak/attempts. It does not reset the essential failure state, existing attempt ledger or provider cooldown. The fingerprint detects configured endpoint changes, not opaque AIO server-side policy edits at the same endpoint; those do not automatically shorten due times.
 
-Dispatch claims the existing episode lease with a random ID and **ten-minute** expiry, persists entry `in_flight`, increments its Attempts and reserves the shared attempt credit before starting transport. Publication rechecks live generation, lease, enabled mode, authorization/ownership, current profile and a signature of retained paths/hashes/labels. A changed guard prevents addition. Every completed path clears its lease; budget cancellation leaves queue work waiting five minutes without penalizing the repair item. After a crash, a missing/expired lease on `in_flight` becomes waiting with a five-minute interruption delay when reconciled. Active leases cannot be stolen.
+A successful ordinary single-source refresh with the same profile/generation temporarily sets the episode to `awaiting_indexing`. An already-pending diversity entry remains `waiting / awaiting_indexing`, preserving its CreatedAt, NextAttempt, Streak, Attempts and CheckedAt. A resolved/retired entry that becomes single-source again instead receives a fresh six-hour deadline, including when the old deadline is null; attempts and streak remain intact. A missing deadline is also repaired on this transition. Dispatch remains forbidden until the episode is indexed. Re-indexing restores `single_source` without postponing the deadline; repeated hourly refreshes do not restart the six-hour window. Hard failures, exclusions, missing/unconfirmed identities or changed profile/generation are not transient indexing and retain their existing retirement/new-entry rules. Entries already delayed by 0.42.14 are not bulk-reset or backdated: 0.42.15 prevents future drift, while their persisted deadline remains authoritative.
+
+Dispatch claims the existing episode lease with a random ID and **ten-minute** expiry, persists entry `in_flight`, increments its Attempts and reserves the shared attempt credit before starting transport. Publication rechecks live generation, lease, enabled mode, authorization/ownership, current profile and a signature of retained paths/hashes/labels. A changed guard prevents addition. Final guard rejection immediately clears the completed diversity lookup’s own Lease and LeaseUntil before returning. Mode, disable, profile/generation or signature changes defer it as `waiting / guard_changed` for five minutes; blocked, owned, unexpected/ineligible, excluded or essential-failed work becomes `retired / ineligible`. These guard outcomes preserve reserved attempts and streak, do not record source health failures, and publish nothing. Missing coverage/episode means there is no current entry to clean up. A different current lease belongs to newer work and must never be cleared or changed. Every completed path still owning its lease clears it; budget cancellation leaves queue work waiting five minutes without penalizing the repair item. After a crash, a missing/expired lease on `in_flight` becomes waiting with a five-minute interruption delay when reconciled. Active leases cannot be stolen.
 
 Markers `import_diversity_schema=1` and `import_diversity_enabled` are written by native passes for read-only reporting. Their timestamps/snapshots are not instantaneous UI control acknowledgements. Reading administrator coverage/status or the public collector never creates entries.
 
@@ -66,6 +68,8 @@ Slice cancellation, interrupted lease and changed publication guard wait five mi
 | --- | --- | --- | --- |
 | New eligible single-source item | waiting / single_source | none | creation +6h |
 | Same identity/profile/generation census | retains entry/streak/due time | none | unchanged |
+| Ordinary single-source refresh awaiting Emby indexing | waiting / awaiting_indexing; no diversity dispatch | none for reconciliation; ordinary refresh retains its own reservation | unchanged |
+| Re-indexed after that refresh | waiting / single_source; retained counters | none | unchanged |
 | Eight current variants | capacity / version_limit | none | no diversity dispatch until room exists |
 | Capacity becomes <8 | waiting / single_source | none | retained due time |
 | Due + enabled Repair + guards + spare budget | in_flight; lease; Attempts+1 | one shared reservation | lookup deadline applies |
@@ -73,7 +77,7 @@ Slice cancellation, interrupted lease and changed publication guard wait five mi
 | Transport/deadline/429/config/publication failure | waiting; distinct reason; Streak+1 | retains reservation | error ladder + jitter/cooldown |
 | Valid second source saved/evidence verified | resolved / multiple_sources; streak0 | retains reservation | null |
 | Source/authorization/generation changes in flight | no addition; guard_changed if still live | retains reservation | +5m, then reconciliation |
-| Block/ownership/ineligible snapshot | retired / ineligible on observation; dispatch/publication forbidden immediately | none beyond prior reservation | no dispatch |
+| Block/ownership/ineligible snapshot | retired / ineligible; completed diversity lease cleared immediately if still owned | none beyond prior reservation | no dispatch |
 | Multiple saved sources found by census | resolved / multiple_sources | none | no dispatch |
 | Retired/resolved item later eligible with one source | waiting / single_source; no force reset of old streak | none | now +6h |
 | Process/slice interruption | waiting / interrupted or slice_cancelled | prior reservation retained | +5m after reconciliation/cancellation |
@@ -100,8 +104,12 @@ Examples:
 - HTTP429: retain TorBox and store the actual reason; apply the current error rung plus jitter and any longer global cooldown. Native circuit also closes; no queue-wide reset.
 - Outage: no calls while health/cooldown pauses. Afterwards one bounded shared probe while readiness is unproven; full 2/8 cap only with readiness and spare credits.
 - Restart: waiting state/due/streak persist. An expired in-flight lease waits five more minutes and revalidates before another reservation.
-- Block during lookup: final alias/ownership/generation guards prevent publication. A later observation retires the entry; unblocking is never automatic.
+- Block during lookup: final alias/ownership guards prevent publication, retire the diversity entry and immediately clear only its own lease; unblocking is never automatic.
 - Endpoint change: a new six-hour entry for the new fingerprint; an old result cannot publish. Server-side edits at the same endpoint do not reset waiting times.
 - Catch-up expires with 1,000 entries: they remain and contend only for normal remaining capacity. No window extension, quota increase or completion promise.
 
 Before upgrade, take private current configuration and stopped-database backups. Prefer pausing diversity through the native control for behavior rollback; this preserves the queue and newer state. A binary downgrade never requires restoring an older database or deleting ledger/coverage/archives. Older binaries can ignore/drop unknown Diversity JSON members when rewriting coverage; preserve the current backup for audit and expect conservative rediscovery after re-upgrade, rather than restoring historical user state. Protect active playback/recordings during any approved Emby restart. The beta/isolated QA plugin must never be reused as a production artifact.
+
+## October 4 lifecycle regression verification
+
+The release-0.42.14 code failed seven new runtime regression cases: six guard changes retained their completed lease, and the first hourly refresh/re-index cycle postponed its diversity deadline. The patched coordinator passes six consecutive normal hourly refresh/re-index cycles, SQLite reopen and a due additive lookup; it immediately settles Observe/generation/block/ownership/Expected/Eligible changes, while leaving a replacement lease untouched. Policy regressions also preserve due/streak through eight transient indexing cycles, confirm a hard exclusion still retires work, and verify that resolved/retired entries with null or expired deadlines regain a fresh six-hour deadline after provider collapse. The provider-collapse tests were reproduced failing against the initial fix before correction. Full pinned-ABI test/build and production deployment evidence are recorded separately; synthetic URLs establish state and publication behavior, not playback.

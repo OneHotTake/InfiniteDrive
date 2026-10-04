@@ -794,6 +794,89 @@ public sealed class ImportReconciliationTests
         Assert.Equal(new[]{2},h.Inventory.ResolvedEpisodes);
     }
 
+    [Fact] public async Task HourlyRefreshAndReindexingPreserveDiversityDueTimeUntilItCanDispatch()
+    {
+        using var h = new Harness(); await SeedDiversity(h);
+        h.Config.ImportCatchUpStartedAt = ""; h.Config.ImportCatchUpUntil = "";
+        var c = await h.State(); var due = h.Now.AddHours(6);
+        c.Items[0].Diversity!.NextAttempt = due;
+        c.Items[0].Diversity!.Streak = 2;
+        await h.Db.SaveImportCoverageAsync(c);
+        h.Inventory.Service = "TorBox";
+        for (var hour = 1; hour <= 6; hour++)
+        {
+            h.Now = Now.AddHours(hour).AddMinutes(hour);
+            await h.Run(); // Successful ordinary refresh is temporarily awaiting indexing.
+            Assert.Equal("awaiting_indexing", (await h.State()).Items[0].State);
+            await h.Run(ImportMode.Observe); // Emby indexes the unchanged single-provider choices.
+            var episode = (await h.State()).Items[0];
+            Assert.Equal(due, episode.Diversity!.NextAttempt);
+            Assert.Equal(2, episode.Diversity.Streak);
+        }
+        h.Db = new DatabaseManager(h.Directory.Path, NullLogger.Instance); h.Db.Initialise();
+        h.Inventory.Service = "Usenet";
+        await h.Run(); // The latest refresh is fresh; the original diversity due time has elapsed.
+        var final = (await h.State()).Items[0];
+        Assert.Equal("resolved", final.Diversity!.Status);
+        Assert.Equal(1, h.Inventory.Added);
+        Assert.Equal(6, h.Inventory.Published);
+        Assert.Equal(7, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+
+    [Theory]
+    [InlineData("observe", "waiting")]
+    [InlineData("generation", "waiting")]
+    [InlineData("blocked", "retired")]
+    [InlineData("owned", "retired")]
+    [InlineData("ineligible", "retired")]
+    [InlineData("unexpected", "retired")]
+    public async Task RejectedDiversityCompletionImmediatelyClearsItsLease(string change, string status)
+    {
+        using var h = new Harness(); await SeedDiversity(h); h.Inventory.Service = "Usenet";
+        var mode = ImportMode.Repair;
+        h.Inventory.OnResolve = async () =>
+        {
+            if (change == "observe") mode = ImportMode.Observe;
+            else if (change == "owned") h.Inventory.Owned = true;
+            else if (change == "blocked")
+                await h.Db.UpsertBlockedItemAsync(h.Item.AioId, null, null, "fixture", "series", "test");
+            else
+            {
+                var live = await h.State();
+                if (change == "generation") live.Generation++;
+                if (change == "ineligible") live.Items[0].Eligible = false;
+                if (change == "unexpected") live.Items[0].Expected = false;
+                await h.Db.SaveImportCoverageAsync(live);
+            }
+        };
+        await new ImportReconciliationService(h.Db, h.Inventory, () => mode, TimeZoneInfo.Utc,
+            () => h.Now, () => h.Cooldown, () => ImportWorkBudget.For(h.Config, h.Now),
+            () => h.Config.ImportProviderDiversityEnabled).RunAsync(default, new[] { h.Item });
+        var e = (await h.State()).Items[0];
+        Assert.Null(e.Lease); Assert.Null(e.LeaseUntil);
+        Assert.Equal(status, e.Diversity!.Status);
+        Assert.Equal(0, e.Diversity.Streak);
+        Assert.Equal(1, e.Diversity.Attempts);
+        Assert.Equal(0, h.Inventory.Added); Assert.Single(e.Paths);
+        Assert.Equal("", e.Failure);
+        Assert.Equal(1, await h.Db.GetRecentImportAttemptsAsync(h.Now));
+    }
+
+    [Fact] public async Task StaleDiversityCompletionCannotClearAReplacementLease()
+    {
+        using var h = new Harness(); await SeedDiversity(h); h.Inventory.Service = "Usenet";
+        var expiry = h.Now.AddMinutes(20);
+        h.Inventory.OnResolve = async () =>
+        {
+            var live = await h.State();
+            live.Items[0].Lease = "replacement"; live.Items[0].LeaseUntil = expiry;
+            await h.Db.SaveImportCoverageAsync(live);
+        };
+        await h.Run(); var e = (await h.State()).Items[0];
+        Assert.Equal("replacement", e.Lease); Assert.Equal(expiry, e.LeaseUntil);
+        Assert.Equal("in_flight", e.Diversity!.Status); Assert.Equal(0, h.Inventory.Added);
+    }
+
     private sealed class Harness : IDisposable
     {
         public TempDir Directory = new(); public DatabaseManager Db; public FakeInventory Inventory = new();

@@ -117,19 +117,27 @@ public sealed class ImportReconciliationService
             {
                 var live = await _db.GetImportCoverageAsync(work.Coverage.Identity);
                 var episode = live?.Items.FirstOrDefault(x => x.Key == work.Episode.Key);
-                if (_mode() != ImportMode.Repair || live == null || episode == null ||
-                    live.Generation != work.Generation || episode.Lease != work.Lease ||
-                    !episode.Eligible || !episode.Expected ||
-                    !await IsAuthorizedAsync(live, work.Item, token) || _inventory.IsOwned(work.Item)) return;
+                // Only the owner of this lease may settle it, even when other final
+                // guards changed. A stale result must never clear a replacement lease.
+                if (live == null || episode == null || episode.Lease != work.Lease) return;
+                var authorized = episode.Eligible && episode.Expected &&
+                    await IsAuthorizedAsync(live, work.Item, token) && !_inventory.IsOwned(work.Item);
+                var finalGuards = authorized && _mode() == ImportMode.Repair && live.Generation == work.Generation;
                 var now = _clock();
                 if (work.Diversity)
                 {
                     var entry = episode.Diversity;
-                    if (!_diversityEnabled() || entry == null || entry.Profile != _inventory.ProfileFingerprint ||
+                    if (!finalGuards || !_diversityEnabled() || entry == null || entry.Profile != _inventory.ProfileFingerprint ||
                         entry.Generation != live.Generation || !ImportDiversityPolicy.Eligible(live, episode) ||
                         DiversitySignature(episode) != work.Signature)
                     {
-                        if (entry != null) { entry.Status = "waiting"; entry.Reason = "guard_changed"; entry.NextAttempt = now.AddMinutes(5); }
+                        if (entry != null)
+                        {
+                            var retired = !authorized || live.Exclusion.Length > 0 || episode.Failure.Length > 0;
+                            entry.Status = retired ? "retired" : "waiting";
+                            entry.Reason = retired ? "ineligible" : "guard_changed";
+                            if (!retired) entry.NextAttempt = now.AddMinutes(5);
+                        }
                         episode.Lease = null; episode.LeaseUntil = null;
                         await _db.SaveImportCoverageAsync(live, token); return;
                     }
@@ -168,6 +176,7 @@ public sealed class ImportReconciliationService
                     if (ix >= 0) work.Coverage.Items[ix] = episode;
                     return;
                 }
+                if (!finalGuards) return;
                 var failure = result.Failure;
                 sourceHealth.Record(failure, now);
                 await _db.SaveImportSourceHealthAsync(sourceHealth, token);
@@ -204,8 +213,6 @@ public sealed class ImportReconciliationService
                 }
                 episode.Lease = null; episode.LeaseUntil = null;
                 ImportDiversityPolicy.Reconcile(live, episode, _inventory.ProfileFingerprint, now);
-                if (failure.Length == 0 && episode.Diversity?.Status == "waiting")
-                    episode.Diversity.NextAttempt = now.AddHours(6);
                 await _db.SaveImportCoverageAsync(live, token);
                 if (work.Reprocess) await _db.SetImportReprocessStatusAsync(live.Identity, episode.Key,
                     failure.Length == 0 ? "published" : "failed", now, token);
