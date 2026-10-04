@@ -39,6 +39,7 @@ public sealed class ImportLabService : IService, IRequiresRequest
         var fake = new LabInventory(real);
         var now = DateTimeOffset.UtcNow;
         var mode = ImportMode.Repair;
+        ImportWorkBudget? diversityBudget = null;
         switch (request.Step)
         {
             case "prepare":
@@ -110,10 +111,19 @@ public sealed class ImportLabService : IService, IRequiresRequest
                 var view = new InfiniteDrive.UI.Settings.SyncAndMarvinTabView(p.Id.ToString(), new());
                 await view.RunCommand("", "ImportRefresh", "");
                 return new { Dashboard = view.ContentData, CurrentRun = ImportRunTelemetry.Current };
+            case "diversity-same":
+            case "diversity-add":
+                now = now.AddDays(request.Step == "diversity-same" ? 1 : 3);
+                fake.AddProvider = request.Step == "diversity-add";
+                diversityBudget = new(120,20,5,5,200,now.AddDays(-6),now.AddDays(1));
+                var ready = new ImportSourceHealth();
+                for (var i=0;i<3;i++) ready.Record("",now);
+                await db.SaveImportSourceHealthAsync(ready, CancellationToken.None);
+                break;
             case "status": return await Status(db, fake);
             default: throw new ArgumentException("Unknown QA step");
         }
-        await new ImportReconciliationService(db, fake, () => mode, TimeZoneInfo.Utc, () => now)
+        await new ImportReconciliationService(db, fake, () => mode, TimeZoneInfo.Utc, () => now, workBudget: () => diversityBudget ?? ImportWorkBudget.Normal)
             .RunAsync(CancellationToken.None, new[] { item });
         return await Status(db, fake);
     }
@@ -126,7 +136,8 @@ public sealed class ImportLabService : IService, IRequiresRequest
     private sealed class LabInventory : IImportInventory
     {
         private readonly ImportInventory _real;
-        public bool FailSecond, PartialNumbering; public int Resolutions, Published;
+        public bool FailSecond, PartialNumbering, AddProvider;
+        public string ProfileFingerprint => "offline-native-fixture"; public int Resolutions, Published;
         public List<ImportEpisode> Episodes => Enumerable.Range(1, 2).Select(n => new ImportEpisode
             { Key = $"aired:1:{n}", Season = 1, Episode = n, Released = DateTimeOffset.Parse("2020-01-01T00:00:00Z") }).ToList();
         public LabInventory(ImportInventory real) { _real = real; }
@@ -142,11 +153,19 @@ public sealed class ImportLabService : IService, IRequiresRequest
         {
             Resolutions++;
             return Task.FromResult(FailSecond && ep.Episode == 2 ? new List<SelectedVersion>() : new List<SelectedVersion>
-                { new() { Stream = new() { Url = "https://example.invalid/qa/" + ep.Episode } },
-                  new() { Stream = new() { Url = "https://example.invalid/qa/" + ep.Episode + "/hd" }, VersionLabel = "1080p" } });
+                { new() { Stream = new() { Url = "https://example.invalid/qa/" + ep.Episode, ServiceLabel="TorBox", SizeBytes=100 } },
+                  new() { Stream = new() { Url = "https://example.invalid/qa/" + ep.Episode + "/hd", ServiceLabel="TorBox", SizeBytes=200 }, VersionLabel = "1080p" } });
         }
         public async Task<List<string>> PublishAsync(CatalogItem item, ImportEpisode ep, List<SelectedVersion> versions, CancellationToken ct)
         { Published++; return await _real.PublishAsync(item, ep, versions, ct); }
+        public Task<List<SelectedVersion>> ResolveDiversityAsync(CatalogItem item, ImportEpisode ep, CancellationToken ct)
+        {
+            Resolutions++;
+            return Task.FromResult(new List<SelectedVersion> { new() { VersionLabel=AddProvider ? "1080p - Usenet" : "1080p - TorBox",
+                Stream=new() { Url="https://example.invalid/diversity/"+ep.Episode, ServiceLabel=AddProvider ? "Usenet" : "TorBox", SizeBytes=300 } } });
+        }
+        public async Task<List<string>> PublishAdditionAsync(CatalogItem item, ImportEpisode ep,List<SelectedVersion> versions,CancellationToken ct)
+        { Published++;return await _real.PublishAdditionAsync(item,ep,versions,ct); }
         public void Notify(CatalogItem item) => _real.Notify(item);
     }
 }

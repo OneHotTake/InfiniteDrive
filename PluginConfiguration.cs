@@ -46,6 +46,7 @@ namespace InfiniteDrive
     public class PluginConfiguration : BasePluginConfiguration
     {
         [DataMember] public Models.ImportMode ImportRecoveryMode { get; set; } = Models.ImportMode.Observe;
+        [DataMember] public bool ImportProviderDiversityEnabled { get; set; } = true;
         [DataMember] public string ImportCatchUpStartedAt { get; set; } = "";
         [DataMember] public string ImportCatchUpUntil { get; set; } = "";
         [DataMember] public string ImportHouseholdTimezone { get; set; } = "America/Chicago";

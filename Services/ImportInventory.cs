@@ -24,6 +24,8 @@ public sealed record ImportObservation(List<string> Paths, List<string> NativeId
 public interface IImportInventory
 {
     bool ProviderPaused => false;
+    string ProfileFingerprint => "";
+    bool CanAddSource(CatalogItem item, ImportEpisode episode) => HasSavedFiles(episode);
     bool HasSavedFiles(ImportEpisode episode) => episode.Paths.Any(File.Exists);
     Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct);
     Task<ImportObservation> ObserveAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct);
@@ -32,6 +34,10 @@ public interface IImportInventory
     Task<List<SelectedVersion>> ResolveCatchUpAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
         => ResolveAsync(item, episode, ct);
     Task<List<string>> PublishAsync(CatalogItem item, ImportEpisode episode, List<SelectedVersion> versions, CancellationToken ct);
+    Task<List<SelectedVersion>> ResolveDiversityAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
+        => ResolveAsync(item, episode, ct);
+    Task<List<string>> PublishAdditionAsync(CatalogItem item, ImportEpisode episode, List<SelectedVersion> versions, CancellationToken ct)
+        => throw new NotSupportedException("additive_publication_unavailable");
     void Notify(CatalogItem item);
 }
 
@@ -78,6 +84,8 @@ public sealed class ImportInventory : IImportInventory
     }
 
     public bool IsOwned(CatalogItem item) => new OwnedMediaPreferenceService(_library, _logger).FindOwnedMedia(item) != null;
+    public string ProfileFingerprint
+    { get { using var client = AioStreamsClientFactory.Create(_logger); return client.ConfigurationFingerprint; } }
 
     public async Task<ImportSnapshot> FetchAsync(CatalogItem item, CancellationToken ct)
     {
@@ -286,7 +294,10 @@ public sealed class ImportInventory : IImportInventory
     public Task<List<SelectedVersion>> ResolveCatchUpAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
         => ResolveCoreAsync(item, episode, true, ct);
 
-    private async Task<List<SelectedVersion>> ResolveCoreAsync(CatalogItem item, ImportEpisode episode, bool maintenance, CancellationToken ct)
+    public Task<List<SelectedVersion>> ResolveDiversityAsync(CatalogItem item, ImportEpisode episode, CancellationToken ct)
+        => ResolveCoreAsync(item, episode, true, ct, true);
+
+    private async Task<List<SelectedVersion>> ResolveCoreAsync(CatalogItem item, ImportEpisode episode, bool maintenance, CancellationToken ct, bool diversity = false)
     {
         using var client = AioStreamsClientFactory.Create(_logger);
         // Every Repair lookup uses one HTTP submission and the coordinator's
@@ -303,7 +314,15 @@ public sealed class ImportInventory : IImportInventory
         }
         if (client.LastHttpStatus == 429) throw new ImportHttpRateLimitException();
         if (response == null) throw new IOException("stream_transport_unavailable");
-        return VersionSelectorService.SelectBestVersions(StreamParser.ParseAll(response.Streams),
+        var streams = StreamParser.ParseAll(response.Streams);
+        if (diversity)
+        {
+            var existing = ImportDiversityPolicy.Providers(episode);
+            var additions = streams.Where(x => ImportDiversityPolicy.Provider(x.ServiceLabel) is { } label &&
+                existing != null && !existing.Contains(label) && x.SizeBytes is > 0 and <= 40_000_000_000).ToList();
+            if (additions.Count > 0) streams = additions;
+        }
+        return VersionSelectorService.SelectBestVersions(streams,
             _config.DesiredVersions, RuntimePolicy.EmbyVersionLimit, _config);
     }
 
@@ -331,6 +350,45 @@ public sealed class ImportInventory : IImportInventory
                 version.Stream.SizeBytes, now));
         }
         return evidence;
+    }
+
+    public async Task<List<string>> PublishAdditionAsync(CatalogItem item, ImportEpisode episode,
+        List<SelectedVersion> versions, CancellationToken ct)
+    {
+        var (folder, name) = Destination(item, episode);
+        // Recheck all retained files against their own evidence before an additive write.
+        foreach (var path in episode.Paths)
+        {
+            if (!SafeManagedPath(folder, path) || !File.Exists(path) || new FileInfo(path).LinkTarget != null)
+                throw new IOException("retained_file_changed");
+            var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(File.ReadAllText(path).Trim()))).ToLowerInvariant();
+            if (!episode.Versions.Any(x => x.Path == path && x.UrlSha256 == hash))
+                throw new IOException("retained_file_changed");
+        }
+        var before = FindFiles(folder, name);
+        if (!before.ToHashSet(StringComparer.Ordinal).SetEquals(episode.Paths)) throw new IOException("retained_set_changed");
+        var label = ImportDiversityPolicy.Providers(episode)?.SingleOrDefault();
+        var addition = versions.FirstOrDefault(x => ImportDiversityPolicy.Provider(x.Stream.ServiceLabel) is { } provider &&
+            provider != label && x.Stream.SizeBytes is > 0 and <= 40_000_000_000);
+        if (addition == null || before.Count >= RuntimePolicy.EmbyVersionLimit) return new();
+        var added = await _writer.WriteAdditionalStrmAsync(folder, name, addition, ct);
+        // Keep old evidence verbatim; never bind new metadata to an old URL.
+        episode.Versions.AddRange(BuildVersionEvidence(new() { added }, new() { addition }, DateTimeOffset.UtcNow)
+            .Where(x => !episode.Versions.Any(old => old.Path == x.Path)));
+        return before.Append(added).Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    public bool CanAddSource(CatalogItem item, ImportEpisode episode)
+    {
+        try
+        {
+            var (folder, name) = Destination(item, episode);
+            if (!FindFiles(folder, name).ToHashSet(StringComparer.Ordinal).SetEquals(episode.Paths)) return false;
+            return episode.Paths.All(path => SafeManagedPath(folder, path) && File.Exists(path) &&
+                new FileInfo(path).LinkTarget == null && episode.Versions.Any(x => x.Path == path &&
+                x.UrlSha256 == Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(File.ReadAllText(path).Trim()))).ToLowerInvariant()));
+        }
+        catch { return false; }
     }
 
     public void Notify(CatalogItem item)

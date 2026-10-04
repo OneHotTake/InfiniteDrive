@@ -45,3 +45,20 @@ episode 2 stays excluded. `discover` observes native indexing.
 `recheck-numbering` advances the fixture clock eight hours and restores the
 complete source inventory; episode 2 becomes eligible without a database reset.
 These are synthetic targets and do not establish playback.
+
+Provider-diversity regression (fresh fixture): `prepare`, register the offline TV
+library as above, `retry`, then `discover` establish two indexed episodes with
+two TorBox variants each. `diversity-same` advances only the injected fixture
+clock and supplies synthetic healthy catch-up observations: two same-source
+checks defer without changing any file. Restart only the isolated lab and
+compare durable Diversity fields. `diversity-add` advances the fixture clock
+again and supplies validated synthetic Usenet variants: one addition per episode,
+all original hashes preserved. `discover` verifies native indexing. Inspect all
+six retained URL hashes and positive size evidence. These steps use no real
+provider requests; they do not test playback.
+
+Verified October 3, 2026 against isolated Emby 4.10.0.40 / candidate 0.42.14.0:
+normal QA administrator controls passed, anonymous mutation was denied, census
+created two entries, same-source results preserved files, state survived the lab
+restart, two additive publications passed six-file hash/size-evidence checks and
+both episodes indexed. The separate production artifact excludes this helper.

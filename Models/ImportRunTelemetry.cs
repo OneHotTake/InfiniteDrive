@@ -14,7 +14,7 @@ public sealed record ImportRunSnapshot(string Id, DateTimeOffset StartedAt, Date
     int RefreshAttempts, int ActiveLookups, int Matched, int EmptyResults, int TransportFailures,
     int LookupDeadlines, int Http429, int ProviderConfigurationFailures, int CancelledLookups, int Published, int Refreshed,
     int PublicationFailures, IReadOnlyDictionary<string, ImportStageTiming> Timings,
-    int HttpRequests = 0, int HttpRetries = 0);
+    int HttpRequests = 0, int HttpRetries = 0, int DiversityAttempts = 0, int DiversityPublished = 0);
 
 /// <summary>One bounded, thread-safe run observation. Contains no target URLs or exception messages.</summary>
 public sealed class ImportRunTelemetry
@@ -32,6 +32,7 @@ public sealed class ImportRunTelemetry
     private int _checked, _missing, _refresh, _active, _matched, _empty, _transport, _deadlines,
         _http429, _providerConfiguration, _cancelled, _published, _refreshed, _publicationFailures;
     private int _httpRequests, _httpRetries;
+    private int _diversityAttempts, _diversityPublished;
     public ImportRunTelemetry(string id) { _id = id; }
     public static ImportRunTelemetry Start(string id)
     {
@@ -49,7 +50,7 @@ public sealed class ImportRunTelemetry
         lock (current._gate) { current._httpRequests++; if (retry) current._httpRetries++; }
     }
     public static void RecordCurrentTiming(string stage, double seconds) => Volatile.Read(ref _current)?.RecordTiming(stage, seconds);
-    public void Attempt(bool refresh) { lock (_gate) { if (refresh) _refresh++; else _missing++; } }
+    public void Attempt(bool refresh, bool diversity = false) { lock (_gate) { if (diversity) _diversityAttempts++; else if (refresh) _refresh++; else _missing++; } }
     public void LookupStarted() { lock (_gate) _active++; }
     public void LookupFinished(string failure)
     {
@@ -68,7 +69,7 @@ public sealed class ImportRunTelemetry
             }
         }
     }
-    public void Published(bool refresh) { lock (_gate) { _published++; if (refresh) _refreshed++; } }
+    public void Published(bool refresh, bool diversity = false) { lock (_gate) { _published++; if (refresh) _refreshed++; if (diversity) _diversityPublished++; } }
     public void PublicationFailed() { lock (_gate) _publicationFailures++; }
     public void RecordTiming(string stage, double seconds)
     {
@@ -100,7 +101,7 @@ public sealed class ImportRunTelemetry
             return new(_id, _started, DateTimeOffset.UtcNow, _finished, _status, _phase, _title, _episode,
                 Math.Round(_elapsed.Elapsed.TotalSeconds, 3), Math.Round(_phaseTime.Elapsed.TotalSeconds, 3),
                 _checked, _missing, _refresh, _active, _matched, _empty, _transport, _deadlines, _http429,
-                _providerConfiguration, _cancelled, _published, _refreshed, _publicationFailures, times, _httpRequests, _httpRetries);
+                _providerConfiguration, _cancelled, _published, _refreshed, _publicationFailures, times, _httpRequests, _httpRetries, _diversityAttempts, _diversityPublished);
         }
     }
     private sealed class Stage

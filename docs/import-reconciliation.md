@@ -350,3 +350,7 @@ Prowlarr search submission globally. InfiniteDrive still validates and preselect
 STRMs ahead of playback. No reserved Usenet/TorBox slot or provider policy change
 is included. Back up the current plugin DB/configuration before deploying; retain
 additive recovery rows when rolling back the DLL, and never restore older DB state.
+
+## Eventual provider diversity (0.42.14)
+
+Successful single-source choices have a separate durable low-priority queue. It adds a validated source without replacing working files, shares native credits/health/backoff, and persists beyond catch-up. This is distinct from essential failure reprocessing. See the [exact provider-diversity contract](provider-diversity-queue.md), including capacity/unknown evidence, accounting, every state transition and rollback.
