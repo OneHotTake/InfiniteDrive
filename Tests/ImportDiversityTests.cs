@@ -73,6 +73,26 @@ public sealed class ImportDiversityTests
         ImportDiversityPolicy.Reconcile(c, ep, "p", Now.AddHours(9));
         Assert.Equal("retired", ep.Diversity.Status);
     }
+    [Theory] [InlineData("resolved", true)] [InlineData("resolved", false)]
+    [InlineData("retired", true)] [InlineData("retired", false)]
+    public void ReenteringSingleSourceAfterRefreshGetsANewDeadline(string status, bool noDeadline)
+    {
+        var ep = Single(); var c = Coverage(ep); ImportDiversityPolicy.Reconcile(c, ep, "p", Now);
+        ep.Diversity!.Status = status;
+        ep.Diversity.NextAttempt = noDeadline ? null : Now.AddHours(-1);
+        ep.Diversity.Attempts = 3; ep.Diversity.Streak = 2;
+        ep.State = "awaiting_indexing";
+        ImportDiversityPolicy.Reconcile(c, ep, "p", Now.AddHours(1));
+        Assert.Equal("waiting", ep.Diversity.Status);
+        Assert.Equal("awaiting_indexing", ep.Diversity.Reason);
+        Assert.Equal(Now.AddHours(7), ep.Diversity.NextAttempt);
+        Assert.False(ImportDiversityPolicy.Eligible(c, ep));
+        ep.State = "indexed";
+        ImportDiversityPolicy.Reconcile(c, ep, "p", Now.AddHours(2));
+        Assert.Equal("single_source", ep.Diversity.Reason);
+        Assert.Equal(Now.AddHours(7), ep.Diversity.NextAttempt);
+        Assert.Equal(3, ep.Diversity.Attempts); Assert.Equal(2, ep.Diversity.Streak);
+    }
     [Fact] public void ActualFailuresAndBlocksWinOverDiversity()
     {
         var ep = Single(); var c = Coverage(ep); ImportDiversityPolicy.Reconcile(c, ep, "p", Now);

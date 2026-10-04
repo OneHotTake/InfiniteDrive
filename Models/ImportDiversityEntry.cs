@@ -56,6 +56,11 @@ public static class ImportDiversityPolicy
                     ep.Expected && ep.Eligible && ep.Failure.Length == 0 && ep.State == "awaiting_indexing" &&
                     providers?.Count == 1 && ep.Diversity.Profile == profile &&
                     ep.Diversity.Generation == coverage.Generation;
+                // Resolved/retired entries are entering a new single-source wait. A
+                // resolved entry may have no deadline; do not strand it by preserving null.
+                if (awaitingIndex && (ep.Diversity.Status is "resolved" or "retired" ||
+                    ep.Diversity.NextAttempt == null))
+                    ep.Diversity.NextAttempt = now.AddHours(6);
                 ep.Diversity.Status = awaitingIndex ? "waiting" : providers?.Count > 1 ? "resolved" : "retired";
                 ep.Diversity.Reason = awaitingIndex ? "awaiting_indexing" : providers?.Count > 1 ? "multiple_sources" : "ineligible";
             }
