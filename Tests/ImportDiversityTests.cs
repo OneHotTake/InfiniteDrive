@@ -44,12 +44,34 @@ public sealed class ImportDiversityTests
         var second = ep.Diversity; ImportDiversityPolicy.Reconcile(c, ep, "profile2", Now.AddHours(2));
         Assert.NotSame(second, ep.Diversity); Assert.Equal("profile2", ep.Diversity!.Profile);
     }
-    [Theory] [InlineData("excluded")] [InlineData("index_mismatch")] [InlineData("retrying")] [InlineData("awaiting_indexing")]
+    [Theory] [InlineData("excluded")] [InlineData("index_mismatch")] [InlineData("retrying")]
     public void NonIndexedStatesRetireInsteadOfConsumingDiversityCredits(string state)
     {
         var ep = Single(); var c = Coverage(ep); ImportDiversityPolicy.Reconcile(c, ep, "p", Now);
         ep.State = state; ImportDiversityPolicy.Reconcile(c, ep, "p", Now);
         Assert.Equal("retired", ep.Diversity!.Status);
+    }
+    [Fact] public void TransientRefreshIndexingPreservesPersistedDueTimeAndBackoff()
+    {
+        var ep = Single(); var c = Coverage(ep); ImportDiversityPolicy.Reconcile(c, ep, "p", Now);
+        ImportDiversityPolicy.Defer(ep.Diversity!, "same_source", Now, 0, DateTimeOffset.MinValue);
+        var due = ep.Diversity!.NextAttempt;
+        for (var hour = 1; hour <= 8; hour++)
+        {
+            ep.State = "awaiting_indexing";
+            ImportDiversityPolicy.Reconcile(c, ep, "p", Now.AddHours(hour));
+            Assert.Equal("waiting", ep.Diversity.Status);
+            Assert.Equal("awaiting_indexing", ep.Diversity.Reason);
+            Assert.False(ImportDiversityPolicy.Eligible(c, ep));
+            Assert.Equal(due, ep.Diversity.NextAttempt); Assert.Equal(1, ep.Diversity.Streak);
+            ep.State = "indexed";
+            ImportDiversityPolicy.Reconcile(c, ep, "p", Now.AddHours(hour));
+            Assert.Equal("single_source", ep.Diversity.Reason);
+            Assert.Equal(due, ep.Diversity.NextAttempt); Assert.Equal(1, ep.Diversity.Streak);
+        }
+        ep.State = "awaiting_indexing"; c.Exclusion = "not_authorized";
+        ImportDiversityPolicy.Reconcile(c, ep, "p", Now.AddHours(9));
+        Assert.Equal("retired", ep.Diversity.Status);
     }
     [Fact] public void ActualFailuresAndBlocksWinOverDiversity()
     {

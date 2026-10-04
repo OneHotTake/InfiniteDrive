@@ -49,8 +49,16 @@ public static class ImportDiversityPolicy
         if (!Eligible(coverage, ep))
         {
             if (ep.Diversity != null)
-            { ep.Diversity.Status = providers?.Count > 1 ? "resolved" : "retired";
-              ep.Diversity.Reason = providers?.Count > 1 ? "multiple_sources" : "ineligible"; }
+            {
+                // A successful ordinary refresh waits for Emby indexing. It is not a
+                // new diversity generation and must not keep restarting the six-hour wait.
+                var awaitingIndex = coverage.Exclusion.Length == 0 && coverage.SnapshotStatus == "success" &&
+                    ep.Expected && ep.Eligible && ep.Failure.Length == 0 && ep.State == "awaiting_indexing" &&
+                    providers?.Count == 1 && ep.Diversity.Profile == profile &&
+                    ep.Diversity.Generation == coverage.Generation;
+                ep.Diversity.Status = awaitingIndex ? "waiting" : providers?.Count > 1 ? "resolved" : "retired";
+                ep.Diversity.Reason = awaitingIndex ? "awaiting_indexing" : providers?.Count > 1 ? "multiple_sources" : "ineligible";
+            }
             return;
         }
         if (ep.Diversity == null || ep.Diversity.Profile != profile || ep.Diversity.Generation != coverage.Generation)
@@ -59,6 +67,7 @@ public static class ImportDiversityPolicy
         else if (ep.Diversity.Status is "retired" or "resolved")
         { ep.Diversity.Status = "waiting"; ep.Diversity.Reason = "single_source";
           ep.Diversity.NextAttempt = now.AddHours(6); }
+        else if (ep.Diversity.Reason == "awaiting_indexing") ep.Diversity.Reason = "single_source";
         if (ep.Diversity.Status == "in_flight" && (ep.LeaseUntil == null || ep.LeaseUntil <= now))
         { ep.Diversity.Status = "waiting"; ep.Diversity.Reason = "interrupted";
           ep.Diversity.NextAttempt = now.AddMinutes(5); }

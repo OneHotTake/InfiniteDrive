@@ -28,4 +28,4 @@
 old test plans and dated reports. These are not current configuration instructions.
 The implementation and current guides take precedence over historical claims.
 
-Updated October 3, 2026 for the 0.42.14 source tree.
+Updated October 4, 2026 for the 0.42.15 source tree.
