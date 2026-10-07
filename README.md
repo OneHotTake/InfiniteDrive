@@ -2,9 +2,9 @@
 
 > **Succeeded by [Undertow](https://github.com/OneHotTake/undertow).**
 >
-> We now bridge self-hosted AIOMetadata/AIOStreams catalogs into Emby through a Jellyfin-compatible API. Undertow keeps metadata sync separate from on-demand playback and avoids InfiniteDrive's STRM/NFO publication and link-repair machinery. Same goal, fewer gears to feed Marvin.
+> Undertow is a Jellyfin-to-Emby plugin bridge. We run it against the built-in Jellyfin-compatible interface in self-hosted AIOMetadata/AIOStreams. Undertow keeps metadata sync separate from on-demand playback and avoids InfiniteDrive's STRM/NFO publication and link-repair machinery. Same goal, fewer gears to feed Marvin.
 >
-> Undertow has been tested with AIOStreams/AIOMetadata and Remux. It should work with other Jellyfin-compatible servers implementing the required API subset; those integrations remain untested. See its [compatibility report](https://github.com/OneHotTake/undertow/blob/main/docs/compatibility.md).
+> Undertow V0.42.3 has been tested with stock Jellyfin 12.2.0, AIOStreams/AIOMetadata and Remux. Other Jellyfin-compatible servers need their own checks against the required API subset. See its [compatibility report](https://github.com/OneHotTake/undertow/blob/main/docs/compatibility.md).
 >
 > InfiniteDrive's code, releases and history remain here. Undertow is a successor, not an automatic database or watch-history migration. Read the [migration guide](https://github.com/OneHotTake/undertow/blob/main/docs/migration.md) before retiring a library. The README below describes InfiniteDrive's last release and is retained for existing users.
 
